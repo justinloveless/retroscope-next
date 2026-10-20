@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Retroscope.Importer</RootNamespace>
+    <AssemblyName>retroscope-import</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Retroscope.Core/Retroscope.Core.csproj" />
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="AngleSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Retroscope.Importer.Tests" />
+  </ItemGroup>
+</Project>
