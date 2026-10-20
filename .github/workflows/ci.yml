@@ -24,6 +24,9 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Native AOT toolchain
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang zlib1g-dev
+
       - name: Test
         run: ./build.sh test
 
