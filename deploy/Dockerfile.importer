@@ -1,0 +1,15 @@
+# syntax=docker/dockerfile:1
+# JIT console image for retroscope-import (DESIGN §h.1). Built in CI only. Build context: repository root.
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:0d99ebf1ccad15037b5c98c9fe8979d6b8dbac23812feae2277a0b277b5c5ffa AS build
+WORKDIR /src
+COPY global.json Directory.Build.props Directory.Packages.props .editorconfig ./
+COPY src/Retroscope.Core/ src/Retroscope.Core/
+COPY src/Retroscope.Importer/ src/Retroscope.Importer/
+RUN dotnet publish src/Retroscope.Importer -c Release -o /out
+
+FROM mcr.microsoft.com/dotnet/runtime:10.0@sha256:939555726cae4c916d212323ac3c0792996dcac2614f00e82cc40fcf059e1af3
+WORKDIR /app
+COPY --from=build /out/ /app/
+USER 1654
+ENTRYPOINT ["dotnet", "/app/retroscope-import.dll"]
