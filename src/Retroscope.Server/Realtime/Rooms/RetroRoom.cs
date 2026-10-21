@@ -87,6 +87,8 @@ public sealed class RetroBinding(IAnonTagger tagger) : IRoomBinding<RetroState, 
 
     public RetroInput? FromClient(Command command) => command is RetroCommand retro ? new RetroInput.Client(retro) : null;
 
+    public bool IsCreate(Command command) => command is RetroCardAdd or RetroCommentAdd or RetroColumnAdd or RetroEndorseGive;
+
     /// <summary>
     /// Team membership and settings are written by the team actor, and visibility and password by their HTTP route
     /// before it asks the board, so the board only sequences those changes.

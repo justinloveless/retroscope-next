@@ -45,6 +45,10 @@ public sealed class PokerBinding(IRoomDomain<PokerState, PokerInput, PokerEvent>
 
     public PokerInput? FromClient(Command command) => command is PokerCommand poker ? (PokerInput)poker : null;
 
+    public bool IsCreate(Command command) {
+        return command is PokerRoundCreate or PokerRoundCreateMany or PokerRoundNext or PokerRoundsClearAll;
+    }
+
     public EventDurability DurabilityOf(PokerEvent evt) => evt.Durability;
 
     public bool CanSubscribe(PokerState state, Viewer viewer, IAccessView access) {

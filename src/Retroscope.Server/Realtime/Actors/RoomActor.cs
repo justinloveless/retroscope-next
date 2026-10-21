@@ -428,7 +428,7 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
                 peer.Send(FrameBytes.Frame(new NackFrame(Key, frame.Q, reject.Code, reject.Detail, reject.Data)));
                 break;
             case Decision<TEvent>.NoOp:
-                peer.Send(Ack(frame.Q));
+                peer.Send(Ack(frame.Q, dup: _binding.IsCreate(frame.D)));
                 break;
             case Decision<TEvent>.Accept accept:
                 var advance = new CursorAdvance(viewer.Client, viewer.Who.Id, frame.Q);
