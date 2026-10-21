@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Microsoft.Extensions.Logging.Console;
 
 namespace Retroscope.Server.Hosting;
 
@@ -7,14 +8,25 @@ namespace Retroscope.Server.Hosting;
 /// The legacy invite link carries its token in the path, so that path is logged as <c>/invite/[redacted]</c> (S23).
 /// ASP.NET Core's own per-request lines (hosting, routing, results) print raw URLs and redirect targets, so the whole
 /// <c>Microsoft.AspNetCore</c> category is held at Warning; this line replaces them.
+/// Outside Development the console writes JSON with UTC ISO timestamps unless
+/// <c>Logging__Console__FormatterName</c> names another formatter. The slim builder registers the simple formatter
+/// in code, after configuration is bound, so the default has to be applied as a post-configuration.
 /// </summary>
 public static partial class RequestLog {
     public const string Category = "Retroscope.Requests";
     public const string FrameworkCategory = "Microsoft.AspNetCore";
     public const string RedactedInvitePath = "/invite/[redacted]";
 
-    public static void AddServices(IServiceCollection services) =>
+    public static void AddServices(IServiceCollection services, IConfiguration configuration) {
         services.AddLogging(logging => logging.AddFilter(FrameworkCategory, LogLevel.Warning));
+        var formatter = configuration["Logging:Console:FormatterName"];
+        services.AddOptions<ConsoleLoggerOptions>().PostConfigure<IHostEnvironment>((options, environment) =>
+            options.FormatterName = formatter ?? (environment.IsDevelopment() ? ConsoleFormatterNames.Simple : ConsoleFormatterNames.Json));
+        services.AddOptions<JsonConsoleFormatterOptions>().PostConfigure(options => {
+            options.TimestampFormat ??= "yyyy-MM-ddTHH:mm:ss.fffZ";
+            options.UseUtcTimestamp = true;
+        });
+    }
 
     public static void Use(WebApplication app) {
         var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger(Category);

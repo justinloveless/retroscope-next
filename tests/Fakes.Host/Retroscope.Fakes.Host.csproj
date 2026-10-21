@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Retroscope.Fakes.Host</RootNamespace>
+    <AssemblyName>retroscope-fakes</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Fakes/Retroscope.Fakes.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,14 @@
+# FakeJira behind TLS for deploy/compose.test.yml only; never part of a release. Build context: repository root.
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:0d99ebf1ccad15037b5c98c9fe8979d6b8dbac23812feae2277a0b277b5c5ffa AS build
+WORKDIR /src
+COPY global.json Directory.Build.props Directory.Packages.props .editorconfig ./
+COPY tests/Fakes/ tests/Fakes/
+COPY tests/Fakes.Host/ tests/Fakes.Host/
+RUN dotnet publish tests/Fakes.Host -c Release -o /out
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:d5633778c754e89a386882eddf8dbee6942447a8a4b8267c19cf1e1158d0b0ac
+WORKDIR /app
+COPY --from=build /out/ /app/
+EXPOSE 443
+ENTRYPOINT ["dotnet", "/app/retroscope-fakes.dll"]
