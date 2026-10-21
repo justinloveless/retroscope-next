@@ -1,14 +1,12 @@
 // Tab-wide state the shell owns: who is signed in, the one WebSocket and in-app navigation. entry.js
 // wires it up; screens (including the room screens of other units) import from here instead of
-// creating their own socket, so a tab never holds two connections.
+// creating their own socket, so a tab never holds two connections. The socket code loads on first use,
+// so pages without a room never download it.
 
 import { createStore } from '../core/store.js';
 import { http } from '../core/http.js';
 import { applyTheme } from '../core/theme.js';
-import { createSocket } from '../net/socket.js';
 import { toast } from '../ui/toast.js';
-
-const OFFLINE_NOTICE_MS = 10_000;
 
 // `me` is the /api/me body ({principal, user?, teams, unreadMentions}) or null when signed out.
 export const session = createStore({ me: null });
@@ -53,12 +51,35 @@ export function navigate(to, options) {
   return navigator(to, options);
 }
 
+let header = null;
+
+export function setHeader(value) {
+  header = value;
+}
+
+/** Fills the app header's centre slot (on a board, its title); the slot clears on the next route. */
+export function setHeaderCenter(...nodes) {
+  header?.setCenter(...nodes);
+}
+
 // `?return=` values: same-origin paths only (no scheme, no //host, no /\host, no control characters).
 export function safeReturn(value, fallback = '/dashboard') {
   if (typeof value !== 'string' || !value.startsWith('/') || /^\/[/\\]/.test(value) || /[\u0000-\u001f\u007f\\]/.test(value)) {
     return fallback;
   }
   return value;
+}
+
+/** Applies a theme preference now and, when signed in, saves it to the account. */
+export async function setThemePreference(pref) {
+  applyTheme(pref);
+  if (currentUser()) {
+    try {
+      setMe(await http.patch('/api/me', { theme: pref }));
+    } catch {
+      toast('Your theme could not be saved to your account.', { variant: 'error', duration: 5000 });
+    }
+  }
 }
 
 export const avatarUrl = (principal) => (principal?.avatar ? `/blob/${principal.avatar}` : null);
@@ -79,50 +100,41 @@ export function nackMessage(nack) {
 }
 
 let socket = null;
-let banner = null;
+let signedOutNotice = null;
 
-function showStatus({ state, offlineSince, code }) {
-  let text = null;
-  if (state === 'closed' && (code === 4401 || code === 4403)) {
-    text = 'You were signed out. Reload the page to continue.';
-  } else if (state !== 'open' && state !== 'closed' && offlineSince !== null && Date.now() - offlineSince > OFFLINE_NOTICE_MS) {
-    text = 'Reconnecting… your changes are saved and will sync.';
-  }
-  if (text === null) {
-    banner?.dismiss();
-    banner = null;
-  } else if (banner?.text !== text) {
-    banner?.dismiss();
-    banner = { text, dismiss: toast(text, { variant: state === 'closed' ? 'error' : 'default', duration: 0 }) };
+// Room screens draw their own "Reconnecting…" banner; only the terminal close is shown here, because
+// the screen that held the socket has nothing left to draw it with.
+function showStatus({ state, code }) {
+  const terminal = state === 'closed' && (code === 4401 || code === 4403);
+  if (terminal && signedOutNotice === null) {
+    signedOutNotice = toast('You were signed out. Reload the page to continue.', { variant: 'error', duration: 0 });
+  } else if (!terminal && signedOutNotice !== null) {
+    signedOutNotice();
+    signedOutNotice = null;
   }
 }
 
-/** The tab's socket, created on first use; start() is idempotent, so callers simply call it. */
+/**
+ * Resolves to the tab's socket, created on first use with the signed-in principal; start() is
+ * idempotent, so callers simply call it.
+ */
 export function getSocket() {
-  if (socket === null) {
+  socket ??= import('../net/socket.js').then(({ createSocket }) => {
     const created = createSocket({
       pid: currentMe()?.principal?.id ?? null,
       onNack: (nack) => toast(nackMessage(nack), { variant: 'error', duration: 6000 }),
     });
-    let timer = 0;
-    // The status store only changes on transitions, so a second look after the notice delay is
-    // what turns a lingering reconnect into the "Reconnecting…" notice.
-    created.status.select((s) => s, Object.is, (status) => {
-      clearTimeout(timer);
-      showStatus(status);
-      if (status.state !== 'open' && status.state !== 'closed') {
-        timer = setTimeout(() => showStatus(created.status.get()), OFFLINE_NOTICE_MS + 100);
-      }
-    });
-    socket = created;
-  }
+    created.status.select((s) => s, Object.is, showStatus);
+    return created;
+  });
   return socket;
 }
 
 export async function signOut({ everywhere = false } = {}) {
   await http.post(everywhere ? '/api/auth/logout-all' : '/api/auth/logout');
-  socket?.stop();
+  const stopping = socket;
   socket = null;
+  (await stopping)?.stop();
   setMe(null);
   await navigate('/login');
 }

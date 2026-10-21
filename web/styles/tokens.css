@@ -116,6 +116,8 @@
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.08);
   --shadow-lg: 0 10px 30px rgb(0 0 0 / 0.18);
   --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --z-header: 900;
+  --header-height: 3.5rem;
   --z-popover: 1000;
   --z-toast: 1100;
   --z-tooltip: 1200;
