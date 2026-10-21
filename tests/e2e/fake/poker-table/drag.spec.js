@@ -51,7 +51,8 @@ test('releasing away from the table plays nothing', async ({ page, fake }) => {
   const from = await centre(handCard(page, 3));
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
-  await page.mouse.move(from.x, from.y + 60, { steps: 4 });
+  // Firefox drops a release outside the viewport, and the strip and docked header push the hand near its edge.
+  await page.mouse.move(from.x, Math.min(from.y + 60, page.viewportSize().height - 2), { steps: 4 });
   await page.mouse.up();
   await expect(page.locator('.nt-float')).toHaveCount(0);
   expect(fake.received.filter(({ frame }) => frame.t === 'cmd')).toEqual([]);
