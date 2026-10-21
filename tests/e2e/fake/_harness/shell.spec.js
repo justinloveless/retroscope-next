@@ -25,7 +25,7 @@ test('serves the built shell: boot JSON, theme before paint, stylesheets and the
     hostile: '</script><script>alert(1)</script>',
   });
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await expect(page.locator('#app')).toHaveText('poker');
+  await expect(page.locator('#app .neotro, #app .nt-join').first()).toBeVisible();
   const manifest = fake.dist.manifest;
   for (const file of [manifest.entry[0], ...manifest.css, ...manifest.routeCss['/poker/:code']]) {
     expect(assets).toContainEqual({ path: file, status: 200 });
