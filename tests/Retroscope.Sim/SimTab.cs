@@ -298,9 +298,15 @@ internal sealed class SimTab {
     }
 
     /// <summary>A duplicated tab takes over this tab's storage; when it is not a twin this tab closes for good.</summary>
-    public SimTab Duplicate(string name) {
+    public SimTab Duplicate(string name, bool twin) {
         var copy = new SimTab(_world, name, Who, Cid, _rooms.Keys) { _cseq = _cseq, _restoredCid = true };
         copy._entries.AddRange(_entries.Select(x => x.Copy()));
+        if (twin) {
+            _world.Oracle.Twinned(Cid);
+            foreach (var entry in _entries) {
+                entry.Intent.Shared = true;
+            }
+        }
         return copy;
     }
 
@@ -422,7 +428,7 @@ internal sealed class SimTab {
         foreach (var (q, dup) in room.DeferredAcks) {
             if (Find(room.Key, q) is { } entry) {
                 _entries.Remove(entry);
-                _world.Oracle.Acked(entry.Intent, dup);
+                _world.Oracle.Acked(entry.Intent, dup, Cid, q);
             }
         }
         room.DeferredAcks.Clear();
@@ -449,7 +455,7 @@ internal sealed class SimTab {
         }
         _entries.Remove(entry);
         _world.Trace($"{Name}: ack q={q}{(dup ? " dup" : "")} {entry.Intent}");
-        _world.Oracle.Acked(entry.Intent, dup);
+        _world.Oracle.Acked(entry.Intent, dup, Cid, q);
         room.RetryAttempt = 0;
     }
 

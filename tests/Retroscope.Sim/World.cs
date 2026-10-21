@@ -139,6 +139,7 @@ internal sealed class World {
         _stats.Commits = Oracle.Commits;
         _stats.AutoReveals = Oracle.AutoReveals;
         _stats.TimerExpiries = Oracle.TimerExpiries;
+        _stats.TwinResiduals = Oracle.TwinResiduals;
         return new WorldResult(_seed, Digest(), Oracle.Violations, Oracle.Known, _trace, _stats);
     }
 
@@ -591,6 +592,7 @@ internal sealed class World {
         }
         _serverLive.RemoveWhere(x => x.Process == old);
         _held.Clear();
+        Oracle.Restarted();
         lock (_lock) {
             _restarts.Clear();
             _posts.Clear();
@@ -603,7 +605,7 @@ internal sealed class World {
         var roll = Rng.Next(100);
         if (roll < 20) {
             var twin = Has(Faults.Twins) && Rng.Next(2) == 0;
-            var copy = tab.Duplicate($"{tab.Name}-copy{++_tabNames}");
+            var copy = tab.Duplicate($"{tab.Name}-copy{++_tabNames}", twin);
             Trace($"{tab}: duplicated into {copy}{(twin ? " (twin, original stays)" : ", original closed")}");
             if (!twin) {
                 await tab.CloseForeverAsync();
