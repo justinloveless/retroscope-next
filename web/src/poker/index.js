@@ -26,13 +26,14 @@ import {
   uuidv7,
   voteIntent,
 } from './model.js';
+import { jiraFeature } from './submit.js';
 import { askNewRound, createTable } from './table.js';
 
 const OFFLINE_BANNER_MS = 10_000;
 
 // Optional parts of the screen (strip, spotlight, history, Jira) mount here. Each entry is
 // `(ctx) → {update(view, roundId), destroy()}`; see docs/decisions/U31.md.
-const FEATURES = [];
+const FEATURES = [jiraFeature];
 
 const NACK_TEXT = {
   observer: 'Observers cannot vote.',
