@@ -7,3 +7,5 @@ web/dist/
 .vs/
 TestResults/
 artifacts/
+test-results/
+playwright-report/
