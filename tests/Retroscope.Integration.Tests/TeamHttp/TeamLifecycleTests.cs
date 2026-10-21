@@ -3,6 +3,7 @@ using System.Text.Json;
 using Retroscope.Core.Ids;
 using Retroscope.Core.Protocol;
 using Retroscope.Integration.Tests.Schema;
+using Retroscope.Server.Data.Repos;
 
 namespace Retroscope.Integration.Tests.TeamHttp;
 
@@ -119,6 +120,27 @@ public sealed class TeamLifecycleTests(PostgresFixture postgres) {
         using var list = await host.GetAsync(member, "/api/teams");
         Assert.Empty((await TeamHttpHost.JsonAsync(list)).EnumerateArray());
         Assert.Equal(1L, await host.ScalarAsync<long>("select count(*) from audit_log where action = 'team.delete' and team_id = $1", team));
+    }
+
+    [Fact]
+    public async Task A_deleted_team_grants_its_old_members_nothing_after_a_restart() {
+        var host = await TeamHttpHost.StartAsync(postgres);
+        var owner = await host.UserAsync("Olive");
+        var member = await host.UserAsync("Mia");
+        var team = new TeamId(await host.TeamAsync(owner, "Platform", (member, "member")));
+        using (var deleted = await host.SendAsync(owner, HttpMethod.Delete, $"/api/teams/{team.Value}", new { confirmName = "Platform" })) {
+            Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);
+        }
+        await host.DisposeAsync();
+
+        await using var restarted = TeamHttpHost.Start(host.Database);
+        var cache = restarted.Service<MembershipCache>();
+
+        Assert.Null(cache.RoleIn(team, member.Id));
+        Assert.Null(cache.RoleIn(team, owner.Id));
+        cache.Forget(team);
+        Assert.Empty((await cache.LoadAsync(team, TeamHttpHost.Token)).Roles);
+        Assert.Equal(2L, await restarted.ScalarAsync<long>("select count(*) from team_members where team_id = $1", team.Value));
     }
 
     [Fact]
