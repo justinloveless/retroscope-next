@@ -83,6 +83,21 @@ public sealed class RoundCommandTests {
     }
 
     [Fact]
+    public void A_pending_create_never_fills_the_placeholder() {
+        var room = PokerHarness.Team();
+        room.Join(Bob);
+        room.Accepted(Bob, new PokerSpotlightTake(R(1), false));
+
+        var events = room.Accepted(Bob, new PokerRoundCreate(R(2), "ABC-2", Pending: true));
+
+        Assert.Equal(["RoundCreated", "PointerMoved", "SpotlightChanged"], Kinds(events));
+        Assert.Null(room.Round(1).TicketKey);
+        Assert.Equal(1, room.Round(1).Version);
+        Assert.True(room.Round(2).Pending);
+        Assert.Equal("ABC-2", room.Round(2).TicketKey);
+    }
+
+    [Fact]
     public void Commit_and_discard_pending_belong_to_the_previewer() {
         var room = PokerHarness.Team();
         room.Join(Bob);
