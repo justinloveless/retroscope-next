@@ -128,7 +128,11 @@ public sealed partial class PokerMap : IImportStage {
         var createdAt = row.Timestamp("created_at")!.Value;
         var completedAt = row.Timestamp("completed_at") ?? createdAt;
         var isActive = row.Bool("is_active") ?? true;
-        var average = row.Get<decimal>("average_points");
+        var average = row.Get<decimal?>("average_points");
+        if (average is null) {
+            report.Count("poker.nullAveragePoints");
+            report.Note("pokerNullAveragePoints", id.ToString());
+        }
         var selections = Selection.Parse(row.Text("selections"), report);
         var revealed = IsRevealed(row.Text("game_state"), isActive, average, selections);
 
@@ -165,7 +169,7 @@ public sealed partial class PokerMap : IImportStage {
             winnerPoints = (short)Scoring.Winner(imported
                 .Where(x => !x.Vote.Abstained)
                 .Select(x => ((int)x.Vote.Points!.Value, (int?)x.Vote.High)));
-            if (average != winnerPoints) {
+            if (average is not null && average != winnerPoints) {
                 report.Count("poker.winnerMismatches");
                 report.Note("pokerWinnerMismatches", new JsonObject {
                     ["round"] = id.ToString(),
@@ -195,7 +199,7 @@ public sealed partial class PokerMap : IImportStage {
     /// <c>Playing</c> is revealed. A <c>Selection</c> round that is no longer active was shown as revealed by the old
     /// app when it had a winner or everyone abstained (legacy rows), so it imports as revealed too.
     /// </summary>
-    internal static bool IsRevealed(string? gameState, bool isActive, decimal averagePoints, IReadOnlyList<Selection> selections) =>
+    internal static bool IsRevealed(string? gameState, bool isActive, decimal? averagePoints, IReadOnlyList<Selection> selections) =>
         gameState == "Playing" || (!isActive && (averagePoints > 0 || (selections.Count > 0 && selections.All(x => x.Points == -1m))));
 
     /// <summary>
@@ -263,8 +267,8 @@ public sealed partial class PokerMap : IImportStage {
         /// with no lock flag. Entries that are not objects are counted and dropped.
         /// </summary>
         public static IReadOnlyList<Selection> Parse(string? json, ImportReport report) {
-            using var document = JsonDocument.Parse(string.IsNullOrEmpty(json) ? "{}" : json);
-            if (document.RootElement.ValueKind != JsonValueKind.Object) {
+            using var document = TryParse(string.IsNullOrEmpty(json) ? "{}" : json);
+            if (document?.RootElement.ValueKind != JsonValueKind.Object) {
                 report.Count("poker.droppedSelections.malformed");
                 return [];
             }
@@ -286,6 +290,15 @@ public sealed partial class PokerMap : IImportStage {
                     Text(value, "name") ?? Text(value, "display_name")));
             }
             return selections;
+        }
+
+        // jsonb nests deeper than the parser's limit allows; such a value is dropped like any other malformed one.
+        private static JsonDocument? TryParse(string json) {
+            try {
+                return JsonDocument.Parse(json);
+            } catch (JsonException) {
+                return null;
+            }
         }
 
         private static decimal? Number(JsonElement value, string name) =>
@@ -339,8 +352,9 @@ public sealed partial class PokerMap : IImportStage {
 
     /// <summary>
     /// <c>code = coalesce(room_id, id::text)</c>. A room id that is not a valid code, or that an earlier session already
-    /// took exactly, falls back to the session id (reported). Case-insensitive collisions are kept, since an exact
-    /// lookup wins, and reported.
+    /// took exactly, falls back to the session id (reported). When an earlier session's room id is this session's id
+    /// text, the fallback is the id without hyphens, then that with a counter. Case-insensitive collisions are kept,
+    /// since an exact lookup wins, and reported.
     /// </summary>
     private sealed partial class SessionCodes {
         private readonly Dictionary<string, Guid> _codes = new(StringComparer.Ordinal);
@@ -353,10 +367,17 @@ public sealed partial class PokerMap : IImportStage {
                     ["roomId"] = roomId,
                     ["reason"] = Pattern().IsMatch(code) ? "duplicate" : "invalid",
                 });
-                code = session.ToString();
-                _codes.Add(code, session);
+                code = Fallbacks(session).First(x => _codes.TryAdd(x, session));
             }
             return code;
+        }
+
+        private static IEnumerable<string> Fallbacks(Guid session) {
+            yield return session.ToString("D");
+            yield return session.ToString("N");
+            for (var i = 1; ; i++) {
+                yield return $"{session:N}-{i}";
+            }
         }
 
         public void ReportCollisions(ImportReport report) {
