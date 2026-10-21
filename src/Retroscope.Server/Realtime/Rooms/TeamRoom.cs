@@ -105,8 +105,16 @@ public sealed partial class TeamFanOut(
     MembershipCache memberships,
     Func<ActorRegistry> registry,
     ILogger<TeamFanOut> logger) : IRoomStore<TeamState, TeamEvent> {
-    public Task<TeamState?> LoadAsync(RoomKey room, DateTimeOffset now, CancellationToken cancellationToken) {
-        return store.LoadAsync(room, now, cancellationToken);
+    /// <summary>
+    /// The load publishes the roster it read (<see cref="TeamStore"/>), and the team's live rooms get it too: a member
+    /// change whose commit outcome was unknown may have landed without its fan-out, and its retry is a no-op.
+    /// </summary>
+    public async Task<TeamState?> LoadAsync(RoomKey room, DateTimeOffset now, CancellationToken cancellationToken) {
+        var state = await store.LoadAsync(room, now, cancellationToken);
+        if (state is not null) {
+            await TryFanOutAsync(room, TeamProjection.Roster(state.Members.Values), null, deleted: false, cancellationToken);
+        }
+        return state;
     }
 
     public Task<ClientCursor> LoadCursorAsync(RoomKey room, ClientId client, PrincipalId principal, CancellationToken cancellationToken) {
@@ -130,17 +138,30 @@ public sealed partial class TeamFanOut(
             memberships.Forget(team);
             throw;
         }
+        var deleted = events.Any(x => x is TeamEvent.TeamDeleted);
+        if (deleted) {
+            // Everything the team owns becomes inaccessible at once: nobody holds a role in a deleted team.
+            roster = [];
+        }
         if (roster is not null) {
             memberships.Publish(team, TeamStore.Roles(roster));
         }
         var settings = events.OfType<TeamEvent.SettingsChanged>().LastOrDefault();
-        if (roster is null && settings is null) {
-            return;
+        if (roster is not null || settings is not null) {
+            await TryFanOutAsync(room, roster, settings, deleted, cancellationToken);
         }
+    }
+
+    // The change committed (or was read at load); rooms that missed it read it from the database when they next load.
+    private async Task TryFanOutAsync(
+        RoomKey room,
+        IReadOnlyList<MemberInfo>? roster,
+        TeamEvent.SettingsChanged? settings,
+        bool deleted,
+        CancellationToken cancellationToken) {
         try {
-            await FanOutAsync(team, roster, settings, cancellationToken);
+            await FanOutAsync(new TeamId(room.Id), roster, settings, deleted, cancellationToken);
         } catch (Exception e) {
-            // The change committed; rooms that missed it read it from the database when they next load.
             FanOutFailed(logger, e, room);
         }
     }
@@ -149,10 +170,18 @@ public sealed partial class TeamFanOut(
         TeamId team,
         IReadOnlyList<MemberInfo>? roster,
         TeamEvent.SettingsChanged? settings,
+        bool deleted,
         CancellationToken cancellationToken) {
         var actors = registry();
         var rooms = await store.RoomsAsync(team, cancellationToken);
-        if (roster is not null) {
+        if (deleted) {
+            foreach (var session in rooms.Sessions) {
+                actors.AccessChanged(RoomKey.Poker(session));
+            }
+            foreach (var board in rooms.Boards) {
+                actors.AccessChanged(RoomKey.Board(board));
+            }
+        } else if (roster is not null) {
             actors.AccessChanged(RoomKey.Team(team));
             var seats = roster.Select(x => new PrincipalInfo(x.Pid, PrincipalKind.User, x.Name, x.Avatar)).ToList();
             foreach (var session in rooms.Sessions) {
