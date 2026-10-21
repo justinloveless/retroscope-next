@@ -501,7 +501,7 @@ public enum OidcLinkOutcome {
 /// links to a verified account, claims an unverified one, or creates a verified account; an untrusted email never
 /// links by email.
 /// </summary>
-public sealed class OidcAccounts(NpgsqlDataSource dataSource, AccountClaims claims, BlobsRepo blobs, TimeProvider time) {
+public sealed class OidcAccounts(NpgsqlDataSource dataSource, AccountClaims claims, UsersRepo users, TimeProvider time) {
     private const int Attempts = 3;
 
     public async Task<OidcResolution> ResolveAsync(OidcIdentity identity, CancellationToken cancellationToken) {
@@ -552,20 +552,8 @@ public sealed class OidcAccounts(NpgsqlDataSource dataSource, AccountClaims clai
 
     /// <summary>Stores the picture as the user's avatar unless they already have one.</summary>
     /// <returns>True when the avatar changed.</returns>
-    public async Task<bool> SetAvatarIfNoneAsync(PrincipalId user, SniffedImage image, CancellationToken cancellationToken) {
-        var blob = new BlobId(Guid.NewGuid());
-        await blobs.InsertAvatarAsync(blob, user, image, cancellationToken);
-        await using var command = dataSource.CreateCommand("""
-            with updated as (
-              update users set avatar_blob_id = $2, updated_at = $3 where id = $1 and avatar_blob_id is null returning id
-            )
-            delete from blobs where id = $2 and not exists (select 1 from updated)
-            """);
-        command.Parameters.Add(new() { Value = user.Value });
-        command.Parameters.Add(new() { Value = blob.Value });
-        command.Parameters.Add(new() { Value = time.GetUtcNow() });
-        // The statement's row count is the delete's: zero means the update took the blob.
-        return await command.ExecuteNonQueryAsync(cancellationToken) == 0;
+    public Task<bool> SetAvatarIfNoneAsync(PrincipalId user, SniffedImage image, CancellationToken cancellationToken) {
+        return users.SetAvatarAsync(user, image, onlyIfNone: true, time.GetUtcNow(), cancellationToken);
     }
 
     public async Task<bool> HasAvatarAsync(PrincipalId user, CancellationToken cancellationToken) {
