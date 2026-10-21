@@ -1,0 +1,82 @@
+{
+"cases": [
+  {
+    "name": "basic marks",
+    "mode": "description",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"bold","marks":[{"type":"strong"}]},{"type":"text","text":" "},{"type":"text","text":"italic","marks":[{"type":"em"}]},{"type":"text","text":" "},{"type":"text","text":"gone","marks":[{"type":"strike"}]},{"type":"text","text":" "},{"type":"text","text":"x()","marks":[{"type":"code"}]},{"type":"text","text":" "},{"type":"text","text":"site","marks":[{"type":"link","attrs":{"href":"https://example.com/a"}}]}]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"b","c":[{"t":"text","v":"bold"}]},{"t":"text","v":" "},{"t":"i","c":[{"t":"text","v":"italic"}]},{"t":"text","v":" "},{"t":"s","c":[{"t":"text","v":"gone"}]},{"t":"text","v":" "},{"t":"code","v":"x()"},{"t":"text","v":" "},{"t":"a","href":"https://example.com/a","c":[{"t":"text","v":"site"}]}]}]},
+    "markup": "**bold** _italic_ ~~gone~~ `x()` [site](https://example.com/a)"
+  },
+  {
+    "name": "the longest mark run is the outer node",
+    "mode": "description",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"a","marks":[{"type":"strong"},{"type":"em"}]},{"type":"text","text":" b","marks":[{"type":"em"}]}]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"i","c":[{"t":"b","c":[{"t":"text","v":"a"}]},{"t":"text","v":" b"}]}]}]},
+    "markup": "_**a** b_"
+  },
+  {
+    "name": "a link wins a tie with emphasis",
+    "mode": "description",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"docs","marks":[{"type":"strong"},{"type":"link","attrs":{"href":"https://example.com"}}]}]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"a","href":"https://example.com","c":[{"t":"b","c":[{"t":"text","v":"docs"}]}]}]}]},
+    "markup": "[**docs**](https://example.com)"
+  },
+  {
+    "name": "whitespace moves outside emphasis",
+    "mode": "description",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"Note: ","marks":[{"type":"strong"}]},{"type":"text","text":"read this"}]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"b","c":[{"t":"text","v":"Note:"}]},{"t":"text","v":" read this"}]}]},
+    "markup": "**Note:** read this"
+  },
+  {
+    "name": "a link with parentheses is percent-encoded",
+    "mode": "description",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"wiki","marks":[{"type":"link","attrs":{"href":"https://en.wikipedia.org/wiki/Set_(mathematics)"}}]}]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"a","href":"https://en.wikipedia.org/wiki/Set_%28mathematics%29","c":[{"t":"text","v":"wiki"}]}]}]},
+    "markup": "[wiki](https://en.wikipedia.org/wiki/Set_%28mathematics%29)"
+  },
+  {
+    "name": "code inside a link",
+    "mode": "description",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"run()","marks":[{"type":"code"},{"type":"link","attrs":{"href":"mailto:dev@example.com"}}]}]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"a","href":"mailto:dev@example.com","c":[{"t":"code","v":"run()"}]}]}]},
+    "markup": "[`run()`](mailto:dev@example.com)"
+  },
+  {
+    "name": "underline renders",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"under","marks":[{"type":"underline"}]}]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"u","c":[{"t":"text","v":"under"}]}]}]}
+  },
+  {
+    "name": "mention shows its display text",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"ping "},{"type":"mention","attrs":{"id":"5b10ac8d82e05b22cc7d4ef5","text":"@Ann Lee","accessLevel":""}},{"type":"text","text":" and "},{"type":"mention","attrs":{"id":"abc","text":"Bo"}}]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"ping @Ann Lee and @Bo"}]}]}
+  },
+  {
+    "name": "emoji, date and status",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"emoji","attrs":{"shortName":":smile:","id":"1f604","text":"😄"}},{"type":"text","text":" "},{"type":"emoji","attrs":{"shortName":":custom:"}},{"type":"text","text":" due "},{"type":"date","attrs":{"timestamp":"1767225600000"}},{"type":"text","text":" "},{"type":"status","attrs":{"text":"IN PROGRESS","color":"blue","localId":"s1"}},{"type":"status","attrs":{"text":"ODD","color":"#ff0000"}}]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"😄 :custom: due 2026-01-01 "},{"t":"status","v":"IN PROGRESS","color":"blue"},{"t":"status","v":"ODD","color":"neutral"}]}]}
+  },
+  {
+    "name": "inline card becomes a link",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"see "},{"type":"inlineCard","attrs":{"url":"https://example.atlassian.net/browse/RS-1"}}]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"see "},{"t":"a","href":"https://example.atlassian.net/browse/RS-1","c":[{"t":"text","v":"https://example.atlassian.net/browse/RS-1"}]}]}]}
+  },
+  {
+    "name": "hard break",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"a"},{"type":"hardBreak"},{"type":"text","text":"b"}]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"a"},{"t":"br"},{"t":"text","v":"b"}]}]}
+  },
+  {
+    "name": "placeholder renders nothing",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"placeholder","attrs":{"text":"Type here"}},{"type":"text","text":"real"}]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"real"}]}]}
+  }
+]
+}

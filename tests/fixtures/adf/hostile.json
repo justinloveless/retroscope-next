@@ -1,0 +1,98 @@
+{
+"cases": [
+  {
+    "name": "links outside http, https and mailto are dropped",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[
+      {"type":"text","text":"a","marks":[{"type":"link","attrs":{"href":"javascript:alert(1)"}}]},
+      {"type":"text","text":"b","marks":[{"type":"link","attrs":{"href":" JavaScript:alert(1)"}}]},
+      {"type":"text","text":"c","marks":[{"type":"link","attrs":{"href":"data:text/html,<script>alert(1)</script>"}}]},
+      {"type":"text","text":"d","marks":[{"type":"link","attrs":{"href":"vbscript:msgbox(1)"}}]},
+      {"type":"text","text":"e","marks":[{"type":"link","attrs":{"href":"//evil.example"}}]},
+      {"type":"text","text":"f","marks":[{"type":"link","attrs":{"href":"https://"}}]},
+      {"type":"text","text":"g","marks":[{"type":"link","attrs":{"href":"https://ok.example/\u0000x"}}]},
+      {"type":"text","text":"h","marks":[{"type":"link","attrs":{"href":42}}]},
+      {"type":"text","text":"i","marks":[{"type":"link"}]},
+      {"type":"text","text":"J","marks":[{"type":"link","attrs":{"href":"HTTPS://OK.EXAMPLE"}}]}
+    ]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"abcdefghi"},{"t":"a","href":"HTTPS://OK.EXAMPLE","c":[{"t":"text","v":"J"}]}]}]}
+  },
+  {
+    "name": "hostile card urls are text",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"inlineCard","attrs":{"url":"javascript:alert(1)"}}]},{"type":"blockCard","attrs":{"data":{"name":"no url"}}}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"javascript:alert(1)"}]}]}
+  },
+  {
+    "name": "markup and html in text stay text",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"<img src=x onerror=alert(1)> [x](javascript:alert(1)) [[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:Ann]]"}]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"<img src=x onerror=alert(1)> [x](javascript:alert(1)) [[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:Ann]]"}]}]}
+  },
+  {
+    "name": "unknown nodes flatten to text",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[
+      {"type":"bodiedExtension","attrs":{"extensionKey":"x"},"content":[{"type":"paragraph","content":[{"type":"text","text":"inside extension"}]}]},
+      {"type":"extension","attrs":{"extensionKey":"y","text":"extension label"}},
+      {"type":"mystery"},
+      {"type":"paragraph","content":[{"type":"inlineExtension","attrs":{"text":"inline label"}},{"type":"sparkle","content":[{"type":"text","text":" wrapped"}]}]}
+    ]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"inside extension"}]},{"t":"p","c":[{"t":"text","v":"extension label"}]},{"t":"p","c":[{"t":"text","v":"inline label wrapped"}]}]}
+  },
+  {
+    "name": "mistyped members are ignored",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[
+      {"type":"paragraph","content":{"type":"text","text":"not an array"}},
+      {"type":"paragraph","content":[{"type":"text","text":7},{"type":"text","text":"ok","marks":{"type":"strong"}},{"type":"text","text":"!","marks":["strong",null,{"type":7}]}]},
+      {"type":"heading","attrs":"level","content":[{"type":"text","text":"level defaults"}]},
+      {"type":"heading","attrs":{"level":99},"content":[{"type":"text","text":"clamped"}]},
+      {"type":"orderedList","attrs":{"order":-5},"content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"from one"}]}]}]},
+      {"type":"panel","attrs":{"panelType":"custom"},"content":[{"type":"paragraph","content":[{"type":"text","text":"custom panel"}]}]},
+      7, "text", null, {"content":[]}, {"type":["paragraph"]}
+    ]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"ok!"}]},{"t":"h","level":1,"c":[{"t":"text","v":"level defaults"}]},{"t":"h","level":6,"c":[{"t":"text","v":"clamped"}]},{"t":"ol","start":1,"c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"from one"}]}]}]},{"t":"panel","kind":"info","c":[{"t":"p","c":[{"t":"text","v":"custom panel"}]}]}]}
+  },
+  {
+    "name": "inline nodes directly in the doc become a paragraph",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[{"type":"text","text":"loose "},{"type":"text","text":"text","marks":[{"type":"strong"}]},{"type":"rule"},{"type":"hardBreak"}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"loose "},{"t":"b","c":[{"t":"text","v":"text"}]}]},{"t":"hr"}]}
+  },
+  {
+    "name": "an escaped lone surrogate reads as a replacement character",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"bad \ud800 text"}]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"�"}]}]}
+  },
+  {
+    "name": "a root that is not a doc is rendered but not editable",
+    "mode": "description",
+    "adf": {"type":"paragraph","content":[{"type":"text","text":"bare paragraph"}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"bare paragraph"}]}]},
+    "editable": false
+  },
+  {
+    "name": "an array root is not editable",
+    "mode": "description",
+    "adf": [{"type":"paragraph"}],
+    "doc": {"t":"doc","c":[]},
+    "editable": false
+  },
+  {
+    "name": "a hostile link makes the paragraph an island that keeps it",
+    "mode": "description",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"click","marks":[{"type":"link","attrs":{"href":"javascript:alert(1)"}}]}]}]},
+    "doc": {"t":"doc","c":[{"t":"island","id":"c2nd_R-9GUnEDnZD","c":[{"t":"p","c":[{"t":"text","v":"click"}]}]}]},
+    "islands": ["c2nd_R-9GUnEDnZD"]
+  },
+  {
+    "name": "control characters make the paragraph an island",
+    "mode": "description",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"bell \u0007 here"}]},{"type":"paragraph","content":[{"type":"text","text":"line\nfeed"}]}]},
+    "doc": {"t":"doc","c":[{"t":"island","id":"kbA8VjIG75o_5RE3","c":[{"t":"p","c":[{"t":"text","v":"bell \u0007 here"}]}]},{"t":"island","id":"eNem9-4b19mUbN02","c":[{"t":"p","c":[{"t":"text","v":"line\nfeed"}]}]}]},
+    "islands": ["kbA8VjIG75o_5RE3","eNem9-4b19mUbN02"]
+  }
+]
+}

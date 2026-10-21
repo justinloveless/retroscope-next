@@ -1,0 +1,915 @@
+{
+  "allowArchiveOnly": [],
+  "tables": {
+    "auth.audit_log_entries": {
+      "disposition": "exclude",
+      "reason": "ephemeral credentials"
+    },
+    "auth.flow_state": {
+      "disposition": "exclude",
+      "reason": "ephemeral credentials"
+    },
+    "auth.identities": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "provider_id": "text",
+        "user_id": "uuid",
+        "identity_data": "jsonb",
+        "provider": "text",
+        "last_sign_in_at": "timestamptz",
+        "created_at": "timestamptz",
+        "updated_at": "timestamptz",
+        "email": "text",
+        "id": "uuid"
+      },
+      "archiveSuffix": "#meta",
+      "archive": [
+        "identity_data"
+      ],
+      "seal": [
+        "identity_data"
+      ],
+      "omit": [
+        "email"
+      ]
+    },
+    "auth.mfa_amr_claims": {
+      "disposition": "exclude",
+      "reason": "ephemeral credentials"
+    },
+    "auth.mfa_challenges": {
+      "disposition": "exclude",
+      "reason": "ephemeral credentials"
+    },
+    "auth.mfa_factors": {
+      "disposition": "exclude",
+      "reason": "ephemeral credentials"
+    },
+    "auth.one_time_tokens": {
+      "disposition": "exclude",
+      "reason": "ephemeral credentials"
+    },
+    "auth.refresh_tokens": {
+      "disposition": "exclude",
+      "reason": "ephemeral credentials"
+    },
+    "auth.sessions": {
+      "disposition": "exclude",
+      "reason": "ephemeral credentials"
+    },
+    "auth.users": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "instance_id": "uuid",
+        "id": "uuid",
+        "aud": "text",
+        "role": "text",
+        "email": "text",
+        "encrypted_password": "text",
+        "email_confirmed_at": "timestamptz",
+        "invited_at": "timestamptz",
+        "confirmation_token": "text",
+        "confirmation_sent_at": "timestamptz",
+        "recovery_token": "text",
+        "recovery_sent_at": "timestamptz",
+        "email_change_token_new": "text",
+        "email_change": "text",
+        "email_change_sent_at": "timestamptz",
+        "last_sign_in_at": "timestamptz",
+        "raw_app_meta_data": "jsonb",
+        "raw_user_meta_data": "jsonb",
+        "is_super_admin": "bool",
+        "created_at": "timestamptz",
+        "updated_at": "timestamptz",
+        "phone": "text",
+        "phone_confirmed_at": "timestamptz",
+        "phone_change": "text",
+        "phone_change_token": "text",
+        "phone_change_sent_at": "timestamptz",
+        "confirmed_at": "timestamptz",
+        "email_change_token_current": "text",
+        "email_change_confirm_status": "int2",
+        "banned_until": "timestamptz",
+        "reauthentication_token": "text",
+        "reauthentication_sent_at": "timestamptz",
+        "is_sso_user": "bool",
+        "deleted_at": "timestamptz",
+        "is_anonymous": "bool"
+      },
+      "archiveSuffix": "#meta",
+      "archive": [
+        "raw_app_meta_data",
+        "raw_user_meta_data",
+        "recovery_token",
+        "confirmation_token",
+        "email_change_token_new",
+        "email_change_token_current",
+        "reauthentication_token",
+        "phone",
+        "phone_change",
+        "phone_change_token"
+      ],
+      "seal": [
+        "encrypted_password",
+        "recovery_token",
+        "confirmation_token",
+        "email_change_token_new",
+        "email_change_token_current",
+        "reauthentication_token",
+        "phone",
+        "phone_change",
+        "phone_change_token"
+      ],
+      "omit": [
+        "instance_id",
+        "aud",
+        "role",
+        "invited_at",
+        "recovery_sent_at",
+        "email_change",
+        "email_change_sent_at",
+        "is_super_admin",
+        "phone_confirmed_at",
+        "phone_change_sent_at",
+        "confirmed_at",
+        "email_change_confirm_status",
+        "reauthentication_sent_at",
+        "is_sso_user"
+      ]
+    },
+    "public.app_config": {
+      "disposition": "archive",
+      "primaryKey": [
+        "key"
+      ],
+      "columns": {
+        "key": "text",
+        "value": "text"
+      },
+      "plain": [
+        "key"
+      ]
+    },
+    "public.board_presence": {
+      "disposition": "archive",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "board_id": "uuid",
+        "user_id": "uuid",
+        "user_name": "text",
+        "last_seen": "timestamptz"
+      }
+    },
+    "public.board_templates": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "team_id": "uuid",
+        "name": "text",
+        "is_default": "bool",
+        "created_at": "timestamptz",
+        "updated_at": "timestamptz",
+        "allow_anonymous": "bool",
+        "voting_enabled": "bool",
+        "max_votes_per_user": "int4",
+        "show_author_names": "bool",
+        "retro_stages_enabled": "bool",
+        "enforce_stage_readiness": "bool",
+        "allow_self_votes": "bool",
+        "vote_emoji": "text",
+        "tenant_id": "uuid"
+      },
+      "archive": [
+        "tenant_id"
+      ]
+    },
+    "public.consultation_requests": {
+      "disposition": "exclude",
+      "reason": "foreign application data"
+    },
+    "public.endorsement_settings": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "team_id": "uuid",
+        "max_endorsements_per_user_per_board": "int4",
+        "created_at": "timestamptz",
+        "updated_at": "timestamptz"
+      }
+    },
+    "public.endorsement_types": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "team_id": "uuid",
+        "name": "text",
+        "description": "text",
+        "icon_url": "text",
+        "position": "int4",
+        "is_default": "bool",
+        "created_at": "timestamptz",
+        "updated_at": "timestamptz"
+      }
+    },
+    "public.endorsements": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "board_id": "uuid",
+        "team_id": "uuid",
+        "endorsement_type_id": "uuid",
+        "from_user_id": "uuid",
+        "to_user_id": "uuid",
+        "created_at": "timestamptz"
+      }
+    },
+    "public.feature_flag_team_overrides": {
+      "disposition": "archive",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "team_id": "uuid",
+        "flag_name": "text",
+        "state": "text",
+        "created_at": "timestamptz",
+        "updated_at": "timestamptz"
+      }
+    },
+    "public.feature_flag_user_overrides": {
+      "disposition": "archive",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "user_id": "uuid",
+        "flag_name": "text",
+        "state": "text",
+        "created_at": "timestamptz",
+        "updated_at": "timestamptz"
+      }
+    },
+    "public.feature_flags": {
+      "disposition": "archive",
+      "primaryKey": [
+        "flag_name"
+      ],
+      "columns": {
+        "flag_name": "text",
+        "description": "text",
+        "is_enabled": "bool"
+      }
+    },
+    "public.feedback_reports": {
+      "disposition": "archive",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "created_at": "timestamptz",
+        "user_id": "uuid",
+        "email": "text",
+        "type": "text",
+        "title": "text",
+        "description": "text",
+        "page_url": "text",
+        "status": "text",
+        "github_issue_url": "text"
+      }
+    },
+    "public.github_installations": {
+      "disposition": "exclude",
+      "reason": "foreign application data"
+    },
+    "public.notifications": {
+      "disposition": "archive",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "user_id": "uuid",
+        "type": "text",
+        "title": "text",
+        "message": "text",
+        "url": "text",
+        "is_read": "bool",
+        "created_at": "timestamptz"
+      }
+    },
+    "public.org_team_invite_codes": {
+      "disposition": "archive",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "organization_id": "uuid",
+        "code": "text",
+        "created_by": "uuid",
+        "is_active": "bool",
+        "created_at": "timestamptz",
+        "expires_at": "timestamptz"
+      },
+      "seal": [
+        "code"
+      ]
+    },
+    "public.organization_invitations": {
+      "disposition": "archive",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "organization_id": "uuid",
+        "email": "text",
+        "invited_by": "uuid",
+        "role": "enum",
+        "token": "text",
+        "status": "text",
+        "is_active": "bool",
+        "created_at": "timestamptz",
+        "expires_at": "timestamptz"
+      },
+      "seal": [
+        "token"
+      ]
+    },
+    "public.organization_members": {
+      "disposition": "archive",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "organization_id": "uuid",
+        "user_id": "uuid",
+        "role": "enum",
+        "joined_at": "timestamptz"
+      }
+    },
+    "public.organizations": {
+      "disposition": "archive",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "name": "text",
+        "slug": "text",
+        "description": "text",
+        "owner_id": "uuid",
+        "created_at": "timestamptz",
+        "updated_at": "timestamptz"
+      }
+    },
+    "public.poker_session_chat": {
+      "disposition": "archive",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "session_id": "uuid",
+        "round_number": "int4",
+        "user_id": "uuid",
+        "user_name": "text",
+        "message": "text",
+        "created_at": "timestamptz",
+        "reply_to_message_id": "uuid"
+      }
+    },
+    "public.poker_session_chat_message_reactions": {
+      "disposition": "archive",
+      "primaryKey": [
+        "message_id",
+        "user_id",
+        "emoji"
+      ],
+      "columns": {
+        "id": "uuid",
+        "message_id": "uuid",
+        "user_id": "uuid",
+        "user_name": "text",
+        "emoji": "text",
+        "created_at": "timestamptz",
+        "session_id": "uuid"
+      }
+    },
+    "public.poker_session_rounds": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "session_id": "uuid",
+        "round_number": "int4",
+        "selections": "jsonb",
+        "average_points": "numeric",
+        "ticket_number": "text",
+        "ticket_title": "text",
+        "completed_at": "timestamptz",
+        "created_at": "timestamptz",
+        "game_state": "text",
+        "slack_message_ts": "text",
+        "slack_channel_id": "text",
+        "is_active": "bool",
+        "ticket_parent_key": "text",
+        "ticket_parent_summary": "text",
+        "auto_reveal_enabled": "bool",
+        "is_pending_round": "bool",
+        "sort_order": "int4"
+      },
+      "archive": [
+        "slack_message_ts",
+        "slack_channel_id"
+      ],
+      "omit": [
+        "ticket_title",
+        "ticket_parent_summary"
+      ]
+    },
+    "public.poker_sessions": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "team_id": "uuid",
+        "created_at": "timestamptz",
+        "updated_at": "timestamptz",
+        "room_id": "text",
+        "last_activity_at": "timestamptz",
+        "current_round_number": "int4",
+        "presence_enabled": "bool",
+        "send_to_slack": "bool",
+        "observer_ids": "_uuid",
+        "spotlight_user_id": "uuid",
+        "spotlight_round_number": "int4",
+        "spotlight_follow_enabled": "bool",
+        "spotlight_client_id": "text"
+      },
+      "archive": [
+        "send_to_slack"
+      ],
+      "omit": [
+        "spotlight_user_id",
+        "spotlight_round_number",
+        "spotlight_follow_enabled",
+        "spotlight_client_id"
+      ]
+    },
+    "public.poker_ticket_queue": {
+      "disposition": "archive",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "team_id": "uuid",
+        "ticket_key": "text",
+        "ticket_summary": "text",
+        "position": "int4",
+        "added_by": "uuid",
+        "created_at": "timestamptz"
+      },
+      "omit": [
+        "ticket_summary"
+      ],
+      "plain": [
+        "ticket_key"
+      ]
+    },
+    "public.profiles": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "full_name": "text",
+        "avatar_url": "text",
+        "created_at": "timestamptz",
+        "updated_at": "timestamptz",
+        "theme_preference": "text",
+        "background_preference": "jsonb",
+        "role": "text",
+        "tenant_id": "uuid",
+        "nickname": "text",
+        "poker_advisor_enabled": "bool",
+        "poker_advisor_base_url": "text",
+        "poker_advisor_cli_preset": "text",
+        "poker_advisor_data_sharing_acknowledged_at": "timestamptz",
+        "poker_advisor_personal_prompt": "text"
+      },
+      "archive": [
+        "background_preference",
+        "tenant_id",
+        "poker_advisor_enabled",
+        "poker_advisor_base_url",
+        "poker_advisor_cli_preset",
+        "poker_advisor_data_sharing_acknowledged_at",
+        "poker_advisor_personal_prompt"
+      ]
+    },
+    "public.realtime_demo": {
+      "disposition": "exclude",
+      "reason": "foreign application data"
+    },
+    "public.retro_board_config": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "board_id": "uuid",
+        "allow_anonymous": "bool",
+        "voting_enabled": "bool",
+        "max_votes_per_user": "int4",
+        "show_author_names": "bool",
+        "created_at": "timestamptz",
+        "updated_at": "timestamptz",
+        "retro_stages_enabled": "bool",
+        "enforce_stage_readiness": "bool",
+        "allow_self_votes": "bool",
+        "vote_emoji": "text",
+        "sort_chronologically": "bool",
+        "timer_started_at": "timestamptz",
+        "timer_duration_seconds": "int4",
+        "timer_time_left_seconds": "int4",
+        "timer_is_running": "bool",
+        "timer_music_enabled": "bool",
+        "timer_music_offset_seconds": "float8",
+        "timer_alarm_enabled": "bool"
+      },
+      "omit": [
+        "timer_started_at",
+        "timer_time_left_seconds",
+        "timer_is_running",
+        "timer_music_offset_seconds"
+      ]
+    },
+    "public.retro_board_sessions": {
+      "disposition": "archive",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "board_id": "uuid",
+        "started_at": "timestamptz",
+        "started_by": "uuid",
+        "team_id": "uuid",
+        "created_at": "timestamptz"
+      }
+    },
+    "public.retro_boards": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "room_id": "text",
+        "title": "text",
+        "is_private": "bool",
+        "password_hash": "text",
+        "creator_id": "uuid",
+        "created_at": "timestamptz",
+        "updated_at": "timestamptz",
+        "team_id": "uuid",
+        "archived": "bool",
+        "archived_at": "timestamptz",
+        "archived_by": "uuid",
+        "deleted": "bool",
+        "retro_stage": "text",
+        "tenant_id": "uuid"
+      },
+      "archive": [
+        "password_hash",
+        "tenant_id"
+      ],
+      "seal": [
+        "password_hash"
+      ]
+    },
+    "public.retro_columns": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "board_id": "uuid",
+        "title": "text",
+        "color": "text",
+        "position": "int4",
+        "created_at": "timestamptz",
+        "sort_order": "int4",
+        "is_action_items": "bool"
+      }
+    },
+    "public.retro_comments": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "item_id": "uuid",
+        "author": "text",
+        "author_id": "uuid",
+        "text": "text",
+        "created_at": "timestamptz",
+        "updated_at": "timestamptz",
+        "session_id": "text"
+      },
+      "html": [
+        "text"
+      ]
+    },
+    "public.retro_items": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "board_id": "uuid",
+        "column_id": "uuid",
+        "text": "text",
+        "author": "text",
+        "author_id": "uuid",
+        "votes": "int4",
+        "created_at": "timestamptz",
+        "updated_at": "timestamptz",
+        "session_id": "text"
+      },
+      "html": [
+        "text"
+      ],
+      "omit": [
+        "votes"
+      ]
+    },
+    "public.retro_user_readiness": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "board_id": "uuid",
+        "user_id": "uuid",
+        "session_id": "text",
+        "current_stage": "text",
+        "is_ready": "bool",
+        "created_at": "timestamptz",
+        "updated_at": "timestamptz"
+      }
+    },
+    "public.retro_votes": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "item_id": "uuid",
+        "user_id": "uuid",
+        "session_id": "text",
+        "created_at": "timestamptz",
+        "board_id": "uuid"
+      }
+    },
+    "public.team_action_item_comments": {
+      "disposition": "archive",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "action_item_id": "uuid",
+        "author": "text",
+        "author_id": "uuid",
+        "text": "text",
+        "created_at": "timestamptz",
+        "session_id": "text"
+      }
+    },
+    "public.team_action_items": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "team_id": "uuid",
+        "text": "text",
+        "source_board_id": "uuid",
+        "source_item_id": "uuid",
+        "created_at": "timestamptz",
+        "created_by": "uuid",
+        "done": "bool",
+        "done_at": "timestamptz",
+        "done_by": "uuid",
+        "assigned_to": "uuid"
+      },
+      "html": [
+        "text"
+      ]
+    },
+    "public.team_default_settings": {
+      "disposition": "archive",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "team_id": "uuid",
+        "allow_anonymous": "bool",
+        "voting_enabled": "bool",
+        "max_votes_per_user": "int4",
+        "show_author_names": "bool",
+        "created_at": "timestamptz",
+        "updated_at": "timestamptz"
+      }
+    },
+    "public.team_invitations": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "team_id": "uuid",
+        "email": "text",
+        "invited_by": "uuid",
+        "token": "text",
+        "status": "text",
+        "expires_at": "timestamptz",
+        "created_at": "timestamptz",
+        "invite_type": "text",
+        "is_active": "bool"
+      },
+      "seal": [
+        "token"
+      ]
+    },
+    "public.team_members": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "team_id": "uuid",
+        "user_id": "uuid",
+        "role": "text",
+        "joined_at": "timestamptz"
+      }
+    },
+    "public.teams": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "name": "text",
+        "description": "text",
+        "creator_id": "uuid",
+        "created_at": "timestamptz",
+        "updated_at": "timestamptz",
+        "slack_webhook_url": "text",
+        "jira_domain": "text",
+        "jira_email": "text",
+        "jira_api_key": "text",
+        "jira_ticket_prefix": "text",
+        "slack_bot_token": "text",
+        "slack_channel_id": "text",
+        "tenant_id": "uuid",
+        "organization_id": "uuid",
+        "jira_board_id": "text",
+        "poker_advisor_team_prompt": "text",
+        "poker_point_value_descriptions": "jsonb"
+      },
+      "archive": [
+        "slack_webhook_url",
+        "slack_bot_token",
+        "slack_channel_id",
+        "jira_api_key",
+        "tenant_id",
+        "organization_id",
+        "poker_advisor_team_prompt"
+      ],
+      "seal": [
+        "jira_api_key",
+        "slack_bot_token",
+        "slack_webhook_url"
+      ]
+    },
+    "public.template_columns": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "template_id": "uuid",
+        "title": "text",
+        "color": "text",
+        "position": "int4",
+        "created_at": "timestamptz",
+        "is_action_items": "bool"
+      }
+    },
+    "public.tenants": {
+      "disposition": "archive",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "name": "text",
+        "subdomain": "text",
+        "database_type": "text",
+        "database_config": "jsonb",
+        "features": "jsonb",
+        "settings": "jsonb",
+        "created_at": "timestamptz",
+        "updated_at": "timestamptz",
+        "created_by": "uuid"
+      },
+      "seal": [
+        "database_config"
+      ]
+    },
+    "public.user_favorite_teams": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "user_id": "uuid",
+        "team_id": "uuid",
+        "created_at": "timestamptz"
+      }
+    },
+    "public.user_recent_activity": {
+      "disposition": "map",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "user_id": "uuid",
+        "entity_type": "text",
+        "entity_id": "uuid",
+        "last_accessed_at": "timestamptz",
+        "created_at": "timestamptz"
+      }
+    },
+    "storage.objects": {
+      "disposition": "manifest",
+      "primaryKey": [
+        "id"
+      ],
+      "columns": {
+        "id": "uuid",
+        "bucket_id": "text",
+        "name": "text",
+        "metadata": "jsonb"
+      }
+    }
+  }
+}

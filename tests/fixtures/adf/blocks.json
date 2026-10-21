@@ -1,0 +1,102 @@
+{
+"cases": [
+  {
+    "name": "null description is an empty editable doc",
+    "mode": "description",
+    "adf": null,
+    "doc": {"t":"doc","c":[]},
+    "markup": ""
+  },
+  {
+    "name": "empty doc",
+    "mode": "description",
+    "adf": {"type":"doc","version":1,"content":[]},
+    "doc": {"t":"doc","c":[]},
+    "markup": ""
+  },
+  {
+    "name": "paragraph",
+    "mode": "description",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"Hello world"}]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"Hello world"}]}]},
+    "markup": "Hello world"
+  },
+  {
+    "name": "local ids do not block editing",
+    "mode": "description",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","attrs":{"localId":"a1b2"},"content":[{"type":"text","text":"Tagged"}]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"Tagged"}]}]},
+    "markup": "Tagged"
+  },
+  {
+    "name": "empty paragraphs are dropped",
+    "mode": "description",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[]},{"type":"paragraph","content":[{"type":"text","text":"Body"}]},{"type":"paragraph"},{"type":"paragraph","content":[{"type":"text","text":"   "}]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"Body"}]}]},
+    "markup": "Body"
+  },
+  {
+    "name": "headings",
+    "mode": "description",
+    "adf": {"type":"doc","version":1,"content":[{"type":"heading","attrs":{"level":1},"content":[{"type":"text","text":"Title"}]},{"type":"heading","attrs":{"level":3},"content":[{"type":"text","text":"Section "},{"type":"text","text":"three","marks":[{"type":"em"}]}]}]},
+    "doc": {"t":"doc","c":[{"t":"h","level":1,"c":[{"t":"text","v":"Title"}]},{"t":"h","level":3,"c":[{"t":"text","v":"Section "},{"t":"i","c":[{"t":"text","v":"three"}]}]}]},
+    "markup": "# Title\n\n### Section _three_"
+  },
+  {
+    "name": "bullet list with a nested ordered list",
+    "mode": "description",
+    "adf": {"type":"doc","version":1,"content":[{"type":"bulletList","content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"one"}]},{"type":"orderedList","attrs":{"order":3},"content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"three"}]}]},{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"four"}]}]}]}]},{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"two"}]}]}]}]},
+    "doc": {"t":"doc","c":[{"t":"ul","c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"one"}]},{"t":"ol","start":3,"c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"three"}]}]},{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"four"}]}]}]}]},{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"two"}]}]}]}]},
+    "markup": "- one\n  3. three\n  4. four\n- two"
+  },
+  {
+    "name": "ordered list without attrs starts at 1",
+    "mode": "description",
+    "adf": {"type":"doc","version":1,"content":[{"type":"orderedList","content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"first"}]}]}]}]},
+    "doc": {"t":"doc","c":[{"t":"ol","start":1,"c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"first"}]}]}]}]},
+    "markup": "1. first"
+  },
+  {
+    "name": "list item that starts with a nested list",
+    "mode": "description",
+    "adf": {"type":"doc","version":1,"content":[{"type":"bulletList","content":[{"type":"listItem","content":[{"type":"paragraph","content":[]},{"type":"bulletList","content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"deep"}]}]}]}]}]}]},
+    "doc": {"t":"doc","c":[{"t":"ul","c":[{"t":"li","c":[{"t":"ul","c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"deep"}]}]}]}]}]}]},
+    "markup": "- - deep"
+  },
+  {
+    "name": "code blocks",
+    "mode": "description",
+    "adf": {"type":"doc","version":1,"content":[{"type":"codeBlock","attrs":{"language":"csharp"},"content":[{"type":"text","text":"var x = 1;\nreturn x;"}]},{"type":"codeBlock","content":[]},{"type":"codeBlock","attrs":{"language":null},"content":[{"type":"text","text":"```inner fence"}]}]},
+    "doc": {"t":"doc","c":[{"t":"pre","lang":"csharp","v":"var x = 1;\nreturn x;"},{"t":"pre","v":""},{"t":"pre","v":"```inner fence"}]},
+    "markup": "```csharp\nvar x = 1;\nreturn x;\n```\n\n```\n```\n\n````\n```inner fence\n````"
+  },
+  {
+    "name": "blockquote",
+    "mode": "description",
+    "adf": {"type":"doc","version":1,"content":[{"type":"blockquote","content":[{"type":"paragraph","content":[{"type":"text","text":"quoted"}]},{"type":"bulletList","content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"point"}]}]}]}]}]},
+    "doc": {"t":"doc","c":[{"t":"quote","c":[{"t":"p","c":[{"t":"text","v":"quoted"}]},{"t":"ul","c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"point"}]}]}]}]}]},
+    "markup": "> quoted\n> - point"
+  },
+  {
+    "name": "rule",
+    "mode": "description",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"above"}]},{"type":"rule"},{"type":"paragraph","content":[{"type":"text","text":"below"}]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"above"}]},{"t":"hr"},{"t":"p","c":[{"t":"text","v":"below"}]}]},
+    "markup": "above\n\n---\n\nbelow"
+  },
+  {
+    "name": "hard breaks, edge whitespace and a trailing break",
+    "mode": "description",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"  first line "},{"type":"hardBreak"},{"type":"text","text":" second"},{"type":"hardBreak","attrs":{"text":"\n"}}]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"first line"},{"t":"br"},{"t":"text","v":"second"}]}]},
+    "markup": "first line\nsecond"
+  },
+  {
+    "name": "markup characters in text are escaped",
+    "mode": "description",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"1. not a list *or* _emphasis_ [[island:abc]]"}]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"1. not a list *or* _emphasis_ [[island:abc]]"}]}]},
+    "markup": "1\\. not a list \\*or\\* \\_emphasis\\_ \\[\\[island:abc\\]\\]"
+  }
+]
+}

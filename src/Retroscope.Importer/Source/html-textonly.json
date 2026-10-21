@@ -1,0 +1,4 @@
+{
+  "comment": "Tags the HTML converter flattens to their text (DESIGN §h.1 phase 3). A tag that is neither converted, dropped nor listed here fails the run; add it here only after checking that its text is all that matters.",
+  "tags": ["span", "u", "mark", "sub", "sup", "small", "font", "del", "ins", "h1", "h2", "h3", "h4", "h5", "h6", "hr"]
+}

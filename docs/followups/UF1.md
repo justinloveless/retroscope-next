@@ -13,3 +13,12 @@ UF1 owns exactly the files named below, and only for these changes. Each item ca
 9. **U47** `tests/golden/make-golden.mjs`: `--orig` without a path fails with a usage error.
 
 **Check:** `./build.sh test` green, with the new tests listed above present and passing.
+
+## Revision 2 (after wave 2)
+
+UF1 resumes on its existing branch `unit/UF1`. Ownership is widened to two more files, because their original owners (U4, U5) are finished:
+
+10. `src/Retroscope.Core/Markup/InlineParser.cs` and `web/src/markup/parse.js`: make link/label scanning linear. Precompute, in one right-to-left pass per paragraph, the next unescaped `]` and `\n` for every index so `ScanLink`/`ScanLabel` are O(1) per `[`. Keep the two parsers' outputs identical over the shared corpus. Remove every `Skip = QuadraticLinkScan` row in `MarkupJiraLengthTimingTests.cs`; all rows must pass under 200 ms.
+11. Add a node test (`tests/web-unit/golden-cli.test.js`) that runs `tests/golden/make-golden.mjs --orig` and `--orig --verify` and asserts exit code 2 plus the usage text.
+
+**Check:** `./build.sh test` green with zero skipped timing rows.

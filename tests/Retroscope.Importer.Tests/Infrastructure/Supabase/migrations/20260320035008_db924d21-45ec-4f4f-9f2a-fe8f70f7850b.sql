@@ -1,0 +1,1 @@
+ALTER TABLE public.poker_sessions DROP CONSTRAINT poker_sessions_team_id_key;
