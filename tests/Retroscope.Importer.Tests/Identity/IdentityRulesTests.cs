@@ -68,6 +68,22 @@ public sealed class IdentityRulesTests(ImporterDatabases databases) {
     }
 
     [Fact]
+    public async Task Identity_data_the_parser_refuses_skips_that_identity_and_is_counted() {
+        var import = await IdentityImport.CreateAsync(databases, "accounts");
+        await import.Harness.SourceSqlAsync($$"""
+            insert into auth.identities (id, provider_id, user_id, identity_data, provider, created_at) values
+              ('00000000-0000-0000-0000-0000000000bf', 'google-bob-deep', '{{Bob}}',
+               ('{"email": "bob@example.com", "deep": ' || repeat('[', 100) || repeat(']', 100) || '}')::jsonb, 'google', '2025-01-03');
+            """);
+
+        var report = await import.RunAsync(Ct);
+
+        Assert.Equal(1, report.Table("auth.identities").Skipped["malformed_identity_data"]);
+        Assert.Equal(0L, await import.Harness.TargetScalarAsync<long>("select count(*) from external_identities where subject = 'google-bob-deep'"));
+        Assert.Null(await import.Harness.TargetScalarAsync<object>($"select email_verified_at from users where id = '{Bob}'") as DateTime?);
+    }
+
+    [Fact]
     public async Task Hashes_that_are_not_bcrypt_are_nulled_and_counted() {
         var import = await IdentityImport.CreateAsync(databases, "accounts");
 
@@ -123,6 +139,36 @@ public sealed class IdentityRulesTests(ImporterDatabases databases) {
             $"select role from team_members where team_id = '00000000-0000-0000-0000-0000000000c3' and user_id = '{DupKept}'"));
         Assert.Equal(["oldest_admin", "oldest_member"], report.Findings("ownerRepairs").Select(x => x!["reason"]!.GetValue<string>()));
         Assert.Single(report.Findings("demotedOwners"));
+    }
+
+    [Fact]
+    public async Task Merged_accounts_resolve_every_primary_key_collision_by_its_rule() {
+        var import = await IdentityImport.CreateAsync(databases, "teams");
+
+        var report = await import.RunAsync(Ct);
+
+        // Team c3: the loser joined first as a member, the kept account later as an admin.
+        Assert.Equal("admin 2025-01-10", await import.Harness.TargetScalarAsync<string>(
+            $"select role || ' ' || to_char(joined_at at time zone 'UTC', 'YYYY-MM-DD') from team_members where team_id = '00000000-0000-0000-0000-0000000000c3' and user_id = '{DupKept}'"));
+        Assert.Equal(0L, await import.Harness.TargetScalarAsync<long>($"select count(*) from team_members where user_id = '{DupLoser}'"));
+        Assert.Equal(1, report.Table("public.team_members").Skipped["merged_duplicate"]);
+
+        Assert.Equal("2025-01-02", await import.Harness.TargetScalarAsync<string>(
+            $"select to_char(created_at at time zone 'UTC', 'YYYY-MM-DD') from team_favorites where user_id = '{DupKept}' and team_id = '00000000-0000-0000-0000-0000000000c1'"));
+        Assert.Equal(1, report.Table("public.user_favorite_teams").Skipped["merged_duplicate"]);
+
+        Assert.Equal("2025-03-05", await import.Harness.TargetScalarAsync<string>(
+            $"select to_char(last_at at time zone 'UTC', 'YYYY-MM-DD') from recent_activity where user_id = '{DupKept}' and entity_id = '00000000-0000-0000-0000-000000000901'"));
+        Assert.Equal(1, report.Table("public.user_recent_activity").Skipped["merged_duplicate"]);
+
+        // 702 (loser) and 703 (kept) endorse the same person with the same type on the same board; the older stays.
+        // 704 has the loser endorse the kept account, which the merge turns into a self-endorsement.
+        Assert.Equal(
+            ["00000000-0000-0000-0000-000000000701", "00000000-0000-0000-0000-000000000702"],
+            await ColumnAsync(import, "select id::text from endorsements order by id"));
+        Assert.Equal(1, report.Table("public.endorsements").Skipped["duplicate"]);
+        Assert.Equal(1, report.Table("public.endorsements").Skipped["self"]);
+        Assert.Equal(0L, await import.Harness.TargetScalarAsync<long>("select count(*) from endorsements where from_user_id = to_user_id"));
     }
 
     [Fact]
