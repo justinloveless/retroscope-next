@@ -25,6 +25,7 @@ public sealed class Connection : IClientConnection {
     private readonly OutboundQueue _outbound;
     private readonly ConnRateLimit _rate;
     private readonly HashSet<RoomKey> _rooms = [];
+    private readonly HashSet<RoomKey> _rateRefused = [];
     private readonly TaskCompletionSource _finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Lock _timerLock = new();
     private Viewer? _viewer;
@@ -88,6 +89,7 @@ public sealed class Connection : IClientConnection {
     public void Kick(RoomKey room, KickCode code) {
         lock (_rooms) {
             _rooms.Remove(room);
+            _rateRefused.Remove(room);
         }
         Send(new KickFrame(room, code));
     }
@@ -266,9 +268,9 @@ public sealed class Connection : IClientConnection {
             Close(CloseCodes.RateLimited, "rate limited", urgent: true);
             return;
         }
-        if (verdict == RateVerdict.Limited) {
+        if (verdict == RateVerdict.Limited && !(parsed.Frame is SubFrame resync && IsRateRefused(resync.R))) {
             if (CommandOf(parsed) is ({ } room, { } q)) {
-                Send(new NackFrame(room, q, NackCode.RateLimited));
+                RefuseRate(room, q);
             }
             return;
         }
@@ -330,6 +332,7 @@ public sealed class Connection : IClientConnection {
     private void Subscribe(RoomKey room, Epoch? epoch, long? seq) {
         bool admitted;
         lock (_rooms) {
+            _rateRefused.Remove(room);
             admitted = _rooms.Contains(room) || _rooms.Count < _options.MaxRoomsPerConnection;
             if (admitted) {
                 _rooms.Add(room);
@@ -346,6 +349,7 @@ public sealed class Connection : IClientConnection {
         bool removed;
         lock (_rooms) {
             removed = _rooms.Remove(room);
+            _rateRefused.Remove(room);
         }
         if (removed) {
             _gateway.Unsubscribe(this, room);
@@ -354,13 +358,35 @@ public sealed class Connection : IClientConnection {
 
     private void Command(CmdFrame command) {
         bool subscribed;
+        bool refused;
         lock (_rooms) {
             subscribed = _rooms.Contains(command.R);
+            refused = _rateRefused.Contains(command.R);
         }
-        if (subscribed) {
+        if (refused) {
+            Send(new NackFrame(command.R, command.Q, NackCode.RateLimited));
+        } else if (subscribed) {
             _gateway.Command(this, command);
         } else {
             Send(new NackFrame(command.R, command.Q, NackCode.NotSubscribed));
+        }
+    }
+
+    /// <summary>
+    /// A command refused <c>rate_limited</c> may lose its nack with the socket and come back with the same <c>q</c>;
+    /// had a later command of the cid committed meanwhile, the cursor would answer the resend <c>dup</c>. So every later
+    /// command of the room is refused too, until the client subscribes to the room again after reading the nack.
+    /// </summary>
+    private void RefuseRate(RoomKey room, long q) {
+        lock (_rooms) {
+            _rateRefused.Add(room);
+        }
+        Send(new NackFrame(room, q, NackCode.RateLimited));
+    }
+
+    private bool IsRateRefused(RoomKey room) {
+        lock (_rooms) {
+            return _rateRefused.Contains(room);
         }
     }
 
