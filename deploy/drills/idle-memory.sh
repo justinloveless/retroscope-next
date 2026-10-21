@@ -13,6 +13,6 @@ sleep "$settle"
 echo "== docker stats (usage excludes inactive page cache)"
 docker stats --no-stream --format '{{.Name}} {{.MemUsage}} {{.CPUPerc}}' retroscope-test-app-1 retroscope-test-db-1 retroscope-test-backup-1 retroscope-test-proxy-1
 echo "== app process RSS"
-docker top retroscope-test-app-1 -o rss,args | tail -n +2
+docker top retroscope-test-app-1 -o pid,rss,args | tail -n +2
 echo "== db cgroup (bytes)"
 docker exec retroscope-test-db-1 sh -c 'echo "total $(cat /sys/fs/cgroup/memory.current)"; grep -E "^(anon|file|shmem) " /sys/fs/cgroup/memory.stat'

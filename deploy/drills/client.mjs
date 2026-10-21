@@ -27,13 +27,22 @@ export function request(method, path, { body, cookie, ip } = {}) {
   });
 }
 
+// The bcrypt gate answers 503 busy with Retry-After when hashes queue up (§e); a browser would try again.
+async function gated(send) {
+  for (let attempt = 0; ; attempt++) {
+    const response = await send();
+    if (response.status !== 503 || attempt === 10) return response;
+    await sleep(Number(response.headers['retry-after'] ?? 2) * 1000);
+  }
+}
+
 /** Signs a new user up and in; returns the session cookie and the client address it uses throughout. */
 export async function user(name) {
   const ip = clientIp();
   const email = `drill-${crypto.randomUUID()}@example.test`;
-  const signup = await request('POST', '/api/auth/signup', { body: { email, password: PASSWORD, fullName: name }, ip });
+  const signup = await gated(() => request('POST', '/api/auth/signup', { body: { email, password: PASSWORD, fullName: name }, ip }));
   if (signup.status !== 202) throw new Error(`signup ${signup.status} ${signup.text}`);
-  const login = await request('POST', '/api/auth/login', { body: { email, password: PASSWORD }, ip });
+  const login = await gated(() => request('POST', '/api/auth/login', { body: { email, password: PASSWORD }, ip }));
   if (login.status !== 200) throw new Error(`login ${login.status} ${login.text}`);
   const cookie = (login.headers['set-cookie'] ?? []).map((c) => c.split(';')[0]).find((c) => c.startsWith('__Host-rs_sid='));
   return { name, email, cookie, ip };
