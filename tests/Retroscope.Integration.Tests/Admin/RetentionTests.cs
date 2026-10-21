@@ -1,7 +1,9 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using Retroscope.Core.Ids;
 using Retroscope.Core.Poker;
 using Retroscope.Integration.Tests.Schema;
+using Retroscope.Server.Data;
 using Retroscope.Server.Jobs;
 using static Retroscope.Integration.Tests.Admin.AdminHost;
 
@@ -65,6 +67,52 @@ public sealed class RetentionTests(PostgresFixture postgres) {
         socket.Dispose();
         await WaitUntilAsync(async () => (await host.Service<RetentionJob>().RunAsync(Token)).QuickSessions == 1);
         Assert.False(await ExistsAsync(host, "poker_sessions", session.Value));
+    }
+
+    [Fact]
+    public async Task A_page_of_rooms_in_use_does_not_hide_the_idle_rooms_after_it() {
+        await using var host = await StartAsync(postgres);
+        var user = await host.CreateUserAsync("u@example.com");
+        var now = host.Time.GetUtcNow();
+        var oldest = await SessionAsync(host, "BUSY01", now - Idle - TimeSpan.FromHours(2));
+        var older = await SessionAsync(host, "BUSY02", now - Idle - TimeSpan.FromHours(1));
+        var idle = await SessionAsync(host, "IDLE01", now - Idle);
+        using var socket = await host.ConnectAsync(user);
+        await socket.SubscribeAsync(RoomKey.Poker(oldest));
+        await socket.SubscribeAsync(RoomKey.Poker(older));
+        var job = new RetentionJob(
+            host.Service<NpgsqlDataSource>(),
+            host.Service<Leader>(),
+            host.Registry,
+            host.Time,
+            host.App.Services,
+            NullLogger<RetentionJob>.Instance) { PageSize = 2 };
+
+        var report = await job.RunAsync(Token);
+
+        Assert.Equal((1, 2), (report.QuickSessions, report.SkippedLive));
+        Assert.False(await ExistsAsync(host, "poker_sessions", idle.Value));
+        Assert.True(await ExistsAsync(host, "poker_sessions", oldest.Value));
+        Assert.True(await ExistsAsync(host, "poker_sessions", older.Value));
+    }
+
+    [Fact]
+    public async Task A_server_that_loses_leadership_mid_pass_stops_deleting() {
+        var host = await StartAsync(postgres);
+        try {
+            var now = host.Time.GetUtcNow();
+            for (var i = 0; i < 3; i++) {
+                await SessionAsync(host, $"FENCE{i}", now - Idle - TimeSpan.FromMinutes(i));
+            }
+            await TakeOverOnDeleteAsync(host, "poker_sessions");
+
+            await Assert.ThrowsAsync<FencingLostException>(() => host.Service<RetentionJob>().RunAsync(Token));
+
+            Assert.Equal(2L, await host.ScalarAsync<long>("select count(*) from poker_sessions"));
+            Assert.False(host.Service<Leader>().IsLeader);
+        } finally {
+            await DisposeAfterLossAsync(host);
+        }
     }
 
     [Fact]
@@ -201,6 +249,26 @@ public sealed class RetentionTests(PostgresFixture postgres) {
             values.Add(reader.GetString(0));
         }
         return values;
+    }
+
+    /// <summary>Another instance becomes leader in the transaction of the first delete from <paramref name="table"/>.</summary>
+    internal static Task TakeOverOnDeleteAsync(AdminHost host, string table) {
+        return host.ExecuteAsync($$"""
+            create function take_over() returns trigger language plpgsql security definer as $$
+            begin
+              update system_state set leader_epoch = leader_epoch + 1;
+              return null;
+            end $$;
+            create trigger take_over after delete on {{table}} for each statement execute function take_over();
+            """);
+    }
+
+    /// <summary>A host whose leader was fenced off stops with <see cref="LeadershipLostException"/>, as designed.</summary>
+    internal static async Task DisposeAfterLossAsync(AdminHost host) {
+        try {
+            await host.DisposeAsync();
+        } catch (Exception e) when (e is LeadershipLostException || e.InnerException is LeadershipLostException) {
+        }
     }
 
     internal static async Task WaitUntilAsync(Func<Task<bool>> condition) {

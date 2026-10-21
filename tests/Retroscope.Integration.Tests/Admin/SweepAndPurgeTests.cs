@@ -1,7 +1,11 @@
 using System.Security.Cryptography;
+using System.Text.Json;
+using Microsoft.Extensions.Logging.Abstractions;
+using Npgsql;
 using Retroscope.Core.Ids;
 using Retroscope.Integration.Tests.Schema;
 using Retroscope.Server.Auth;
+using Retroscope.Server.Data;
 using Retroscope.Server.Jobs;
 using static Retroscope.Integration.Tests.Admin.AdminHost;
 using static Retroscope.Integration.Tests.Admin.RetentionTests;
@@ -86,6 +90,93 @@ public sealed class SweepAndPurgeTests(PostgresFixture postgres) {
         Assert.Equal(1L, await host.ScalarAsync<long>(
             "select count(*) from audit_log where action = 'team.purge' and team_id = $1 and target = $2", doomed.Value, doomed.Value.ToString()));
         Assert.Equal(new TeamPurgeReport(0, 0), await host.Service<TeamPurgeJob>().RunAsync(Token));
+    }
+
+    [Fact]
+    public async Task The_team_purge_pages_past_its_page_size() {
+        await using var host = await StartAsync(postgres);
+        var owner = await host.CreateUserAsync("owner@example.com");
+        var now = host.Time.GetUtcNow();
+        for (var i = 0; i < 3; i++) {
+            var team = await AdminEndpointTests.TeamAsync(host, $"Doomed {i}", owner.Id);
+            await host.ExecuteAsync("update teams set deleted_at = $2 where id = $1", team.Value, now - TimeSpan.FromDays(31 + i));
+        }
+        var job = new TeamPurgeJob(
+            host.Service<NpgsqlDataSource>(),
+            host.Service<Leader>(),
+            host.Registry,
+            host.Time,
+            host.App.Services,
+            NullLogger<TeamPurgeJob>.Instance) { PageSize = 1 };
+
+        Assert.Equal(new TeamPurgeReport(3, 0), await job.RunAsync(Token));
+        Assert.Equal(0L, await host.ScalarAsync<long>("select count(*) from teams"));
+    }
+
+    [Fact]
+    public async Task A_server_that_loses_leadership_mid_purge_stops_deleting_teams() {
+        var host = await StartAsync(postgres);
+        try {
+            var owner = await host.CreateUserAsync("owner@example.com");
+            var now = host.Time.GetUtcNow();
+            for (var i = 0; i < 3; i++) {
+                var team = await AdminEndpointTests.TeamAsync(host, $"Doomed {i}", owner.Id);
+                await host.ExecuteAsync("update teams set deleted_at = $2 where id = $1", team.Value, now - TimeSpan.FromDays(31 + i));
+            }
+            await TakeOverOnDeleteAsync(host, "teams");
+
+            await Assert.ThrowsAsync<FencingLostException>(() => host.Service<TeamPurgeJob>().RunAsync(Token));
+
+            Assert.Equal(2L, await host.ScalarAsync<long>("select count(*) from teams"));
+        } finally {
+            await DisposeAfterLossAsync(host);
+        }
+    }
+
+    [Fact]
+    public async Task The_team_purge_finds_recent_activity_and_cursors_by_index() {
+        await using var host = await StartAsync(postgres);
+        var owner = await host.CreateUserAsync("owner@example.com");
+        var now = host.Time.GetUtcNow();
+        var team = await AdminEndpointTests.TeamAsync(host, "Doomed", owner.Id);
+        await host.ExecuteAsync("""
+            insert into recent_activity (user_id, entity_kind, entity_id)
+            select $1, (array['team', 'board', 'poker'])[1 + n % 3], gen_random_uuid() from generate_series(1, 5000) n
+            """, owner.Id.Value);
+        await host.ExecuteAsync("analyze recent_activity");
+
+        // Plans are judged with sequential scans priced out, so only an index-friendly predicate avoids one.
+        await using var connection = new NpgsqlConnection(host.Database.AppConnectionString);
+        await connection.OpenAsync(Token);
+        await using (var off = new NpgsqlCommand("set enable_seqscan = off", connection)) {
+            await off.ExecuteNonQueryAsync(Token);
+        }
+        await using var explain = new NpgsqlCommand("explain (format json) " + TeamPurgeJob.PurgeSql, connection) {
+            Parameters = {
+                new NpgsqlParameter<Guid> { TypedValue = team.Value },
+                new NpgsqlParameter<DateTimeOffset> { TypedValue = now },
+                new NpgsqlParameter<DateTimeOffset> { TypedValue = now },
+            },
+        };
+        using var plan = JsonDocument.Parse((string)(await explain.ExecuteScalarAsync(Token))!);
+
+        var nodes = Nodes(plan.RootElement).ToList();
+        var indexes = nodes.Select(node => node.TryGetProperty("Index Name", out var index) ? index.GetString() : null).ToList();
+        Assert.Contains("recent_activity_entity_ix", indexes);
+        Assert.Contains("client_cursors_pkey", indexes);
+        Assert.DoesNotContain(nodes, node => node.GetProperty("Node Type").GetString() == "Seq Scan"
+            && node.GetProperty("Relation Name").GetString() is "recent_activity" or "client_cursors");
+    }
+
+    private static IEnumerable<JsonElement> Nodes(JsonElement element) {
+        if (element.ValueKind == JsonValueKind.Array) {
+            return element.EnumerateArray().SelectMany(Nodes);
+        }
+        if (element.ValueKind != JsonValueKind.Object) {
+            return [];
+        }
+        var self = element.TryGetProperty("Node Type", out _) ? [element] : Array.Empty<JsonElement>();
+        return self.Concat(element.EnumerateObject().SelectMany(property => Nodes(property.Value)));
     }
 
     private static byte[] Hash() => RandomNumberGenerator.GetBytes(32);
