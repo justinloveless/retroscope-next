@@ -19,7 +19,7 @@ public sealed class TranscriptTests {
 
     [Fact]
     public void Votes_reveal_and_replay() {
-        var room = Team();
+        var room = PokerHarness.Team();
         JoinAll(room, Alice, Bob, Carol, Dave);
         var transcript = new Recorder("poker-votes-reveal-replay", "Own values versus others' status, abstain, reveal, replay.", room, Carol);
 
@@ -41,7 +41,7 @@ public sealed class TranscriptTests {
 
     [Fact]
     public void Auto_reveal_jira_and_team_settings() {
-        var room = Team();
+        var room = PokerHarness.Team();
         JoinAll(room, Bob, Carol);
         var transcript = new Recorder("poker-auto-reveal-jira", "Server auto-reveal, Jira submit states, parent keys, roster and point descriptions.", room, Bob);
 
@@ -64,7 +64,7 @@ public sealed class TranscriptTests {
 
     [Fact]
     public void Pointer_navigation_and_spotlight_follow() {
-        var room = Team();
+        var room = PokerHarness.Team();
         JoinAll(room, Alice, Bob, Carol, Dave);
         room.Accepted(Dave, new PokerSpotlightTake(R(1), false));
         var transcript = new Recorder("poker-pointer-nav", "nav:true moves followers too; spotlight changes move followers; repairs move only viewers of a vanished round.", room, Carol);
@@ -87,7 +87,7 @@ public sealed class TranscriptTests {
 
     [Fact]
     public void Pending_preview_commit_and_discard() {
-        var room = Team();
+        var room = PokerHarness.Team();
         JoinAll(room, Alice, Bob, Carol, Dave);
         room.Accepted(Dave, new PokerSpotlightTake(R(1), false));
         var transcript = new Recorder("poker-pending-preview", "A preview moves the pointer without navigation and followers see it through the spotlight.", room, Carol);

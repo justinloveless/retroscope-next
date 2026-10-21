@@ -10,7 +10,7 @@ namespace Retroscope.Core.Tests.Poker;
 public sealed class PresenceTests {
     [Fact]
     public void The_holders_bound_tab_going_away_unbinds_the_spotlight_for_another_tab() {
-        var room = Team();
+        var room = PokerHarness.Team();
         var bobTab2 = Viewer(2, "Bob", tab: 1);
         room.Join(Bob);
         room.Join(bobTab2);
@@ -26,7 +26,7 @@ public sealed class PresenceTests {
 
     [Fact]
     public void Another_tab_going_away_changes_nothing() {
-        var room = Team();
+        var room = PokerHarness.Team();
         var bobTab2 = Viewer(2, "Bob", tab: 1);
         room.Join(Bob);
         room.Join(bobTab2);
@@ -40,7 +40,7 @@ public sealed class PresenceTests {
 
     [Fact]
     public void The_spotlight_survives_three_minutes_of_holder_absence() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
         room.Accepted(Bob, new PokerSpotlightTake(R(1), false));
 
@@ -57,7 +57,7 @@ public sealed class PresenceTests {
 
     [Fact]
     public void The_holder_returning_within_the_grace_keeps_the_spotlight() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
         room.Accepted(Bob, new PokerSpotlightTake(R(1), false));
         room.Disconnect(Bob);
@@ -75,7 +75,7 @@ public sealed class PresenceTests {
 
     [Fact]
     public void A_pending_owner_leaving_discards_their_previews_and_repairs_pointer_and_spotlight() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
         room.Join(Carol);
         room.Accepted(Bob, new PokerSpotlightTake(R(1), false));
@@ -93,7 +93,7 @@ public sealed class PresenceTests {
 
     [Fact]
     public void Warm_up_releases_a_spotlight_whose_holder_did_not_come_back_and_discards_orphaned_previews() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.State.Rounds.Add(R(2), new Round { Id = R(2), Number = 2, TicketKey = "ABC-2", Pending = true, PendingOwner = Carol.Who.Id });
         room.State.Order.Add(R(2));
         room.State.Spotlight = new Spotlight { Holder = Bob.Who.Id, RoundId = R(1) };
@@ -107,7 +107,7 @@ public sealed class PresenceTests {
 
     [Fact]
     public void Warm_up_keeps_a_present_holder_and_present_owners_previews() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.State.Rounds.Add(R(2), new Round { Id = R(2), Number = 2, TicketKey = "ABC-2", Pending = true, PendingOwner = Bob.Who.Id });
         room.State.Order.Add(R(2));
         room.State.Spotlight = new Spotlight { Holder = Bob.Who.Id, RoundId = R(2) };
@@ -122,7 +122,7 @@ public sealed class PresenceTests {
 
     [Fact]
     public void Updates_and_extra_tabs_produce_no_events() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
 
         Assert.Empty(room.Domain.OnPresence(room.State, new PresenceDelta(PresenceChange.Updated, Bob.Who.Id), room.Presence, room.Now));

@@ -37,7 +37,7 @@ public sealed class EndorsementTests {
     public void The_per_board_limit_is_live_from_team_settings() {
         var fx = new RetroFixture(team: true);
         var dave = User("d4000000-0000-4000-8000-000000000005", "Dave");
-        fx.Access.Roles[(Team, dave.Id)] = TeamRole.Member;
+        fx.Access.Roles[(RetroFixture.Team, dave.Id)] = TeamRole.Member;
         fx.State.EndorsementTypes.Add(new EndorsementTypeInfo(new EndorsementTypeId(Guid.NewGuid()), "Spark", "✨", false));
         var types = fx.State.EndorsementTypes.Where(t => !t.Archived).Select(t => t.Id).ToList();
         fx.Do(null, new RetroInput.TeamSettingsChanged(2));

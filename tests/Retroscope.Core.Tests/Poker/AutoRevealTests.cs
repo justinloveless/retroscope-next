@@ -9,7 +9,7 @@ namespace Retroscope.Core.Tests.Poker;
 public sealed class AutoRevealTests {
     [Fact]
     public void Fires_600_ms_after_every_present_voter_locked() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
         room.Join(Carol);
         room.Accepted(Bob, new PokerVoteSet(R(1), 5, Lock: true));
@@ -31,7 +31,7 @@ public sealed class AutoRevealTests {
 
     [Fact]
     public void A_vote_change_bumps_the_generation_so_an_older_timer_is_ignored() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
         room.Accepted(Bob, new PokerVoteSet(R(1), 5, Lock: true));
         var stale = Assert.Single(room.Timers());
@@ -51,7 +51,7 @@ public sealed class AutoRevealTests {
 
     [Fact]
     public void Absent_voters_with_unlocked_votes_do_not_block_but_present_ones_do() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
         room.Join(Carol);
         room.Accepted(Bob, new PokerVoteSet(R(1), 5, Lock: true));
@@ -66,7 +66,7 @@ public sealed class AutoRevealTests {
 
     [Fact]
     public void Absent_locked_voters_stay_eligible_and_observers_never_are() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
         room.Join(Carol);
         room.Join(Dave);
@@ -84,7 +84,7 @@ public sealed class AutoRevealTests {
 
     [Fact]
     public void With_presence_disabled_the_whole_roster_must_lock() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
         room.Accepted(Bob, new PokerSettingsUpdate(new PokerSettingsValues(PresenceEnabled: true), PresenceEnabled: false));
         room.Accepted(Bob, new PokerVoteSet(R(1), 5, Lock: true));
@@ -99,7 +99,7 @@ public sealed class AutoRevealTests {
 
     [Fact]
     public void Nobody_eligible_means_no_reveal() {
-        var room = Team();
+        var room = PokerHarness.Team();
 
         Assert.False(AutoReveal.IsReady(room.State, room.Round(1), room.Presence));
         Assert.Empty(room.Timers());
@@ -107,7 +107,7 @@ public sealed class AutoRevealTests {
 
     [Fact]
     public void Pending_ended_replayed_and_revealed_rounds_are_not_watched() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
         room.Accepted(Bob, new PokerVoteSet(R(1), 5, Lock: true));
         room.Accepted(Bob, new PokerRoundReveal(R(1)));
@@ -125,7 +125,7 @@ public sealed class AutoRevealTests {
 
     [Fact]
     public void Every_active_round_is_watched_not_just_the_viewed_one() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
         room.Accepted(Bob, new PokerRoundCreate(R(2), ForceNew: true));
         room.Accepted(Bob, new PokerVoteSet(R(1), 5, Lock: true));
@@ -139,7 +139,7 @@ public sealed class AutoRevealTests {
 
     [Fact]
     public void A_presence_change_re_arms_600_ms_later() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
         room.Join(Carol);
         room.Accepted(Bob, new PokerVoteSet(R(1), 5, Lock: true));
@@ -153,7 +153,7 @@ public sealed class AutoRevealTests {
 
     [Fact]
     public void Nothing_fires_before_warm_up_and_on_warm_every_watched_round_is_armed() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.State.WarmUntil = room.Now + PokerTiming.WarmUp;
         room.Join(Bob);
         room.Accepted(Bob, new PokerVoteSet(R(1), 5, Lock: true));
@@ -173,7 +173,7 @@ public sealed class AutoRevealTests {
 
     [Fact]
     public void An_auto_reveal_due_for_a_vanished_round_or_unready_round_is_a_no_op() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
 
         NoOp(room.Send(null, new AutoRevealDue(R(9), 0)));

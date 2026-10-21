@@ -10,7 +10,7 @@ namespace Retroscope.Core.Tests.Poker;
 public sealed class VoteCommandTests {
     [Fact]
     public void Vote_records_the_selection_and_arms_auto_reveal() {
-        var room = Team();
+        var room = PokerHarness.Team();
 
         var events = room.Accepted(Bob, new PokerVoteSet(R(1), 5));
 
@@ -22,7 +22,7 @@ public sealed class VoteCommandTests {
 
     [Fact]
     public void Drag_to_play_selects_and_locks_at_once_and_between_takes_the_next_deck_value() {
-        var room = Team();
+        var room = PokerHarness.Team();
 
         room.Accepted(Bob, new PokerVoteSet(R(1), 3, High: 5, Lock: true));
 
@@ -37,14 +37,14 @@ public sealed class VoteCommandTests {
     [InlineData(5, 3)]
     [InlineData(21, 34)]
     public void Points_off_the_deck_or_a_wrong_between_end_are_invalid(short points, int? high) {
-        var room = Team();
+        var room = PokerHarness.Team();
 
         Rejected(room.Send(Bob, new PokerVoteSet(R(1), points, (short?)high)), NackCode.Invalid);
     }
 
     [Fact]
     public void A_locked_vote_cannot_change_but_an_identical_resend_is_a_no_op() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Accepted(Bob, new PokerVoteSet(R(1), 5, Lock: true));
 
         NoOp(room.Send(Bob, new PokerVoteSet(R(1), 5, Lock: true)));
@@ -54,7 +54,7 @@ public sealed class VoteCommandTests {
 
     [Fact]
     public void An_abstained_vote_counts_as_locked() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Accepted(Bob, new PokerAbstainSet(R(1), true));
 
         Rejected(room.Send(Bob, new PokerVoteSet(R(1), 8)), NackCode.VoteLocked);
@@ -62,7 +62,7 @@ public sealed class VoteCommandTests {
 
     [Fact]
     public void Observers_cannot_vote_lock_or_abstain() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Accepted(Bob, new PokerVoteSet(R(1), 5));
         room.Accepted(Alice, new PokerObserverSet(Bob.Who.Id, true));
 
@@ -73,7 +73,7 @@ public sealed class VoteCommandTests {
 
     [Fact]
     public void Vote_type_commands_on_a_pending_round_are_round_pending() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Alice);
         room.Accepted(Alice, new PokerSpotlightTake(R(1), false));
         room.Accepted(Alice, new PokerRoundCreate(R(2), "ABC-7", Pending: true, ForceNew: true));
@@ -86,7 +86,7 @@ public sealed class VoteCommandTests {
 
     [Fact]
     public void Votes_on_a_revealed_round_are_round_revealed() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Accepted(Bob, new PokerRoundReveal(R(1)));
 
         Rejected(room.Send(Bob, new PokerVoteSet(R(1), 5)), NackCode.RoundRevealed);
@@ -96,7 +96,7 @@ public sealed class VoteCommandTests {
 
     [Fact]
     public void Votes_on_an_ended_round_are_round_inactive() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Accepted(Bob, new PokerRoundEnd(R(1)));
 
         Rejected(room.Send(Bob, new PokerVoteSet(R(1), 5)), NackCode.RoundInactive);
@@ -105,7 +105,7 @@ public sealed class VoteCommandTests {
 
     [Fact]
     public void Unknown_rounds_are_not_found_and_strangers_are_forbidden() {
-        var room = Team();
+        var room = PokerHarness.Team();
 
         Rejected(room.Send(Bob, new PokerVoteSet(R(9), 5)), NackCode.NotFound);
         Rejected(room.Send(Outsider, new PokerVoteSet(R(1), 5)), NackCode.Forbidden);
@@ -115,7 +115,7 @@ public sealed class VoteCommandTests {
 
     [Fact]
     public void Lock_needs_a_vote_with_points() {
-        var room = Team();
+        var room = PokerHarness.Team();
 
         Rejected(room.Send(Bob, new PokerLockSet(R(1), true)), NackCode.Invalid);
         room.Accepted(Bob, new PokerAbstainSet(R(1), true));
@@ -124,7 +124,7 @@ public sealed class VoteCommandTests {
 
     [Fact]
     public void Lock_and_unlock_are_set_semantics() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Accepted(Bob, new PokerVoteSet(R(1), 8));
 
         room.Accepted(Bob, new PokerLockSet(R(1), true));
@@ -136,7 +136,7 @@ public sealed class VoteCommandTests {
 
     [Fact]
     public void Abstain_locks_the_seat_and_un_abstain_empties_it() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Accepted(Bob, new PokerVoteSet(R(1), 8, Lock: true));
 
         room.Accepted(Bob, new PokerAbstainSet(R(1), true));
@@ -164,7 +164,7 @@ public sealed class VoteCommandTests {
 
     [Fact]
     public void Reveal_turns_unlocked_votes_into_abstains_and_computes_the_winner() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Accepted(Alice, new PokerVoteSet(R(1), 5, Lock: true));
         room.Accepted(Bob, new PokerVoteSet(R(1), 3, 5, Lock: true));
         room.Accepted(Carol, new PokerVoteSet(R(1), 13));
@@ -186,7 +186,7 @@ public sealed class VoteCommandTests {
 
     [Fact]
     public void Everyone_abstaining_wins_zero() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Accepted(Bob, new PokerAbstainSet(R(1), true));
 
         var revealed = Assert.Single(room.Accepted(Bob, new PokerRoundReveal(R(1))).OfType<RoundRevealed>());
@@ -196,7 +196,7 @@ public sealed class VoteCommandTests {
 
     [Fact]
     public void Replay_reopens_voting_with_votes_kept_and_locked_and_auto_reveal_off() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Accepted(Bob, new PokerVoteSet(R(1), 8, Lock: true));
         room.Accepted(Carol, new PokerVoteSet(R(1), 3));
         room.Accepted(Alice, new PokerRoundReveal(R(1)));

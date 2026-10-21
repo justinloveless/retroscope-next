@@ -9,7 +9,7 @@ namespace Retroscope.Core.Tests.Poker;
 public sealed class RoundCommandTests {
     [Fact]
     public void Create_allocates_the_next_number_and_moves_the_pointer_for_everyone() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Accepted(Bob, new PokerVoteSet(R(1), 5));
 
         var events = room.Accepted(Bob, new PokerRoundCreate(R(2), "abc-12"));
@@ -27,7 +27,7 @@ public sealed class RoundCommandTests {
 
     [Fact]
     public void Create_fills_a_placeholder_round_instead_unless_forced() {
-        var room = Team();
+        var room = PokerHarness.Team();
 
         var filled = room.Accepted(Bob, new PokerRoundCreate(R(2), "ABC-1"));
 
@@ -43,7 +43,7 @@ public sealed class RoundCommandTests {
 
     [Fact]
     public void A_placeholder_with_votes_or_a_revealed_one_is_not_filled() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Accepted(Bob, new PokerAbstainSet(R(1), true));
 
         Assert.Equal(["RoundCreated", "PointerMoved"], Kinds(room.Accepted(Bob, new PokerRoundCreate(R(2), "ABC-2"))));
@@ -54,7 +54,7 @@ public sealed class RoundCommandTests {
 
     [Fact]
     public void A_bare_number_gets_the_team_prefix_and_bad_keys_are_invalid() {
-        var room = Team();
+        var room = PokerHarness.Team();
 
         room.Accepted(Bob, new PokerRoundCreate(R(2), " 42 ", ForceNew: true));
         Assert.Equal("ABC-42", room.Round(2).TicketKey);
@@ -67,7 +67,7 @@ public sealed class RoundCommandTests {
 
     [Fact]
     public void A_pending_create_needs_the_spotlight_and_moves_the_pointer_without_navigation() {
-        var room = Team();
+        var room = PokerHarness.Team();
 
         Rejected(room.Send(Bob, new PokerRoundCreate(R(2), "ABC-2", Pending: true, ForceNew: true)), NackCode.NotHolder);
 
@@ -84,7 +84,7 @@ public sealed class RoundCommandTests {
 
     [Fact]
     public void Commit_and_discard_pending_belong_to_the_previewer() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
         room.Accepted(Bob, new PokerSpotlightTake(R(1), false));
         room.Accepted(Bob, new PokerRoundCreate(R(2), "ABC-2", Pending: true, ForceNew: true));
@@ -109,7 +109,7 @@ public sealed class RoundCommandTests {
 
     [Fact]
     public void Discarding_the_pointer_round_repairs_the_pointer_without_navigation() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
         room.Accepted(Bob, new PokerSpotlightTake(R(1), false));
         room.Accepted(Bob, new PokerRoundCreate(R(2), "ABC-2", Pending: true, ForceNew: true));
@@ -124,7 +124,7 @@ public sealed class RoundCommandTests {
 
     [Fact]
     public void Create_many_fills_the_placeholder_first_and_points_at_the_last() {
-        var room = Team();
+        var room = PokerHarness.Team();
 
         var events = room.Accepted(Bob, new PokerRoundCreateMany([
             new NewRound(R(2), "ABC-1"), new NewRound(R(3), "ABC-2"), new NewRound(R(4), "3"),
@@ -140,7 +140,7 @@ public sealed class RoundCommandTests {
 
     [Fact]
     public void Create_many_validates_the_whole_batch() {
-        var room = Team();
+        var room = PokerHarness.Team();
 
         Rejected(room.Send(Bob, new PokerRoundCreateMany([])), NackCode.Invalid);
         var tooMany = Enumerable.Range(2, PokerDecider.MaxBatchRounds + 1).Select(x => new NewRound(R(x), $"ABC-{x}")).ToArray();
@@ -153,7 +153,7 @@ public sealed class RoundCommandTests {
 
     [Fact]
     public void Next_deactivates_every_other_round_discards_previews_and_navigates_everyone() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Carol);
         room.Accepted(Bob, new PokerRoundCreate(R(2), "ABC-2", ForceNew: true));
         room.Accepted(Carol, new PokerSpotlightTake(R(2), false));
@@ -172,7 +172,7 @@ public sealed class RoundCommandTests {
 
     [Fact]
     public void Next_moves_the_spotlight_only_when_its_holder_issued_it() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Carol);
         room.Accepted(Carol, new PokerSpotlightTake(R(1), false));
 
@@ -186,7 +186,7 @@ public sealed class RoundCommandTests {
 
     [Fact]
     public void A_second_next_from_the_same_round_is_stale() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Accepted(Bob, new PokerRoundNext(R(1), R(2)));
 
         var reject = Rejected(room.Send(Carol, new PokerRoundNext(R(1), R(3))), NackCode.Stale);
@@ -199,7 +199,7 @@ public sealed class RoundCommandTests {
 
     [Fact]
     public void End_and_activate_are_set_semantics_on_voting_rounds() {
-        var room = Team();
+        var room = PokerHarness.Team();
 
         room.Accepted(Bob, new PokerRoundEnd(R(1)));
         Assert.False(room.Round(1).Active);
@@ -216,7 +216,7 @@ public sealed class RoundCommandTests {
 
     [Fact]
     public void End_and_activate_of_a_pending_round_are_round_pending() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
         room.Accepted(Bob, new PokerSpotlightTake(R(1), false));
         room.Accepted(Bob, new PokerRoundCreate(R(2), "ABC-2", Pending: true, ForceNew: true));
@@ -227,7 +227,7 @@ public sealed class RoundCommandTests {
 
     [Fact]
     public void Set_ticket_carries_a_version_precondition() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Accepted(Bob, new PokerRoundSetTicket(R(1), "ABC-5", 1));
         room.Send(null, new JiraMetaLoaded([new JiraMeta("ABC-5", ParentKey: "ABC-1")]));
         Assert.Equal("ABC-1", room.Round(1).ParentKey);
@@ -246,7 +246,7 @@ public sealed class RoundCommandTests {
 
     [Fact]
     public void Set_ticket_needs_an_active_voting_round_and_a_valid_key() {
-        var room = Team();
+        var room = PokerHarness.Team();
 
         Rejected(room.Send(Bob, new PokerRoundSetTicket(R(1), "nope", 1)), NackCode.Invalid);
         room.Accepted(Bob, new PokerRoundEnd(R(1)));
@@ -257,7 +257,7 @@ public sealed class RoundCommandTests {
 
     [Fact]
     public void Delete_needs_an_admin_in_team_sessions_and_keeps_one_round() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Accepted(Bob, new PokerRoundCreate(R(2), ForceNew: true));
 
         Rejected(room.Send(Bob, new PokerRoundDelete(R(2))), NackCode.Forbidden);
@@ -280,7 +280,7 @@ public sealed class RoundCommandTests {
 
     [Fact]
     public void Deleting_the_spotlight_round_moves_the_spotlight_to_the_pointer_round_before_the_delete() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Carol);
         room.Accepted(Bob, new PokerRoundCreate(R(2), ForceNew: true));
         room.Accepted(Bob, new PokerRoundCreate(R(3), ForceNew: true));
@@ -294,7 +294,7 @@ public sealed class RoundCommandTests {
 
     [Fact]
     public void Deleting_the_pointer_and_spotlight_round_moves_both_to_the_highest_remaining_round() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Carol);
         room.Accepted(Bob, new PokerRoundCreate(R(2), ForceNew: true));
         room.Accepted(Bob, new PokerRoundCreate(R(3), ForceNew: true));
@@ -310,7 +310,7 @@ public sealed class RoundCommandTests {
 
     [Fact]
     public void Reorder_must_be_a_permutation_of_the_current_rounds() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Accepted(Bob, new PokerRoundCreate(R(2), ForceNew: true));
 
         var reject = Rejected(room.Send(Bob, new PokerRoundReorder([R(2)])), NackCode.Stale);
@@ -325,7 +325,7 @@ public sealed class RoundCommandTests {
 
     [Fact]
     public void Clear_all_resets_to_round_one_and_keeps_the_holder_on_it() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Carol);
         room.Accepted(Bob, new PokerVoteSet(R(1), 5));
         room.Accepted(Bob, new PokerRoundCreate(R(2), ForceNew: true));

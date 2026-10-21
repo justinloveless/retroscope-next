@@ -51,7 +51,7 @@ public sealed class FacilitatorTests {
         var fx = new RetroFixture(team: true);
         fx.Do(Bob, new RetroColumnAdd(fx.NewColumnId(), "One", ColumnColor.Blue));
 
-        fx.Access.Roles.Remove((Team, Bob.Id));
+        fx.Access.Roles.Remove((RetroFixture.Team, Bob.Id));
         fx.Rejects(Bob, new RetroColumnAdd(fx.NewColumnId(), "Two", ColumnColor.Blue), NackCode.Forbidden);
     }
 
@@ -105,7 +105,7 @@ public sealed class FacilitatorTests {
     public void Guests_are_never_facilitators() {
         var principal = Gus;
         var fx = new RetroFixture(team: true);
-        fx.Access.Roles[(Team, principal.Id)] = TeamRole.Owner;
+        fx.Access.Roles[(RetroFixture.Team, principal.Id)] = TeamRole.Owner;
         Assert.False(RetroRoles.IsFacilitator(fx.State, principal, fx.Access));
     }
 }

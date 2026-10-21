@@ -9,7 +9,7 @@ namespace Retroscope.Core.Tests.Poker;
 public sealed class SessionCommandTests {
     [Fact]
     public void Settings_apply_only_with_matching_expected_values() {
-        var room = Team();
+        var room = PokerHarness.Team();
 
         room.Accepted(Bob, new PokerSettingsUpdate(new PokerSettingsValues(PresenceEnabled: true), PresenceEnabled: false));
         Assert.False(room.State.PresenceEnabled);
@@ -27,7 +27,7 @@ public sealed class SessionCommandTests {
 
     [Fact]
     public void Settings_need_something_to_change_and_an_expected_value_for_it() {
-        var room = Team();
+        var room = PokerHarness.Team();
 
         Rejected(room.Send(Bob, new PokerSettingsUpdate(new PokerSettingsValues())), NackCode.Invalid);
         Rejected(room.Send(Bob, new PokerSettingsUpdate(new PokerSettingsValues(), FollowSpotlight: false)), NackCode.Invalid);
@@ -36,7 +36,7 @@ public sealed class SessionCommandTests {
 
     [Fact]
     public void Becoming_an_observer_deletes_votes_in_voting_rounds_only_and_re_arms_auto_reveal() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Accepted(Bob, new PokerVoteSet(R(1), 5, Lock: true));
         room.Accepted(Bob, new PokerRoundReveal(R(1)));
         room.Accepted(Bob, new PokerRoundCreate(R(2), ForceNew: true));
@@ -67,7 +67,7 @@ public sealed class SessionCommandTests {
 
     [Fact]
     public void Spotlight_take_asks_before_taking_over_and_force_takes_it() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
         room.Join(Carol);
         room.Accepted(Bob, new PokerSpotlightTake(R(1), false));
@@ -84,7 +84,7 @@ public sealed class SessionCommandTests {
 
     [Fact]
     public void Another_bound_tab_of_the_holder_also_asks_first() {
-        var room = Team();
+        var room = PokerHarness.Team();
         var bobTab2 = Viewer(2, "Bob", tab: 1);
         room.Join(Bob);
         room.Join(bobTab2);
@@ -98,7 +98,7 @@ public sealed class SessionCommandTests {
 
     [Fact]
     public void Taking_over_discards_the_previous_holders_pending_rounds() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
         room.Join(Carol);
         room.Accepted(Bob, new PokerSpotlightTake(R(1), false));
@@ -113,7 +113,7 @@ public sealed class SessionCommandTests {
 
     [Fact]
     public void Move_is_ephemeral_and_binds_an_unbound_holder_tab() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
         room.Join(Carol);
         room.Accepted(Bob, new PokerRoundCreate(R(2), ForceNew: true));
@@ -132,7 +132,7 @@ public sealed class SessionCommandTests {
 
     [Fact]
     public void A_dirty_spotlight_settles_after_500_ms_or_rides_along_with_the_next_commit() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
         room.Accepted(Bob, new PokerRoundCreate(R(2), ForceNew: true));
         room.Accepted(Bob, new PokerSpotlightTake(R(2), false));
@@ -153,7 +153,7 @@ public sealed class SessionCommandTests {
 
     [Fact]
     public void An_ephemeral_decision_does_not_carry_the_settle() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
         room.Accepted(Bob, new PokerRoundCreate(R(2), ForceNew: true));
         room.Accepted(Bob, new PokerSpotlightTake(R(2), false));
@@ -166,7 +166,7 @@ public sealed class SessionCommandTests {
 
     [Fact]
     public void Give_goes_to_a_present_principal_from_the_holder_or_from_anyone_when_free() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
         room.Join(Carol);
 
@@ -182,7 +182,7 @@ public sealed class SessionCommandTests {
 
     [Fact]
     public void Release_is_for_the_holder_and_discards_their_pending_rounds() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Join(Bob);
         NoOp(room.Send(Bob, new PokerSpotlightRelease()));
         room.Accepted(Bob, new PokerSpotlightTake(R(1), false));
@@ -199,7 +199,7 @@ public sealed class SessionCommandTests {
 
     [Fact]
     public void Submit_points_goes_pending_then_ok_persists_the_points() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Accepted(Bob, new PokerRoundSetTicket(R(1), "ABC-5", 1));
         room.Accepted(Bob, new PokerRoundReveal(R(1)));
 
@@ -219,7 +219,7 @@ public sealed class SessionCommandTests {
 
     [Fact]
     public void A_failed_submit_keeps_the_code_until_the_next_try() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Accepted(Bob, new PokerRoundSetTicket(R(1), "ABC-5", 1));
         room.Accepted(Bob, new PokerRoundReveal(R(1)));
         room.Accepted(Bob, new PokerJiraSubmitPoints(R(1), 5));
@@ -233,12 +233,12 @@ public sealed class SessionCommandTests {
 
     [Fact]
     public void Submit_points_rules() {
-        var noJira = Team(jira: false);
+        var noJira = PokerHarness.Team(jira: false);
         noJira.Accepted(Bob, new PokerRoundReveal(R(1)));
         Rejected(noJira.Send(Bob, new PokerJiraSubmitPoints(R(1), 5)), NackCode.JiraNotConfigured);
         Rejected(Quick().Send(Bob, new PokerJiraSubmitPoints(R(1), 5)), NackCode.JiraNotConfigured);
 
-        var room = Team();
+        var room = PokerHarness.Team();
         Rejected(room.Send(Outsider, new PokerJiraSubmitPoints(R(1), 5)), NackCode.Forbidden);
         Rejected(room.Send(Bob, new PokerJiraSubmitPoints(R(9), 5)), NackCode.NotFound);
         Rejected(room.Send(Bob, new PokerJiraSubmitPoints(R(1), 5)), NackCode.Invalid);
@@ -258,7 +258,7 @@ public sealed class SessionCommandTests {
 
     [Fact]
     public void A_result_for_a_ticket_the_round_no_longer_has_is_not_recorded() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Accepted(Bob, new PokerRoundSetTicket(R(1), "ABC-5", 1));
         room.Accepted(Bob, new PokerRoundReveal(R(1)));
         room.Accepted(Bob, new PokerJiraSubmitPoints(R(1), 5));
@@ -274,7 +274,7 @@ public sealed class SessionCommandTests {
 
     [Fact]
     public void Jira_meta_persists_parent_keys_only_when_they_change() {
-        var room = Team();
+        var room = PokerHarness.Team();
         room.Accepted(Bob, new PokerRoundSetTicket(R(1), "ABC-5", 1));
 
         var first = room.Accepted(null, new JiraMetaLoaded([new JiraMeta("ABC-5", "Title", ParentKey: "ABC-1")]));
@@ -289,7 +289,7 @@ public sealed class SessionCommandTests {
 
     [Fact]
     public void Roster_and_point_description_changes_are_ephemeral_events() {
-        var room = Team();
+        var room = PokerHarness.Team();
 
         var roster = room.Accepted(null, new RosterChanged([Info(Bob), Info(Alice)]));
         Assert.Equal([Alice.Who.Id, Bob.Who.Id], Assert.IsType<RosterSet>(roster[0]).Seats.Select(x => x.Pid));
@@ -304,7 +304,7 @@ public sealed class SessionCommandTests {
 
     [Fact]
     public void Delete_session_is_for_team_admins_or_the_quick_creator() {
-        var team = Team();
+        var team = PokerHarness.Team();
         Rejected(team.Send(Bob, new DeleteSession()), NackCode.Forbidden);
         Rejected(team.Send(null, new DeleteSession()), NackCode.Forbidden);
         Assert.IsType<SessionDeleted>(Assert.Single(team.Accepted(Dave, new DeleteSession())));

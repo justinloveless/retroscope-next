@@ -15,7 +15,7 @@ namespace Retroscope.Core.Tests.Poker;
 [Trait("Category", "Poker")]
 public sealed class PokerPropertyTests {
     [Property(MaxTest = 300, EndSize = 120)]
-    public void Team_sessions_keep_their_invariants(int[] ops) => new Run(Team(), ops).Check();
+    public void Team_sessions_keep_their_invariants(int[] ops) => new Run(PokerHarness.Team(), ops).Check();
 
     [Property(MaxTest = 200, EndSize = 120)]
     public void Quick_sessions_keep_their_invariants(int[] ops) => new Run(Quick(), ops).Check();
