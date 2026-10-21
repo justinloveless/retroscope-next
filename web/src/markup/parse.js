@@ -167,7 +167,7 @@ class BlockParser {
             break;
           }
           for (; at.i < next; at.i++) {
-            itemLines.push(lines[at.i].length >= marker.width ? lines[at.i].slice(marker.width) : '');
+            itemLines.push(lines[at.i].slice(Math.min(indent(lines[at.i]), marker.width)));
           }
         } else if (indent(line) >= marker.width) {
           itemLines.push(line.slice(marker.width));
