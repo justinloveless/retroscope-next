@@ -58,8 +58,11 @@ test('changes made elsewhere show live, and only action-items cards carry the co
   await expect(actionsOf(target).locator('.retro-assignee')).toHaveText('Carol Danvers');
   await expect(actionsOf(target).locator('.retro-done')).toHaveAttribute('aria-pressed', 'true');
 
+  await expect(target).toHaveClass(/retro-card-done/);
+
   fake.tx(TEAM_ROOM, [{ k: 'team.action.deleted', d: { itemId: item(1).id } }]);
   await expect(actionsOf(target)).toBeHidden();
+  await expect(target).not.toHaveClass(/retro-card-done/);
 });
 
 test('a new action-items card gets its controls once the team room has its item', async ({ page, fake }) => {
