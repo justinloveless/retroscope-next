@@ -1,6 +1,7 @@
 -- The parts of a Supabase project that the schema dump assumes but does not create.
 -- auth.users and auth.identities follow orig/server/postgres/init/02-auth-schema.sql (shaped after GoTrue for a
--- UUID-preserving import) plus GoTrue's generated confirmed_at column. The other auth tables only need to exist,
+-- UUID-preserving import) plus GoTrue's generated confirmed_at column, with the varchar(255) columns of the production
+-- project (Supabase Postgres 15.8, U46). The other auth tables are the production project's; they only need to exist,
 -- because the importer counts them and never reads their rows.
 
 do $$
@@ -15,18 +16,18 @@ create schema auth;
 create table auth.users (
   instance_id uuid,
   id uuid primary key,
-  aud text default 'authenticated',
-  role text default 'authenticated',
-  email text,
-  encrypted_password text,
+  aud varchar(255) default 'authenticated',
+  role varchar(255) default 'authenticated',
+  email varchar(255),
+  encrypted_password varchar(255),
   email_confirmed_at timestamptz,
   invited_at timestamptz,
-  confirmation_token text,
+  confirmation_token varchar(255),
   confirmation_sent_at timestamptz,
-  recovery_token text,
+  recovery_token varchar(255),
   recovery_sent_at timestamptz,
-  email_change_token_new text,
-  email_change text,
+  email_change_token_new varchar(255),
+  email_change varchar(255),
   email_change_sent_at timestamptz,
   last_sign_in_at timestamptz,
   raw_app_meta_data jsonb,
@@ -37,13 +38,13 @@ create table auth.users (
   phone text unique,
   phone_confirmed_at timestamptz,
   phone_change text default '',
-  phone_change_token text default '',
+  phone_change_token varchar(255) default '',
   phone_change_sent_at timestamptz,
   confirmed_at timestamptz generated always as (least(email_confirmed_at, phone_confirmed_at)) stored,
-  email_change_token_current text default '',
+  email_change_token_current varchar(255) default '',
   email_change_confirm_status smallint default 0,
   banned_until timestamptz,
-  reauthentication_token text default '',
+  reauthentication_token varchar(255) default '',
   reauthentication_sent_at timestamptz,
   is_sso_user boolean not null default false,
   deleted_at timestamptz,
@@ -72,6 +73,22 @@ create table auth.flow_state (id uuid primary key, auth_code text not null);
 create table auth.audit_log_entries (id uuid primary key, payload json);
 create table auth.one_time_tokens (id uuid primary key, user_id uuid not null, token_hash text not null);
 create table auth.instances (id uuid primary key, raw_base_config text);
+create table auth.custom_oauth_providers (id uuid primary key);
+create table auth.mfa_recovery_code_sets (id uuid primary key);
+create table auth.mfa_recovery_codes (id uuid primary key);
+create table auth.oauth_authorizations (id uuid primary key);
+create table auth.oauth_client_states (id uuid primary key);
+create table auth.oauth_clients (id uuid primary key);
+create table auth.oauth_consents (id uuid primary key);
+create table auth.saml_providers (id uuid primary key);
+create table auth.saml_relay_states (id uuid primary key);
+create table auth.scim_tokens (id uuid primary key);
+create table auth.scim_users (id uuid primary key);
+create table auth.sso_domains (id uuid primary key);
+create table auth.sso_providers (id uuid primary key);
+create table auth.webauthn_challenges (id uuid primary key);
+create table auth.webauthn_credentials (id uuid primary key);
+create table auth.schema_migrations (version varchar(255) primary key);
 
 create schema storage;
 

@@ -3050,8 +3050,8 @@ Cross-Origin-Opener-Policy: same-origin</code></pre>
 <td></td>
 </tr>
 <tr>
-<td><code>POST issues/{key}/links</code>, <code>DELETE links/{id}</code></td>
-<td></td>
+<td><code>POST issues/{key}/links</code>, <code>DELETE issues/{key}/links/{id}</code></td>
+<td>The link must be in the issue&#39;s own link list (read from Jira), otherwise 404 without calling Jira (UF12)</td>
 </tr>
 <tr>
 <td><code>POST issues {summary, description?, cloneFrom?, projectKey?}</code></td>
@@ -3233,7 +3233,7 @@ web/assets/ cards.png (9-frame sprite) m6x11plus.woff2 (Latin subset) icons.svg 
 <h3 id="h-1-shape">h.1 Shape</h3>
 <ul>
 <li><code>retroscope-import</code> is a JIT console app in its own image (<code>deploy/Dockerfile.importer</code>, built in CI and pushed to GHCR).</li>
-<li><strong>Primary path: off-box (F18).</strong> The operator runs the importer on their own machine (or in a CI job) against a local <code>postgres:18</code> started from the same migrations (<code>deploy/compose.build.yml --profile import-local</code>), runs <code>verify</code> there, then ships the result with <code>pg_dump -Fc --data-only</code> and restores it into the VPS database with <code>docker exec -i &lt;db-container&gt; pg_restore</code> while the app is stopped (RUNBOOK <code>IMPORT_RUNBOOK.md</code>). No heavy JIT/AngleSharp/image work ever runs next to the live Postgres on the 1 GB box.</li>
+<li><strong>Primary path: off-box (F18).</strong> The operator runs the importer on their own machine (or in a CI job) against a local <code>postgres:18</code> started from the same migrations (<code>deploy/compose.build.yml --profile import-local</code>), runs <code>verify</code> there, then ships the whole import database with <code>pg_dump -Fc</code> and restores it into the VPS database through RUNBOOK §8&#39;s backup-restore path while the app is stopped (<code>deploy/IMPORT_RUNBOOK.md</code>). A data-only restore would collide with the <code>schema_migrations</code> and <code>system_state</code> rows the running app already has (decision U46). No heavy JIT/AngleSharp/image work ever runs next to the live Postgres on the 1 GB box.</li>
 <li><strong>Fallback:</strong> the <code>importer</code> compose profile pulls the prebuilt GHCR image and runs on the VPS with <code>mem_limit: 256m</code>, only while the app is stopped.</li>
 <li>Env: <code>IMPORT_SOURCE_PG</code> (Supabase session-pooler URI with <code>SSL Mode=VerifyFull</code>; a read-only role is recommended), <code>IMPORT_SEAL_PUBKEY</code> (RSA-3072 PEM; private key never on the server; if absent, secret fields are stripped instead of sealed), <code>IMPORT_ADMIN_EMAILS</code>, plus <code>DATABASE_OWNER_URL</code>, <code>APP_KEYS</code> and <code>ANON_TAG_KEY</code> (the same values as production, since the encrypted Jira boxes and anon tags must work there). <strong>No Supabase service key</strong> (S26): avatars are listed from <code>storage.objects</code> over the Postgres connection and fetched from their public URLs (the <code>avatars</code> bucket is public). The operator removes the <code>IMPORT_*</code> variables after cutover and rotates the Supabase DB password and keys.</li>
 <li>Verbs: <code>plan</code> (introspect, tag histogram, dry-run counts), <code>fetch-storage</code> (phase 5a), <code>run</code>, <code>verify</code>, <code>cutover</code> (sets <code>system_state.cutover_at</code>; afterwards <code>run</code> refuses unless <code>--force-reimport --i-have-a-dump=&lt;path&gt;</code> is given and the operator types the database name at a prompt, S24).</li>
@@ -3341,7 +3341,7 @@ web/assets/ cards.png (9-frame sprite) m6x11plus.woff2 (Latin subset) icons.svg 
 <tr>
 <td><code>team_action_items</code></td>
 <td><code>team_action_items</code></td>
-<td>Text HTML → markup. <code>source_item_id</code> → <code>source_card_id</code> if imported (<code>source_version = 1</code>), else null. <code>done</code> → <code>done_at = coalesce(done_at, created_at)</code>. <code>assigned_to</code> must be a user. <code>created_by</code>/<code>done_by</code> via the actor-reference rule; <code>created_by = NULL</code> when the source card is anonymous. Source <code>team_action_item_comments</code> are archived (their read path in the new app is the source card&#39;s comments).</td>
+<td>Text HTML → markup. <code>source_item_id</code> → <code>source_card_id</code> if imported (<code>source_version = 1</code>), else null. <code>done</code> → <code>done_at = coalesce(done_at, created_at)</code>. <code>assigned_to</code> must be a user. <code>created_by</code>/<code>done_by</code> via the actor-reference rule; <code>created_by = NULL</code> when the source card is anonymous. Source <code>team_action_item_comments</code> does not exist in production (U46 rehearsal); if it ever appears the operator allow-lists it in <code>expected-columns.json</code>, and it is archived.</td>
 </tr>
 <tr>
 <td><code>endorsement_types</code>, <code>endorsement_settings</code>, <code>endorsements</code></td>
@@ -3369,7 +3369,7 @@ web/assets/ cards.png (9-frame sprite) m6x11plus.woff2 (Latin subset) icons.svg 
 <td><code>ticket_summary</code> dropped (Jira title).</td>
 </tr>
 <tr>
-<td><code>notifications</code>, <code>feature_flags*</code>, <code>organizations*</code>, <code>organization_invitations</code>, <code>org_team_invite_codes</code>, <code>feedback_reports</code>, <code>team_default_settings</code>, <code>team_action_item_comments</code>, <code>retro_board_sessions</code>, <code>board_presence</code>, <code>app_config</code></td>
+<td><code>notifications</code>, <code>feature_flags*</code>, <code>organizations*</code>, <code>organization_invitations</code>, <code>org_team_invite_codes</code>, <code>feedback_reports</code>, <code>team_default_settings</code>, <code>team_action_item_comments</code> (absent in production; archived if allow-listed), <code>retro_board_sessions</code>, <code>board_presence</code>, <code>app_config</code></td>
 <td>archive</td>
 <td>Sealed fields: tokens and codes (<code>organization_invitations.token</code>, <code>org_team_invite_codes.code</code>), <code>app_config.value</code> for keys matching <code>/TOKEN|KEY|SECRET|URL|PASSWORD/i</code>.</td>
 </tr>

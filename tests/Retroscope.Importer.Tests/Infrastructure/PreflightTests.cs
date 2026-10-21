@@ -55,6 +55,31 @@ public sealed class PreflightTests(ImporterDatabases databases) {
     }
 
     [Fact]
+    public void The_production_auth_column_types_are_expected() {
+        var users = ExpectedSchema.Embedded.Find("auth.users")!;
+
+        Assert.All(
+            ["aud", "role", "email", "encrypted_password", "confirmation_token", "recovery_token", "email_change_token_new",
+                "email_change", "phone_change_token", "email_change_token_current", "reauthentication_token"],
+            column => Assert.Equal("varchar", users.Columns[column]));
+        Assert.Equal("text", users.Columns["phone"]);
+        Assert.Equal("text", users.Columns["phone_change"]);
+    }
+
+    [Fact]
+    public async Task A_late_team_action_item_comments_table_must_be_allow_listed() {
+        var source = await databases.CreateSourceAsync();
+        await ImporterDatabases.ExecuteAsync(source, await File.ReadAllTextAsync(Path.Combine(
+            ImporterDatabases.SupabaseDirectory, "migrations", "20250822130500_create_team_action_item_comments.sql"), Ct));
+
+        var failure = await Assert.ThrowsAsync<PreflightFailedException>(() => PreflightAsync(source, ExpectedSchema.Embedded));
+        var (allowed, _) = await PreflightAsync(source, ExpectedSchema.Embedded with { AllowArchiveOnly = ["public.team_action_item_comments"] });
+
+        Assert.Equal(["unknown table public.team_action_item_comments"], failure.Errors);
+        Assert.Equal(TableDisposition.Archive, allowed.Plan("public.team_action_item_comments").Expected.Disposition);
+    }
+
+    [Fact]
     public async Task An_unlisted_auth_column_fails_even_when_allow_listed() {
         var source = await databases.CreateSourceAsync();
         await ImporterDatabases.ExecuteAsync(source, "alter table auth.users add column backup_codes text");
@@ -68,12 +93,12 @@ public sealed class PreflightTests(ImporterDatabases databases) {
     [Fact]
     public async Task An_unlisted_auth_table_fails_even_when_allow_listed() {
         var source = await databases.CreateSourceAsync();
-        await ImporterDatabases.ExecuteAsync(source, "create table auth.webauthn_credentials (id uuid primary key, public_key bytea)");
-        var expected = ExpectedSchema.Embedded with { AllowArchiveOnly = ["auth.webauthn_credentials"] };
+        await ImporterDatabases.ExecuteAsync(source, "create table auth.passkey_vault (id uuid primary key, public_key bytea)");
+        var expected = ExpectedSchema.Embedded with { AllowArchiveOnly = ["auth.passkey_vault"] };
 
         var failure = await Assert.ThrowsAsync<PreflightFailedException>(() => PreflightAsync(source, expected));
 
-        Assert.Equal(["unlisted auth table auth.webauthn_credentials: add it to expected-columns.json (exclude, or map with its sealed columns)"], failure.Errors);
+        Assert.Equal(["unlisted auth table auth.passkey_vault: add it to expected-columns.json (exclude, or map with its sealed columns)"], failure.Errors);
     }
 
     [Fact]

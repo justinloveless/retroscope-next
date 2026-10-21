@@ -8,7 +8,7 @@ namespace Retroscope.Importer.Map;
 /// <summary>
 /// <c>team_action_items</c> (DESIGN §h.2), after the retro stage so the source board and card can be linked. An
 /// action item copied from an anonymous card never records who created it (S6), and neither do its images. The
-/// source <c>team_action_item_comments</c> table is archive-only.
+/// source <c>team_action_item_comments</c> table is archive-only (and absent in production).
 /// </summary>
 public sealed class ActionItemsMap : IImportStage {
     private const string Table = "public.team_action_items";
