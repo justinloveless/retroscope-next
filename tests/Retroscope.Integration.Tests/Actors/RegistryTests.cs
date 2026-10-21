@@ -154,6 +154,41 @@ public sealed class RegistryTests {
     }
 
     [Fact]
+    public async Task An_ask_the_actor_accepted_is_never_served_by_the_purged_room() {
+        for (var i = 0; i < 300; i++) {
+            var room = new CounterRoom();
+            await Ask(room, new CounterInput.Add(1));
+            var actor = await room.ActorAsync();
+            using var start = new Barrier(2);
+
+            var purge = Task.Run(() => {
+                start.SignalAndWait(Token);
+                return room.Registry.TryPurgeAsync(Room, _ => {
+                    room.Store.Erase();
+                    return Task.CompletedTask;
+                }, Token);
+            }, Token);
+            var ask = Task.Run(async () => {
+                start.SignalAndWait(Token);
+                try {
+                    return await actor.AskAsync(new CounterInput.Add(1), Alice, Token);
+                } catch (ActorClosedException) {
+                    return null;
+                }
+            }, Token);
+
+            // Accepted by the live actor: served before the purge, or the purge was refused, whether the ask was
+            // queued before the purge checked the queues or in the instant between that check and the close.
+            var purged = await purge;
+            if (await ask is { } accepted) {
+                Assert.Equal(AskStatus.Accepted, accepted.Status);
+            } else {
+                Assert.True(purged);
+            }
+        }
+    }
+
+    [Fact]
     public async Task A_message_for_a_key_still_being_purged_is_answered_server_busy_after_the_wait() {
         var room = new CounterRoom();
         await Ask(room, new CounterInput.Add(1));
