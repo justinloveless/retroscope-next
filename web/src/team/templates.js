@@ -3,6 +3,7 @@
 
 import { h, replaceContent } from '../core/h.js';
 import { createButton } from '../ui/button.js';
+import { createChoice } from '../ui/choice.js';
 import { createSwitch } from '../ui/switch.js';
 import { confirmDialog } from '../ui/confirm.js';
 import { toast } from '../ui/toast.js';
@@ -104,10 +105,13 @@ export function createTemplatesSettings(ctx) {
         title.addEventListener('input', () => {
           column.title = title.value;
         });
-        const color = h('select', { class: 'select', 'aria-label': `Column ${i + 1} colour` }, ...COLORS.map((c) => h('option', { value: c }, c)));
-        color.value = column.color;
-        color.addEventListener('change', () => {
-          column.color = color.value;
+        const color = createChoice({
+          label: `Column ${i + 1} colour`,
+          options: COLORS.map((c) => ({ value: c, label: c })),
+          value: column.color,
+          onChange(value) {
+            column.color = value;
+          },
         });
         const action = h('input', { type: 'radio', name: radioName, checked: column.actionItems, 'aria-label': `Column ${i + 1} collects action items` });
         action.addEventListener('change', () => {
@@ -115,7 +119,7 @@ export function createTemplatesSettings(ctx) {
             c.actionItems = j === i;
           });
         });
-        return h('li', { class: 'team-column-row' }, title, color,
+        return h('li', { class: 'team-column-row' }, title, color.el,
           h('label', { class: 'team-radio' }, action, h('span', { text: 'Action items' })),
           createButton({
             label: `Remove column ${i + 1}`,

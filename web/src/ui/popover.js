@@ -70,8 +70,10 @@ export function createPopover(props) {
     if (at) {
       anchor = at;
     }
-    if (!el.isConnected) {
-      document.body.appendChild(el);
+    // Inside a modal dialog the rest of the document is inert, so the surface joins the dialog.
+    const host = anchor.closest?.('dialog[open]') ?? document.body;
+    if (el.parentNode !== host) {
+      host.appendChild(el);
     }
     el.hidden = false;
     place(el, anchor.getBoundingClientRect(), props.placement);

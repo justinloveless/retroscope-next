@@ -163,6 +163,21 @@
   background-repeat: no-repeat;
 }
 
+/* A menu button drawn as a select (ui/choice.js). */
+.choice {
+  color: inherit;
+  text-align: start;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.choice:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 /* Switch */
 .switch-field {
   display: inline-flex;

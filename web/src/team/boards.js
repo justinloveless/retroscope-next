@@ -2,6 +2,7 @@ import { h, replaceContent } from '../core/h.js';
 import { reconcile } from '../core/list.js';
 import { formatDate } from '../core/fmt.js';
 import { createButton } from '../ui/button.js';
+import { createChoice } from '../ui/choice.js';
 import { createMenu } from '../ui/menu.js';
 import { icon } from '../ui/icons.js';
 import { toast } from '../ui/toast.js';
@@ -157,24 +158,29 @@ export function createBoardsTab(ctx) {
 
 export function openCreateBoard(ctx) {
   const title = input({ name: 'title', required: true, maxlength: '200', placeholder: 'Sprint 42 retro' });
-  const visibility = h('select', { class: 'select', name: 'visibility' },
-    ...Object.entries(VISIBILITY).map(([value, { label }]) => h('option', { value }, label)));
   const password = input({ name: 'password', type: 'password', autocomplete: 'new-password', minlength: '4', maxlength: '72' });
   const passwordField = field('Board password', password);
   passwordField.hidden = true;
-  const template = h('select', { class: 'select', name: 'templateId' }, h('option', { value: '' }, 'Team default'));
-  visibility.addEventListener('change', () => {
-    passwordField.hidden = visibility.value !== 'password';
-    password.required = visibility.value === 'password';
+  const visibility = createChoice({
+    label: 'Who can open it',
+    name: 'visibility',
+    options: Object.entries(VISIBILITY).map(([value, { label }]) => ({ value, label })),
+    onChange(value) {
+      passwordField.hidden = value !== 'password';
+      password.required = value === 'password';
+    },
   });
+  const template = createChoice({ label: 'Template', name: 'templateId', options: [{ value: '', label: 'Team default' }] });
 
   ctx.api.get('/templates').then((page) => {
-    template.append(...page.items.map((t) => h('option', { value: t.id }, t.name + (t.isDefault ? ' (default)' : ''))));
+    template.update({
+      options: [{ value: '', label: 'Team default' }, ...page.items.map((t) => ({ value: t.id, label: t.name + (t.isDefault ? ' (default)' : '') }))],
+    });
   }, () => {});
 
   formDialog({
     title: 'New retro board',
-    content: [field('Title', title), field('Who can open it', visibility), passwordField, field('Template', template)],
+    content: [field('Title', title), field('Who can open it', visibility.el), passwordField, field('Template', template.el)],
     submitLabel: 'Create board',
     async submit() {
       const body = { title: title.value.trim(), visibility: visibility.value };

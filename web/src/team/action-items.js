@@ -6,6 +6,7 @@ import { reconcile } from '../core/list.js';
 import { parse } from '../markup/parse.js';
 import { render as renderMarkup } from '../markup/render.js';
 import { createButton } from '../ui/button.js';
+import { createChoice } from '../ui/choice.js';
 import { confirmDialog } from '../ui/confirm.js';
 import { icon } from '../ui/icons.js';
 import { optimistic } from './model.js';
@@ -42,20 +43,33 @@ export function renderBody(markup, members) {
 }
 
 export function createActionItemsTab(ctx) {
-  const statusSelect = h('select', { class: 'select', name: 'status', 'aria-label': 'Status' },
-    h('option', { value: 'open' }, 'Open'), h('option', { value: 'done' }, 'Done'), h('option', { value: 'all' }, 'All'));
-  const assigneeSelect = h('select', { class: 'select', name: 'assignee', 'aria-label': 'Assignee' });
-  const sortSelect = h('select', { class: 'select', name: 'sort', 'aria-label': 'Sort' },
-    h('option', { value: 'newest' }, 'Newest first'), h('option', { value: 'oldest' }, 'Oldest first'));
+  const pick = (key, fallback) => (value) => {
+    ctx.setQuery({ [key]: value === fallback ? null : value });
+    current = filters(ctx.query());
+    load(null);
+  };
+  const statusChoice = createChoice({
+    label: 'Status',
+    name: 'status',
+    options: [{ value: 'open', label: 'Open' }, { value: 'done', label: 'Done' }, { value: 'all', label: 'All' }],
+    onChange: pick('status', 'open'),
+  });
+  const assigneeChoice = createChoice({ label: 'Assignee', name: 'assignee', options: [], onChange: pick('assignee', 'all') });
+  const sortChoice = createChoice({
+    label: 'Sort',
+    name: 'sort',
+    options: [{ value: 'newest', label: 'Newest first' }, { value: 'oldest', label: 'Oldest first' }],
+    onChange: pick('sort', 'newest'),
+  });
   const groups = h('div', { class: 'team-groups' });
   const status = h('div');
   const more = createButton({ label: 'Load more', variant: 'secondary', onClick: () => load(cursor) });
   more.el.hidden = true;
   const el = h('section', { class: 'team-section', 'aria-label': 'Action items' },
     h('div', { class: 'card team-filters' },
-      h('label', { class: 'team-filter' }, h('span', { text: 'Status' }), statusSelect),
-      h('label', { class: 'team-filter' }, h('span', { text: 'Assignee' }), assigneeSelect),
-      h('label', { class: 'team-filter' }, h('span', { text: 'Sort' }), sortSelect)),
+      h('label', { class: 'team-filter' }, h('span', { text: 'Status' }), statusChoice.el),
+      h('label', { class: 'team-filter' }, h('span', { text: 'Assignee' }), assigneeChoice.el),
+      h('label', { class: 'team-filter' }, h('span', { text: 'Sort' }), sortChoice.el)),
     status, groups, more.el);
 
   let current = filters(ctx.query());
@@ -65,14 +79,6 @@ export function createActionItemsTab(ctx) {
   let reloadTimer = 0;
   let destroyed = false;
   const panels = new Map();
-
-  for (const [select, key, fallback] of [[statusSelect, 'status', 'open'], [assigneeSelect, 'assignee', 'all'], [sortSelect, 'sort', 'newest']]) {
-    select.addEventListener('change', () => {
-      ctx.setQuery({ [key]: select.value === fallback ? null : select.value });
-      current = filters(ctx.query());
-      load(null);
-    });
-  }
 
   function query(after) {
     const params = new URLSearchParams({ status: current.status, sort: current.sort });
@@ -116,12 +122,11 @@ export function createActionItemsTab(ctx) {
   }
 
   function renderAssignees() {
-    const options = [['all', 'Everyone'], ['unassigned', 'Unassigned'], ...members().map((m) => [m.pid, m.name])];
-    assigneeSelect.replaceChildren(...options.map(([value, label]) => h('option', { value }, label)));
-    if (!options.some(([value]) => value === current.assignee)) {
-      assigneeSelect.append(h('option', { value: current.assignee }, 'Former member'));
+    const options = [{ value: 'all', label: 'Everyone' }, { value: 'unassigned', label: 'Unassigned' }, ...members().map((m) => ({ value: m.pid, label: m.name }))];
+    if (!options.some((o) => o.value === current.assignee)) {
+      options.push({ value: current.assignee, label: 'Former member' });
     }
-    assigneeSelect.value = current.assignee;
+    assigneeChoice.update({ options, value: current.assignee });
   }
 
   function visible() {
@@ -143,8 +148,8 @@ export function createActionItemsTab(ctx) {
   }
 
   function render() {
-    statusSelect.value = current.status;
-    sortSelect.value = current.sort;
+    statusChoice.update({ value: current.status });
+    sortChoice.update({ value: current.sort });
     renderAssignees();
     more.el.hidden = cursor === null;
     const grouped = visible();
@@ -167,6 +172,12 @@ export function createActionItemsTab(ctx) {
     reconcile(section.lastChild, group.items, (i) => i.id, (item) => {
       const card = h('article', { class: 'team-item', dataset: { id: item.id } },
         h('div', { class: 'team-item-text' }), h('div', { class: 'team-item-bar' }), h('div'), h('div'));
+      card.assignee = createChoice({
+        label: 'Assigned to',
+        className: 'team-assignee',
+        options: [],
+        onChange: (pid) => send('team.action.assign', { itemId: item.id, userId: pid || null }),
+      });
       updateItem(card, item);
       return card;
     }, updateItem);
@@ -177,14 +188,15 @@ export function createActionItemsTab(ctx) {
     const [text, bar, toggle, panelHost] = card.children;
     const done = item.doneAt != null;
     card.classList.toggle('team-item-done', done);
-    const assignee = h('select', { class: 'select team-assignee', 'aria-label': 'Assigned to' },
-      h('option', { value: '' }, 'Nobody'),
-      ...members().map((m) => h('option', { value: m.pid }, m.name)));
-    assignee.value = item.assignedTo ?? '';
-    assignee.addEventListener('change', () => send('team.action.assign', { itemId: item.id, userId: assignee.value || null }));
+    const { assignee } = card;
+    const people = [{ value: '', label: 'Nobody' }, ...members().map((m) => ({ value: m.pid, label: m.name }))];
+    if (item.assignedTo && !people.some((p) => p.value === item.assignedTo)) {
+      people.push({ value: item.assignedTo, label: 'Former member' });
+    }
+    assignee.update({ options: people, value: item.assignedTo ?? '' });
     replaceContent(text, renderBody(item.text, members()));
     replaceContent(bar,
-      h('label', { class: 'team-filter' }, h('span', { text: 'Assigned' }), assignee),
+      h('label', { class: 'team-filter' }, h('span', { text: 'Assigned' }), assignee.el),
       createButton({
         label: done ? 'Re-open' : 'Mark done',
         icon: done ? 'rotate-ccw' : 'check',
@@ -276,6 +288,9 @@ export function createActionItemsTab(ctx) {
       token++;
       for (const panel of panels.values()) {
         panel.destroy();
+      }
+      for (const choice of [statusChoice, assigneeChoice, sortChoice]) {
+        choice.destroy();
       }
       el.remove();
     },

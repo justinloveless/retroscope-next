@@ -1,15 +1,24 @@
 import { h, replaceContent } from '../core/h.js';
 import { createAvatar } from '../ui/avatar.js';
+import { createChoice } from '../ui/choice.js';
 import { errorMessage, avatarSrc, loading } from './util.js';
 
 const PERIODS = [['30d', 'Last 30 days'], ['90d', 'Last 90 days'], ['all', 'All time']];
 
 export function createKudosTab(ctx) {
-  const period = h('select', { class: 'select', name: 'period', 'aria-label': 'Period' },
-    ...PERIODS.map(([value, label]) => h('option', { value }, label)));
+  const period = createChoice({
+    label: 'Period',
+    name: 'period',
+    options: PERIODS.map(([value, label]) => ({ value, label })),
+    value: selected(),
+    onChange(value) {
+      ctx.setQuery({ period: value === '30d' ? null : value });
+      load();
+    },
+  });
   const body = h('div');
   const el = h('section', { class: 'team-section', 'aria-label': 'Kudos' },
-    h('div', { class: 'team-toolbar' }, h('h2', { class: 'team-section-title', text: 'Kudos leaderboard' }), period),
+    h('div', { class: 'team-toolbar' }, h('h2', { class: 'team-section-title', text: 'Kudos leaderboard' }), period.el),
     body);
 
   let entries = null;
@@ -19,12 +28,6 @@ export function createKudosTab(ctx) {
     const value = ctx.query().get('period');
     return PERIODS.some(([p]) => p === value) ? value : '30d';
   }
-
-  period.value = selected();
-  period.addEventListener('change', () => {
-    ctx.setQuery({ period: period.value === '30d' ? null : period.value });
-    load();
-  });
 
   async function load() {
     const run = ++token;
@@ -71,13 +74,14 @@ export function createKudosTab(ctx) {
     el,
     queryChanged() {
       if (period.value !== selected()) {
-        period.value = selected();
+        period.update({ value: selected() });
         load();
       }
     },
     destroy() {
       stop();
       token++;
+      period.destroy();
       el.remove();
     },
   };
