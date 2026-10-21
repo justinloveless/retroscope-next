@@ -1,0 +1,72 @@
+{
+"cases": [
+  {
+    "name": "media resolves by filename",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[{"type":"mediaSingle","content":[{"type":"media","attrs":{"type":"file","id":"m-1","collection":"","alt":"diagram.png"}}]}]},
+    "attachments": [{"id":"10001","filename":"notes.txt","mimeType":"text/plain","created":"2026-03-01T09:00:00.000+0000"},{"id":"10002","filename":"diagram.png","mimeType":"image/png","created":"2026-03-01T10:00:00.000+0000"}],
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"attachment","id":"10002","alt":"diagram.png"}]}]}
+  },
+  {
+    "name": "colliding names map by upload order",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[{"type":"mediaSingle","content":[{"type":"media","attrs":{"type":"file","id":"m-first","collection":"","alt":"image.png"}}]},{"type":"mediaSingle","content":[{"type":"media","attrs":{"type":"file","id":"m-second","collection":"","alt":"image.png"}}]}]},
+    "attachments": [{"id":"10020","filename":"image.png","mimeType":"image/png","created":"2026-03-02T10:00:00.000+0000"},{"id":"10010","filename":"image.png","mimeType":"image/png","created":"2026-03-01T10:00:00.000+0000"}],
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"attachment","id":"10010","alt":"image.png"}]},{"t":"p","c":[{"t":"attachment","id":"10020","alt":"image.png"}]}]}
+  },
+  {
+    "name": "same upload time falls back to the attachment id",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[{"type":"mediaGroup","content":[{"type":"media","attrs":{"type":"file","id":"m-a","collection":"","alt":"shot.png"}},{"type":"media","attrs":{"type":"file","id":"m-b","collection":"","alt":"shot.png"}}]}]},
+    "attachments": [{"id":"10100","filename":"shot.png","mimeType":"image/png","created":"2026-03-01T10:00:00.000+0000"},{"id":"9999","filename":"shot.png","mimeType":"image/png","created":"2026-03-01T10:00:00.000+0000"}],
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"attachment","id":"9999","alt":"shot.png"},{"t":"attachment","id":"10100","alt":"shot.png"}]}]}
+  },
+  {
+    "name": "the same media twice is the same attachment",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[{"type":"mediaSingle","content":[{"type":"media","attrs":{"type":"file","id":"m-1","collection":"","alt":"a.png"}}]},{"type":"mediaSingle","content":[{"type":"media","attrs":{"type":"file","id":"m-1","collection":"","alt":"a.png"}}]}]},
+    "attachments": [{"id":"1","filename":"a.png","mimeType":"image/png","created":"2026-03-01T10:00:00.000+0000"},{"id":"2","filename":"a.png","mimeType":"image/png","created":"2026-03-02T10:00:00.000+0000"}],
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"attachment","id":"1","alt":"a.png"}]},{"t":"p","c":[{"t":"attachment","id":"1","alt":"a.png"}]}]}
+  },
+  {
+    "name": "unresolved media is a placeholder",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[{"type":"mediaSingle","content":[{"type":"media","attrs":{"type":"file","id":"m-1","collection":"","alt":"gone.png"}}]},{"type":"mediaSingle","content":[{"type":"media","attrs":{"type":"file","id":"m-2","collection":""}}]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"image (open in Jira)"}]},{"t":"p","c":[{"t":"text","v":"image (open in Jira)"}]}]}
+  },
+  {
+    "name": "more media than uploads with that name",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[{"type":"mediaGroup","content":[{"type":"media","attrs":{"type":"file","id":"m-1","collection":"","alt":"x.png"}},{"type":"media","attrs":{"type":"file","id":"m-2","collection":"","alt":"x.png"}}]}]},
+    "attachments": [{"id":"7","filename":"x.png","mimeType":"image/png","created":"2026-03-01T10:00:00.000+0000"}],
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"attachment","id":"7","alt":"x.png"},{"t":"text","v":"image (open in Jira)"}]}]}
+  },
+  {
+    "name": "a file that is not an image links to Jira",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[{"type":"mediaGroup","content":[{"type":"media","attrs":{"type":"file","id":"m-1","collection":"","alt":"spec.pdf"}}]}]},
+    "attachments": [{"id":"8","filename":"spec.pdf","mimeType":"application/pdf","created":"2026-03-01T10:00:00.000+0000"}],
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"spec.pdf (open in Jira)"}]}]}
+  },
+  {
+    "name": "svg is never an inline image",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[{"type":"mediaSingle","content":[{"type":"media","attrs":{"type":"file","id":"m-1","collection":"","alt":"logo.svg"}}]}]},
+    "attachments": [{"id":"9","filename":"logo.svg","mimeType":"image/svg+xml","created":"2026-03-01T10:00:00.000+0000"}],
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"logo.svg (open in Jira)"}]}]}
+  },
+  {
+    "name": "external media is a link",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[{"type":"mediaSingle","content":[{"type":"media","attrs":{"type":"external","url":"https://cdn.example.com/a.png","alt":"chart"}}]},{"type":"mediaSingle","content":[{"type":"media","attrs":{"type":"external","url":"javascript:alert(1)"}}]}]},
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"a","href":"https://cdn.example.com/a.png","c":[{"t":"text","v":"chart"}]}]},{"t":"p","c":[{"t":"text","v":"image (open in Jira)"}]}]}
+  },
+  {
+    "name": "caption and inline media",
+    "mode": "render",
+    "adf": {"type":"doc","version":1,"content":[{"type":"mediaSingle","content":[{"type":"media","attrs":{"type":"file","id":"m-1","collection":"","alt":"a.png"}},{"type":"caption","content":[{"type":"text","text":"Figure 1"}]}]},{"type":"paragraph","content":[{"type":"text","text":"see "},{"type":"mediaInline","attrs":{"type":"file","id":"m-2","collection":"","alt":"b.gif"}}]}]},
+    "attachments": [{"id":"1","filename":"a.png","mimeType":"image/png","created":"2026-03-01T10:00:00.000+0000"},{"id":"2","filename":"b.gif","mimeType":"image/gif","created":"2026-03-01T10:00:00.000+0000"}],
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"attachment","id":"1","alt":"a.png"}]},{"t":"p","c":[{"t":"text","v":"Figure 1"}]},{"t":"p","c":[{"t":"text","v":"see "},{"t":"attachment","id":"2","alt":"b.gif"}]}]}
+  }
+]
+}
