@@ -123,9 +123,13 @@ export class FakeConnection {
 }
 
 export class FakeServer extends EventEmitter {
-  constructor({ dist = DEFAULT_DIST, boot, me = DEFAULT_ME, helloTimeoutMs = 5000, clockOffsetMs = 0 } = {}) {
+  // `aliases` are other host names (e.g. 'localhost') a browser may use for this server's port; each is its
+  // own origin, so a demo can keep two cookie jars apart. `shellHeaders(req)` adds headers to shell pages.
+  constructor({ dist = DEFAULT_DIST, boot, me = DEFAULT_ME, helloTimeoutMs = 5000, clockOffsetMs = 0, aliases = [], shellHeaders = null } = {}) {
     super();
     this.distDir = dist;
+    this.aliases = aliases;
+    this.shellHeaders = shellHeaders;
     this.boot = boot ?? ((path) => ({ build: 'fake', theme: 'system', me: null, path }));
     this.me = me;
     this.helloTimeoutMs = helloTimeoutMs;
@@ -160,7 +164,16 @@ export class FakeServer extends EventEmitter {
     this.origin = `http://${this.host}`;
     this.url = this.origin;
     this.wsUrl = `ws://${this.host}/ws`;
+    this.hosts = new Set([this.host, ...this.aliases.map((name) => `${name}:${address.port}`)]);
     return this;
+  }
+
+  hostOf(req) {
+    return this.hosts.has(req.headers.host) ? req.headers.host : this.host;
+  }
+
+  originOf(req) {
+    return `http://${this.hostOf(req)}`;
   }
 
   async close() {
@@ -186,7 +199,7 @@ export class FakeServer extends EventEmitter {
   }
 
   async onRequest(req, res) {
-    const url = new URL(req.url, this.origin);
+    const url = new URL(req.url, this.originOf(req));
     const body = await readBody(req);
     const record = {
       method: req.method,
@@ -194,6 +207,7 @@ export class FakeServer extends EventEmitter {
       query: url.searchParams,
       headers: req.headers,
       text: body.toString('utf8'),
+      bytes: body,
     };
     record.json = parseJson(record.text);
     this.requests.push(record);
@@ -201,7 +215,7 @@ export class FakeServer extends EventEmitter {
 
     const unsafe = req.method !== 'GET' && req.method !== 'HEAD';
     if (unsafe && url.pathname.startsWith('/api/')) {
-      const badOrigin = req.headers.origin !== undefined && req.headers.origin !== this.origin;
+      const badOrigin = req.headers.origin !== undefined && req.headers.origin !== this.originOf(req);
       if (req.headers['x-rs'] !== '1' || badOrigin) {
         await writeResponse(res, problem(403, 'csrf'));
         return;
@@ -231,7 +245,8 @@ export class FakeServer extends EventEmitter {
       const route = shellRoute(url.pathname);
       if (route) {
         const html = renderShell(this.dist, route, this.bootFor(url.pathname + url.search, req));
-        await writeResponse(res, { body: html, headers: { 'Content-Type': 'text/html; charset=utf-8', ...securityHeaders(this.dist, this.host) } });
+        const headers = { 'Content-Type': 'text/html; charset=utf-8', ...securityHeaders(this.dist, this.hostOf(req)), ...this.shellHeaders?.(req, url) };
+        await writeResponse(res, { body: html, headers });
         return;
       }
     }
@@ -386,7 +401,7 @@ export class FakeServer extends EventEmitter {
   }
 
   onUpgrade(req, socket, head) {
-    const url = new URL(req.url, this.origin);
+    const url = new URL(req.url, this.originOf(req));
     if (url.pathname !== '/ws') {
       socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
       return;
@@ -397,7 +412,7 @@ export class FakeServer extends EventEmitter {
     }
     const conn = new FakeConnection(this, ws, req);
     this.connections.push(conn);
-    if (req.headers.origin !== this.origin) {
+    if (req.headers.origin !== this.originOf(req)) {
       conn.close(CLOSE.BAD_ORIGIN, 'bad origin');
       return;
     }
@@ -483,14 +498,24 @@ export class FakeServer extends EventEmitter {
     this.emit('hello', conn);
   }
 
+  // Emits 'subscribe' (conn, room) after the first snap or replay a connection gets for a room.
   subscribe(conn, key, epoch, seq) {
     const room = this.rooms.get(key);
     if (!room) {
       conn.send({ t: 'kick', r: key, code: 'not_found' });
       return;
     }
+    const fresh = !room.subscribers.has(conn);
     room.subscribers.add(conn);
     conn.subs.add(key);
+    this.sendInitial(conn, room, epoch, seq);
+    if (fresh) {
+      this.emit('subscribe', conn, room);
+    }
+  }
+
+  sendInitial(conn, room, epoch, seq) {
+    const key = room.key;
     const lastQ = room.cursors.get(conn.cid) ?? 0;
     const sameIncarnation = epoch === room.epoch && seq !== undefined;
     if (sameIncarnation && seq <= room.seq && seq >= room.firstSeq - 1) {
@@ -511,8 +536,10 @@ export class FakeServer extends EventEmitter {
   }
 
   unsubscribe(conn, room) {
-    room.subscribers.delete(conn);
-    conn.subs.delete(room.key);
+    if (room.subscribers.delete(conn)) {
+      conn.subs.delete(room.key);
+      this.emit('unsubscribe', conn, room);
+    }
   }
 
   nack(conn, frame, code, { msg, d } = {}) {
