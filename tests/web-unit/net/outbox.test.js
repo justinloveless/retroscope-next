@@ -29,7 +29,10 @@ test('q strictly increases and entries persist with pid and sentAt', () => {
   assert.deepEqual([a.q, b.q], [1, 2]);
   const saved = JSON.parse(storage.data.get('rs.outbox'));
   assert.equal(saved.cseq, 2);
-  assert.deepEqual(saved.entries[0], { r: ROOM, q: 1, k: 'retro.vote.set', d: { cardId: 'x', on: true }, pid: PID, sentAt: timers.now(), sent: false });
+  assert.deepEqual(saved.entries[0], {
+    r: ROOM, q: 1, k: 'retro.vote.set', d: { cardId: 'x', on: true }, pid: PID, sentAt: timers.now(), sent: false,
+    key: 'retro.vote.set:x', superseded: false, retry: false,
+  });
   assert.deepEqual(outbox.entries(ROOM), [a]);
 });
 
@@ -79,6 +82,22 @@ test('renumber moves the entry behind every other entry in q order', () => {
   outbox.renumber(a);
   assert.deepEqual(outbox.entries(ROOM), [b, a]);
   assert.deepEqual(outbox.entries(ROOM).map((e) => e.q), [2, 3]);
+});
+
+test('a later entry with the same supersede key marks earlier ones of its room', () => {
+  const storage = memoryStorage();
+  const { outbox } = outboxWith({ storage });
+  const three = outbox.add(ROOM, 'poker.vote.set', { roundId: 'r', points: '3' });
+  const other = outbox.add(ROOM, 'poker.vote.set', { roundId: 's', points: '3' });
+  const elsewhere = outbox.add(OTHER_ROOM, 'poker.vote.set', { roundId: 'r', points: '3' });
+  const create = outbox.add(ROOM, 'retro.card.add', { cardId: 'c', columnId: 'k', body: 'x', anonymous: false });
+  outbox.add(ROOM, 'retro.card.add', { cardId: 'c', columnId: 'k', body: 'x', anonymous: false });
+  const five = outbox.add(ROOM, 'poker.abstain.set', { roundId: 'r', abstain: true });
+  assert.deepEqual([three, other, elsewhere, create, five].map((e) => e.superseded), [true, false, false, false, false]);
+  outbox.renumber(three);
+  assert.equal(three.retry, true);
+  const saved = JSON.parse(storage.data.get('rs.outbox')).entries.find((e) => e.q === three.q);
+  assert.deepEqual([saved.superseded, saved.retry], [true, true], 'both flags survive a reload');
 });
 
 test('a principal change clears the outbox and mints a new cid', () => {

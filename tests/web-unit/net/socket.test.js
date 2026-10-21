@@ -247,6 +247,30 @@ test('cid_reuse mints a new cid and resends every pending entry with a new q', a
   assert.deepEqual(next.frames('cmd').map((f) => [f.q, f.d.body]), [[3, 'x'], [4, 'y']]);
 });
 
+test('after cid_reuse, a create that already committed under the old cid is acked once, not applied twice', async () => {
+  const { socket, ws } = setup();
+  const room = joinRoom(socket);
+  socket.start();
+  await welcome(ws.last());
+  ws.last().receive({ t: 'snap', r: ROOM, e: EPOCH, s: 3, lastQ: 0, d: { items: [] } });
+  room.send('retro.card.add', { cardId: 'c', columnId: 'k', body: 'x', anonymous: false });
+  room.send('retro.card.add', { cardId: 'd', columnId: 'k', body: 'y', anonymous: false });
+  // x committed, but its ack was lost; y collided with another tab's (cid, q).
+  ws.last().receive({ t: 'tx', r: ROOM, s: 4, ev: [{ k: 'test.added', d: { item: 'x' } }] });
+  ws.last().receive({ t: 'nack', r: ROOM, q: 2, code: 'cid_reuse', retry: false });
+  const next = ws.last();
+  await welcome(next);
+  next.receive({ t: 'replay', r: ROOM, e: EPOCH, from: 5, lastQ: 0, txs: [] });
+  assert.deepEqual(next.frames('cmd').map((f) => [f.q, f.d.cardId]), [[3, 'c'], [4, 'd']]);
+
+  // The server finds card c with the same payload and acks without a tx (Core's idempotent-create rule).
+  next.receive({ t: 'ack', r: ROOM, q: 3, s: 4 });
+  next.receive({ t: 'tx', r: ROOM, s: 5, ev: [{ k: 'test.added', d: { item: 'y' } }] });
+  next.receive({ t: 'ack', r: ROOM, q: 4, s: 5 });
+  assert.equal(room.pending().length, 0);
+  assert.deepEqual(room.view.items, ['x', 'y']);
+});
+
 test('online and visible reconnect at once instead of waiting out the backoff', async () => {
   const { socket, ws, doc, win } = setup({ random: () => 1 });
   socket.start();

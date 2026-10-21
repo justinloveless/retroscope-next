@@ -492,3 +492,44 @@ test('pathological input parses and writes in linear-ish time', () => {
     assert.ok(performance.now() - start < 1000, `${input.slice(0, 12)}… took too long`);
   }
 });
+
+// The rows of MarkupJiraLengthTimingTests: Jira text is capped at 32,000 characters and parsed on the request
+// path, so each hostile body must parse in under 200 ms. The fastest of three runs absorbs a GC pause.
+const JIRA_TEXT_LENGTH = 32000;
+const TIMING_MENTION = '[[mention:00112233-4455-6677-8899-aabbccddeeff:Ada]]';
+const repeatTo = (piece, length) => piece.repeat(Math.floor(length / piece.length) + 1).slice(0, length);
+const nestedTo = (opener, closer, length) => {
+  const half = repeatTo(opener, Math.floor(length / 2));
+  return half + repeatTo(closer, length - half.length);
+};
+const JIRA_LENGTH_BODIES = [
+  nestedTo('**_~~*', '*~~_**', JIRA_TEXT_LENGTH),
+  nestedTo('**_~~*a ', ' a*~~_**', JIRA_TEXT_LENGTH),
+  repeatTo('**_~~*', JIRA_TEXT_LENGTH),
+  repeatTo('[a](https://example.com/', JIRA_TEXT_LENGTH),
+  repeatTo('[a](', JIRA_TEXT_LENGTH),
+  repeatTo('[a]', JIRA_TEXT_LENGTH),
+  repeatTo('[', JIRA_TEXT_LENGTH),
+  repeatTo('[**a', JIRA_TEXT_LENGTH),
+  `[${repeatTo('a ', JIRA_TEXT_LENGTH - 1)}`,
+  repeatTo(TIMING_MENTION, JIRA_TEXT_LENGTH),
+  repeatTo(TIMING_MENTION.slice(0, -2), JIRA_TEXT_LENGTH),
+  repeatTo('[[mention:', JIRA_TEXT_LENGTH),
+  repeatTo(`*${TIMING_MENTION}`, JIRA_TEXT_LENGTH),
+];
+
+for (const dialect of DIALECTS) {
+  for (const body of JIRA_LENGTH_BODIES) {
+    test(`Jira-length body ${JSON.stringify(body.slice(0, 16))}… parses within 200 ms (${dialect})`, () => {
+      assert.equal(body.length, JIRA_TEXT_LENGTH);
+      parse('**warm** [up](https://example.com)', { dialect });
+      let fastest = Infinity;
+      for (let run = 0; run < 3; run++) {
+        const start = performance.now();
+        parse(body, { dialect });
+        fastest = Math.min(fastest, performance.now() - start);
+      }
+      assert.ok(fastest < 200, `took ${fastest.toFixed(1)} ms`);
+    });
+  }
+}

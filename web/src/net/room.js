@@ -91,14 +91,26 @@ export function createRoom(key, model, { outbox, net, onNack = () => {}, schedul
     cancelRetry = null;
   }
 
-  // Everything not yet on the wire of this connection, in q order (R3, R4).
+  function drop(entry) {
+    outbox.remove(entry);
+    intents.delete(entry);
+    changed();
+    if (entries().length === 0) {
+      net.drained?.(room);
+    }
+  }
+
+  // Everything not yet on the wire of this connection, in q order (R3, R4). A retry that a later entry
+  // superseded while it waited would reverse that entry's intent, so it is dropped instead (U28).
   function flush() {
     if (!canSend()) {
       return;
     }
     const conn = net.conn();
     for (const entry of entries()) {
-      if (intents.get(entry)?.conn !== conn) {
+      if (entry.retry && entry.superseded) {
+        drop(entry);
+      } else if (intents.get(entry)?.conn !== conn) {
         transmit(entry);
       }
     }
@@ -210,6 +222,10 @@ export function createRoom(key, model, { outbox, net, onNack = () => {}, schedul
       return;
     }
     if (frame.retry || isRetryable(frame.code)) {
+      if (entry.superseded) {
+        drop(entry);
+        return;
+      }
       // The server did not apply it. A fresh q keeps a later command from turning the resend into a dup.
       outbox.renumber(entry);
       intents.set(entry, { ...intents.get(entry), conn: null });
@@ -218,12 +234,7 @@ export function createRoom(key, model, { outbox, net, onNack = () => {}, schedul
       return;
     }
     const intent = intents.get(entry);
-    outbox.remove(entry);
-    intents.delete(entry);
-    changed();
-    if (entries().length === 0) {
-      net.drained?.(room);
-    }
+    drop(entry);
     const nack = { code: frame.code, msg: frame.msg, d: frame.d, k: entry.k, sent: entry.d };
     if (frame.code === 'stale') {
       const policy = STALE[entry.k];
