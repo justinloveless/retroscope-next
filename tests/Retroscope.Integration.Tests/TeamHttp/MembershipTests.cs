@@ -127,6 +127,32 @@ public sealed class MembershipTests(PostgresFixture postgres) {
         Assert.Equal(1L, await host.ScalarAsync<long>("select count(*) from audit_log where action = 'team.owner.transfer' and team_id = $1", team));
     }
 
+    [Fact]
+    public async Task A_transfer_that_fails_to_promote_leaves_the_old_owner_in_place() {
+        await using var host = await TeamHttpHost.StartAsync(postgres);
+        var owner = await host.UserAsync("Olive");
+        var member = await host.UserAsync("Mia");
+        var team = await host.TeamAsync(owner, "Platform", (member, "member"));
+        // Every promotion to owner in this team fails, as a crash between two statements would.
+        await host.ExecuteAsync($$"""
+            create function refuse_owner() returns trigger language plpgsql as $$
+            begin
+              if new.role = 'owner' and new.team_id = '{{team}}' then
+                raise exception 'promotion refused';
+              end if;
+              return new;
+            end $$;
+            create trigger refuse_owner before update on team_members for each row execute function refuse_owner();
+            """);
+
+        using var transferred = await host.PostAsync(owner, $"/api/teams/{team}/transfer-ownership", new { userId = member.Guid });
+
+        Assert.NotEqual(HttpStatusCode.NoContent, transferred.StatusCode);
+        Assert.Equal("owner", await RoleAsync(host, team, owner));
+        Assert.Equal("member", await RoleAsync(host, team, member));
+        Assert.Equal(0L, await host.ScalarAsync<long>("select count(*) from audit_log where action = 'team.owner.transfer'"));
+    }
+
     private static Task<string> RoleAsync(TeamHttpHost host, Guid team, TestUser user) {
         return host.ScalarAsync<string>("select role from team_members where team_id = $1 and user_id = $2", team, user.Guid);
     }
