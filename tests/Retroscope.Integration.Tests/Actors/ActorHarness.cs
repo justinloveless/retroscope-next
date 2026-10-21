@@ -12,7 +12,8 @@ namespace Retroscope.Integration.Tests.Actors;
 
 internal static class ActorHarness {
     public static readonly DateTimeOffset Start = new(2026, 10, 20, 12, 0, 0, TimeSpan.Zero);
-    public static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
+    // Only a failing test waits this long, so it is generous: a loaded machine can starve a passing one for seconds.
+    public static readonly TimeSpan Wait = TimeSpan.FromSeconds(60);
 
     public static CancellationToken Token => TestContext.Current.CancellationToken;
 

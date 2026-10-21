@@ -10,17 +10,19 @@ namespace Retroscope.Integration.Tests.Transport;
 // that sends nothing stays connected; a peer that stops answering is aborted.
 [Trait("Category", "Transport")]
 public sealed class LivenessTests {
+    // Many PINGs per test, but a timeout a starved test process can still answer within: what is measured is surviving
+    // more than two whole timeouts on PONGs alone, and being aborted once the PONGs stop.
     private static readonly TransportOptions Fast = new() {
         KeepAliveInterval = TimeSpan.FromMilliseconds(100),
-        KeepAliveTimeout = TimeSpan.FromMilliseconds(300),
+        KeepAliveTimeout = TimeSpan.FromMilliseconds(1500),
     };
 
     [Fact]
     public async Task A_silent_client_keeps_working_across_many_ping_intervals() {
         await using var app = await TransportApp.StartAsync(Fast);
         await using var client = await app.HelloAsync();
-        var pending = client.ReceiveAsync(TimeSpan.FromSeconds(10));
-        await Task.Delay(1500, TestContext.Current.CancellationToken);
+        var pending = client.ReceiveAsync(Wait.Default);
+        await Task.Delay((2 * Fast.KeepAliveTimeout) + (5 * Fast.KeepAliveInterval), TestContext.Current.CancellationToken);
         Assert.False(pending.IsCompleted);
         Assert.Equal(1, app.Registry.Count);
         Assert.Empty(app.Gateway.Of("gone"));

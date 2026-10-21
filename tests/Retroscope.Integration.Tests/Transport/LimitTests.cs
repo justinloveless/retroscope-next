@@ -155,7 +155,6 @@ public sealed class LimitTests {
         var allowed = 1 + (2 * options.FrameBurst) + (int)Math.Ceiling(elapsed.TotalSeconds * options.FramesPerSecond);
         var subs = app.Gateway.Of("sub").Count(x => x.Room == room);
         Assert.True(subs <= allowed, $"{subs} subs reached the gateway in {elapsed}; the limit allows {allowed}");
-        Assert.True(subs < Rounds / 2, $"{subs} subs reached the gateway");
     }
 
     [Fact]

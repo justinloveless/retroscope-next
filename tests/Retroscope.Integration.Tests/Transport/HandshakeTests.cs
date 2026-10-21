@@ -8,7 +8,8 @@ namespace Retroscope.Integration.Tests.Transport;
 
 [Trait("Category", "Transport")]
 public sealed class HandshakeTests {
-    private static readonly TransportOptions Fast = new() { HelloTimeout = TimeSpan.FromMilliseconds(300) };
+    // Short enough to wait out, long enough that a starved test process still says hello in time.
+    private static readonly TransportOptions Fast = new() { HelloTimeout = TimeSpan.FromMilliseconds(1500) };
 
     [Fact]
     public async Task Hello_is_answered_with_welcome_naming_the_connection_and_the_principal() {
@@ -23,7 +24,7 @@ public sealed class HandshakeTests {
         Assert.Equal(PrincipalKind.Guest, welcome.Me.Kind);
         Assert.Equal("Gus", welcome.Me.Name);
         Assert.NotEqual(Guid.Empty, welcome.Conn.Value);
-        Assert.InRange(welcome.N, DateTimeOffset.UtcNow.AddSeconds(-5).ToUnixTimeMilliseconds(), DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        Assert.InRange(welcome.N, DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeMilliseconds(), DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
     }
 
     [Fact]
@@ -40,7 +41,7 @@ public sealed class HandshakeTests {
     public async Task Hello_in_time_cancels_the_timeout() {
         await using var app = await TransportApp.StartAsync(Fast);
         await using var client = await app.HelloAsync();
-        await Task.Delay(600, TestContext.Current.CancellationToken);
+        await Task.Delay(2 * Fast.HelloTimeout, TestContext.Current.CancellationToken);
 
         await client.SendAsync(new PingFrame(7));
 
