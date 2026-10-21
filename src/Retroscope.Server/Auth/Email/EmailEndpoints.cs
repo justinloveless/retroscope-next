@@ -86,7 +86,9 @@ public static class EmailEndpoints {
     }
 
     // The click on "Sign in as j•••@x.com?" (S18). A link for an address without an account creates a verified one; a
-    // link to an unverified account claims it (§e takeover rule) before signing in.
+    // link to an unverified account claims it (§e takeover rule) before signing in. The rule is for proof "by someone
+    // other than the current session holder": a browser already signed in to that account only verifies it, so an
+    // honest user keeps their password and other sessions.
     private static async Task<IResult> MagicConsumeAsync(
         TokenRequest body,
         HttpContext context,
@@ -104,7 +106,7 @@ public static class EmailEndpoints {
         var user = use.User ?? await users.FindIdAsync(use.Email, cancellationToken);
         if (user is null) {
             var created = new PrincipalId(Guid.CreateVersion7());
-            user = await users.CreateAsync(created, use.Email, passwordHash: null, fullName: "", emailVerifiedAt: now, now, cancellationToken)
+            user = await users.CreateAsync(new NewUser(created, use.Email, PasswordHash: null, FullName: "", EmailVerifiedAt: now, now), cancellationToken)
                 ? created
                 : await users.FindIdAsync(use.Email, cancellationToken);
         }
@@ -112,7 +114,19 @@ public static class EmailEndpoints {
             return InvalidToken();
         }
 
-        await claims.ClaimAsync(id, OwnershipProof.MagicLink, cancellationToken);
+        if (await context.GetCallerAsync() is { IsUser: true } caller && caller.Principal.Id == id) {
+            if (!caller.EmailVerified) {
+                await users.WriteAsync(
+                    [
+                        UsersRepo.MarkVerified(id, now),
+                        UsersRepo.Audit("auth.verify", id, id.ToString(), new Dictionary<string, string> { ["proof"] = "magic_link" }, now),
+                    ],
+                    cancellationToken);
+                sessions.EvictUser(id);
+            }
+        } else {
+            await claims.ClaimAsync(id, OwnershipProof.MagicLink, cancellationToken);
+        }
         var profile = (await users.GetProfileAsync(id, cancellationToken))!;
         var principal = new Principal(id, PrincipalKind.User, profile.DisplayName, profile.AvatarBlobId, profile.IsAdmin);
         var session = await sessions.SignInAsync(context, principal, profile.EmailVerified, AuthMethod.MagicLink, cancellationToken);
@@ -144,7 +158,8 @@ public static class EmailEndpoints {
     }
 
     // Proves mailbox control, so it also verifies the email. Every session is revoked: whoever knew the old password
-    // is out. The client signs in with the new password next.
+    // is out. The client signs in with the new password next. A disabled account is refused like a dead link and its
+    // token stays unconsumed; the check is inside the consuming transaction, so a disable cannot slip in between.
     private static async Task<IResult> ResetConsumeAsync(
         ResetConsumeRequest body,
         HttpContext context,
@@ -173,7 +188,7 @@ public static class EmailEndpoints {
                 BatchCommands = {
                     new("""
                         update users set password_hash = $2, email_verified_at = coalesce(email_verified_at, $3), updated_at = $3
-                        where id = $1
+                        where id = $1 and disabled_at is null
                         """) {
                         Parameters = { new() { Value = user.Value }, new() { Value = hashed.Value }, new() { Value = now } },
                     },
@@ -183,10 +198,12 @@ public static class EmailEndpoints {
                     SessionsRepo.DeleteAllOf(user),
                 },
             };
-            await using var reader = await batch.ExecuteReaderAsync(cancellationToken);
-            while (await reader.ReadAsync(cancellationToken)) {
-                revoked.Add(reader.GetFieldValue<byte[]>(0));
+            await using (var reader = await batch.ExecuteReaderAsync(cancellationToken)) {
+                while (await reader.ReadAsync(cancellationToken)) {
+                    revoked.Add(reader.GetFieldValue<byte[]>(0));
+                }
             }
+            return batch.BatchCommands[0].RecordsAffected == 1;
         }, cancellationToken);
         if (use is null) {
             return InvalidToken();
@@ -212,13 +229,12 @@ public static class EmailEndpoints {
         var use = await tokens.ConsumeAsync(body.Token, TokenPurpose.VerifyEmail, user, async (_, connection, transaction) => {
             await using var batch = new NpgsqlBatch(connection, transaction) {
                 BatchCommands = {
-                    new("update users set email_verified_at = coalesce(email_verified_at, $2), updated_at = $2 where id = $1") {
-                        Parameters = { new() { Value = user.Value }, new() { Value = now } },
-                    },
+                    UsersRepo.MarkVerified(user, now),
                     UsersRepo.Audit("auth.verify", user, user.ToString(), new Dictionary<string, string>(), now),
                 },
             };
             await batch.ExecuteNonQueryAsync(cancellationToken);
+            return true;
         }, cancellationToken);
         if (use is null) {
             return await tokens.PeekAsync(body.Token, TokenPurpose.VerifyEmail, cancellationToken) is null

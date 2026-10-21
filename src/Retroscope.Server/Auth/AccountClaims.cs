@@ -38,32 +38,48 @@ public enum OwnershipProof {
 /// <summary>
 /// The takeover rule, in one place (§e; S1, S4). An account whose email is unverified is unclaimed. The first proof
 /// of mailbox ownership (a trusted OIDC email or a consumed magic link) claims it: the email becomes verified, the
-/// password is cleared and every session is revoked, so whoever registered the address first (a squatter, or an
-/// imported unverified account) loses access. A verified account is never claimed.
+/// password is cleared, every session is revoked and every external identity is unlinked, so whoever registered the
+/// address first (a squatter, or an imported unverified account) loses access. A verified account is never claimed.
 /// </summary>
 public sealed class AccountClaims(NpgsqlDataSource dataSource, Sessions sessions, TimeProvider time) {
     /// <returns>True when the account was unverified and is now claimed; false when it was already verified (or is gone).</returns>
     public async Task<bool> ClaimAsync(PrincipalId user, OwnershipProof proof, CancellationToken cancellationToken) {
         var now = time.GetUtcNow();
-        IReadOnlyList<byte[]> revoked;
+        var revoked = new List<byte[]>();
         await using (var connection = await dataSource.OpenConnectionAsync(cancellationToken)) {
             await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
             await using var claim = new NpgsqlBatch(connection, transaction) { BatchCommands = { UsersRepo.Claim(user, now) } };
             if (await claim.ExecuteNonQueryAsync(cancellationToken) == 0) {
                 return false;
             }
-            await using var revoke = new NpgsqlBatch(connection, transaction) {
+            // Identities linked while the account was unverified belong to whoever squatted it (an untrusted email at
+            // sign-in, or the squatter's own explicit link); left in place they would sign in to the claimed account.
+            var unlinked = new List<string>();
+            await using (var revoke = new NpgsqlBatch(connection, transaction) {
                 BatchCommands = {
                     SessionsRepo.DeleteAllOf(user),
+                    UsersRepo.UnlinkIdentities(user),
                     UsersRepo.Audit("auth.claim", user, user.ToString(), new Dictionary<string, string> { ["proof"] = Name(proof) }, now),
                 },
-            };
-            await using (var reader = await revoke.ExecuteReaderAsync(cancellationToken)) {
-                var hashes = new List<byte[]>();
+            }) {
+                await using var reader = await revoke.ExecuteReaderAsync(cancellationToken);
                 while (await reader.ReadAsync(cancellationToken)) {
-                    hashes.Add(reader.GetFieldValue<byte[]>(0));
+                    revoked.Add(reader.GetFieldValue<byte[]>(0));
                 }
-                revoked = hashes;
+                await reader.NextResultAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken)) {
+                    unlinked.Add(reader.GetString(0));
+                }
+            }
+            if (unlinked.Count > 0) {
+                await using var log = new NpgsqlBatch(connection, transaction);
+                foreach (var provider in unlinked) {
+                    log.BatchCommands.Add(UsersRepo.Audit("auth.unlink", null, user.ToString(), new Dictionary<string, string> {
+                        ["provider"] = provider,
+                        ["reason"] = "claim",
+                    }, now));
+                }
+                await log.ExecuteNonQueryAsync(cancellationToken);
             }
             await transaction.CommitAsync(CancellationToken.None);
         }

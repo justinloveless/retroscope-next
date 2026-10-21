@@ -61,6 +61,25 @@ public sealed class PasswordResetTests(PostgresFixture postgres) {
         Assert.Equal("invalid_token", await consume.ProblemCodeAsync());
         Assert.Equal(AuthHost.ImportedHash, await host.ScalarAsync<string>("select password_hash from users"));
     }
+
+    [Fact]
+    public async Task A_disabled_account_cannot_use_a_reset_link_it_already_holds() {
+        await using var host = await EmailHost.StartAsync(postgres);
+        var user = await host.CreateUserAsync("ada@example.com", verified: true);
+        var session = await host.CreateSessionAsync(user);
+        await host.Browser().PostAsync("/api/auth/reset/request", new { email = "ada@example.com" });
+        var (_, token) = await host.DeliverLinkAsync("reset");
+        await host.ExecuteAsync("update users set disabled_at = now() where id = $1", user.Value);
+
+        using var consume = await host.Browser().PostAsync("/api/auth/reset/consume", new { token, password = "long enough passphrase" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, consume.StatusCode);
+        Assert.Equal("invalid_token", await consume.ProblemCodeAsync());
+        Assert.Equal(AuthHost.ImportedHash, await host.ScalarAsync<string>("select password_hash from users"));
+        Assert.True(await host.ScalarAsync<bool>("select consumed_at is null from auth_tokens where token_hash = $1", TokenHash.Of(token)));
+        Assert.Equal(1L, await host.ScalarAsync<long>("select count(*) from sessions where id_hash = $1", TokenHash.Of(session)));
+        Assert.Equal(0L, await host.ScalarAsync<long>("select count(*) from audit_log where action = 'auth.reset'"));
+    }
 }
 
 [Trait("Category", "Email")]

@@ -521,7 +521,6 @@ public sealed class OidcAccounts(NpgsqlDataSource dataSource, AccountClaims clai
                     return new OidcResolution.Refused("account_disabled");
                 }
                 if (!account.Verified) {
-                    await UnlinkBeforeClaimAsync(account.Id, cancellationToken);
                     await claims.ClaimAsync(account.Id, OidcProviders.Proof(identity.Provider), cancellationToken);
                 }
                 if (await LinkAsync(account.Id, identity, cancellationToken)) {
@@ -595,43 +594,6 @@ public sealed class OidcAccounts(NpgsqlDataSource dataSource, AccountClaims clai
         return await reader.ReadAsync(cancellationToken)
             ? (new PrincipalId(reader.GetGuid(0)), reader.GetBoolean(1), reader.GetBoolean(2))
             : null;
-    }
-
-    // Identities linked while the account was unverified belong to whoever squatted it (an untrusted email at sign-in,
-    // or the squatter's own explicit link); left in place they would sign in to the claimed account.
-    private async Task UnlinkBeforeClaimAsync(PrincipalId user, CancellationToken cancellationToken) {
-        var now = time.GetUtcNow();
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
-        var providers = new List<string>();
-        await using (var unlink = new NpgsqlBatch(connection, transaction) {
-            BatchCommands = {
-                new("""
-                    delete from external_identities i using users u
-                    where i.user_id = $1 and u.id = $1 and u.email_verified_at is null
-                    returning i.provider
-                    """) {
-                    Parameters = { new() { Value = user.Value } },
-                },
-            },
-        }) {
-            await using var reader = await unlink.ExecuteReaderAsync(cancellationToken);
-            while (await reader.ReadAsync(cancellationToken)) {
-                providers.Add(reader.GetString(0));
-            }
-        }
-        if (providers.Count == 0) {
-            return;
-        }
-        await using var log = new NpgsqlBatch(connection, transaction);
-        foreach (var provider in providers) {
-            log.BatchCommands.Add(UsersRepo.Audit("auth.unlink", null, user.ToString(), new Dictionary<string, string> {
-                ["provider"] = provider,
-                ["reason"] = "claim",
-            }, now));
-        }
-        await log.ExecuteNonQueryAsync(cancellationToken);
-        await transaction.CommitAsync(CancellationToken.None);
     }
 
     /// <returns>False when the subject is already linked (to anyone).</returns>

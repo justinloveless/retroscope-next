@@ -2,6 +2,7 @@ using System.Buffers.Text;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.WebUtilities;
 using Retroscope.Fakes.FakeOidc;
@@ -234,6 +235,39 @@ public sealed class OidcFlowTests(PostgresFixture postgres) {
         var response = await host.Browser().SignInAsync("google", claims);
 
         OidcAssert.RedirectsTo(response, "/dashboard");
+    }
+
+    // U18 decision 4: the five-minute leeway applies to `exp` as well as `iat`, and ends exactly at five minutes.
+    [Theory]
+    [InlineData(-299, 0, null)]
+    [InlineData(-300, 0, "oidc_expired")]
+    [InlineData(3600, 300, null)]
+    [InlineData(3600, 301, "oidc_expired")]
+    [InlineData(3600, -300, null)]
+    [InlineData(3600, -301, "oidc_expired")]
+    public void Exp_and_iat_allow_five_minutes_of_clock_skew(int expSeconds, int iatSeconds, string? expected) {
+        var now = new DateTimeOffset(2026, 10, 21, 12, 0, 0, TimeSpan.Zero);
+        var client = new OidcClient(OidcHost.GoogleClient, "secret", new Uri("https://a.test/authorize"), new Uri("https://a.test/token"));
+        var claims = new IdTokenClaims(
+            "https://accounts.google.com",
+            JsonSerializer.SerializeToElement(OidcHost.GoogleClient),
+            null,
+            now.AddSeconds(expSeconds).ToUnixTimeSeconds(),
+            now.AddSeconds(iatSeconds).ToUnixTimeSeconds(),
+            "nonce",
+            "g-1",
+            "grace@example.com",
+            JsonSerializer.SerializeToElement(true),
+            null,
+            null,
+            null,
+            "Grace",
+            null);
+
+        var valid = IdTokenValidator.TryValidate(OidcProvider.Google, new OidcOptions { Google = client }, claims, "nonce", now, out _, out var error);
+
+        Assert.Equal(expected is null, valid);
+        Assert.Equal(expected, error);
     }
 
     [Fact]

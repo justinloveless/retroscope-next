@@ -22,6 +22,15 @@ public sealed record UserProfile(
     bool IsAdmin,
     bool HasPassword);
 
+/// <summary>A user to create; <see cref="PasswordHash"/> is null for password-less accounts.</summary>
+public sealed record NewUser(
+    PrincipalId Id,
+    string Email,
+    string? PasswordHash,
+    string FullName,
+    DateTimeOffset? EmailVerifiedAt,
+    DateTimeOffset Now);
+
 public sealed record UserTeam(TeamId Id, string Name, TeamRole Role);
 
 /// <summary>A profile change; a null member is left as it is, an empty <see cref="Nickname"/> clears it.</summary>
@@ -37,6 +46,15 @@ public sealed class UsersRepo(NpgsqlDataSource dataSource) {
     private const string ProfileColumns = $"""
         u.id, u.email, u.email_verified_at is not null, u.full_name, u.nickname, {DisplayNameSql}, u.avatar_blob_id,
         u.theme, u.is_admin, u.password_hash is not null
+        """;
+
+    // One principal and user insert for every way an account is created, over the parameters AddNewUser binds:
+    // $1 id, $2 email, $3 email_verified_at, $4 password_hash, $5 full_name, $6 now. InsertUser reads `principal`.
+    private const string InsertPrincipal = "insert into principals (id, kind, created_at) select $1, 'user', $6";
+
+    private const string InsertUser = """
+        insert into users (id, email, email_verified_at, password_hash, full_name, mentions_seen_at, created_at, updated_at)
+        select id, $2, $3, $4, $5, $6, $6, $6 from principal
         """;
 
     public static string NormalizeEmail(string email) => email.Trim().ToLowerInvariant();
@@ -67,45 +85,69 @@ public sealed class UsersRepo(NpgsqlDataSource dataSource) {
         return await command.ExecuteScalarAsync(cancellationToken) is Guid id ? new PrincipalId(id) : null;
     }
 
-    /// <summary>Inserts the principal and the user in one transaction.</summary>
+    /// <summary>Inserts the principal and the user in one statement.</summary>
     /// <returns>False when the email is already taken.</returns>
-    public async Task<bool> CreateAsync(
-        PrincipalId id,
-        string email,
-        string? passwordHash,
-        string fullName,
-        DateTimeOffset? emailVerifiedAt,
-        DateTimeOffset now,
-        CancellationToken cancellationToken) {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
-        await using var batch = new NpgsqlBatch(connection, transaction) {
-            BatchCommands = {
-                new("insert into principals (id, kind, created_at) values ($1, 'user', $2)") {
-                    Parameters = { new() { Value = id.Value }, new() { Value = now } },
-                },
-                new("""
-                    insert into users (id, email, email_verified_at, password_hash, full_name, mentions_seen_at, created_at, updated_at)
-                    values ($1, $2, $3, $4, $5, $6, $6, $6)
-                    """) {
-                    Parameters = {
-                        new() { Value = id.Value },
-                        new() { Value = email },
-                        new() { Value = (object?)emailVerifiedAt ?? DBNull.Value, NpgsqlDbType = NpgsqlDbType.TimestampTz },
-                        new() { Value = (object?)passwordHash ?? DBNull.Value, NpgsqlDbType = NpgsqlDbType.Text },
-                        new() { Value = fullName },
-                        new() { Value = now },
-                    },
-                },
-            },
-        };
+    public async Task<bool> CreateAsync(NewUser user, CancellationToken cancellationToken) {
+        await using var command = dataSource.CreateCommand($"""
+            with principal as (
+              {InsertPrincipal}
+              returning id
+            )
+            {InsertUser}
+            """);
+        AddNewUser(command, user);
         try {
-            await batch.ExecuteNonQueryAsync(cancellationToken);
+            await command.ExecuteNonQueryAsync(cancellationToken);
         } catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation && e.ConstraintName == "users_email_uq") {
             return false;
         }
-        await transaction.CommitAsync(CancellationToken.None);
         return true;
+    }
+
+    /// <summary>
+    /// Signup: creates an unverified user when the address is free, else finds its owner. Both outcomes run this one
+    /// statement and write an audit row (<c>auth.signup</c> or <c>auth.signup.taken</c>), so both commit a write and
+    /// wait for the same WAL flush: a read-only taken path answered measurably faster (no account oracle).
+    /// </summary>
+    /// <returns>Whether the user was created, else the id of the account that holds the address.</returns>
+    public async Task<(bool Created, PrincipalId? Existing)> SignupAsync(
+        NewUser user,
+        string emailHmac,
+        string ipPrefix,
+        CancellationToken cancellationToken) {
+        await using var command = dataSource.CreateCommand($"""
+            with taken as (
+              select id from users where email = $2
+            ), principal as (
+              {InsertPrincipal}
+              where not exists (select 1 from taken)
+              returning id
+            ), created as (
+              {InsertUser}
+              returning id
+            ), audited as (
+              insert into audit_log (at, actor_id, action, target, meta)
+              select $6, (select id from created),
+                     case when exists (select 1 from created) then 'auth.signup' else 'auth.signup.taken' end,
+                     coalesce((select id from created), (select id from taken))::text,
+                     jsonb_build_object('email_hmac', $7::text, 'ip', $8::text)
+            )
+            select (select id from created), (select id from taken)
+            """);
+        AddNewUser(command, user);
+        command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = emailHmac });
+        command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = ipPrefix });
+        try {
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            await reader.ReadAsync(cancellationToken);
+            if (!reader.IsDBNull(0)) {
+                return (true, null);
+            }
+            return (false, reader.IsDBNull(1) ? null : new PrincipalId(reader.GetGuid(1)));
+        } catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation && e.ConstraintName == "users_email_uq") {
+            // A concurrent signup took the address between the lookup and the insert; only that race pays the lookup.
+            return (false, await FindIdAsync(user.Email, cancellationToken));
+        }
     }
 
     public async Task<UserProfile?> GetProfileAsync(PrincipalId id, CancellationToken cancellationToken) {
@@ -137,6 +179,30 @@ public sealed class UsersRepo(NpgsqlDataSource dataSource) {
         command.Parameters.Add(new() { Value = now });
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken) ? ReadProfile(reader) : null;
+    }
+
+    /// <summary>
+    /// Points the user's avatar at <paramref name="blob"/> (null removes it) and deletes the avatar it replaces; when the
+    /// user is gone the new blob is deleted instead. <c>returning old</c> names the value this update overwrote, so two
+    /// concurrent uploads each delete the one before theirs.
+    /// </summary>
+    /// <returns>False when the user does not exist.</returns>
+    public async Task<bool> SetAvatarAsync(PrincipalId id, BlobId? blob, DateTimeOffset now, CancellationToken cancellationToken) {
+        await using var command = dataSource.CreateCommand("""
+            with updated as (
+              update users set avatar_blob_id = $2, updated_at = $3 where id = $1
+              returning old.avatar_blob_id as previous
+            ), deleted as (
+              delete from blobs
+              where purpose = 'avatar'
+                and (id = (select previous from updated) or (id = $2 and not exists (select 1 from updated)))
+            )
+            select exists (select 1 from updated)
+            """);
+        command.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = id.Value });
+        command.Parameters.Add(new NpgsqlParameter<Guid?> { TypedValue = blob?.Value, NpgsqlDbType = NpgsqlDbType.Uuid });
+        command.Parameters.Add(new NpgsqlParameter<DateTimeOffset> { TypedValue = now });
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken))!;
     }
 
     public async Task<IReadOnlyList<UserTeam>> TeamsAsync(PrincipalId id, CancellationToken cancellationToken) {
@@ -204,6 +270,18 @@ public sealed class UsersRepo(NpgsqlDataSource dataSource) {
             Parameters = { new() { Value = id.Value }, new() { Value = now } },
         };
 
+    /// <summary>Marks the email verified (keeping an earlier verification time) without claiming the account.</summary>
+    public static NpgsqlBatchCommand MarkVerified(PrincipalId id, DateTimeOffset now) =>
+        new("update users set email_verified_at = coalesce(email_verified_at, $2), updated_at = $2 where id = $1") {
+            Parameters = { new() { Value = id.Value }, new() { Value = now } },
+        };
+
+    /// <summary>Removes every external identity of the user, returning one <c>provider</c> row per identity.</summary>
+    public static NpgsqlBatchCommand UnlinkIdentities(PrincipalId id) =>
+        new("delete from external_identities where user_id = $1 returning provider") {
+            Parameters = { new() { Value = id.Value } },
+        };
+
     /// <summary>An <c>audit_log</c> row; <paramref name="meta"/> holds ids, codes and HMACs, never content or secrets.</summary>
     public static NpgsqlBatchCommand Audit(
         string action,
@@ -239,6 +317,15 @@ public sealed class UsersRepo(NpgsqlDataSource dataSource) {
         }
         await batch.ExecuteNonQueryAsync(cancellationToken);
         await transaction.CommitAsync(CancellationToken.None);
+    }
+
+    private static void AddNewUser(NpgsqlCommand command, NewUser user) {
+        command.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = user.Id.Value });
+        command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = user.Email });
+        command.Parameters.Add(new NpgsqlParameter<DateTimeOffset?> { TypedValue = user.EmailVerifiedAt, NpgsqlDbType = NpgsqlDbType.TimestampTz });
+        command.Parameters.Add(new NpgsqlParameter<string?> { TypedValue = user.PasswordHash, NpgsqlDbType = NpgsqlDbType.Text });
+        command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = user.FullName });
+        command.Parameters.Add(new NpgsqlParameter<DateTimeOffset> { TypedValue = user.Now });
     }
 
     private static UserProfile ReadProfile(NpgsqlDataReader reader) => new(
