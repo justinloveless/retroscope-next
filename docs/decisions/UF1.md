@@ -19,34 +19,34 @@ Items are numbered as in `docs/followups/UF1.md`.
 8. **Router.** `go()` records the navigation's token. When a newer navigation has started, its failure is dropped:
    no `onError` and no `location.assign` of the stale URL. The test runs with and without `onError`.
 9. **`make-golden.mjs --orig`** without a directory (missing, or followed by another `--flag`) prints a usage
-   error and exits 2. This was checked by hand. No automated test was added, because UF1 owns only the script
-   itself under `tests/golden`.
+   error and exits 2. `tests/web-unit/golden-cli.test.js` (revision 2, item 11) runs `--orig` and
+   `--orig --verify` and asserts exit code 2 and the usage text.
 
-## Item 6: Jira-length timing, partly blocked on U4
+## Item 6 and item 10: Jira-length timing
 
 `MarkupJiraLengthTimingTests` runs 13 hostile 32,000-character bodies in every dialect: nested and
 unclosed emphasis, unclosed links, mention runs and broken mentions. Each must parse in under 200 ms. The time
 is the fastest of three runs, in a collection that does not run in parallel with others, so a GC pause or a
 busy CI core does not make the test fail.
 
-Thirty rows pass. Nine rows fail on main and are committed with
-`Skip = "U4 follow-up … ScanLink rescans to the next ']' from every '['"`:
+In revision 1, nine rows (`[[[[…`, `[**a[**a…`, `[[mention:[[mention:…`, each in three dialects) took
+0.1–4 s, because `ScanLink` walked from every `[` to the next `]` or newline, and were committed with `Skip`.
 
-| Body (32,000 chars) | Debug test run | Release |
-|---|---|---|
-| `[[[[…` | 2.6–4.2 s | ~0.5 s |
-| `[**a[**a…` | 0.7–1.2 s | ~0.15 s |
-| `[[mention:[[mention:…` | 0.56–0.82 s | ~0.11 s |
+**Fix (revision 2).** `InlineParser` (C#) and `parse.js` build, on first use per paragraph, two arrays in one
+right-to-left pass: for every index the next `]` or newline, once counting every character (`ScanLabel`, used by
+mentions and images) and once stepping over backslash escapes exactly as `ScanLink` did. Escapes make the
+answer depend on where the scan starts, so the escaped array is defined by the same recurrence as the old loop
+(`\` + ASCII punctuation jumps two) rather than by a single "is this `]` escaped" flag. `ScanLink` and
+`ScanLabel` are now O(1). All 39 rows run, none skipped. In Node 20, the 32,000-character `[` bodies now parse in
+1–10 ms (they took about 1 s).
 
-**Cause.** `InlineParser.Link(i)` memoises its result per position, but `ScanLink` walks from `i + 1` to the next
-`]` or newline. When the text has no `]`, every `[` scans to the end of the line, so the cost is O(n²). The same
-holds for `ScanLabel` (mentions, images) as far as its 100-character cap. U4's card-sized bound (8,000 chars,
-2 s) hides this.
+**Parity.** The shared fixture corpus and both fuzz suites pass unchanged. In addition, 200,000 random strings
+from a bracket-heavy alphabet (`[ ] \ \n ( ) ! * _` backticks, link, mention and image fragments, 100-character
+runs) were parsed in all three dialects by the old and the new `parse.js`; every Doc was identical. The C#
+change is the same recurrence.
 
-**Why not fixed here.** The parser is `src/Retroscope.Core/Markup/InlineParser.cs`, owned by U4. UF1 owns only
-`tests/Retroscope.Core.Tests/Markup/**` for this item.
+## Integration with wave 2
 
-**Suggested fix (U4).** Precompute, once per paragraph, the position of the next `]` or `\n` for every index (one
-right-to-left pass), skipping escapes the way `ScanLink` does. `ScanLink` then reads the label end in O(1).
-After that, delete the `Skip`s. U5's `web/src/markup/parse.js` has the same shape: on Node 20, 32,000 `[` take
-about 1 s. It needs the same change to keep parity.
+Merging main brought in U8's retro domain, which called `IAnonTagger` with `Guid`s. A separate
+`fix(integration)` commit passes the typed ids in `RetroRoles`, `RetroDecider`, the test `FakeTagger` and
+`CardTests`. It changes no behaviour (`.Value` was unwrapped at the call); without it the branch does not build.
