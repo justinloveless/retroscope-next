@@ -18,6 +18,8 @@ const UPLOAD_ERRORS = {
   unsupported_media_type: 'Only PNG, JPEG, GIF and WebP images can be added.',
   storage_full: 'Image storage is full right now.',
 };
+// A proxy in front of the server may answer these statuses without a problem body.
+const UPLOAD_STATUS = { 409: 'board_quota', 413: 'too_large', 415: 'unsupported_media_type', 507: 'storage_full' };
 
 export function createComments(ctx, item, members) {
   const list = h('ul', { class: 'team-comments', 'aria-label': 'Comments' });
@@ -76,7 +78,8 @@ export function createComments(ctx, item, members) {
       const { blobId } = await http.post(`/api/retro/${item.sourceBoardId}/images`, file);
       return blobId;
     } catch (error) {
-      throw Object.assign(new Error(error.code), { detail: UPLOAD_ERRORS[error.code] ?? errorMessage(error, 'The image could not be uploaded.') });
+      const detail = UPLOAD_ERRORS[error.code] ?? UPLOAD_ERRORS[UPLOAD_STATUS[error.status]];
+      throw Object.assign(new Error(error.code), { detail: detail ?? errorMessage(error, 'The image could not be uploaded.') });
     }
   }
 
