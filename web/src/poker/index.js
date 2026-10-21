@@ -11,7 +11,9 @@ import { icon } from '../ui/icons.js';
 import { toast } from '../ui/toast.js';
 import { createDrag } from './drag.js';
 import { createHand } from './hand.js';
+import { createHistory } from './history.js';
 import { bindKeyboard } from './keyboard.js';
+import { createMobile } from './mobile.js';
 import {
   abstainIntent,
   initialRound,
@@ -26,13 +28,17 @@ import {
   uuidv7,
   voteIntent,
 } from './model.js';
+import { createObserverToggle } from './observers.js';
+import { createSettings } from './settings.js';
+import { createSpotlight } from './spotlight.js';
+import { createStrip } from './strip.js';
 import { askNewRound, createTable } from './table.js';
 
 const OFFLINE_BANNER_MS = 10_000;
 
 // Optional parts of the screen (strip, spotlight, history, Jira) mount here. Each entry is
 // `(ctx) → {update(view, roundId), destroy()}`; see docs/decisions/U31.md.
-const FEATURES = [];
+const FEATURES = [createStrip, createSpotlight, createObserverToggle, createSettings, createHistory, createMobile];
 
 const NACK_TEXT = {
   observer: 'Observers cannot vote.',
@@ -432,7 +438,7 @@ export function mount(root, boot = {}) {
       room.select((view) => [view, room.extras, room.kicked], shallowEq, render),
       watchStatus(),
     ];
-    const ctx = { room, socket, me, actions, navigate, get viewed() { return viewed; }, slots: { toolbar: extras, strip, left, right } };
+    const ctx = { room, socket, me, actions, navigate, get viewed() { return viewed; }, slots: { toolbar: extras, strip, left, right, center, page } };
     features = FEATURES.map((feature) => feature(ctx));
     render();
   }
