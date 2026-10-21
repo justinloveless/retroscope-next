@@ -20,7 +20,19 @@ internal sealed class Stack(string root, int httpsPort) {
 
     public string BaseUrl => $"https://localhost:{HttpsPort}";
 
-    public Task UpAsync() => ComposeAsync(TimeSpan.FromMinutes(30), "up", "-d", "--build", "--wait");
+    /// <summary>
+    /// Builds and starts the stack. One retry: Rancher Desktop sometimes still holds a published port of the previous
+    /// run's containers for a few seconds after they are gone.
+    /// </summary>
+    public async Task UpAsync() {
+        try {
+            await ComposeAsync(TimeSpan.FromMinutes(30), "up", "-d", "--build", "--wait");
+        } catch (InvalidOperationException e) when (e.Message.Contains("address already in use", StringComparison.Ordinal)) {
+            await DownAsync();
+            await Task.Delay(TimeSpan.FromSeconds(15));
+            await ComposeAsync(TimeSpan.FromMinutes(30), "up", "-d", "--build", "--wait");
+        }
+    }
 
     public Task DownAsync() => ComposeAsync(TimeSpan.FromMinutes(5), "down", "-v", "--remove-orphans");
 
