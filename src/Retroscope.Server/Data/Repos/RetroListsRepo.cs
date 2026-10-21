@@ -124,23 +124,7 @@ public sealed record NewBoard(
 /// <summary>A board as its management routes see it, with the caller's role and grant read in the same query.</summary>
 public sealed record ManagedBoard(ResourceFacts Facts, IAccessView Access, string Title, string? PasswordHash);
 
-public sealed record ActionItemFilter(bool? Done, PrincipalId? Assignee, bool Unassigned, bool Newest);
-
-public sealed record ActionItemListItem(
-    ActionItemId Id,
-    string Text,
-    int SourceVersion,
-    long CreatedAt,
-    int CommentCount,
-    BoardId? SourceBoardId = null,
-    CardId? SourceCardId = null,
-    PrincipalId? AssignedTo = null,
-    long? DoneAt = null,
-    PrincipalId? DoneBy = null,
-    PrincipalId? CreatedBy = null,
-    string? BoardTitle = null);
-
-/// <summary>Team board lists, board creation (create in place, §c.2), the columns HTTP owns on a board, and action items.</summary>
+/// <summary>Team board lists, board creation (create in place, §c.2) and the columns HTTP owns on a board.</summary>
 public sealed class RetroListsRepo(NpgsqlDataSource dataSource) {
     public const string UniqueViolation = "23505";
 
@@ -394,59 +378,6 @@ public sealed class RetroListsRepo(NpgsqlDataSource dataSource) {
             "update retro_boards set deleted_at = now(), updated_at = now() where id = $1 and deleted_at is null");
         command.Parameters.Add(new() { Value = board.Value });
         return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
-    }
-
-    /// <summary>The team page's action-item list; comment counts are counted on the source card, as the team room does.</summary>
-    public async Task<Page<ActionItemListItem>> ListActionItemsAsync(
-        TeamId team,
-        ActionItemFilter filter,
-        ListCursor? cursor,
-        int limit,
-        CancellationToken cancellationToken) {
-        var order = filter.Newest ? "desc" : "asc";
-        var after = filter.Newest ? "<" : ">";
-        await using var command = dataSource.CreateCommand($"""
-            select i.id, i.text, i.source_version, i.created_at,
-                   (select count(*) from retro_comments c where c.card_id = i.source_card_id)::int,
-                   i.source_board_id, i.source_card_id, i.assigned_to, i.done_at, i.done_by, i.created_by, b.title
-            from team_action_items i
-            left join retro_boards b on b.id = i.source_board_id and b.deleted_at is null
-            where i.team_id = $1
-              and ($2::boolean is null or (i.done_at is not null) = $2)
-              and ($3::uuid is null or i.assigned_to = $3)
-              and (not $4 or i.assigned_to is null)
-              and ($5::timestamptz is null or (i.created_at, i.id) {after} ($5, $6))
-            order by i.created_at {order}, i.id {order}
-            limit $7
-            """);
-        command.Parameters.Add(new() { Value = team.Value });
-        command.Parameters.Add(new() { Value = (object?)filter.Done ?? DBNull.Value, NpgsqlDbType = NpgsqlDbType.Boolean });
-        command.Parameters.Add(Uuid(filter.Assignee?.Value));
-        command.Parameters.Add(new() { Value = filter.Unassigned });
-        ListCursor.AddParameters(command, cursor);
-        command.Parameters.Add(new() { Value = limit + 1 });
-        var rows = new List<(ActionItemListItem, ListCursor)>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken)) {
-            var id = reader.GetGuid(0);
-            var createdAt = reader.GetFieldValue<DateTimeOffset>(3);
-            rows.Add((
-                new ActionItemListItem(
-                    new ActionItemId(id),
-                    reader.GetString(1),
-                    reader.GetInt32(2),
-                    createdAt.ToUnixTimeMilliseconds(),
-                    reader.GetInt32(4),
-                    reader.IsDBNull(5) ? null : new BoardId(reader.GetGuid(5)),
-                    reader.IsDBNull(6) ? null : new CardId(reader.GetGuid(6)),
-                    reader.IsDBNull(7) ? null : new PrincipalId(reader.GetGuid(7)),
-                    reader.IsDBNull(8) ? null : reader.GetFieldValue<DateTimeOffset>(8).ToUnixTimeMilliseconds(),
-                    reader.IsDBNull(9) ? null : new PrincipalId(reader.GetGuid(9)),
-                    reader.IsDBNull(10) ? null : new PrincipalId(reader.GetGuid(10)),
-                    reader.IsDBNull(11) ? null : reader.GetString(11)),
-                new ListCursor(createdAt, id)));
-        }
-        return Page.Of(rows, limit);
     }
 
     public static bool IsCodeCollision(PostgresException exception) {

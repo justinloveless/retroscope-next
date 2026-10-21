@@ -49,25 +49,6 @@ public sealed record ActionItemQuery(
     ListCursor? After,
     int Limit);
 
-/// <summary>Keyset position in a list ordered by creation time, then id: <c>&lt;unix ms&gt;.&lt;uuid&gt;</c>.</summary>
-public readonly record struct ListCursor(DateTimeOffset CreatedAt, Guid Id) {
-    public override string ToString() =>
-        $"{CreatedAt.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture)}.{Id:D}";
-
-    public static bool TryParse(string? value, out ListCursor cursor) {
-        cursor = default;
-        var dot = value?.IndexOf('.', StringComparison.Ordinal) ?? -1;
-        if (dot <= 0
-            || !long.TryParse(value.AsSpan(0, dot), NumberStyles.None, CultureInfo.InvariantCulture, out var ms)
-            || ms > DateTimeOffset.MaxValue.ToUnixTimeMilliseconds()
-            || !Guid.TryParseExact(value.AsSpan(dot + 1), "D", out var id)) {
-            return false;
-        }
-        cursor = new ListCursor(DateTimeOffset.FromUnixTimeMilliseconds(ms), id);
-        return true;
-    }
-}
-
 /// <summary>
 /// The <c>teams</c> rows the HTTP routes read and write, and the reads around them. Rows the team actor owns
 /// (<c>team_members</c>, R24) are only written here when the team is created: nobody can be writing a team that
@@ -283,7 +264,7 @@ public sealed class TeamsRepo(NpgsqlDataSource dataSource) {
         command.Parameters.Add(new() { Value = query.Status });
         command.Parameters.Add(new() { Value = (object?)query.Assignee?.Value ?? DBNull.Value, NpgsqlDbType = NpgsqlDbType.Uuid });
         command.Parameters.Add(new() { Value = query.Unassigned });
-        command.Parameters.Add(new() { Value = query.After?.CreatedAt ?? DateTimeOffset.UnixEpoch });
+        command.Parameters.Add(new() { Value = query.After?.At ?? DateTimeOffset.UnixEpoch });
         command.Parameters.Add(new() { Value = query.After?.Id ?? Guid.Empty });
         command.Parameters.Add(new() { Value = query.Limit + 1 });
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);

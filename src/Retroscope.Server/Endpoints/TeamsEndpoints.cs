@@ -534,13 +534,8 @@ public static class TeamsEndpoints {
         if (sort is not (null or "newest" or "oldest")) {
             fields["sort"] = "invalid";
         }
-        ListCursor? after = null;
-        if (cursor is not null) {
-            if (ListCursor.TryParse(cursor, out var parsed)) {
-                after = parsed;
-            } else {
-                fields["cursor"] = "invalid";
-            }
+        if (!ListCursor.TryParse(cursor, out var after)) {
+            fields["cursor"] = "invalid";
         }
         if (limit is < 1 or > MaxPageSize) {
             fields["limit"] = "invalid";

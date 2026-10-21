@@ -115,9 +115,6 @@ public static class RetroEndpoints {
         app.MapPost("/api/teams/{id:guid}/boards", CreateTeamAsync)
             .RequireRoutePolicy(RoutePolicy.TeamMember)
             .RequireRateLimit(PokerEndpoints.TeamCreate);
-        app.MapGet("/api/teams/{id:guid}/action-items", ListActionItemsAsync)
-            .RequireRoutePolicy(RoutePolicy.TeamMember)
-            .RequireRateLimit(PokerEndpoints.TeamRead);
         app.MapGet("/api/teams/{id:guid}/action-items/{itemId:guid}/comments", ListCommentsAsync)
             .RequireRoutePolicy(RoutePolicy.TeamMember)
             .RequireRateLimit(PokerEndpoints.TeamRead);
@@ -343,45 +340,6 @@ public static class RetroEndpoints {
         var caller = (await context.GetCallerAsync())!;
         var notices = context.RequestServices.GetService<ITeamNotices>();
         return await CreateAsync(repo, team, title, caller.Principal.Id, visibility, hash, template, notices, cancellationToken);
-    }
-
-    private static async Task<IResult> ListActionItemsAsync(
-        HttpContext context,
-        Guid id,
-        string? status,
-        string? assignee,
-        string? sort,
-        string? cursor,
-        int? limit,
-        RetroListsRepo repo,
-        NpgsqlDataSource dataSource) {
-        if (status is not (null or "open" or "done" or "all")) {
-            return Invalid("status");
-        }
-        bool? done = status switch {
-            "done" => true,
-            "all" => null,
-            _ => false,
-        };
-        PrincipalId? assigned = null;
-        if (assignee is not (null or "unassigned" or "all")) {
-            if (!Guid.TryParse(assignee, out var pid)) {
-                return Invalid("assignee");
-            }
-            assigned = new PrincipalId(pid);
-        }
-        if (sort is not (null or "newest" or "oldest")) {
-            return Invalid("sort");
-        }
-        if (!ListCursor.TryParse(cursor, out var after)) {
-            return Invalid("cursor");
-        }
-        if (await TeamGate.RoleAsync(context, dataSource, id) is null) {
-            return TeamGate.NotMember();
-        }
-        var filter = new ActionItemFilter(done, assigned, assignee == "unassigned", sort != "oldest");
-        var page = await repo.ListActionItemsAsync(new TeamId(id), filter, after, ListCursor.Limit(limit), context.RequestAborted);
-        return Results.Json(ListPage.Of(page), RoomHttpJsonContext.Default.ListPageActionItemListItem);
     }
 
     /// <summary>

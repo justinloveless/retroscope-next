@@ -20,7 +20,6 @@ namespace Retroscope.Server.Json;
 [JsonSerializable(typeof(RoomLookup))]
 [JsonSerializable(typeof(ListPage<BoardListItem>))]
 [JsonSerializable(typeof(ListPage<PokerSessionListItem>))]
-[JsonSerializable(typeof(ListPage<ActionItemListItem>))]
 [JsonSerializable(typeof(MentionsPage))]
 [JsonSerializable(typeof(ActionItemComments))]
 [JsonSerializable(typeof(ActionItemCommentPosted))]
