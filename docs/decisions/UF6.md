@@ -5,7 +5,7 @@ where `docs/followups/UF6.md` left room.
 
 1. **A repeated create acks as a plain ack, not `dup`.** `ack{dup:true}` is written by the actor's cursor check
    (`Server/Realtime/Actors`, owned by UF7). Core can only return a `Decision`, and `NoOp` already acks. The
-   client handles both acks the same way (U28 §3, "dup acks are handled the same way"), so no new decision
+   client handles both acks the same way (DESIGN §g.4: "`dup` acks are handled the same way"), so no new decision
    variant was added. `NoOp` does not advance the cursor for the new cid; later commands of that cid still carry
    higher `q`s, so nothing depends on it.
 2. **"Same payload" means what state still holds.** State does not keep command payloads, so each create compares
