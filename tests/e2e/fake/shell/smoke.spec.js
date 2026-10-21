@@ -1,7 +1,7 @@
 // One smoke test per shell route in each theme: the screen paints its heading under the CSP, in the
 // requested theme, with no uncaught errors (DESIGN §k U29).
 import { expect, test } from '../_harness/fixtures.js';
-import { ADMIN, installApi, pageErrors, useSession } from './_shell.js';
+import { ADMIN, installApi, mainLink, pageErrors, useSession } from './_shell.js';
 
 const ROUTES = [
   { path: '/', heading: 'Retros and planning poker for your team' },
@@ -52,7 +52,7 @@ test('in-app navigation swaps screens without reloading and refreshes the boot J
     window.sameDocument = true;
   });
 
-  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Teams' }).click();
+  await (await mainLink(page, 'Teams')).click();
 
   await expect(page).toHaveURL(/\/teams$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Teams' })).toBeVisible();
