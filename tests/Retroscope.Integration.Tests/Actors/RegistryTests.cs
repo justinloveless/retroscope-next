@@ -52,17 +52,21 @@ public sealed class RegistryTests {
             }
         }, Token);
 
+        // Writers can outrun the clock, so they keep going until the actor has retired a few times (or time runs out).
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        var asked = 0;
         var writers = Enumerable.Range(0, Writers).Select(_ => Task.Run(async () => {
-            for (var n = 0; n < PerWriter; n++) {
+            for (var n = 0; n < PerWriter || (room.Store.Loads < 3 && DateTime.UtcNow < deadline); n++) {
                 var result = await room.Registry.AskAsync<Counter, CounterInput>(Room, new CounterInput.Add(1), null, Token);
                 Assert.Equal(AskStatus.Accepted, result.Status);
+                Interlocked.Increment(ref asked);
             }
         }, Token));
         await Task.WhenAll(writers);
         await done.CancelAsync();
         await clock;
 
-        Assert.Equal(Writers * PerWriter, room.Store.Persisted!.Value);
+        Assert.Equal(asked, room.Store.Persisted!.Value);
         Assert.True(room.Store.Loads > 1, "the actor never retired during the run");
     }
 
