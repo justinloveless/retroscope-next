@@ -309,6 +309,28 @@
 .retro-share-option { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
 .retro-share-actions { display: flex; justify-content: flex-end; }
 
+/* Action items and kudos (retro/actions.js, prev-actions.js, kudos.js) */
+.retro-card-done .retro-card-body { text-decoration: line-through; color: hsl(var(--muted-foreground)); }
+.retro-action-item { justify-content: flex-start; }
+.retro-jira-key { display: inline-flex; align-items: center; gap: 0.25rem; font-family: var(--font-mono); }
+.retro-kudos-summary { margin: 0 0 0.75rem; font-size: 0.875rem; color: hsl(var(--muted-foreground)); }
+.retro-kudos-types { justify-content: flex-start; }
+.retro-celebration-confetti { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 60; }
+.retro-confetti { position: absolute; top: -12px; width: 8px; height: 8px; }
+.retro-celebration {
+  position: fixed;
+  left: 50%;
+  top: 30%;
+  z-index: 61;
+  max-width: calc(100vw - 2rem);
+  padding: 1.5rem 2rem;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  cursor: pointer;
+}
+.retro-celebration-emoji { font-size: 3rem; line-height: 1.2; }
+.retro-celebration-title { font-size: 1.25rem; font-weight: 700; }
+
 @media (prefers-reduced-motion: reduce) {
   .retro-focus, .retro-ready-fill { animation: none; transition: none; }
 }
