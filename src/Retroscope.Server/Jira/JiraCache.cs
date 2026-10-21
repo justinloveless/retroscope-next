@@ -15,7 +15,7 @@ public sealed class JiraCache {
     private readonly Dictionary<string, LinkedListNode<Entry>> _entries = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HashSet<string>> _tagged = new(StringComparer.Ordinal);
     private readonly LinkedList<Entry> _recency = new();
-    private readonly Dictionary<string, Task> _inFlight = new(StringComparer.Ordinal);
+    private readonly Dictionary<(string Key, Type Type), Task> _inFlight = [];
     private long _size;
     private long _generation;
 
@@ -53,13 +53,14 @@ public sealed class JiraCache {
     public bool TryGet<T>(string key, out T value) where T : class {
         lock (_gate) {
             if (_entries.TryGetValue(key, out var node)) {
-                if (node.Value.ExpiresAt > _time.GetUtcNow() && node.Value.Value is T typed) {
+                if (node.Value.ExpiresAt <= _time.GetUtcNow()) {
+                    RemoveNode(node);
+                } else if (node.Value.Value is T typed) {
                     _recency.Remove(node);
                     _recency.AddFirst(node);
                     value = typed;
                     return true;
                 }
-                RemoveNode(node);
             }
         }
 
@@ -76,10 +77,10 @@ public sealed class JiraCache {
     }
 
     /// <summary>
-    /// Returns the cached value or runs <paramref name="factory"/> once for all concurrent callers of the same key
-    /// (single-flight). The factory runs without the callers' cancellation, so one caller giving up does not fail the
-    /// others; each caller stops waiting when its own token fires. A value whose key or tags were invalidated
-    /// while it was being fetched is returned but not stored.
+    /// Returns the cached value or runs <paramref name="factory"/> once for all concurrent callers of the same key and
+    /// <typeparamref name="T"/> (single-flight). The factory runs without the callers' cancellation, so one caller
+    /// giving up does not fail the others; each caller stops waiting when its own token fires. A value whose key or
+    /// tags were invalidated while it was being fetched is returned but not stored.
     /// </summary>
     public async Task<T> GetOrCreateAsync<T>(
         string key,
@@ -93,11 +94,11 @@ public sealed class JiraCache {
 
         Task<T> task;
         lock (_gate) {
-            if (_inFlight.TryGetValue(key, out var running) && running is Task<T> same) {
-                task = same;
+            if (_inFlight.TryGetValue((key, typeof(T)), out var running)) {
+                task = (Task<T>)running;
             } else {
                 task = FetchAsync(key, ttl, factory, _generation);
-                _inFlight[key] = task;
+                _inFlight[(key, typeof(T))] = task;
             }
         }
 
@@ -145,7 +146,7 @@ public sealed class JiraCache {
             return value;
         } finally {
             lock (_gate) {
-                _inFlight.Remove(key);
+                _inFlight.Remove((key, typeof(T)));
             }
         }
     }
