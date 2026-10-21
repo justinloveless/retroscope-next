@@ -14,8 +14,6 @@ public sealed class MarkupTiming {
 [Collection(MarkupTiming.Name)]
 public sealed class MarkupJiraLengthTimingTests {
     private const string Mention = "[[mention:00112233-4455-6677-8899-aabbccddeeff:Ada]]";
-    private const string QuadraticLinkScan =
-        "U4 follow-up (docs/decisions/UF1.md): InlineParser.ScanLink rescans to the next ']' from every '['";
     private static readonly TimeSpan Budget = TimeSpan.FromMilliseconds(200);
 
     public static IEnumerable<TheoryDataRow<MarkupDialect, string>> Bodies() {
@@ -27,12 +25,12 @@ public sealed class MarkupJiraLengthTimingTests {
             yield return new(dialect, Repeat("[a](https://example.com/", length));
             yield return new(dialect, Repeat("[a](", length));
             yield return new(dialect, Repeat("[a]", length));
-            yield return new(dialect, Repeat("[", length)) { Skip = QuadraticLinkScan };
-            yield return new(dialect, Repeat("[**a", length)) { Skip = QuadraticLinkScan };
+            yield return new(dialect, Repeat("[", length));
+            yield return new(dialect, Repeat("[**a", length));
             yield return new(dialect, "[" + Repeat("a ", length - 1));
             yield return new(dialect, Repeat(Mention, length));
             yield return new(dialect, Repeat(Mention[..^2], length));
-            yield return new(dialect, Repeat("[[mention:", length)) { Skip = QuadraticLinkScan };
+            yield return new(dialect, Repeat("[[mention:", length));
             yield return new(dialect, Repeat("*" + Mention, length));
         }
     }
