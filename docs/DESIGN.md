@@ -1328,7 +1328,7 @@ The only inline script is the pre-paint theme snippet; `build.mjs` emits its has
 | `GET sprints` | 5 min |
 | `GET issues/{key}/assignable?q=` | 60 s per query |
 | `POST issues/{key}/comments {body(markup)}` | |
-| `POST issues/{key}/links`, `DELETE links/{id}` | |
+| `POST issues/{key}/links`, `DELETE issues/{key}/links/{id}` | The link must be in the issue's own link list (read from Jira), otherwise 404 without calling Jira (UF12) |
 | `POST issues {summary, description?, cloneFrom?, projectKey?}` | Create (also used by retro action items' "Create in Jira"); clone copies type/project/description (islands included verbatim) + "Cloned from KEY" footer |
 | `GET issues/{key}/attachments/{id}` | The id must appear in the issue's `attachment` field (fetched/cached for that key); fetched with `?redirect=false`; if Jira still redirects, follow **at most one hop** only to an allow-listed Atlassian media host (`api.media.atlassian.com` or `*.atlassian.net`; **unverified host list, U19**), **without** the Authorization header, through the same IP-vetting handler (S11). Content types `image/png`, `image/jpeg`, `image/gif`, `image/webp` only (never SVG), ≤ 5 MiB; `Cache-Control: private, max-age=300`; `Content-Security-Policy: sandbox`; not cached server-side |
 
