@@ -1,5 +1,6 @@
 using Retroscope.Core.Ids;
 using Retroscope.Core.Protocol;
+using Retroscope.Core.Retro;
 using Retroscope.Core.Room;
 
 namespace Retroscope.Core.Authz;
@@ -49,15 +50,11 @@ internal static class PolicyRules {
         var open = !s.Facts.Archived;
         return capability switch {
             Capability.Subscribe => true,
-            Capability.RetroAddCard
-                or Capability.RetroVote
-                or Capability.RetroComment
-                or Capability.RetroReady
-                or Capability.RetroFocus => open,
-            Capability.RetroTimer => open && s.IsUser,
-            Capability.RetroFacilitate => open && s.IsFacilitator,
-            Capability.RetroEndorse => open && s.IsTeamRoom && s.IsMember,
-            Capability.RetroViewRoster => s.IsTeamRoom && s.IsMember,
+            Capability.RetroAddCard or Capability.RetroVote or Capability.RetroComment => open,
+            Capability.RetroReady or Capability.RetroFocus => open && RetroRoles.MayPace(s.Team, s.Who, s.Access),
+            Capability.RetroTimer or Capability.RetroFacilitate => open && RetroRoles.IsFacilitator(s.Team, s.Who, s.Access),
+            Capability.RetroEndorse => open && RetroRoles.IsMember(s.Team, s.Who, s.Access),
+            Capability.RetroViewRoster => RetroRoles.IsMember(s.Team, s.Who, s.Access),
             Capability.RetroArchive or Capability.RetroManageAccess or Capability.RetroDeleteBoard => s.CanManageBoard,
             _ => false,
         };
@@ -126,9 +123,6 @@ internal static class PolicyRules {
                 };
             }
         }
-
-        /// <summary>S12: on team boards only members facilitate, whatever the visibility. Guests never do.</summary>
-        public bool IsFacilitator => IsTeamRoom ? IsMember : IsUser;
 
         /// <summary>BoardManage (§d): team admin or owner on team boards, the creator on quick boards.</summary>
         public bool CanManageBoard => IsTeamRoom ? IsTeamAdmin : IsCreator;

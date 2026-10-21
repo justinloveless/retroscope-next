@@ -5,7 +5,10 @@ namespace Retroscope.Core.Retro;
 
 // Readiness, focus, the shared timer and endorsements.
 public sealed partial class RetroDecider {
-    private static Decision<RetroEvent> SetReady(RetroState state, RetroReadySet command, Principal who) {
+    private static Decision<RetroEvent> SetReady(RetroState state, RetroReadySet command, Principal who, IAccessView access) {
+        if (!RetroRoles.MayPace(state, who, access)) {
+            return Reject(NackCode.Forbidden, "Team members only.");
+        }
         if (command.Stage != state.Stage) {
             return Stale(state.Stage, WireJsonContext.Default.RetroStage);
         }
@@ -15,8 +18,11 @@ public sealed partial class RetroDecider {
         return Accept(new ReadySet(command.Stage, who.Id, command.Ready));
     }
 
-    /// <summary>Any participant (parity); the client drops its intent silently on <c>stale</c>.</summary>
-    private static Decision<RetroEvent> SetFocus(RetroState state, RetroFocusSet command) {
+    /// <summary>Any participant who may pace the board; the client drops its intent silently on <c>stale</c>.</summary>
+    private static Decision<RetroEvent> SetFocus(RetroState state, RetroFocusSet command, Principal who, IAccessView access) {
+        if (!RetroRoles.MayPace(state, who, access)) {
+            return Reject(NackCode.Forbidden, "Team members only.");
+        }
         if (!StageRules.AllowsFocus(state.Config, state.Stage)) {
             return Reject(NackCode.StageForbids);
         }
@@ -47,7 +53,7 @@ public sealed partial class RetroDecider {
         if (state.TeamId is null) {
             return Reject(NackCode.Invalid, "Endorsements need a team board.");
         }
-        if (!RetroRoles.IsMember(state, who.Id, context.Access)) {
+        if (!RetroRoles.IsMember(state, who, context.Access)) {
             return Reject(NackCode.Forbidden, "Team members only.");
         }
         if (command.ToUserId == who.Id || !RetroRoles.IsMember(state, command.ToUserId, context.Access)) {
@@ -75,7 +81,10 @@ public sealed partial class RetroDecider {
         return Accept(new EndorsementAdded(endorsement));
     }
 
-    private static Decision<RetroEvent> RevokeEndorsement(RetroState state, RetroEndorseRevoke command, Principal who) {
+    private static Decision<RetroEvent> RevokeEndorsement(RetroState state, RetroEndorseRevoke command, Principal who, IAccessView access) {
+        if (!RetroRoles.IsMember(state, who, access)) {
+            return Reject(NackCode.Forbidden, "Team members only.");
+        }
         if (!state.Endorsements.TryGetValue(command.EndorsementId, out var endorsement)) {
             return Reject(NackCode.NotFound, "No such endorsement.");
         }
