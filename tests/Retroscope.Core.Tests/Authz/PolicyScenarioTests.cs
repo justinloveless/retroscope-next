@@ -1,6 +1,7 @@
 using Retroscope.Core.Authz;
 using Retroscope.Core.Ids;
 using Retroscope.Core.Protocol;
+using Retroscope.Core.Retro;
 using Retroscope.Core.Room;
 
 namespace Retroscope.Core.Tests.Authz;
@@ -146,6 +147,53 @@ public sealed class PolicyScenarioTests {
 
         Assert.True(Policy.Can(viewer, Capability.TeamUpdateActionItem, team, _access));
         Assert.False(Policy.Can(viewer, Capability.TeamDeleteActionItem, team, _access));
+    }
+
+    [Fact]
+    public void Only_the_owner_manages_admins_while_admins_manage_members() {
+        var team = new ResourceFacts(RoomKey.Team(Team), Team);
+        var owner = User();
+        var admin = User();
+        var member = User();
+        _access.SetRole(Team, owner.Id, TeamRole.Owner).SetRole(Team, admin.Id, TeamRole.Admin).SetRole(Team, member.Id, TeamRole.Member);
+
+        Assert.True(Policy.Can(owner, Capability.TeamManageAdmins, team, _access));
+        Assert.False(Policy.Can(admin, Capability.TeamManageAdmins, team, _access));
+        Assert.False(Policy.Can(member, Capability.TeamManageAdmins, team, _access));
+        Assert.True(Policy.Can(admin, Capability.TeamManageMembers, team, _access));
+        Assert.True(Policy.Can(owner, Capability.TeamManageMembers, team, _access));
+        Assert.False(Policy.Can(member, Capability.TeamManageMembers, team, _access));
+
+        _access.SetRole(Team, owner.Id, TeamRole.Admin);
+        Assert.False(Policy.Can(owner, Capability.TeamManageAdmins, team, _access));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Board_roles_answer_like_the_retro_decider(bool teamBoard) {
+        var team = teamBoard ? Team : (TeamId?)null;
+        var board = BoardFacts(BoardVisibility.Link, team);
+        var member = User();
+        var outsider = User();
+        var guest = Guest();
+        var guestWithRole = Guest();
+        _access.SetRole(Team, member.Id, TeamRole.Member).SetRole(Team, guestWithRole.Id, TeamRole.Admin);
+
+        foreach (var who in new[] { member, outsider, guest, guestWithRole }) {
+            var facilitator = RetroRoles.IsFacilitator(team, who, _access);
+            var isMember = RetroRoles.IsMember(team, who, _access);
+            var paces = RetroRoles.MayPace(team, who, _access);
+            Assert.Equal(facilitator, Policy.Can(who, Capability.RetroFacilitate, board, _access));
+            Assert.Equal(facilitator, Policy.Can(who, Capability.RetroTimer, board, _access));
+            Assert.Equal(isMember, Policy.Can(who, Capability.RetroEndorse, board, _access));
+            Assert.Equal(isMember, Policy.Can(who, Capability.RetroViewRoster, board, _access));
+            Assert.Equal(paces, Policy.Can(who, Capability.RetroReady, board, _access));
+            Assert.Equal(paces, Policy.Can(who, Capability.RetroFocus, board, _access));
+        }
+        Assert.Equal(teamBoard, Policy.Can(member, Capability.RetroEndorse, board, _access));
+        Assert.Equal(!teamBoard, Policy.Can(guest, Capability.RetroReady, board, _access));
+        Assert.False(Policy.Can(guestWithRole, Capability.RetroEndorse, board, _access));
     }
 
     private static Principal User() => new(new PrincipalId(Guid.CreateVersion7()), PrincipalKind.User, "User", null, false);
