@@ -1,16 +1,22 @@
 // Visual baselines of the Neotro table, hand and reveal (§j) in both themes, on a desktop and a 390×844
 // phone viewport. Pixels differ between engines and operating systems, so they are kept for Chromium only;
-// the baselines carry the platform in their file name (see docs/decisions/U31.md).
+// the baselines carry the platform in their file name (see docs/decisions/U31.md). The time zone and locale
+// are pinned, so a machine's own settings never change a baseline (times and dates on the table).
 import { expect, test } from '../_harness/fixtures.js';
 import { BOB, DOT, GUS, ME, R1, ROOM, handCard, openTable, revealed, setupPoker } from './_poker.js';
 
 const VIEWPORTS = { desktop: { width: 1280, height: 900 }, phone: { width: 390, height: 844 } };
+// In the Linux image a seat's name label was seen once to land one pixel over (28 pixels in all); a real
+// change to the table, a card or a glyph moves far more.
+const SHOT = { fullPage: true, maxDiffPixels: 40 };
 
 const OTHERS = {
   [BOB.pid]: { points: 5, locked: true, abstained: false },
   [GUS.pid]: { points: 3, high: 5, locked: true, abstained: false },
   [DOT.pid]: { points: 13, locked: false, abstained: false },
 };
+
+test.use({ timezoneId: 'UTC', locale: 'en-US' });
 
 test.beforeEach(({}, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium', 'visual baselines are Chromium-only');
@@ -33,7 +39,7 @@ for (const [size, viewport] of Object.entries(VIEWPORTS)) {
         await expect(handCard(page, 8)).toHaveAttribute('aria-pressed', 'true');
         await page.mouse.move(0, 0);
         await page.evaluate(() => document.fonts.ready);
-        await expect(page).toHaveScreenshot(`voting-${size}-${theme}.png`, { fullPage: true });
+        await expect(page).toHaveScreenshot(`voting-${size}-${theme}.png`, SHOT);
       });
 
       test('revealed: grouped stacks and the results bar', async ({ page, fake }) => {
@@ -45,7 +51,7 @@ for (const [size, viewport] of Object.entries(VIEWPORTS)) {
         await expect(page.locator('.nt-flip.is-flipped')).toHaveCount(3);
         await page.mouse.move(0, 0);
         await page.evaluate(() => document.fonts.ready);
-        await expect(page).toHaveScreenshot(`revealed-${size}-${theme}.png`, { fullPage: true });
+        await expect(page).toHaveScreenshot(`revealed-${size}-${theme}.png`, SHOT);
       });
     });
   }
