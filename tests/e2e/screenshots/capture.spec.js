@@ -92,7 +92,26 @@ const STATES = [
   },
   { route: 'admin', state: 'teams', path: '/admin/teams', ready: 'role=searchbox', act: search('Platform Guild') },
   { route: 'admin', state: 'stats', path: '/admin/stats', ready: 'text=liveRooms' },
+  {
+    route: 'dashboard',
+    state: 'header-menu',
+    path: '/dashboard',
+    ready: 'text=Recent retros',
+    async act(page) {
+      const burger = page.getByRole('button', { name: 'Menu', exact: true });
+      if (await burger.isVisible()) {
+        await burger.click();
+        await expect(page.getByRole('dialog', { name: 'Menu' })).toBeVisible();
+      } else {
+        await page.getByRole('button', { name: /Account menu/ }).click();
+        await expect(page.getByRole('menuitem', { name: 'Sign out' })).toBeVisible();
+      }
+    },
+  },
 ];
+
+// Poker keeps its own toolbar, with the header's theme and account menus docked into it.
+const headerOf = (shot) => (shot.path.includes('/poker/') ? '.nt-toolbar .app-dock' : 'header.app-header');
 
 const SHOTS = [...ROUTES.map((r) => ({ ...r, state: r.state ?? 'default' })), ...STATES];
 
@@ -106,6 +125,7 @@ for (const shot of SHOTS) {
         const problems = watchConsole(page);
         await page.goto(shot.path);
         await expect(page.locator(shot.ready).first()).toBeVisible();
+        await expect(page.locator(headerOf(shot))).toBeVisible();
         await page.waitForTimeout(700);
         const undo = await shot.act?.(page);
         await page.screenshot({ path: join(OUT, `${name}.png`) });

@@ -12,7 +12,7 @@
     "auth": 10240,
     "dashboard": 10240,
     "account": 10240,
-    "mentions": 12288,
+    "mentions": 10240,
     "invite": 10240,
     "admin": 10240,
     "teams": 10240,

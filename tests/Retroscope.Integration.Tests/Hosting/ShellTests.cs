@@ -168,6 +168,20 @@ public sealed partial class ShellTests : IDisposable {
 
         Assert.Contains("<script type=\"application/json\" id=\"boot\">", html, StringComparison.Ordinal);
         Assert.DoesNotContain("type=\"module\"", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("rel=\"icon\"", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("rel=\"manifest\"", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Shell_links_the_favicon_the_svg_icon_and_the_web_manifest() {
+        await using var app = await StartAsync();
+
+        var html = await GetHtmlAsync(app, "/dashboard");
+
+        Assert.Contains($"<meta name=\"theme-color\" content=\"{Shell.ThemeColor}\">", html, StringComparison.Ordinal);
+        Assert.Contains("<link rel=\"icon\" href=\"/favicon.ico\" sizes=\"48x48\">", html, StringComparison.Ordinal);
+        Assert.Contains($"<link rel=\"icon\" href=\"{FakeWebBuild.Logo}\" type=\"image/svg+xml\">", html, StringComparison.Ordinal);
+        Assert.Contains("<link rel=\"manifest\" href=\"/manifest.webmanifest\">", html, StringComparison.Ordinal);
     }
 
     private Task<TestApp> StartAsync(IBootContributor? contributor = null) =>

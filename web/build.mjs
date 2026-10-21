@@ -82,12 +82,18 @@ async function listFiles(dir) {
   return entries.filter((e) => e.isFile()).map((e) => join(e.parentPath ?? e.path, e.name)).sort();
 }
 
+// web/assets/public/* is served from the site root under fixed names (favicon.ico, robots.txt, …).
+const PUBLIC_DIR = 'public';
+
 // Copies web/assets/** to dist/assets/ under content-hashed names; returns logical name → public URL.
 async function copyStaticAssets(dist) {
   const map = {};
   const source = join(root, 'assets');
   for (const file of await listFiles(source)) {
     const name = relative(source, file).split(sep).join('/');
+    if (name.startsWith(`${PUBLIC_DIR}/`)) {
+      continue;
+    }
     const ext = extname(name);
     const hashed = `${name.slice(0, -ext.length)}-${shortHash(await readFile(file))}${ext}`;
     const target = join(dist, 'assets', 'static', hashed);
@@ -96,6 +102,31 @@ async function copyStaticAssets(dist) {
     map[name] = `/assets/static/${hashed}`;
   }
   return map;
+}
+
+// Copies web/assets/public/* to the root of dist. The web manifest names its icons by logical asset
+// name; they are rewritten to the hashed URLs. Returns the copied files.
+async function copyPublicFiles(dist, staticAssets) {
+  const source = join(root, 'assets', PUBLIC_DIR);
+  const copied = [];
+  for (const file of await listFiles(source)) {
+    const name = relative(source, file).split(sep).join('/');
+    const target = join(dist, name);
+    if (name === 'manifest.webmanifest') {
+      const manifest = JSON.parse(await readFile(file, 'utf8'));
+      manifest.icons = (manifest.icons ?? []).map((icon) => {
+        if (!staticAssets[icon.src]) {
+          throw new Error(`manifest.webmanifest names an icon that is not in web/assets: ${icon.src}`);
+        }
+        return { ...icon, src: staticAssets[icon.src] };
+      });
+      await writeFile(target, JSON.stringify(manifest) + '\n');
+    } else {
+      await copyFile(file, target);
+    }
+    copied.push(target);
+  }
+  return copied;
 }
 
 // The pre-paint theme script, minified exactly as the shell will inline it, and its CSP source.
@@ -161,6 +192,104 @@ export function checkBudgets(sizes, budgets) {
   return { warnings, failures };
 }
 
+/**
+ * Brotli bytes per chunk from esbuild's metafile outputs. `entry` is the entry chunk with its static
+ * imports. A lazily imported chunk counts only what loading it adds: its static closure minus what is
+ * already loaded wherever it can be imported from (the entry, and the closure of every importer), and
+ * minus chunks that other lazy chunks share. Shared chunks are reported once each as `shared:<module>`,
+ * named after their largest input, and have no baseline.
+ */
+export function measureChunks(outputs, entryFile, brotliOf) {
+  const closures = new Map();
+  function closure(file) {
+    let seen = closures.get(file);
+    if (!seen) {
+      seen = new Set([file]);
+      closures.set(file, seen);
+      for (const imported of outputs[file].imports) {
+        if (imported.kind === 'import-statement' && !imported.external) {
+          for (const f of closure(imported.path)) {
+            seen.add(f);
+          }
+        }
+      }
+    }
+    return seen;
+  }
+
+  const lazy = Object.keys(outputs).filter((f) => outputs[f].entryPoint && f !== entryFile && f.endsWith('.js'));
+  const entryFiles = closure(entryFile);
+  const intersect = (sets) => (sets.length === 0
+    ? new Set(entryFiles)
+    : new Set([...sets[0]].filter((f) => sets.every((s) => s.has(f)))));
+
+  // What is certainly loaded once `file` has run. A lazy chunk still being worked out (null) is not
+  // loaded yet, so a shared chunk it brings in does not count as loaded before it.
+  const loaded = new Map();
+  function available(file) {
+    if (entryFiles.has(file)) {
+      return entryFiles;
+    }
+    if (loaded.has(file)) {
+      return loaded.get(file) ?? entryFiles;
+    }
+    let result;
+    if (outputs[file].entryPoint) {
+      loaded.set(file, null);
+      result = new Set([...closure(file), ...before(file)]);
+    } else {
+      const carriers = lazy.filter((e) => loaded.get(e) !== null && closure(e).has(file));
+      result = new Set([...closure(file), ...intersect(carriers.map(available))]);
+    }
+    loaded.set(file, result);
+    return result;
+  }
+  function before(file) {
+    const importers = Object.keys(outputs)
+      .filter((f) => outputs[f].imports.some((i) => i.kind === 'dynamic-import' && i.path === file));
+    return intersect(importers.map(available));
+  }
+
+  const added = new Map(lazy.map((file) => {
+    const ready = before(file);
+    return [file, [...closure(file)].filter((f) => !ready.has(f))];
+  }));
+  const users = new Map();
+  for (const files of added.values()) {
+    for (const f of files) {
+      users.set(f, (users.get(f) ?? 0) + 1);
+    }
+  }
+  // A chunk belongs to the lazy chunk whose output it is, or whose entry module esbuild moved into it
+  // (when a module is both imported and import()ed, its code lands in a shared chunk).
+  const owner = new Map(lazy.map((file) => [file, file]));
+  for (const file of lazy) {
+    for (const f of added.get(file)) {
+      if (!owner.has(f) && Object.hasOwn(outputs[f].inputs, outputs[file].entryPoint)) {
+        owner.set(f, file);
+      }
+    }
+  }
+  const bytes = (list) => list.reduce((n, f) => n + brotliOf(f), 0);
+
+  const sizes = [{ name: 'entry', bytes: bytes([...entryFiles]) }];
+  const shared = new Set();
+  for (const [file, files] of added) {
+    const own = files.filter((f) => (owner.has(f) ? owner.get(f) === file : users.get(f) === 1));
+    for (const f of files) {
+      if (!owner.has(f) && users.get(f) > 1) {
+        shared.add(f);
+      }
+    }
+    sizes.push({ name: budgetName(outputs[file].entryPoint), bytes: bytes(own) });
+  }
+  for (const file of [...shared].sort()) {
+    const [largest] = Object.entries(outputs[file].inputs).sort((a, b) => b[1].bytesInOutput - a[1].bytesInOutput)[0] ?? ['chunk'];
+    sizes.push({ name: `shared:${basename(largest, extname(largest))}`, bytes: brotliOf(file) });
+  }
+  return sizes;
+}
+
 function formatTable(sizes, budgets) {
   const rows = sizes.map(({ name, bytes }) => {
     const budget = budgets[name];
@@ -193,6 +322,7 @@ export async function buildWeb({ dist = join(root, 'dist'), budgetsFile = join(r
   await mkdir(assetsDir, { recursive: true });
 
   const staticAssets = await copyStaticAssets(dist);
+  const publicFiles = await copyPublicFiles(dist, staticAssets);
   const theme = await themeScript();
   const toPublic = (file) => '/' + relative(dist, join(root, file)).split(sep).join('/');
 
@@ -268,6 +398,7 @@ export async function buildWeb({ dist = join(root, 'dist'), budgetsFile = join(r
   ];
   const compressed = await Promise.all(served.map((file) => precompress(join(root, file))));
   const files = Object.fromEntries(served.map((file, i) => [toPublic(file), compressed[i]]));
+  const rootFiles = await Promise.all(publicFiles.map(precompress));
 
   const manifest = {
     entry: [...entryFiles].map(toPublic),
@@ -277,18 +408,13 @@ export async function buildWeb({ dist = join(root, 'dist'), budgetsFile = join(r
     styles: Object.fromEntries(Object.entries(styles).map(([name, file]) => [name, toPublic(file)])),
     assets: staticAssets,
     files,
+    public: Object.fromEntries(publicFiles.map((file, i) => ['/' + relative(dist, file).split(sep).join('/'), rootFiles[i]])),
   };
   await writeFile(join(dist, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   await writeFile(join(dist, 'csp.json'), JSON.stringify({ scriptHashes: [theme.hash], themeScript: theme.text }, null, 2) + '\n');
 
   const brotliOf = (file) => files[toPublic(file)].br ?? files[toPublic(file)].size;
-  const sizes = [{ name: 'entry', bytes: [...entryFiles].reduce((n, f) => n + brotliOf(f), 0) }];
-  for (const [file, output] of Object.entries(outputs)) {
-    if (output.entryPoint && output.entryPoint !== 'src/entry.js') {
-      const own = [...closure(file)].filter((f) => !entryFiles.has(f));
-      sizes.push({ name: budgetName(output.entryPoint), bytes: own.reduce((n, f) => n + brotliOf(f), 0) });
-    }
-  }
+  const sizes = measureChunks(outputs, outputFor('src/entry.js'), brotliOf);
   for (const [name, file] of Object.entries(styles)) {
     sizes.push({ name: name === 'kit.css' ? 'css' : `css:${basename(name, '.css')}`, bytes: brotliOf(file) });
   }

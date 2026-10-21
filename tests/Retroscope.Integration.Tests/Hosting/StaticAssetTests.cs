@@ -144,6 +144,64 @@ public sealed class StaticAssetTests : IDisposable {
         });
     }
 
+    [Theory]
+    [InlineData(FakeWebBuild.Favicon, "image/x-icon", "ICO-bytes")]
+    [InlineData(FakeWebBuild.Robots, "text/plain; charset=utf-8", "User-agent: *")]
+    [InlineData(FakeWebBuild.WebManifest, "application/manifest+json", "{\"name\":\"Retroscope\"}")]
+    public async Task Root_files_are_served_with_their_type_and_a_one_day_cache(string path, string contentType, string body) {
+        await using var app = await TestApp.StartAsync(_web.Settings());
+
+        using var response = await GetAsync(app, path, null);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(contentType, response.Content.Headers.ContentType?.ToString());
+        Assert.Equal(StaticAssets.RootCacheControl, response.Headers.CacheControl?.ToString());
+        Assert.Equal(FakeWebBuild.ETagOf(path), response.Headers.ETag?.ToString());
+        Assert.Equal(body, await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Root_files_are_negotiated_and_revalidated_like_assets() {
+        await using var app = await TestApp.StartAsync(_web.Settings());
+
+        using var compressed = await GetAsync(app, FakeWebBuild.Robots, "br, gzip");
+        using var revalidated = await GetAsync(app, FakeWebBuild.Robots, "br", "\"etag-robots.br\"");
+
+        Assert.Equal("br", compressed.Content.Headers.ContentEncoding.Single());
+        Assert.Equal("BR:robots", await compressed.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.Equal("Accept-Encoding", string.Join(",", compressed.Headers.Vary));
+        Assert.Equal(HttpStatusCode.NotModified, revalidated.StatusCode);
+        Assert.Equal(StaticAssets.RootCacheControl, revalidated.Headers.CacheControl?.ToString());
+    }
+
+    [Fact]
+    public async Task Only_the_known_root_names_are_served_from_the_public_list() {
+        await using var app = await TestApp.StartAsync(_web.Settings());
+
+        using var response = await GetAsync(app, FakeWebBuild.UnlistedRoot, null);
+
+        await ProblemTests.AssertProblemAsync(response, 404, "not_found");
+    }
+
+    [Fact]
+    public async Task Root_files_are_missing_without_a_web_build() {
+        await using var app = await TestApp.StartAsync();
+
+        using var response = await GetAsync(app, FakeWebBuild.Favicon, null);
+
+        await ProblemTests.AssertProblemAsync(response, 404, "not_found");
+    }
+
+    [Fact]
+    public async Task Unsafe_methods_on_root_files_are_refused() {
+        await using var app = await TestApp.StartAsync(_web.Settings());
+        using var request = CsrfTests.Unsafe(HttpMethod.Post, FakeWebBuild.Robots);
+
+        using var response = await app.Client.SendAsync(request, TestContext.Current.CancellationToken);
+
+        await ProblemTests.AssertProblemAsync(response, 405, "method_not_allowed");
+    }
+
     private static async Task<HttpResponseMessage> GetAsync(TestApp app, string path, string? acceptEncoding, string? ifNoneMatch = null) {
         using var request = new HttpRequestMessage(HttpMethod.Get, path);
         if (acceptEncoding is not null) {

@@ -2,6 +2,7 @@
 // favorites, invites, account, mentions, admin, and the early socket on room routes.
 import { json, problem } from '../../../web-fake-server/http.js';
 import { expect, test } from '../_harness/fixtures.js';
+import { EMPTY_OVERLAY, CODE as BOARD_CODE, ROOM as BOARD_ROOM, snapshot } from '../retro-board/_board.js';
 import { ADMIN, TEAM_ID, USER, installApi, pageErrors, requests, useSession } from './_shell.js';
 
 const GUEST = { id: '01900000-0000-7000-8000-0000000000b1', kind: 'guest', name: 'Visitor' };
@@ -40,7 +41,7 @@ test('closing the guest dialog creates nothing', async ({ page, fake }) => {
 test('joining by code checks the code first', async ({ page, fake }) => {
   useSession(fake, USER);
   fake.route('GET', '/api/retro/by-code/:code', (req) => (req.params.code === 'GOODCODE42'
-    ? json({ id: 'b1', access: 'granted' })
+    ? json({ id: '01900000-0000-7000-8000-0000000000b2', access: 'granted' })
     : problem(404, 'not_found')));
   await page.goto('/');
   const code = page.getByLabel('Join a retro by code');
@@ -54,12 +55,36 @@ test('joining by code checks the code first', async ({ page, fake }) => {
   await expect(page).toHaveURL(/\/retro\/GOODCODE42$/);
 });
 
-test('room routes open the socket before the room chunk mounts', async ({ page, fake }) => {
+test('a board route opens the tab socket before the room chunk mounts', async ({ page, fake }) => {
   useSession(fake, USER);
+  let release;
+  const held = new Promise((done) => {
+    release = done;
+  });
+  await page.route(/\/assets\/chunks\/retro-[A-Z0-9]+\.js$/, async (route) => {
+    await held;
+    await route.continue();
+  });
   const connected = fake.waitForConnection();
-  await page.goto('/teams/x/poker/POKERCODE1');
+  await page.goto(`/retro/${BOARD_CODE}`, { waitUntil: 'commit' });
   await connected;
   expect(fake.received.find((f) => f.frame.t === 'hello')).toBeTruthy();
+  release();
+});
+
+test('a board joins on the tab socket instead of opening a second one', async ({ page, fake }) => {
+  useSession(fake, USER);
+  const snap = snapshot();
+  fake.boot = { build: 'fake', theme: 'light', me: USER, room: { r: BOARD_ROOM } };
+  fake.me = { pid: USER.principal.id, kind: 'user', name: USER.principal.name };
+  fake.room(BOARD_ROOM, { snapshot: snap, overlay: EMPTY_OVERLAY, epoch: 'aaaaaaaaaaaaaaaa', seq: 0 });
+  await page.goto(`/retro/${BOARD_CODE}`);
+  await expect(page.locator('.retro-column')).toHaveCount(snap.columns.length);
+
+  // The snapshot only comes over the socket (the boot JSON carries none), so the columns prove the join.
+  await page.waitForTimeout(300);
+  expect(fake.connections).toHaveLength(1);
+  expect(fake.received.filter((f) => f.frame.t === 'hello')).toHaveLength(1);
 });
 
 test('shell routes do not open a socket', async ({ page, fake }) => {
@@ -225,16 +250,36 @@ test('admin: members without the flag are turned away; admins can disable a user
   await expect(page.getByText('liveRooms')).toBeVisible();
 });
 
-test('a socket that stays down for more than 10 s shows the reconnecting notice', async ({ page, fake }) => {
-  useSession(fake, USER);
-  await page.clock.install();
-  await page.routeWebSocket(/\/ws$/, (ws) => ws.close());
-  await page.goto('/poker/POKERCODE1');
-  const notice = page.getByText('Reconnecting… your changes are saved and will sync.');
-  await page.clock.runFor(5_000);
-  await expect(notice).toHaveCount(0);
+for (const [name, path, setup] of [
+  ['poker', '/poker/POKERCODE1', (fake) => {
+    fake.route('GET', '/api/poker/by-code/:code', json({ id: '01900000-0000-7000-8000-0000000000c1' }));
+  }],
+  ['a board', `/retro/${BOARD_CODE}`, (fake) => {
+    fake.boot = { build: 'fake', theme: 'light', me: USER, room: { r: BOARD_ROOM, e: 'aaaaaaaaaaaaaaaa', s: 0, d: snapshot(), o: EMPTY_OVERLAY } };
+  }],
+]) {
+  test(`${name}: a socket that stays down for more than 10 s shows one reconnecting notice`, async ({ page, fake }) => {
+    useSession(fake, USER);
+    setup(fake);
+    await page.clock.install();
+    let attempted;
+    const tried = new Promise((done) => {
+      attempted = done;
+    });
+    await page.routeWebSocket(/\/ws$/, (ws) => {
+      attempted();
+      ws.close();
+    });
+    await page.goto(path);
+    // The clock only counts from the first attempt; poker connects once its chunk has resolved the code.
+    await tried;
+    const notice = page.getByText('Reconnecting… your changes are saved and will sync.');
+    await page.clock.runFor(5_000);
+    await expect(notice).toBeHidden();
 
-  await page.clock.runFor(7_000);
+    await page.clock.runFor(7_000);
 
-  await expect(notice).toBeVisible();
-});
+    await expect(notice).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: 'Reconnecting' })).toHaveCount(0);
+  });
+}

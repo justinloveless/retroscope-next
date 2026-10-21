@@ -46,7 +46,7 @@ export function authorLine(entity) {
   return entity.anonymous ? h('span', { class: 'retro-author retro-anonymous', text: 'Anonymous' }) : null;
 }
 
-/** Mounts a composer into `host` once its lazily loaded chunk (composer plus editor) has arrived. */
+/** Mounts a composer into `host` once its lazily loaded chunk has arrived. */
 export function lazyComposer(host, ctx, props) {
   let composer = null;
   let gone = false;
@@ -213,7 +213,7 @@ export function createCard(card, ctx) {
       editor.focus();
       return;
     }
-    const { createEditor } = await import('./composer.js');
+    const { createEditor } = await import('../markup/editor.js');
     if (editor) {
       return;
     }

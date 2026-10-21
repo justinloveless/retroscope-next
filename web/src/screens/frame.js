@@ -1,16 +1,10 @@
-// The frame every shell screen sits in (header, centred main column) and the small form helpers they
-// share. Layout goes through h()'s style objects (CSSOM), because the shell has no stylesheet of its
-// own beyond the kit (see docs/decisions/U29.md).
+// The frame every shell screen sits in (a centred main column under the app header) and the small form
+// helpers they share. Layout goes through h()'s style objects (CSSOM), because the shell has no
+// stylesheet of its own beyond the kit (see docs/decisions/U29.md).
 
-import { h, replaceContent } from '../core/h.js';
+import { h } from '../core/h.js';
 import { timeAgo } from '../core/fmt.js';
-import { http, ApiError } from '../core/http.js';
-import { applyTheme, currentTheme } from '../core/theme.js';
-import { createAvatar } from '../ui/avatar.js';
-import { icon } from '../ui/icons.js';
-import { createMenu } from '../ui/menu.js';
-import { toast } from '../ui/toast.js';
-import { avatarUrl, navigate, session, setMe, signOut } from './app.js';
+import { ApiError } from '../core/http.js';
 
 export const stack = (gap = '1rem') => ({ display: 'grid', gap, 'align-content': 'start' });
 export const row = (gap = '0.75rem') => ({ display: 'flex', 'flex-wrap': 'wrap', 'align-items': 'center', gap });
@@ -34,119 +28,9 @@ export function muted(text) {
   return h('p', { text, style: MUTED });
 }
 
-const THEMES = [
-  { action: 'light', label: 'Light', icon: 'sun' },
-  { action: 'dark', label: 'Dark', icon: 'moon' },
-  { action: 'system', label: 'System', icon: 'palette' },
-];
-
-export async function setThemePreference(pref) {
-  applyTheme(pref);
-  if (session.get().me?.user) {
-    try {
-      setMe(await http.patch('/api/me', { theme: pref }));
-    } catch {
-      toast('Your theme could not be saved to your account.', { variant: 'error', duration: 5000 });
-    }
-  }
-}
-
-function createHeader() {
-  const themeButton = h('button', { type: 'button', class: 'btn btn-ghost btn-icon', 'aria-label': 'Theme' });
-  const themeMenu = createMenu({ items: THEMES, label: 'Theme', placement: 'bottom-end', onSelect: setThemePreference });
-  themeMenu.attach(themeButton);
-  const nav = h('nav', { 'aria-label': 'Main', style: row('0.25rem') });
-  const account = h('div', { style: row('0.5rem') });
-  const menus = [themeMenu];
-
-  function showThemeIcon() {
-    const resolved = document.documentElement.dataset.theme === 'dark' ? 'moon' : 'sun';
-    replaceContent(themeButton, icon(currentTheme() === 'system' ? 'palette' : resolved));
-  }
-
-  function render(me) {
-    const user = me?.user;
-    const links = user
-      ? [
-        link('/dashboard', 'Dashboard', { class: 'btn btn-ghost btn-sm' }),
-        link('/teams', 'Teams', { class: 'btn btn-ghost btn-sm' }),
-        link('/mentions', 'Mentions', { class: 'btn btn-ghost btn-sm', 'aria-label': me.unreadMentions ? `Mentions (${me.unreadMentions} unread)` : null },
-          me.unreadMentions ? h('span', { class: 'badge', 'aria-hidden': 'true', text: String(me.unreadMentions) }) : null),
-      ]
-      : [];
-    replaceContent(nav, links);
-    while (menus.length > 1) {
-      menus.pop().destroy();
-    }
-    if (!user) {
-      replaceContent(account,
-        me ? h('span', { style: MUTED, text: me.principal.name }) : null,
-        link(`/login?return=${encodeURIComponent(location.pathname + location.search)}`, 'Sign in', { class: 'btn btn-outline btn-sm' }));
-      return;
-    }
-    const avatar = createAvatar({ name: me.principal.name, src: avatarUrl(me.principal), size: 'sm' });
-    const trigger = h('button', {
-      type: 'button',
-      class: 'btn btn-ghost btn-sm',
-      'aria-label': `Account menu for ${me.principal.name}`,
-    }, avatar.el, icon('chevron-down'));
-    const items = [
-      { action: 'account', label: 'Account', icon: 'user' },
-      user.isAdmin ? { action: 'admin', label: 'Admin', icon: 'shield' } : null,
-      'separator',
-      { action: 'signout', label: 'Sign out', icon: 'log-out', destructive: true },
-    ].filter(Boolean);
-    const menu = createMenu({
-      items,
-      label: 'Account',
-      placement: 'bottom-end',
-      onSelect(action) {
-        if (action === 'signout') {
-          signOut().catch(() => toast('Signing out failed. Try again.', { variant: 'error', duration: 5000 }));
-        } else {
-          navigate(action === 'admin' ? '/admin/users' : '/account');
-        }
-      },
-    });
-    menu.attach(trigger);
-    menus.push(menu);
-    replaceContent(account, trigger);
-  }
-
-  const el = h('header', {
-    style: {
-      ...row('1rem'),
-      'justify-content': 'space-between',
-      padding: '0.75rem 1rem',
-      'border-bottom': '1px solid hsl(var(--border))',
-      background: 'hsl(var(--background) / 0.8)',
-    },
-  },
-  h('div', { style: row('1rem') },
-    link(session.get().me?.user ? '/dashboard' : '/', 'Retroscope', { style: { 'font-weight': '700', 'font-size': '1.125rem', 'text-decoration': 'none' } }),
-    nav),
-  h('div', { style: row('0.5rem') }, themeButton, account));
-
-  const stop = session.select((s) => s.me, Object.is, (me) => render(me));
-  const observer = new MutationObserver(showThemeIcon);
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-  render(session.get().me);
-  showThemeIcon();
-
-  return {
-    el,
-    destroy() {
-      stop();
-      observer.disconnect();
-      for (const menu of menus) {
-        menu.destroy();
-      }
-    },
-  };
-}
-
 /**
- * Mounts the header and a centred main column into `root`. Returns {main, setTitle(text), destroy()}.
+ * Mounts a centred main column into `root` (the app header sits above every route). Returns {main,
+ * setTitle(text), destroy()}.
  */
 export function createFrame(root, { title, width = '56rem' } = {}) {
   const heading = h('h1', { tabindex: '-1', style: { 'font-size': '1.75rem', 'font-weight': '700' } });
@@ -154,8 +38,7 @@ export function createFrame(root, { title, width = '56rem' } = {}) {
   const main = h('main', {
     style: { ...stack('1.5rem'), width: '100%', 'max-width': width, margin: '0 auto', padding: '2rem 1rem 3rem' },
   }, heading, body);
-  const header = createHeader();
-  root.replaceChildren(header.el, main);
+  root.replaceChildren(main);
 
   function setTitle(text) {
     heading.textContent = text ?? '';
@@ -168,7 +51,6 @@ export function createFrame(root, { title, width = '56rem' } = {}) {
     main: body,
     setTitle,
     destroy() {
-      header.destroy();
       root.replaceChildren();
     },
   };

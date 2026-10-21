@@ -14,6 +14,9 @@ namespace Retroscope.Server.Hosting;
 /// </summary>
 public sealed class Shell {
     public const string BootPath = "/api/boot";
+
+    // The web manifest's theme_color; the original's index.html used the same.
+    public const string ThemeColor = "#111827";
     private const int MaxBootPathLength = 2048;
 
     private static readonly JsonWriterOptions BootJson = new() {
@@ -24,10 +27,10 @@ public sealed class Shell {
     private readonly IReadOnlyList<IBootContributor> _contributors;
     private readonly FrozenDictionary<string, (byte[] Head, byte[] Tail)> _pages;
 
-    public Shell(WebBuild build, IEnumerable<IBootContributor> contributors) {
+    public Shell(WebBuild build, StaticAssets assets, IEnumerable<IBootContributor> contributors) {
         _build = build;
         _contributors = [.. contributors];
-        _pages = ShellRoute.All.ToFrozenDictionary(x => x.Pattern, x => Render(build, x), StringComparer.Ordinal);
+        _pages = ShellRoute.All.ToFrozenDictionary(x => x.Pattern, x => Render(build, assets, x), StringComparer.Ordinal);
     }
 
     public static void Map(IEndpointRouteBuilder app) {
@@ -95,12 +98,22 @@ public sealed class Shell {
     }
 
     // Everything but the boot JSON is fixed per route, so it is rendered once at startup.
-    private static (byte[] Head, byte[] Tail) Render(WebBuild build, ShellRoute route) {
+    private static (byte[] Head, byte[] Tail) Render(WebBuild build, StaticAssets assets, ShellRoute route) {
         var html = HtmlEncoder.Default;
         var head = new StringBuilder(2048);
         head.Append("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n")
             .Append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n")
+            .Append("<meta name=\"theme-color\" content=\"").Append(ThemeColor).Append("\">\n")
             .Append("<title>Retroscope</title>\n");
+        if (assets.HasRootFile("/favicon.ico")) {
+            head.Append("<link rel=\"icon\" href=\"/favicon.ico\" sizes=\"48x48\">\n");
+        }
+        if (build.Assets.TryGetValue("logo.svg", out var logo)) {
+            head.Append("<link rel=\"icon\" href=\"").Append(html.Encode(logo)).Append("\" type=\"image/svg+xml\">\n");
+        }
+        if (assets.HasRootFile("/manifest.webmanifest")) {
+            head.Append("<link rel=\"manifest\" href=\"/manifest.webmanifest\">\n");
+        }
         var styles = build.Css.Concat(build.RouteCss.GetValueOrDefault(route.Pattern) ?? []);
         foreach (var href in styles) {
             head.Append("<link rel=\"stylesheet\" href=\"").Append(html.Encode(href)).Append("\">\n");

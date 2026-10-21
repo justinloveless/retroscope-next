@@ -1,13 +1,11 @@
 // The card and comment composer: the shared markup editor, an anonymous toggle, and a draft per column
 // or card, so switching tabs, reloading or a refused post never loses what was typed (R21). This module
-// is loaded lazily and carries the editor with it, keeping both out of the board's first paint.
+// is loaded lazily, keeping it and the editor out of the board's first paint.
 
 import { h } from '../core/h.js';
 import { createEditor } from '../markup/editor.js';
 import { checkMarkup } from '../markup/parse.js';
 import { createButton } from '../ui/button.js';
-
-export { createEditor };
 
 const LIMIT_MESSAGES = {
   too_long: { card: 'Cards can be at most 8,000 characters.', comment: 'Comments can be at most 4,000 characters.' },

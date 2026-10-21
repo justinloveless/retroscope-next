@@ -15,6 +15,11 @@ internal sealed class FakeWebBuild : IDisposable {
     public const string Neotro = "/assets/neotro-FFFF.css";
     public const string Font = "/assets/static/m6x11plus-GGGG.woff2";
     public const string OnDiskOnly = "/assets/secret-HHHH.js";
+    public const string Logo = "/assets/static/logo-IIII.svg";
+    public const string Favicon = "/favicon.ico";
+    public const string Robots = "/robots.txt";
+    public const string WebManifest = "/manifest.webmanifest";
+    public const string UnlistedRoot = "/secret.txt";
     public const string ThemeScript = "(function(){document.documentElement.dataset.theme='light'})();";
 
     public FakeWebBuild() {
@@ -27,7 +32,14 @@ internal sealed class FakeWebBuild : IDisposable {
         AddFile(files, Kit, "body{margin:0}", brotli: "BR:kit", gzip: "GZ:kit");
         AddFile(files, Neotro, ".card{}", brotli: null, gzip: null);
         AddFile(files, Font, "wOF2-font-bytes", brotli: null, gzip: null);
+        AddFile(files, Logo, "<svg/>", brotli: null, gzip: null);
         Write(OnDiskOnly, "not in the manifest");
+
+        var rootFiles = new JsonObject();
+        AddFile(rootFiles, Favicon, "ICO-bytes", brotli: null, gzip: null);
+        AddFile(rootFiles, Robots, "User-agent: *", brotli: "BR:robots", gzip: "GZ:robots");
+        AddFile(rootFiles, WebManifest, "{\"name\":\"Retroscope\"}", brotli: null, gzip: "GZ:manifest");
+        AddFile(rootFiles, UnlistedRoot, "only public names are served", brotli: null, gzip: null);
 
         var routes = new JsonObject();
         var routeCss = new JsonObject();
@@ -42,8 +54,9 @@ internal sealed class FakeWebBuild : IDisposable {
             ["routes"] = routes,
             ["routeCss"] = routeCss,
             ["styles"] = new JsonObject { ["kit.css"] = Kit },
-            ["assets"] = new JsonObject { ["m6x11plus.woff2"] = Font },
+            ["assets"] = new JsonObject { ["m6x11plus.woff2"] = Font, ["logo.svg"] = Logo },
             ["files"] = files,
+            ["public"] = rootFiles,
         };
         File.WriteAllText(Path.Combine(Root, "manifest.json"), manifest.ToJsonString());
 

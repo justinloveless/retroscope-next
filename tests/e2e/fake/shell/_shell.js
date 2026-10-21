@@ -82,6 +82,19 @@ export function installApi(fake) {
   fake.route('POST', '/api/invites/preview', json({ teamName: 'Platform', kind: 'link', expired: false }));
 }
 
+/**
+ * A main header link by name: in the header's nav on wide screens, in the slide-out menu below 768 px
+ * (which this opens).
+ */
+export async function mainLink(page, name) {
+  const burger = page.getByRole('button', { name: 'Menu', exact: true });
+  if (await burger.isVisible()) {
+    await burger.click();
+    return page.getByRole('dialog', { name: 'Menu' }).getByRole('link', { name, exact: true });
+  }
+  return page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name, exact: true });
+}
+
 export const requests = (fake, method, path) => fake.requests.filter((r) => r.method === method && r.path === path);
 
 /** Collects uncaught page errors; assert `toEqual([])` at the end of a test. */

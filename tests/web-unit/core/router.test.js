@@ -291,3 +291,29 @@ test('loadStyles links missing stylesheets once and waits for them', async () =>
   assert.equal(done, true);
   await loadStyles(undefined);
 });
+
+test('context(route) becomes mount()’s third argument, and onShow reports every screen change', async () => {
+  const mounted = [];
+  const shown = [];
+  const view = { update() {}, unmount() {} };
+  const routes = [
+    { path: '/', module: 'landing', load: async () => ({ mount: (_root, _boot, app) => (mounted.push(['landing', app]), view) }) },
+    { path: '/retro/:code', module: 'retro', load: async () => ({ mount: (_root, _boot, app) => (mounted.push(['retro', app]), view) }) },
+  ];
+  const router = createRouter({
+    routes,
+    root: doc.body,
+    boot: {},
+    loadBoot: async () => ({}),
+    notFound() {},
+    context: async (route) => (route.module === 'retro' ? { socket: 'tab socket' } : undefined),
+    onShow: (route, params) => shown.push(route ? `${route.path} ${params.code ?? ''}`.trim() : null),
+  });
+  await router.start();
+  await router.navigate('/retro/ABC');
+  await router.navigate('/retro/DEF');
+  await router.navigate('/nowhere');
+
+  assert.deepEqual(mounted, [['landing', {}], ['retro', { socket: 'tab socket' }]]);
+  assert.deepEqual(shown, ['/', '/retro/:code ABC', '/retro/:code DEF', null]);
+});
