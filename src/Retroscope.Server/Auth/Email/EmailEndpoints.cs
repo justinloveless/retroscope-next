@@ -82,7 +82,7 @@ public static class EmailEndpoints {
         if (await tokens.PeekAsync(body.Token, TokenPurpose.MagicLink, context.RequestAborted) is not { } use) {
             return InvalidToken();
         }
-        return Results.Json(new MagicPreviewResponse(MaskEmail(use.Email)), EmailJsonContext.Default.MagicPreviewResponse);
+        return Results.Json(new MagicPreviewResponse(MaskEmail(use.Email)), AuthJsonContext.Default.MagicPreviewResponse);
     }
 
     // The click on "Sign in as j•••@x.com?" (S18). A link for an address without an account creates a verified one; a

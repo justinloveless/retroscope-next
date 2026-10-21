@@ -5,7 +5,6 @@ namespace Retroscope.Server.Auth.Email;
 
 public static class EmailModule {
     public static void AddServices(IServiceCollection services, IConfiguration configuration) {
-        services.ConfigureHttpJsonOptions(options => options.SerializerOptions.TypeInfoResolverChain.Insert(0, EmailJsonContext.Default));
         services.AddSingleton(_ => SmtpOptions.FromConfiguration(configuration));
         services.AddSingleton<SmtpSender>();
         services.AddSingleton<Outbox>();
