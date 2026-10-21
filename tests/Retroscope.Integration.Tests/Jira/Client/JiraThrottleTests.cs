@@ -125,6 +125,52 @@ public sealed class JiraThrottleTests : IDisposable {
     }
 
     [Fact]
+    public async Task A_caller_cancelled_while_paced_gets_its_rate_token_back() {
+        var delays = new List<TimeSpan>();
+        using var throttle = new JiraThrottle(new JiraThrottleOptions(), _time, async (wait, ct) => {
+            delays.Add(wait);
+            await Task.Delay(Timeout.Infinite, ct);
+        });
+        var team = new TeamId(Guid.NewGuid());
+        for (var i = 0; i < 16; i++) {
+            (await throttle.AcquireAsync(team, Ct)).Dispose();
+        }
+        using var cancel = new CancellationTokenSource();
+
+        var paced = throttle.AcquireAsync(team, cancel.Token).AsTask();
+        await cancel.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => paced);
+        using var next = new CancellationTokenSource();
+        var after = throttle.AcquireAsync(team, next.Token).AsTask();
+        await next.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => after);
+
+        Assert.Equal([TimeSpan.FromMilliseconds(125), TimeSpan.FromMilliseconds(125)], delays);
+    }
+
+    [Fact]
+    public async Task A_caller_cancelled_while_waiting_for_a_slot_gets_its_rate_token_back() {
+        var team = new TeamId(Guid.NewGuid());
+        var held = new List<IDisposable>();
+        for (var i = 0; i < 4; i++) {
+            held.Add(await _throttle.AcquireAsync(team, Ct));
+        }
+        for (var attempt = 0; attempt < 8; attempt++) {
+            using var cancel = new CancellationTokenSource();
+            var blocked = _throttle.AcquireAsync(team, cancel.Token).AsTask();
+            await cancel.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => blocked);
+        }
+        held.ForEach(l => l.Dispose());
+
+        for (var i = 0; i < 12; i++) {
+            (await _throttle.AcquireAsync(team, Ct)).Dispose();
+        }
+
+        Assert.Empty(_delays);
+    }
+
+    [Fact]
     public void Successes_reset_the_breaker_count() {
         var team = new TeamId(Guid.NewGuid());
         for (var i = 0; i < 4; i++) {
