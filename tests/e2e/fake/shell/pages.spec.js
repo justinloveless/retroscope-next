@@ -262,8 +262,17 @@ for (const [name, path, setup] of [
     useSession(fake, USER);
     setup(fake);
     await page.clock.install();
-    await page.routeWebSocket(/\/ws$/, (ws) => ws.close());
+    let attempted;
+    const tried = new Promise((done) => {
+      attempted = done;
+    });
+    await page.routeWebSocket(/\/ws$/, (ws) => {
+      attempted();
+      ws.close();
+    });
     await page.goto(path);
+    // The clock only counts from the first attempt; poker connects once its chunk has resolved the code.
+    await tried;
     const notice = page.getByText('Reconnecting… your changes are saved and will sync.');
     await page.clock.runFor(5_000);
     await expect(notice).toBeHidden();
