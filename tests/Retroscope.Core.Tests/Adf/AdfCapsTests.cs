@@ -1,8 +1,8 @@
-using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Retroscope.Core.Adf;
 using Retroscope.Core.Markup;
+using Retroscope.Core.Tests.Timing;
 
 namespace Retroscope.Core.Tests.Adf;
 
@@ -63,19 +63,33 @@ public sealed class AdfCapsTests {
         Assert.Equal(paragraphs[^1], reread.RootElement.GetProperty("content")[paragraphs.Length - 1].GetRawText());
     }
 
-    [Fact]
-    public void Hostile_shapes_convert_quickly() {
-        var wide = Doc(Enumerable.Range(0, 20_000).Select(_ => """{"type":"text","text":"x","marks":[{"type":"strong"},{"type":"em"},{"type":"strike"}]}""").ToArray());
-        var marks = Doc($$"""{"type":"paragraph","content":[{{string.Join(',', Enumerable.Range(0, 4000).Select(i => $$"""{"type":"text","text":" {{i}} ","marks":[{"type":"{{(i % 2 == 0 ? "strong" : "em")}}"}]}"""))}}]}""");
-        var stopwatch = Stopwatch.StartNew();
+    // Linear, not fast: a wall-clock budget fails on a loaded machine, so each shape is compared with itself at a
+    // quarter of the size (see Scaling). The wide shape stays past the node cap at both sizes.
+    [Theory]
+    [InlineData("wide")]
+    [InlineData("alternating marks")]
+    public void Hostile_shapes_convert_quickly(string shape) {
+        using var quarter = Parse(Hostile(shape, 4));
+        using var full = Parse(Hostile(shape, 1));
 
-        foreach (var json in new[] { wide, marks }) {
-            using var adf = Parse(json);
-            AdfToDoc.Render(adf.RootElement, []);
-            AdfToDoc.Description(adf.RootElement, []);
-        }
+        var ratio = Scaling.Ratio(() => Convert(quarter), () => Convert(full));
 
-        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(2), $"took {stopwatch.Elapsed}");
+        Assert.True(ratio < Scaling.MaxLinearRatio, $"4x the input took {ratio:F1}x as long");
+    }
+
+    private static string Hostile(string shape, int divisor) {
+        return shape switch {
+            "wide" => Doc(Enumerable.Range(0, 20_000 / divisor)
+                .Select(_ => """{"type":"text","text":"x","marks":[{"type":"strong"},{"type":"em"},{"type":"strike"}]}""")
+                .ToArray()),
+            _ => Doc($$"""{"type":"paragraph","content":[{{string.Join(',', Enumerable.Range(0, 4000 / divisor)
+                .Select(i => $$"""{"type":"text","text":" {{i}} ","marks":[{"type":"{{(i % 2 == 0 ? "strong" : "em")}}"}]}"""))}}]}"""),
+        };
+    }
+
+    private static void Convert(JsonDocument adf) {
+        AdfToDoc.Render(adf.RootElement, []);
+        AdfToDoc.Description(adf.RootElement, []);
     }
 
     private static void AssertEndsWithNotice(IReadOnlyList<DocBlock> blocks) {
