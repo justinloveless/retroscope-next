@@ -28,7 +28,7 @@ public sealed class CardTests {
         var added = Assert.IsType<CardAdded>(Assert.Single(fx.Do(Alice, new RetroCardAdd(id, Good, "Psst", true))));
 
         Assert.Null(added.Authorship.Author);
-        Assert.Equal(fx.Tagger.Tag(Board.Value, Alice.Id.Value), added.Authorship.AnonTag);
+        Assert.Equal(fx.Tagger.Tag(Board, Alice.Id), added.Authorship.AnonTag);
     }
 
     [Fact]

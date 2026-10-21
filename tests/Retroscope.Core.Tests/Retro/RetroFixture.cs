@@ -10,9 +10,11 @@ namespace Retroscope.Core.Tests.Retro;
 
 /// <summary>Owns a tag when it is board ‖ principal: enough to test ownership without a key.</summary>
 internal sealed class FakeTagger : IAnonTagger {
-    public byte[] Tag(Guid boardId, Guid principalId) => [.. boardId.ToByteArray(), .. principalId.ToByteArray()];
+    public byte[] Tag(BoardId boardId, PrincipalId principalId) =>
+        [.. boardId.Value.ToByteArray(), .. principalId.Value.ToByteArray()];
 
-    public bool Owns(ReadOnlySpan<byte> tag, Guid boardId, Guid principalId) => tag.SequenceEqual(Tag(boardId, principalId));
+    public bool Owns(ReadOnlySpan<byte> tag, BoardId boardId, PrincipalId principalId) =>
+        tag.SequenceEqual(Tag(boardId, principalId));
 }
 
 internal sealed class FakeAccess : IAccessView {

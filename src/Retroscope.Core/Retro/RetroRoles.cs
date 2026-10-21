@@ -31,6 +31,6 @@ public static class RetroRoles {
         if (authorship.Author is { Pid: { } author }) {
             return author == principal;
         }
-        return authorship.AnonTag is { } tag && tagger.Owns(tag, state.BoardId.Value, principal.Value);
+        return authorship.AnonTag is { } tag && tagger.Owns(tag, state.BoardId, principal);
     }
 }
