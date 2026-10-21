@@ -24,6 +24,16 @@ async function centre(locator) {
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
 
+/** The Browse Jira panel: open by default on desktop, a sheet behind the toolbar button on phones. */
+async function jiraPanel(page) {
+  await expect(page.locator('.jira-toggle')).toBeVisible();
+  if (page.viewportSize().width < 768) {
+    await page.locator('.jira-toggle').click();
+  }
+  await expect(page.locator('.jira-browse')).toHaveAttribute('aria-busy', 'false');
+  await expect(page.locator('.jira-row').first()).toBeVisible();
+}
+
 /** Key states beyond the plain routes: `act` brings the page into the state after it has drawn. */
 const STATES = [
   { route: 'team', state: 'tab-poker', path: `/teams/${TEAM}?tab=poker`, ready: 'text=stories pointed' },
@@ -50,6 +60,19 @@ const STATES = [
         await page.keyboard.press('Escape');
         await page.mouse.up();
       };
+    },
+  },
+  { route: 'poker', state: 'jira-panel', path: poker, ready: '.nt-table', act: jiraPanel },
+  {
+    route: 'poker',
+    state: 'jira-drawer',
+    path: poker,
+    ready: '.nt-table',
+    async act(page) {
+      await jiraPanel(page);
+      await page.locator('.jira-row-open').first().click();
+      await expect(page.locator('.jira-drawer .jira-fields')).toBeVisible();
+      await page.waitForTimeout(300);
     },
   },
   { route: 'retro', state: 'thinking-timer-running', path: `/retro/${CODES.thinking}`, ready: '.retro-card' },
