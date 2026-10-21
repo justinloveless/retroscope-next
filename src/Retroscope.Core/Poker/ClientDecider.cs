@@ -105,8 +105,8 @@ internal sealed class ClientDecider(PokerState state, Viewer viewer, CommandCont
         if (Allowed(Capability.PokerManageRounds) is { } rejected) {
             return rejected;
         }
-        if (state.Rounds.ContainsKey(command.RoundId)) {
-            return Reject(NackCode.Invalid, "That round id is taken.");
+        if (state.Rounds.TryGetValue(command.RoundId, out var existing)) {
+            return Repeats(existing, command.TicketKey) ? NoOp() : Reject(NackCode.Invalid, "That round id is taken.");
         }
         if (!TicketKeys.TryNormalize(command.TicketKey, state.Jira.TicketPrefix, out var ticket)) {
             return Reject(NackCode.Invalid, "Not a Jira issue key.");
@@ -138,9 +138,11 @@ internal sealed class ClientDecider(PokerState state, Viewer viewer, CommandCont
         if (command.Rounds.Count is 0 or > MaxBatchRounds) {
             return Reject(NackCode.Invalid, $"Add between 1 and {MaxBatchRounds} rounds at a time.");
         }
-        if (command.Rounds.DistinctBy(x => x.RoundId).Count() != command.Rounds.Count
-            || command.Rounds.Any(x => state.Rounds.ContainsKey(x.RoundId))) {
+        if (command.Rounds.DistinctBy(x => x.RoundId).Count() != command.Rounds.Count) {
             return Reject(NackCode.Invalid, "Round ids must be new and distinct.");
+        }
+        if (command.Rounds.Any(x => state.Rounds.ContainsKey(x.RoundId))) {
+            return RepeatsBatch(command.Rounds) ? NoOp() : Reject(NackCode.Invalid, "Round ids must be new and distinct.");
         }
         var tickets = new string?[command.Rounds.Count];
         for (var i = 0; i < tickets.Length; i++) {
@@ -168,8 +170,10 @@ internal sealed class ClientDecider(PokerState state, Viewer viewer, CommandCont
         if (Allowed(Capability.PokerManageRounds) is { } rejected) {
             return rejected;
         }
-        if (state.Rounds.ContainsKey(command.NewRoundId)) {
-            return Reject(NackCode.Invalid, "That round id is taken.");
+        if (state.Rounds.TryGetValue(command.NewRoundId, out var existing)) {
+            return command.FromRoundId != command.NewRoundId && Repeats(existing, command.TicketKey)
+                ? NoOp()
+                : Reject(NackCode.Invalid, "That round id is taken.");
         }
         if (!TicketKeys.TryNormalize(command.TicketKey, state.Jira.TicketPrefix, out var ticket)) {
             return Reject(NackCode.Invalid, "Not a Jira issue key.");
@@ -304,8 +308,9 @@ internal sealed class ClientDecider(PokerState state, Viewer viewer, CommandCont
         if (Allowed(Capability.PokerClearAllRounds) is { } rejected) {
             return rejected;
         }
-        if (state.Rounds.ContainsKey(command.NewRoundId)) {
-            return Reject(NackCode.Invalid, "That round id is taken.");
+        // A reset leaves its round as number 1, the only trace of the command that state keeps.
+        if (state.Rounds.TryGetValue(command.NewRoundId, out var existing)) {
+            return existing.Number == 1 ? NoOp() : Reject(NackCode.Invalid, "That round id is taken.");
         }
         var first = new RoundInfo(command.NewRoundId, 1, 1, RoundState.Voting, true, false, true);
         var changes = new PokerChanges(state);
@@ -532,6 +537,34 @@ internal sealed class ClientDecider(PokerState state, Viewer viewer, CommandCont
             events.Add(new RosterSet(seats.OrderBy(x => x.Pid.ToString(), StringComparer.Ordinal).ToArray()));
         }
         return new Decision<PokerEvent>.Accept(events);
+    }
+
+    /// <summary>
+    /// A create whose round id exists is a resend of a command that already committed when it names the same ticket
+    /// (a cid_reuse renumbering): it acks without applying twice. Any other reuse of the id is a conflict.
+    /// </summary>
+    private bool Repeats(Round round, string? ticketKey) {
+        return TicketKeys.TryNormalize(ticketKey, state.Jira.TicketPrefix, out var ticket) && ticket == round.TicketKey;
+    }
+
+    /// <summary>
+    /// Every round of the batch exists with its ticket. The first one may instead have filled the placeholder, which
+    /// keeps the placeholder's id, so it only has to have left its ticket on some round.
+    /// </summary>
+    private bool RepeatsBatch(IReadOnlyList<NewRound> rounds) {
+        for (var i = 0; i < rounds.Count; i++) {
+            if (state.Rounds.TryGetValue(rounds[i].RoundId, out var round)) {
+                if (!Repeats(round, rounds[i].TicketKey)) {
+                    return false;
+                }
+            } else if (i > 0
+                || !TicketKeys.TryNormalize(rounds[0].TicketKey, state.Jira.TicketPrefix, out var ticket)
+                || ticket is null
+                || !state.Rounds.Values.Any(x => x.TicketKey == ticket)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /// <summary>The caller's tab may drive the spotlight: the caller holds it and it is bound to this tab or unbound.</summary>

@@ -56,14 +56,17 @@ public sealed partial class RetroDecider {
         if (!RetroRoles.IsMember(state, who, context.Access)) {
             return Reject(NackCode.Forbidden, "Team members only.");
         }
+        // A resend of a gift that already committed acks without applying twice, even if the type was archived since.
+        if (state.Endorsements.TryGetValue(command.EndorsementId, out var existing)) {
+            return existing.From == who.Id && existing.To == command.ToUserId && existing.TypeId == command.TypeId
+                ? NoOp
+                : Reject(NackCode.Invalid, "The endorsement id is taken.");
+        }
         if (command.ToUserId == who.Id || !RetroRoles.IsMember(state, command.ToUserId, context.Access)) {
             return Reject(NackCode.Invalid, "Endorse another team member.");
         }
         if (state.EndorsementTypes.Find(type => type.Id == command.TypeId) is not { Archived: false }) {
             return Reject(NackCode.NotFound, "No such endorsement type.");
-        }
-        if (state.Endorsements.ContainsKey(command.EndorsementId)) {
-            return Reject(NackCode.Invalid, "The endorsement id is taken.");
         }
         var given = state.Endorsements.Values.Where(e => e.From == who.Id).ToList();
         if (given.Exists(e => e.To == command.ToUserId && e.TypeId == command.TypeId)) {

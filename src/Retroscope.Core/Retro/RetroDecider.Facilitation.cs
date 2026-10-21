@@ -19,8 +19,13 @@ public sealed partial class RetroDecider {
         if (RequireFacilitator(state, who, access) is { } denied) {
             return denied;
         }
-        if (state.FindColumn(command.ColumnId) is not null) {
-            return Reject(NackCode.Invalid, "The column id is taken.");
+        // A resend of a create that already committed acks without applying twice; a column renamed or recoloured
+        // since then can no longer be compared.
+        if (state.FindColumn(command.ColumnId) is { } existing) {
+            return existing.Version > 1
+                || (string.Equals(existing.Title, command.Title, StringComparison.Ordinal) && existing.Color == command.Color)
+                ? NoOp
+                : Reject(NackCode.Invalid, "The column id is taken.");
         }
         if (!IsPlainText(command.Title, ColumnTitleLength)) {
             return Reject(NackCode.Invalid, "Column titles are 1 to 100 characters.");

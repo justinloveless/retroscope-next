@@ -8,8 +8,8 @@ namespace Retroscope.Core.Retro;
 // Cards, comments and votes: open to every participant, subject to the stage gates and ownership.
 public sealed partial class RetroDecider {
     private Decision<RetroEvent> AddCard(RetroState state, RetroCardAdd command, Principal who, CommandContext context) {
-        if (state.Cards.ContainsKey(command.CardId)) {
-            return Reject(NackCode.Invalid, "The card id is taken.");
+        if (state.Cards.TryGetValue(command.CardId, out var existing)) {
+            return RepeatsCard(state, existing, command, who) ? NoOp : Reject(NackCode.Invalid, "The card id is taken.");
         }
         if (state.FindColumn(command.ColumnId) is not { } column) {
             return Reject(NackCode.NotFound, "No such column.");
@@ -116,8 +116,10 @@ public sealed partial class RetroDecider {
     }
 
     private Decision<RetroEvent> AddComment(RetroState state, RetroCommentAdd command, Principal who, CommandContext context) {
-        if (state.Comments.ContainsKey(command.CommentId)) {
-            return Reject(NackCode.Invalid, "The comment id is taken.");
+        if (state.Comments.TryGetValue(command.CommentId, out var existing)) {
+            return RepeatsComment(state, existing, command.CardId, command.Body, command.Anonymous, who)
+                ? NoOp
+                : Reject(NackCode.Invalid, "The comment id is taken.");
         }
         if (!state.Cards.TryGetValue(command.CardId, out var card)) {
             return Reject(NackCode.NotFound, "No such card.");
@@ -149,8 +151,10 @@ public sealed partial class RetroDecider {
         if (context.Viewer is not { Who: var who } || !RetroRoles.IsMember(state, who, context.Access)) {
             return Reject(NackCode.Forbidden, "Team members only.");
         }
-        if (state.Comments.ContainsKey(command.CommentId)) {
-            return Reject(NackCode.Invalid, "The comment id is taken.");
+        if (state.Comments.TryGetValue(command.CommentId, out var existing)) {
+            return RepeatsComment(state, existing, command.CardId, command.Body, anonymous: false, who)
+                ? NoOp
+                : Reject(NackCode.Invalid, "The comment id is taken.");
         }
         if (!state.Cards.ContainsKey(command.CardId)) {
             return Reject(NackCode.NotFound, "No such card.");
@@ -180,6 +184,25 @@ public sealed partial class RetroDecider {
             return Reject(NackCode.StageForbids);
         }
         return Accept(new CommentDeleted(command.CommentId, comment.CardId));
+    }
+
+    /// <summary>
+    /// Ids are client-generated, so a create whose id exists with the caller's own post of the same content is a
+    /// resend of a command that already committed (a cid_reuse renumbering): it acks without applying twice. A card
+    /// edited since then can no longer be compared by body; its column, author and anonymity still identify it.
+    /// </summary>
+    private bool RepeatsCard(RetroState state, Card card, RetroCardAdd command, Principal who) {
+        return card.ColumnId == command.ColumnId
+            && card.Authorship.Anonymous == command.Anonymous
+            && RetroRoles.Owns(state, card.Authorship, who.Id, tagger)
+            && (card.Version > 1 || string.Equals(card.Body, command.Body, StringComparison.Ordinal));
+    }
+
+    private bool RepeatsComment(RetroState state, Comment comment, CardId cardId, string body, bool anonymous, Principal who) {
+        return comment.CardId == cardId
+            && comment.Authorship.Anonymous == anonymous
+            && RetroRoles.Owns(state, comment.Authorship, who.Id, tagger)
+            && string.Equals(comment.Body, body, StringComparison.Ordinal);
     }
 
     private static List<CommentId> CommentsOf(RetroState state, IReadOnlyCollection<CardId> cards) {
