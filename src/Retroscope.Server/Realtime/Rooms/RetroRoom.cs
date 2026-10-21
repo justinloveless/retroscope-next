@@ -102,11 +102,18 @@ public sealed class RetroBinding(IAnonTagger tagger) : IRoomBinding<RetroState, 
 
     /// <summary>
     /// Team membership and settings are written by the team actor, and visibility and password by their HTTP route
-    /// before it asks the board, so the board only sequences those changes.
+    /// before it asks the board, so the board only sequences those changes. The deletion route soft-deletes the row
+    /// first, and the kick that follows is all subscribers see of it.
     /// </summary>
     public EventDurability DurabilityOf(RetroEvent evt) {
-        return evt is MembersReplaced or MaxEndorsementsChanged or AccessChanged ? EventDurability.Ephemeral : EventDurability.Committed;
+        return evt switch {
+            MembersReplaced or MaxEndorsementsChanged or AccessChanged => EventDurability.Ephemeral,
+            BoardDeleted => EventDurability.MemoryOnly,
+            _ => EventDurability.Committed,
+        };
     }
+
+    public bool IsDeleted(RetroState state) => state.Deleted;
 
     public bool CanSubscribe(RetroState state, Viewer viewer, IAccessView access) {
         return Policy.Can(viewer, Capability.Subscribe, Facts(state), access);

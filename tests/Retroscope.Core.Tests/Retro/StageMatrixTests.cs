@@ -149,6 +149,15 @@ public sealed class StageMatrixTests {
     }
 
     [Fact]
+    public void Deleting_marks_the_board_deleted_once() {
+        var fx = new RetroFixture();
+        var events = fx.Do(null, new RetroInput.Delete());
+        Assert.IsType<BoardDeleted>(Assert.Single(events));
+        Assert.True(fx.State.Deleted);
+        fx.NoOp(null, new RetroInput.Delete());
+    }
+
+    [Fact]
     public void Commands_without_a_caller_are_refused() {
         var fx = new RetroFixture();
         fx.Rejects(null, new RetroCardAdd(fx.NewCardId(), Good, "x", false), NackCode.Forbidden);

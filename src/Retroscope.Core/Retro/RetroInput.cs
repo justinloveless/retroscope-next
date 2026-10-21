@@ -35,4 +35,7 @@ public abstract record RetroInput {
 
     /// <summary>Visibility or password changed; <paramref name="PasswordSetAt"/> is null without a password.</summary>
     public sealed record AccessSet(BoardVisibility Visibility, DateTimeOffset? PasswordSetAt) : RetroInput;
+
+    /// <summary>The board's row was soft-deleted (<c>DELETE /api/retro/{id}</c>); the actor kicks every subscriber.</summary>
+    public sealed record Delete : RetroInput;
 }

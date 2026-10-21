@@ -24,6 +24,8 @@ public sealed class RetroState {
 
     public bool Archived { get; set; }
 
+    public bool Deleted { get; set; }
+
     public RetroConfig Config { get; set; } = RetroDefaults.Config;
 
     public RetroStage Stage { get; set; } = RetroStage.Thinking;
