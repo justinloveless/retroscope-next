@@ -1,5 +1,7 @@
 // The HTTP API of the demo: §d routes with the response shapes of docs/decisions/U29.md and U30.md,
 // answered from the live demo state so a change made over HTTP shows up in the rooms and the other way round.
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { json, problem } from '../http.js';
 import { BURNDOWN_BLOB, CODES, DEMO_TEAM } from './data.js';
 import { DEMO, avatarSvg, burndownSvg, personByKey } from './people.js';
@@ -12,6 +14,15 @@ const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 const MAX_AVATAR_BYTES = 256 * 1024;
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+
+// The files browsers and crawlers ask for at the site root, as the real server's StaticAssets serves them:
+// the manifest's `public` list, cached for a day and revalidated by ETag.
+const ROOT_FILES = {
+  '/favicon.ico': 'image/x-icon',
+  '/manifest.webmanifest': 'application/manifest+json',
+  '/robots.txt': 'text/plain; charset=utf-8',
+};
+const ROOT_CACHE = 'public, max-age=86400';
 
 const noContent = { status: 204 };
 const page = (items) => json({ items, nextCursor: null });
@@ -79,6 +90,20 @@ export function installRoutes(demo) {
     const owner = demo.people().find((p) => p.avatar === req.params.id);
     return owner ? { body: avatarSvg(owner.pid, owner.hue ?? 210), headers: { ...headers, 'Content-Type': 'image/svg+xml' } } : notFound();
   });
+
+  for (const [path, type] of Object.entries(ROOT_FILES)) {
+    route('GET', path, async (req) => {
+      const listed = fake.dist.manifest.public?.[path];
+      if (!listed) {
+        return notFound();
+      }
+      const headers = { 'Cache-Control': ROOT_CACHE, ETag: listed.etag, 'X-Content-Type-Options': 'nosniff' };
+      if (req.headers['if-none-match'] === listed.etag) {
+        return { status: 304, headers };
+      }
+      return { body: await readFile(join(fake.dist.dir, path)), headers: { ...headers, 'Content-Type': type } };
+    });
+  }
 
   route('GET', '/auth/oidc/:provider/start', () => ({ status: 302, headers: { Location: '/login?error=provider_disabled' } }));
 
