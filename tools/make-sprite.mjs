@@ -55,25 +55,19 @@ function paeth(a, b, c) {
   return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
 }
 
-// Decodes an 8-bit RGBA, non-interlaced PNG (the only kind the card art uses) into raw RGBA rows.
-export function decodePng(buf) {
+// Splits a PNG into its IHDR data and the concatenated, still-compressed IDAT data.
+export function readPngChunks(buf) {
   if (!buf.subarray(0, 8).equals(SIGNATURE)) {
     throw new Error('not a PNG');
   }
-  let width = 0;
-  let height = 0;
+  let header;
   const idat = [];
   for (let at = 8; at < buf.length;) {
     const length = buf.readUInt32BE(at);
     const type = buf.toString('latin1', at + 4, at + 8);
     const data = buf.subarray(at + 8, at + 8 + length);
     if (type === 'IHDR') {
-      width = data.readUInt32BE(0);
-      height = data.readUInt32BE(4);
-      const [depth, colourType, , , interlace] = data.subarray(8);
-      if (depth !== 8 || colourType !== 6 || interlace !== 0) {
-        throw new Error(`unsupported PNG: depth ${depth}, colour type ${colourType}, interlace ${interlace}`);
-      }
+      header = data;
     } else if (type === 'IDAT') {
       idat.push(data);
     } else if (type === 'IEND') {
@@ -81,7 +75,19 @@ export function decodePng(buf) {
     }
     at += 12 + length;
   }
-  const raw = inflateSync(Buffer.concat(idat));
+  return { header, idat: Buffer.concat(idat) };
+}
+
+// Decodes an 8-bit RGBA, non-interlaced PNG (the only kind the card art uses) into raw RGBA rows.
+export function decodePng(buf) {
+  const { header, idat } = readPngChunks(buf);
+  const width = header.readUInt32BE(0);
+  const height = header.readUInt32BE(4);
+  const [depth, colourType, , , interlace] = header.subarray(8);
+  if (depth !== 8 || colourType !== 6 || interlace !== 0) {
+    throw new Error(`unsupported PNG: depth ${depth}, colour type ${colourType}, interlace ${interlace}`);
+  }
+  const raw = inflateSync(idat);
   const stride = width * 4;
   const pixels = Buffer.alloc(stride * height);
   for (let y = 0; y < height; y++) {
@@ -111,7 +117,8 @@ function chunk(type, data) {
 }
 
 // Per row, keeps the filter with the smallest sum of absolute residuals (the libpng heuristic).
-export function encodePng({ width, height, pixels }) {
+// Kept apart from the deflate step because deflate output differs between the zlib builds Node bundles.
+export function filterScanlines({ width, height, pixels }) {
   const stride = width * 4;
   const rows = [];
   for (let y = 0; y < height; y++) {
@@ -137,14 +144,22 @@ export function encodePng({ width, height, pixels }) {
     }
     rows.push(best);
   }
+  return Buffer.concat(rows);
+}
+
+export function pngHeader({ width, height }) {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
   header.set([8, 6, 0, 0, 0], 8);
+  return header;
+}
+
+export function encodePng(image) {
   return Buffer.concat([
     SIGNATURE,
-    chunk('IHDR', header),
-    chunk('IDAT', deflateSync(Buffer.concat(rows), { level: 9 })),
+    chunk('IHDR', pngHeader(image)),
+    chunk('IDAT', deflateSync(filterScanlines(image), { level: 9 })),
     chunk('IEND', Buffer.alloc(0)),
   ]);
 }
