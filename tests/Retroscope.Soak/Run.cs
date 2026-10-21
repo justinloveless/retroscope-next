@@ -158,10 +158,13 @@ internal sealed class Run(Profile profile, TimeSpan duration, Stack stack, strin
         }
     }
 
+    // The sampler and the reset loop only feed the report; a fault in either must not cost the run its verdict.
     private static async Task Quietly(Task task) {
         try {
             await task;
         } catch (OperationCanceledException) {
+        } catch (Exception e) {
+            Console.Error.WriteLine($"background task failed: {e}");
         }
     }
 

@@ -65,8 +65,10 @@ internal sealed class AppMonitor : IDisposable {
                 lock (_gate) {
                     _samples.Add(new MemorySample(DateTimeOffset.UtcNow, rss));
                 }
-            } catch (Exception e) when (e is HttpRequestException or TaskCanceledException && !cancellationToken.IsCancellationRequested) {
-                // The app is restarting or the client network is partitioned.
+            } catch (Exception e) when (e is HttpRequestException or IOException or OperationCanceledException or JsonException
+                && !cancellationToken.IsCancellationRequested) {
+                // The app is restarting or the client network is partitioned. A kill can also cut a response short
+                // (HttpIOException), which the first nightly run let escape and lost its verdict to.
             }
         }
     }
