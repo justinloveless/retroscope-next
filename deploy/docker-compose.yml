@@ -1,0 +1,121 @@
+# Production stack for Coolify on the VPS (DESIGN §i.1; operator steps in deploy/RUNBOOK.md).
+# The VPS never compiles: images come from GHCR by digest only. .github/workflows/images.yml prints both digests in
+# its run summary, and the release step sets APP_DIGEST and IMPORTER_DIGEST (the hex after "sha256:") in Coolify.
+# deploy/compose.build.yml adds image builds for local use; tests/Retroscope.Integration.Tests/Deploy guards this file.
+#
+# Our slice of the 2 vCPU / 2 GB host (deployment precondition): app + db + backup are capped at
+# 200 + 288 + 48 MiB and 0.6 + 0.35 + 0.05 CPUs, 1 vCPU and well under 1 GB in total. The importer (profile
+# "import") runs only while the app is stopped and takes its place in that budget. Coolify and Traefik use the rest.
+services:
+  app:
+    image: ghcr.io/${GHCR_OWNER}/retroscope@sha256:${APP_DIGEST}
+    environment:
+      ASPNETCORE_URLS: http://0.0.0.0:8080
+      PUBLIC_URL: ${PUBLIC_URL}
+      DATABASE_URL: "Host=db;Database=retroscope;Username=retroscope_app;Password=${DB_APP_PASSWORD};Maximum Pool Size=8;Minimum Pool Size=1;Connection Idle Lifetime=60;Max Auto Prepare=50;Timeout=5;Command Timeout=10;Keepalive=10"
+      DATABASE_OWNER_URL: "Host=db;Database=retroscope;Username=retroscope_owner;Password=${DB_OWNER_PASSWORD}"
+      APP_KEYS: ${APP_KEYS}
+      ANON_TAG_KEY: ${ANON_TAG_KEY}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      ENTRA_CLIENT_ID: ${ENTRA_CLIENT_ID:-}
+      ENTRA_CLIENT_SECRET: ${ENTRA_CLIENT_SECRET:-}
+      ENTRA_TENANT: ${ENTRA_TENANT:-organizations}
+      ENTRA_ALLOWED_TENANTS: ${ENTRA_ALLOWED_TENANTS:-}
+      ENTRA_TENANT_DOMAINS: ${ENTRA_TENANT_DOMAINS:-}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURITY: ${SMTP_SECURITY:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM}
+      JIRA_HOST_ALLOWLIST: ${JIRA_HOST_ALLOWLIST:-}
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS}
+      CLIENT_IP_HEADER: ${CLIENT_IP_HEADER:-}
+      BLOB_BYTES_MAX: ${BLOB_BYTES_MAX:-2147483648}
+      DOTNET_GCHeapHardLimit: "0x8000000"
+      DOTNET_gcServer: "0"
+      DOTNET_gcConcurrent: "0"
+      DOTNET_GCConserveMemory: "5"
+    depends_on: { db: { condition: service_healthy } }
+    healthcheck:
+      test: ["CMD", "/app/retroscope", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    stop_grace_period: 8s
+    read_only: true
+    tmpfs: ["/tmp:size=16m"]
+    mem_limit: 200m
+    cpus: 0.6
+    restart: unless-stopped
+    expose: ["8080"]
+    logging: &logging
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  db:
+    image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+    environment:
+      POSTGRES_DB: retroscope
+      POSTGRES_USER: retroscope_owner
+      POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    command: >
+      postgres
+      -c shared_buffers=64MB -c effective_cache_size=192MB -c work_mem=2MB -c maintenance_work_mem=32MB
+      -c autovacuum_work_mem=16MB -c max_connections=20 -c wal_buffers=2MB
+      -c min_wal_size=64MB -c max_wal_size=256MB -c checkpoint_timeout=15min -c checkpoint_completion_target=0.9
+      -c synchronous_commit=on -c commit_delay=200 -c commit_siblings=3
+      -c wal_compression=on -c random_page_cost=1.1 -c effective_io_concurrency=100
+      -c jit=off -c huge_pages=off
+      -c max_worker_processes=2 -c max_parallel_workers=0 -c max_parallel_workers_per_gather=0
+      -c max_parallel_maintenance_workers=0 -c autovacuum_max_workers=2 -c autovacuum_naptime=60s
+      -c tcp_keepalives_idle=10 -c tcp_keepalives_interval=5 -c tcp_keepalives_count=3
+      -c log_min_duration_statement=250ms -c password_encryption=scram-sha-256
+    # statement_timeout and idle_in_transaction_session_timeout are set per role by the migrator (S2).
+    # The image's PGDATA is /var/lib/postgresql/18/docker, inside this mount (docs/decisions/U0.md, U43.md).
+    shm_size: 96m
+    volumes: ["pgdata:/var/lib/postgresql"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U retroscope_owner -d retroscope"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 288m
+    cpus: 0.35
+    restart: unless-stopped
+    logging: *logging
+
+  backup:
+    image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+    entrypoint: ["/bin/sh", "-c", "while true; do pg_dump -Fc -h db -U retroscope_owner retroscope > /backups/rs-$$(date +%u).dump; sleep 86400; done"]
+    environment: { PGPASSWORD: "${DB_OWNER_PASSWORD}" }
+    volumes: ["pgbackups:/backups"]
+    mem_limit: 48m
+    cpus: 0.05
+    depends_on: { db: { condition: service_healthy } }
+    restart: unless-stopped
+    logging: *logging
+
+  importer:
+    profiles: ["import"]
+    image: ghcr.io/${GHCR_OWNER}/retroscope-import@sha256:${IMPORTER_DIGEST}
+    environment:
+      DATABASE_OWNER_URL: "Host=db;Database=retroscope;Username=retroscope_owner;Password=${DB_OWNER_PASSWORD}"
+      IMPORT_SOURCE_PG: ${IMPORT_SOURCE_PG:-}
+      IMPORT_SEAL_PUBKEY: ${IMPORT_SEAL_PUBKEY:-}
+      IMPORT_ADMIN_EMAILS: ${IMPORT_ADMIN_EMAILS:-}
+      IMPORT_STORAGE_URL: ${IMPORT_STORAGE_URL:-}
+      JIRA_HOST_ALLOWLIST: ${JIRA_HOST_ALLOWLIST:-}
+      APP_KEYS: ${APP_KEYS}
+      ANON_TAG_KEY: ${ANON_TAG_KEY}
+    mem_limit: 256m
+    cpus: 0.6
+    depends_on: { db: { condition: service_healthy } }
+    logging: *logging
+
+volumes:
+  pgdata: {}
+  pgbackups: {}
