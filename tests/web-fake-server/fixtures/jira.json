@@ -1,0 +1,132 @@
+{
+  "config": {
+    "configured": true,
+    "siteHost": "fake-team.atlassian.net",
+    "projectKey": "RS",
+    "boardId": 7,
+    "ticketPrefix": "RS",
+    "status": "ok",
+    "membersCanEdit": true,
+    "lastCheckedAt": 1792454400000
+  },
+  "sprints": [
+    { "id": 101, "name": "Sprint 9", "state": "active", "startDate": "2026-10-12T09:00:00.000Z", "endDate": "2026-10-26T09:00:00.000Z" },
+    { "id": 102, "name": "Sprint 10", "state": "future", "startDate": "2026-10-26T09:00:00.000Z", "endDate": "2026-11-09T09:00:00.000Z" }
+  ],
+  "users": [
+    { "accountId": "fake-acc-1", "displayName": "Ada Fake" },
+    { "accountId": "fake-acc-2", "displayName": "Grace Fixture" }
+  ],
+  "issueTypes": [
+    { "id": "10001", "name": "Story" },
+    { "id": "10002", "name": "Bug" },
+    { "id": "10003", "name": "Task" },
+    { "id": "10000", "name": "Epic" }
+  ],
+  "priorities": [
+    { "id": "1", "name": "Highest" },
+    { "id": "3", "name": "Medium" },
+    { "id": "5", "name": "Lowest" }
+  ],
+  "linkTypes": [
+    { "id": "10000", "name": "Blocks", "inward": "is blocked by", "outward": "blocks" },
+    { "id": "10001", "name": "Relates", "inward": "relates to", "outward": "relates to" }
+  ],
+  "transitions": [
+    { "id": "11", "name": "To Do", "to": "To Do", "statusCategory": "new" },
+    { "id": "21", "name": "In Progress", "to": "In Progress", "statusCategory": "indeterminate" },
+    { "id": "31", "name": "Done", "to": "Done", "statusCategory": "done" }
+  ],
+  "issues": [
+    {
+      "key": "RS-1",
+      "summary": "Checkout epic",
+      "issueType": "Epic",
+      "status": "In Progress",
+      "statusCategory": "indeterminate",
+      "priority": "Medium",
+      "points": null,
+      "sprintId": null,
+      "description": "Everything about checking out.",
+      "updated": "2026-10-01T10:00:00.000Z"
+    },
+    {
+      "key": "RS-12",
+      "summary": "Pay with a saved card",
+      "issueType": "Story",
+      "status": "To Do",
+      "statusCategory": "new",
+      "priority": "Medium",
+      "points": null,
+      "parentKey": "RS-1",
+      "sprintId": 101,
+      "assignee": "fake-acc-1",
+      "labels": ["payments"],
+      "description": "As a returning customer I want to **pay with a saved card**.\n\n[[island:t0b1e5c0ffee]]\n\n- remembers the last card\n- asks for the CVC",
+      "islands": {
+        "t0b1e5c0ffee": {
+          "t": "table",
+          "c": [
+            { "t": "tr", "c": [{ "t": "th", "c": [{ "t": "p", "c": [{ "t": "text", "v": "Card" }] }] }, { "t": "th", "c": [{ "t": "p", "c": [{ "t": "text", "v": "Result" }] }] }] },
+            { "t": "tr", "c": [{ "t": "td", "c": [{ "t": "p", "c": [{ "t": "text", "v": "Visa" }] }] }, { "t": "td", "c": [{ "t": "p", "c": [{ "t": "text", "v": "accepted" }] }] }] }
+          ]
+        }
+      },
+      "attachments": [{ "id": "20001", "filename": "screenshot.png", "mimeType": "image/png", "size": 70 }],
+      "comments": [
+        { "id": "30001", "author": "Grace Fixture", "created": "2026-10-13T08:00:00.000Z", "body": "Do we support **Amex**?" },
+        { "id": "30002", "author": "Ada Fake", "created": "2026-10-13T09:30:00.000Z", "body": "Yes, see the table." }
+      ],
+      "updated": "2026-10-13T09:30:00.000Z"
+    },
+    {
+      "key": "RS-13",
+      "summary": "Show order summary before paying",
+      "issueType": "Story",
+      "status": "To Do",
+      "statusCategory": "new",
+      "priority": "Highest",
+      "points": 5,
+      "parentKey": "RS-1",
+      "sprintId": 101,
+      "description": "",
+      "updated": "2026-10-12T11:00:00.000Z"
+    },
+    {
+      "key": "RS-14",
+      "summary": "Fix rounding of totals",
+      "issueType": "Bug",
+      "status": "Done",
+      "statusCategory": "done",
+      "priority": "Medium",
+      "points": 2,
+      "sprintId": 101,
+      "description": "Totals round **half up** instead of half even.",
+      "updated": "2026-10-14T15:20:00.000Z"
+    },
+    {
+      "key": "RS-20",
+      "summary": "Remember the delivery address",
+      "issueType": "Story",
+      "status": "To Do",
+      "statusCategory": "new",
+      "priority": "Lowest",
+      "points": null,
+      "sprintId": 102,
+      "description": "",
+      "updated": "2026-10-15T12:00:00.000Z"
+    },
+    {
+      "key": "RS-31",
+      "summary": "Spike: wallet payments",
+      "issueType": "Task",
+      "status": "To Do",
+      "statusCategory": "new",
+      "priority": "Medium",
+      "points": null,
+      "sprintId": null,
+      "description": "Look at Apple Pay and Google Pay.",
+      "updated": "2026-09-30T08:00:00.000Z"
+    }
+  ]
+}
