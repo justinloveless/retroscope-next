@@ -108,23 +108,143 @@ public sealed class RegistryTests {
     }
 
     [Fact]
-    public async Task Messages_queued_behind_a_purge_go_to_the_next_incarnation() {
+    public async Task Purge_is_refused_while_a_message_is_queued_behind_it() {
         var room = new CounterRoom();
         var actor = await room.ActorAsync();
         var release = room.Store.HoldNextCommit();
         var first = actor.AskAsync(new CounterInput.Add(1), null, Token);
         await room.Store.CommitEntered;
+        var purged = false;
 
-        var purge = room.Registry.TryPurgeAsync(Room, _ => Task.CompletedTask, Token);
+        var purge = room.Registry.TryPurgeAsync(Room, _ => {
+            purged = true;
+            return Task.CompletedTask;
+        }, Token);
         var second = actor.AskAsync(new CounterInput.Add(1), null, Token);
         release.SetResult();
 
-        Assert.True(await purge);
+        Assert.False(await purge);
+        Assert.False(purged);
         Assert.Equal(AskStatus.Accepted, (await first).Status);
         Assert.Equal(AskStatus.Accepted, (await second).Status);
         Assert.Equal(2, room.Store.Persisted!.Value);
-        Assert.Equal(2, room.Store.Loads);
-        Assert.NotSame(actor, await room.ActorAsync());
+        Assert.Equal(1, room.Store.Loads);
+        Assert.Same(actor, await room.ActorAsync());
+    }
+
+    [Fact]
+    public async Task Purge_is_refused_while_a_resume_waits_on_the_internal_queue() {
+        var room = new CounterRoom();
+        await Ask(room, new CounterInput.Add(1));
+        var (epoch, seq) = await room.QueryAsync(view => (view.Epoch, view.Seq));
+        var actor = await room.ActorAsync();
+        var release = room.Store.HoldNextCommit();
+        var held = actor.AskAsync(new CounterInput.Add(1), null, Token);
+        await room.Store.CommitEntered;
+
+        var purge = room.Registry.TryPurgeAsync(Room, _ => Task.CompletedTask, Token);
+        var resumed = new TestPeer(Alice);
+        Assert.Equal(PostResult.Accepted, actor.Subscribe(resumed, Alice, epoch, seq));
+        release.SetResult();
+
+        Assert.False(await purge);
+        await held;
+        Assert.IsType<SnapFrame>(await resumed.NextAsync());
+        Assert.Equal(1, room.Store.Loads);
+    }
+
+    [Fact]
+    public async Task A_message_for_a_key_still_being_purged_is_answered_server_busy_after_the_wait() {
+        var room = new CounterRoom();
+        await Ask(room, new CounterInput.Add(1));
+        var entered = new TaskCompletionSource();
+        var release = new TaskCompletionSource();
+        var purge = room.Registry.TryPurgeAsync(Room, async _ => {
+            entered.SetResult();
+            await release.Task;
+        }, Token);
+        await entered.Task;
+
+        var ask = Ask(room, new CounterInput.Add(1));
+        var commander = new TestPeer(Bob);
+        var command = room.Registry.CommandAsync(Room, commander, Bob, Cmd(1, new PokerVoteSet(Round(1), 1)), Token).AsTask();
+        var subscriber = new TestPeer(Carol);
+        var subscribe = room.Registry.SubscribeAsync(Room, subscriber, Carol, null, null, Token).AsTask();
+        var query = room.QueryAsync(view => view.Seq);
+        Task[] waiting = [ask, command, subscribe, query];
+        while (!waiting.All(x => x.IsCompleted)) {
+            room.Time.Advance(ActorOptions.Default.IncarnationWait);
+            await Task.Delay(10, Token);
+        }
+
+        var busy = await ask;
+        Assert.Equal((AskStatus.Unavailable, NackCode.ServerBusy), (busy.Status, busy.Code));
+        Assert.Equal(PostResult.Busy, await command);
+        var nack = await commander.NextAsync<NackFrame>();
+        Assert.Equal((1L, NackCode.ServerBusy), (nack.Q, nack.Code));
+        Assert.Equal(PostResult.Busy, await subscribe);
+        await Assert.ThrowsAsync<RoomUnavailableException>(() => query);
+        release.SetResult();
+        Assert.True(await purge);
+        Assert.Equal(AskStatus.Accepted, (await Ask(room, new CounterInput.Add(1))).Status);
+    }
+
+    [Fact]
+    public async Task A_message_waiting_on_a_purge_reaches_the_next_incarnation_once_it_finished() {
+        var room = new CounterRoom();
+        var first = await room.ActorAsync();
+        var release = new TaskCompletionSource();
+        var entered = new TaskCompletionSource();
+        var purge = room.Registry.TryPurgeAsync(Room, async _ => {
+            entered.SetResult();
+            await release.Task;
+        }, Token);
+        await entered.Task;
+
+        var ask = Ask(room, new CounterInput.Add(2));
+        await Task.Delay(20, Token);
+        Assert.False(ask.IsCompleted);
+        release.SetResult();
+
+        Assert.True(await purge);
+        Assert.Equal(AskStatus.Accepted, (await ask).Status);
+        Assert.NotSame(first, await room.ActorAsync());
+    }
+
+    [Fact]
+    public async Task Query_of_a_missing_room_sees_a_clean_not_found_view() {
+        var room = new CounterRoom();
+        room.Store.Erase();
+
+        var view = await room.QueryAsync(view => (view.Found, view.State, view.CanSubscribe(Alice)));
+        var snap = room.Registry.QueryAsync<Counter, CounterInput, byte[]>(Room, view => view.SnapFrameAsync(Alice), Token);
+
+        Assert.Equal((false, null, false), view);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => snap);
+    }
+
+    [Fact]
+    public async Task Query_of_a_deleted_room_sees_a_clean_not_found_view() {
+        var room = new CounterRoom();
+        await Ask(room, new CounterInput.Delete());
+
+        var view = await room.QueryAsync(view => (view.Found, view.State, view.CanSubscribe(Alice)));
+
+        Assert.Equal((false, null, false), view);
+    }
+
+    [Fact]
+    public async Task A_view_kept_past_a_poison_still_answers_from_the_state_it_was_built_for() {
+        var room = new CounterRoom();
+        await Ask(room, new CounterInput.Add(4));
+        var view = await room.QueryAsync(view => view);
+
+        room.Store.FailNextCommit(new TimeoutException("outcome unknown"));
+        Assert.Equal(AskStatus.Unavailable, (await Ask(room, new CounterInput.Add(1))).Status);
+
+        Assert.True(view.CanSubscribe(Alice));
+        var snap = Assert.IsType<SnapFrame>(WireParser.ParseServer(await view.SnapFrameAsync(Alice)).Frame);
+        Assert.Equal("v4", Assert.IsType<PokerSnapshot>(snap.D).Code);
     }
 
     [Fact]
@@ -158,6 +278,29 @@ public sealed class RegistryTests {
         var actor = await room.ActorAsync();
         actor.Command(bob, Bob, Cmd(1, new PokerVoteSet(Round(1), 1)));
         Assert.Equal(NackCode.NotSubscribed, (await bob.NextAsync<NackFrame>()).Code);
+    }
+
+    [Fact]
+    public async Task A_cursor_that_cannot_be_loaded_on_an_access_change_restarts_only_that_peer() {
+        var room = new CounterRoom(options: ActorOptions.Default with { CursorTtl = TimeSpan.FromSeconds(1) });
+        var (alice, _) = await room.JoinAsync(Alice);
+        var (bob, _) = await room.JoinAsync(Bob);
+        await Ask(room, new CounterInput.Join(Alice.Who.Id));
+        await alice.DrainAsync();
+        await bob.DrainAsync();
+        room.Time.Advance(TimeSpan.FromSeconds(2));
+        room.Store.FailCursorLoads(new InvalidOperationException("database down"));
+
+        room.Registry.AccessChanged(Room);
+        await room.SettleAsync();
+        room.Store.FailCursorLoads(null);
+        await Ask(room, new CounterInput.Add(1));
+
+        await alice.Restarted;
+        Assert.Equal(0, bob.Restarts);
+        Assert.Equal(1, room.Store.Loads);
+        var tx = await bob.NextAsync<TxFrame>();
+        Assert.StartsWith("add:1:1", Assert.IsType<PresenceUpdate>(Assert.Single(tx.Ev)).Name, StringComparison.Ordinal);
     }
 
     [Fact]

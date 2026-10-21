@@ -124,6 +124,7 @@ internal sealed class MemoryStore<TState, TEvent>(TState? persisted, Func<TState
     private Func<Task>? _gate;
     private CommitFault? _fault;
     private Exception? _loadFault;
+    private Exception? _cursorFault;
     private int _loads;
 
     public int Loads {
@@ -208,8 +209,17 @@ internal sealed class MemoryStore<TState, TEvent>(TState? persisted, Func<TState
         }
     }
 
+    public void FailCursorLoads(Exception? exception) {
+        lock (_lock) {
+            _cursorFault = exception;
+        }
+    }
+
     public Task<ClientCursor> LoadCursorAsync(RoomKey room, ClientId client, PrincipalId principal, CancellationToken cancellationToken) {
         lock (_lock) {
+            if (_cursorFault is { } fault) {
+                throw fault;
+            }
             if (!_cursors.TryGetValue(client, out var cursor)) {
                 return Task.FromResult(new ClientCursor(CursorOwner.None, 0));
             }
