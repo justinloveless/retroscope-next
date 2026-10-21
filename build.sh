@@ -149,7 +149,7 @@ cmd_aot_smoke() {
 
   log "server binary serves /healthz"
   app_port="$(free_port)"
-  ASPNETCORE_URLS="http://127.0.0.1:$app_port" DATABASE_URL="$db_url" DATABASE_OWNER_URL="$db_url" \
+  DOTNET_hostBuilder__reloadConfigOnChange=false ASPNETCORE_URLS="http://127.0.0.1:$app_port" DATABASE_URL="$db_url" DATABASE_OWNER_URL="$db_url" \
     PUBLIC_URL="http://127.0.0.1:$app_port" "$ARTIFACTS/aot/server/retroscope" >"$ARTIFACTS/aot/server-run.log" 2>&1 &
   SMOKE_PID=$!
   wait_http "http://127.0.0.1:$app_port/healthz" || { cat "$ARTIFACTS/aot/server-run.log"; die "/healthz did not answer"; }
