@@ -1,3 +1,4 @@
+using Retroscope.Importer.Archive;
 using Retroscope.Importer.Map;
 using Retroscope.Importer.Source;
 using Retroscope.Importer.Tests.Infrastructure;
@@ -295,6 +296,74 @@ public sealed class PokerMapTests(ImporterDatabases databases) {
         Assert.Equal(6, report.Table(PokerMap.SessionsTable).Imported);
     }
 
+    [Fact]
+    public async Task A_room_id_that_is_another_sessions_id_text_does_not_stop_the_import() {
+        var fixture = await CreateAsync(databases);
+        Guid squatter = S(1), owner = S(2);
+        await fixture.SourceSqlAsync($"""
+            alter table public.poker_sessions drop constraint poker_sessions_room_id_key;
+            insert into public.poker_sessions (id, room_id, created_at) values
+              ('{squatter}', '{owner}', '{At(0)}'),
+              ('{owner}', null, '{At(1)}');
+            """);
+
+        var report = await fixture.RunAsync();
+
+        var codes = (await fixture.RowsAsync("select id, code from poker_sessions")).ToDictionary(x => (Guid)x["id"]!, x => (string)x["code"]!);
+        Assert.Equal(owner.ToString(), codes[squatter]);
+        Assert.Equal(owner.ToString("N"), codes[owner]);
+        var replaced = Assert.Single(report.Findings("pokerReplacedCodes"));
+        Assert.Equal((owner.ToString(), "duplicate"), (replaced!["session"]!.GetValue<string>(), replaced["reason"]!.GetValue<string>()));
+        Assert.Equal(2, report.Table(PokerMap.SessionsTable).Imported);
+    }
+
+    [Fact]
+    public async Task A_null_average_is_reported_and_never_read_as_zero() {
+        var fixture = await CreateAsync(databases);
+        var seed = Rounds(Round(R(1), Session, 1, createdHours: 0, sortOrder: 0, gameState: "Playing", average: null, selections: $$$"""
+            {"{{{UserA}}}": {"points": 5, "locked": true, "name": "A"}}
+            """));
+        await fixture.SourceSqlAsync($"""
+            -- The live database's constraints are unverified (schema.md §0).
+            alter table public.poker_session_rounds alter column average_points drop not null;
+            insert into public.poker_sessions (id, room_id, current_round_number, created_at) values ('{Session}', 'quick1', 1, '{At(0)}');
+            {seed}
+            """);
+
+        var report = await fixture.RunAsync();
+
+        Assert.Equal(1, report.Counter("poker.nullAveragePoints"));
+        Assert.Equal(R(1).ToString(), Assert.Single(report.Findings("pokerNullAveragePoints"))!.GetValue<string>());
+        Assert.Empty(report.Findings("pokerWinnerMismatches"));
+        Assert.Equal(0, report.Counter("poker.winnerMismatches"));
+        Assert.Equal((short)5, (await fixture.RowAsync("select winner_points from poker_rounds"))["winner_points"]);
+    }
+
+    [Fact]
+    public async Task A_guest_who_used_poker_and_retro_is_one_principal() {
+        var fixture = await CreateAsync(databases);
+        var browser = Guid.Parse("9a000000-0000-0000-0000-0000000000ab");
+        var seed = Rounds(Round(R(1), Session, 1, createdHours: 0, sortOrder: 0, selections: $$$"""
+            {"{{{browser}}}": {"points": 5, "locked": true, "name": "Gwen"}}
+            """));
+        await fixture.SourceSqlAsync($"""
+            insert into public.poker_sessions (id, room_id, current_round_number, created_at) values ('{Session}', 'quick1', 1, '{At(0)}');
+            {seed}
+            insert into public.retro_boards (id, room_id, title, created_at, updated_at) values ('{S(9)}', 'RETRO1', 'Retro', '{At(0)}', '{At(0)}');
+            insert into public.retro_columns (id, board_id, title, color, position) values ('{S(10)}', '{S(9)}', 'Good', 'bg-green-100', 0);
+            insert into public.retro_items (id, board_id, column_id, text, author, session_id, created_at, updated_at) values
+              ('{S(11)}', '{S(9)}', '{S(10)}', '<p>hi</p>', 'Gwen', '{browser.ToString().ToUpperInvariant()}', '{At(1)}', '{At(1)}');
+            """);
+        var runner = fixture.Harness.Runner(stages: [new MinimalIdentityStage(), new PokerMap(), new RetroMap(), new ArchiveStage()]);
+
+        await runner.RunAsync(new RunOptions(), TestContext.Current.CancellationToken);
+
+        var guest = SyntheticIds.Guest(browser);
+        Assert.Equal(guest, (await fixture.RowAsync("select id from principals where kind = 'guest'"))["id"]);
+        Assert.Equal(guest, (await fixture.RowAsync("select principal_id from poker_votes"))["principal_id"]);
+        Assert.Equal(guest, (await fixture.RowAsync("select author_id from retro_cards"))["author_id"]);
+    }
+
     private static Guid R(int n) => new($"4d000000-0000-0000-0000-{n:D12}");
 
     private static Guid S(int n) => new($"5e000000-0000-0000-0000-{n:D12}");
@@ -315,7 +384,7 @@ public sealed class PokerMapTests(ImporterDatabases databases) {
         string gameState = "Selection",
         bool active = true,
         bool pending = false,
-        decimal average = 0,
+        decimal? average = 0,
         double? completedHours = null,
         string selections = "{}",
         string? ticket = null,
@@ -324,7 +393,7 @@ public sealed class PokerMapTests(ImporterDatabases databases) {
         string? parentSummary = null,
         string? slackTs = null) =>
         $"('{id}', '{session}', {number}, '{At(createdHours)}', '{At(completedHours ?? createdHours)}', {sortOrder}, '{gameState}', {active}, " +
-        $"{pending}, {average.ToString(System.Globalization.CultureInfo.InvariantCulture)}, {Literal(selections.Trim())}::jsonb, " +
+        $"{pending}, {average?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null"}, {Literal(selections.Trim())}::jsonb, " +
         $"{Literal(ticket)}, {Literal(parent)}, {Literal(title)}, {Literal(parentSummary)}, {Literal(slackTs)})";
 
     private static string Literal(string? value) => value is null ? "null" : $"'{value.Replace("'", "''", StringComparison.Ordinal)}'";
