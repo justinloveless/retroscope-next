@@ -84,7 +84,9 @@ test('two tabs whose clocks are 60 s apart agree on the countdown within 100 ms'
   await expect.poll(async () => Math.abs((await realDeadline(bob, -SKEW_MS)) - truth)).toBeLessThan(100);
   expect(Math.abs((await realDeadline(page, SKEW_MS)) - (await realDeadline(bob, -SKEW_MS)))).toBeLessThan(100);
   await expect(display(page)).toHaveText(/^[45]:[0-9]{2}$/);
-  expect(await display(bob).textContent()).toBe(await display(page).textContent());
+  // The two displays are read one after the other, so a read can straddle a second boundary; they must
+  // show the same text whenever both are read within the same second.
+  await expect.poll(async () => (await display(bob).textContent()) === (await display(page).textContent())).toBe(true);
   expect(bob.cspViolations).toEqual([]);
   await bob.context().close();
 });
