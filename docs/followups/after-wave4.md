@@ -173,3 +173,8 @@ UF8 done verified= True open= []
 - **U8 file ownership:** accept that UF8 edited `Html/BoardImages.cs` and `Html/DocBuilder.cs`, as its spec required.
 - **Firefox flake:** watch for the U34 failure in `votes.spec.js` in CI.
 ```
+
+## Observed in the preview walkthrough (orchestrator)
+
+- `/favicon.ico`, `/manifest.webmanifest` and `/robots.txt` return 404 in the preview. U37 owns the assets and U11 owns static serving. The real server must serve them too.
+- The team page and retro board have no persistent app header (logo, team switcher, user menu, theme toggle). Only the poker page has a "Back" link. The original had a sticky `AppHeader`, with the retro title in its centre slot. Decide in U29's scope before wave 5's front-end units land.
