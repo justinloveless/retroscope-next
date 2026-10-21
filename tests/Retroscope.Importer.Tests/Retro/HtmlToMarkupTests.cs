@@ -90,6 +90,26 @@ public sealed class HtmlToMarkupTests {
     }
 
     [Fact]
+    public void Markdown_mailto_links_are_kept() {
+        var result = Convert("<p>write [the team](mailto:team@example.com)</p>");
+
+        Assert.Equal("write [the team](mailto:team@example.com)", result.Markup);
+        Assert.Equal("mailto:team@example.com", Assert.Single(result.Doc.Descendants().OfType<DocLink>()).Href);
+    }
+
+    [Theory]
+    [InlineData(2100, "")]
+    [InlineData(10, "\u007f")]
+    public void Markdown_links_get_the_same_checks_as_anchors(int length, string tail) {
+        var href = "https://e.example/" + new string('a', length) + tail + "b";
+
+        var result = Convert($"<p>[label]({href})</p>");
+
+        Assert.Empty(result.Doc.Descendants().OfType<DocLink>());
+        Assert.StartsWith("\\[label\\](https://e.example/", result.Markup, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Mention_spans_become_tokens_and_unknown_people_become_text() {
         var result = Convert(
             $"<p><span data-mention-id=\"{Alice}\" data-user-id=\"{Alice}\" data-name=\"Alice\">Alice</span> and [[mention:{Stranger}:Sam]]</p>");

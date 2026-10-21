@@ -145,6 +145,22 @@ public sealed class RetroMapTests(ImporterDatabases databases) {
     }
 
     [Fact]
+    public async Task A_blob_keeps_its_creator_when_a_later_body_has_an_unknown_but_not_anonymous_author() {
+        var fixture = await RetroFixture.CreateAsync(databases);
+        await fixture.Harness.SourceSqlAsync($"""
+            insert into public.team_action_items (id, team_id, text, source_board_id, source_item_id, created_at, created_by, done) values
+              ('ac710000-0000-4000-8000-0000000000aa', '{Team}', '<p>again {ImageB}</p>', '{TeamBoard}', null, '2026-01-02', 'dead0000-0000-4000-8000-000000000001', false);
+            """);
+
+        await fixture.Runner().RunAsync(new RunOptions(), Ct);
+
+        var blobB = HtmlToMarkup.BlobId(Guid.Parse(TeamBoard), SHA256.HashData(PngB));
+        Assert.Contains($"![image](blob:{blobB})", await fixture.ScalarAsync<string>(
+            "select text from team_action_items where id = 'ac710000-0000-4000-8000-0000000000aa'"), StringComparison.Ordinal);
+        Assert.Equal(Guid.Parse(Alice), await fixture.ScalarAsync<Guid>($"select created_by from blobs where id = '{blobB}'"));
+    }
+
+    [Fact]
     public async Task Action_items_link_their_card_and_never_name_an_anonymous_author() {
         var fixture = await RetroFixture.CreateAsync(databases);
 
