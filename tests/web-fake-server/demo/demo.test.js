@@ -225,6 +225,18 @@ describe('poker', () => {
     assert.equal(revealed.by, undefined);
   });
 
+  test('committing a previewed round brings the holder\'s spotlight with it', async () => {
+    const key = pokerKey(demo, CODES.teamPoker);
+    const session = demo.sessionByCode(CODES.teamPoker);
+    const pending = session.rounds.find((r) => r.pending);
+    const priya = await connect('priya', [key]);
+    await frame(priya, (f) => f.t === 'snap');
+    priya.send({ t: 'cmd', r: key, q: 1, k: 'poker.round.commitPending', d: { roundId: pending.id } });
+    const moved = await frame(priya, (f) => events(f, 'poker.spotlight').length > 0);
+    assert.equal(events(moved, 'poker.spotlight')[0].d.roundId, pending.id);
+    assert.equal(session.spotlight.roundId, session.currentRoundId);
+  });
+
   test('the winner is the plurality, a between vote counts for both ends, ties go up', () => {
     assert.equal(winnerOf([{ points: 3 }, { points: 5 }, { points: 5 }]), 5);
     assert.equal(winnerOf([{ points: 3 }, { points: 3, high: 5 }, { points: 5 }]), 5);

@@ -684,7 +684,12 @@ const COMMANDS = {
     }
     round.pending = false;
     round.pendingOwner = undefined;
-    return { events: [this.updated(round), this.pointer(round.id, 'commit', true)], after: () => this.afterChange() };
+    const events = [this.updated(round), this.pointer(round.id, 'commit', true)];
+    if (this.spotlight?.holder === who.pid && this.spotlight.roundId !== round.id) {
+      this.spotlight.roundId = round.id;
+      events.push(this.spotlightEvent());
+    }
+    return { events, after: () => this.afterChange() };
   },
 
   'poker.round.discardPending'(d, who) {

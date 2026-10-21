@@ -39,7 +39,7 @@ const lines = [
   `  Admin             ${a}/admin/users`,
   '',
   'Second person, live in the same browser (127.0.0.1 keeps its own cookies):',
-  `  ${b}/teams/${DEMO_TEAM}/poker/${CODES.teamPoker}?as=priya`,
+  `  ${b}/teams/${DEMO_TEAM}/poker/${CODES.teamPoker}?as=marcus`,
   '  Members: demo, priya, marcus, sofia, jonas, aisha (and tom, lena in Platform Guild). ?as=signed-out signs out.',
   '',
   values['quiet-peers'] ? 'Simulated teammates are paused.' : 'Simulated teammates vote, add cards and comment while a window is open.',

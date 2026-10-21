@@ -88,8 +88,8 @@ A teammate you are playing through `?as=` is left to you. Start the demo with `-
 2. Window A: http://localhost:5173/teams/0d3e0000-0001-7000-8000-000000000001/poker/PKR41CHKT1 (Demo
    User).
 3. Window B, in the same browser:
-   http://127.0.0.1:5173/teams/0d3e0000-0001-7000-8000-000000000001/poker/PKR41CHKT1?as=priya.
-   `localhost` and `127.0.0.1` keep separate cookies, so B is Priya while A stays Demo User. A private
+   http://127.0.0.1:5173/teams/0d3e0000-0001-7000-8000-000000000001/poker/PKR41CHKT1?as=marcus.
+   `localhost` and `127.0.0.1` keep separate cookies, so B is Marcus while A stays Demo User. A private
    window or a second browser works too.
 4. Pick a card in A and lock it in. B shows Demo User's seat as locked at once. Reveal in either window
    and both flip.
