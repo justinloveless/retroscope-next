@@ -98,7 +98,10 @@ public sealed class RoomTests(PostgresFixture postgres) {
         await a.WaitForAsync<TxFrame>(x => x.Ev.Any(e => e is PresenceJoin join && join.Pid == bob.Id));
 
         await b.DisposeAsync();
-        await host.QueryAsync(room, _ => 0);
+        while (await host.Registry.QueryAsync<PokerState, PokerInput, int>(
+            room, view => ValueTask.FromResult(view.Presence.ClientsOf(bob.Id).Count), PokerHost.Token) > 0) {
+            await Task.Delay(10, PokerHost.Token);
+        }
         await host.AdvanceAsync(room, TimeSpan.FromSeconds(10));
 
         await a.WaitForAsync<TxFrame>(x => x.Ev.Any(e => e is PresenceLeave leave && leave.Pid == bob.Id));
@@ -147,6 +150,8 @@ public sealed class RoomTests(PostgresFixture postgres) {
         await a.AckedAsync(room, new PokerRoundCreate(new RoundId(Guid.CreateVersion7()), "RS-2", ForceNew: true));
         await a.AckedAsync(room, new PokerSpotlightTake(r1, false));
         await a.AckedAsync(room, new PokerRoundCreate(new RoundId(Guid.CreateVersion7()), "RS-3", Pending: true));
+        // The tallies are compared after the message that changed them, which ends after its ack went out.
+        await host.QueryAsync(room, _ => 0);
 
         Assert.Equal([(new SessionId(room.Id), 1, 1), (new SessionId(room.Id), 1, 2)], notices.Poker);
     }

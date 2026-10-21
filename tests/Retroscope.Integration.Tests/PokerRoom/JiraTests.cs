@@ -47,6 +47,7 @@ public sealed class JiraTests(PostgresFixture postgres) {
             var late = await host.JoinAsync(members[4], room);
             tabs.Add(late);
             var snapAt = late.Frames().ToList().FindIndex(x => x is SnapFrame);
+            await late.WaitForAsync<XFrame>(x => x.D is JiraMeta { Key: "RS-2" }, snapAt);
             var fills = late.Frames().Skip(snapAt + 1).OfType<XFrame>().Select(x => ((JiraMeta)x.D).Summary);
             Assert.Equal(["Pay with a card", "Refunds"], fills);
 
