@@ -262,13 +262,15 @@ public sealed class Connection : IClientConnection {
             }
             return;
         }
-        var verdict = _rate.Take();
+        // The sub that lifts a rate_limited refusal must get through, or the client could not lift it, so it may borrow
+        // its token; borrowing still costs the rate, so repeated subs cannot fetch snapshots faster than the limit.
+        var verdict = _rate.Take(borrow: parsed.Frame is SubFrame resync && IsRateRefused(resync.R));
         if (verdict == RateVerdict.Abusive) {
             TransportLog.RateAbuse(_logger, Id);
             Close(CloseCodes.RateLimited, "rate limited", urgent: true);
             return;
         }
-        if (verdict == RateVerdict.Limited && !(parsed.Frame is SubFrame resync && IsRateRefused(resync.R))) {
+        if (verdict == RateVerdict.Limited) {
             if (CommandOf(parsed) is ({ } room, { } q)) {
                 RefuseRate(room, q);
             }
