@@ -201,6 +201,41 @@ export async function watch(context, problems) {
   });
 }
 
+/**
+ * Takes a context off the network and back. `context.setOffline` cuts HTTP everywhere, but Firefox and WebKit keep an
+ * open WebSocket alive through it, so the room socket runs through a route that this switch closes, and that refuses
+ * new sockets while offline. Install it before the page opens its socket (reload a page that already has one).
+ */
+export async function networkSwitch(context) {
+  let offline = false;
+  const open = new Set();
+  await context.routeWebSocket(/\/ws$/, (page) => {
+    if (offline) {
+      page.close({ code: 1001, reason: 'offline' });
+      return;
+    }
+    const server = page.connectToServer();
+    const pair = { page, server };
+    open.add(pair);
+    page.onClose(() => open.delete(pair));
+  });
+  return {
+    async offline() {
+      offline = true;
+      await context.setOffline(true);
+      for (const { page, server } of open) {
+        await server.close({ code: 1001, reason: 'offline' });
+        await page.close({ code: 1001, reason: 'offline' });
+      }
+      open.clear();
+    },
+    async online() {
+      offline = false;
+      await context.setOffline(false);
+    },
+  };
+}
+
 /** A team owned by `owner` (signed in on `request`), with `members` joined through a link invite. */
 export async function createTeam(owner, members = [], name = `Team ${randomUUID().slice(0, 8)}`) {
   const created = await owner.post('/api/teams', json({ name }));

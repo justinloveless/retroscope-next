@@ -50,7 +50,12 @@ test('rounds reorder by mouse drag and keyboard, and the others see the new orde
     await ann.page.mouse.move(from.x - 20, from.y, { steps: 3 });
     await ann.page.mouse.move(to.x - 10, to.y, { steps: 8 });
     await ann.page.mouse.up();
-    await expect.poll(() => chipKeys(bob.page)).toEqual(['ORD-1', 'ORD-4', 'ORD-2', 'ORD-3']);
+    // Where the drop lands left of ORD-2 depends on the engine's layout during the drag; that it moved does not.
+    await expect.poll(async () => {
+      const keys = await chipKeys(bob.page);
+      return keys.indexOf('ORD-4') < keys.indexOf('ORD-2') && keys.filter((key) => key !== 'ORD-4').join() === 'ORD-1,ORD-2,ORD-3';
+    }).toBe(true);
+    await expect.poll(() => chipKeys(ann.page)).toEqual(await chipKeys(bob.page));
   }
 
   const before = await chipKeys(bob.page);

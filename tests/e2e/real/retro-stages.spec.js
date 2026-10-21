@@ -1,6 +1,6 @@
 // Stages, readiness, the shared timer and focus over the real server (§j): two facilitators racing for the stage,
 // a timer two contexts agree on with their clocks a minute apart, and a late joiner who lands on the focused card.
-import { expect, test } from './_real.js';
+import { expect, networkSwitch, test } from './_real.js';
 import { addCard, cardsIn, configure, openBoard, retroBoard } from './_retro.js';
 
 const SKEW_MS = 30_000;
@@ -24,11 +24,14 @@ test('two facilitators: readiness gates the stage, and the slower of two moves i
   await expect(readyCount(bob.page)).toHaveText('2/2 ready');
 
   // Bob's move waits in his outbox while Ann's lands, so it reaches the server with a stale stage.
-  await bob.context.setOffline(true);
+  const network = await networkSwitch(bob.context);
+  await bob.page.reload();
+  await expect(readyCount(bob.page)).toHaveText('2/2 ready');
+  await network.offline();
   await advance(bob.page).click();
   await advance(ann.page).click();
   await expect(pill(ann.page, 'Voting')).toHaveAttribute('aria-current', 'step');
-  await bob.context.setOffline(false);
+  await network.online();
 
   for (const { page } of players) {
     await expect(pill(page, 'Voting')).toHaveAttribute('aria-current', 'step');

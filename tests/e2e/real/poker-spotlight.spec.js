@@ -103,7 +103,8 @@ test('the spotlight is released three minutes after its holder leaves, not befor
 
   await bob.context.close();
   const left = Date.now();
-  await expect(ann.page.locator(`.nt-seat[data-pid="${bob.user.id}"]`)).toHaveAttribute('data-absent', '', { timeout: 30_000 });
+  // Bob has no vote, so his seat goes once his presence leaves (10 s grace).
+  await expect(ann.page.locator('.nt-seat')).toHaveCount(1, { timeout: 30_000 });
   await ann.page.waitForTimeout(150_000 - (Date.now() - left));
   await expect(spotlightControl(ann.page)).toHaveAttribute('data-role', 'other');
 

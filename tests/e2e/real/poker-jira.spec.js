@@ -74,6 +74,9 @@ test('the holder previews an issue for everyone, commits it, and a preview left 
   await expect(drawer(ann.page).locator('.jira-preview')).toContainText('Everyone sees this issue as a preview round.');
   await expect(shownRound(bob.page)).toContainText(ground.key(9));
   await expect(bob.page.locator('.nt-note')).toHaveText('Preview: this round has not been added yet.');
+  // The preview stays on the followers' tables; the holder's tab does not pull the spotlight back.
+  await bob.page.waitForTimeout(1000);
+  await expect(shownRound(bob.page)).toContainText(ground.key(9));
   await drawer(ann.page).getByRole('button', { name: 'Add to rounds' }).click();
   await expect(drawer(ann.page).getByRole('button', { name: 'Added to the rounds' })).toBeDisabled();
   await expect(bob.page.getByRole('heading', { name: 'Your Hand' })).toBeVisible();
@@ -115,6 +118,7 @@ test('the drawer prefetches on hover and edits the summary and a description wit
   await expect(sheet.locator('.jira-description .island td').first()).toHaveText('Visa');
   await expect(sheet.getByRole('button', { name: 'View screenshot.png' }).locator('img')).toBeVisible();
 
+  const lastItem = await sheet.locator('.jira-description li').last().textContent();
   await sheet.getByRole('button', { name: 'Edit description' }).click();
   await expect(sheet.locator('.jira-description-editor .island').first()).toHaveAttribute('contenteditable', 'false');
   await ann.page.evaluate(() => {
@@ -130,7 +134,9 @@ test('the drawer prefetches on hover and edits the summary and a description wit
   });
   await ann.page.keyboard.type('Then ');
   await sheet.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(sheet.locator('.jira-description li').last()).toHaveText('Then asks for the CVC');
+  // The stack keeps FakeJira's state between runs, so the item grows by one "Then " per run.
+  const item = `Then ${lastItem}`;
+  await expect(sheet.locator('.jira-description li').last()).toHaveText(item);
   await expect(sheet.locator('.jira-description .island td').first()).toHaveText('Visa');
 
   const summary = `Pay with a stored card at ${Date.now()}`;
@@ -143,7 +149,7 @@ test('the drawer prefetches on hover and edits the summary and a description wit
   const fresh = await (await ann.page.request.get(`/api/teams/${team.id}/jira/issues/${key}`, { headers: { 'X-RS': '1' } })).json();
   const islands = fresh.description.c.filter((node) => node.t === 'island');
   expect(islands).toHaveLength(2);
-  expect(JSON.stringify(fresh.description)).toContain('Then asks for the CVC');
+  expect(JSON.stringify(fresh.description)).toContain(item);
   expect(JSON.stringify(islands)).toContain('Visa');
 });
 
