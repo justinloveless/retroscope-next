@@ -48,6 +48,11 @@ export function createClock({ now = () => Date.now(), monotonic = () => performa
       return now() + offset;
     },
 
+    /** Drops every sample; the next pong sets the offset again. */
+    discard() {
+      samples = [];
+    },
+
     // Returns true when the clock stepped since the previous call; samples are then dropped.
     checkStep() {
       const wall = now();

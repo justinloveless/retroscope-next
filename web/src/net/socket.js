@@ -339,6 +339,12 @@ export function createSocket({
       setStatus('closed');
     },
 
+    /** For a page that saw the wall clock jump (sleep, a manual change): drop the clock samples and ping (§g.5). */
+    resync() {
+      clock.discard();
+      wake();
+    },
+
     /** The RoomStore for `key`, subscribed now or with the next hello. */
     room(key, model, options = {}) {
       const existing = rooms.get(key);

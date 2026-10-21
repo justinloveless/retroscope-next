@@ -320,7 +320,7 @@ export const timerFeature = {
     }
 
     // A wall-clock jump that monotonic time did not see (sleep, a manual clock change) makes the clock
-    // offset untrustworthy; the socket's wake path drops its samples and sends a fresh ping (§g.5).
+    // offset untrustworthy; the socket drops its samples and sends a fresh ping (§g.5).
     function checkClock() {
       const nextWall = Date.now();
       const nextMono = performance.now();
@@ -328,7 +328,7 @@ export const timerFeature = {
       wall = nextWall;
       mono = nextMono;
       if (stepped) {
-        window.dispatchEvent(new Event('online'));
+        ctx.socket.resync();
       }
     }
 
