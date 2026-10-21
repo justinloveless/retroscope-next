@@ -317,6 +317,8 @@ internal abstract record CounterInput {
 
     public sealed record Ban(PrincipalId Principal) : CounterInput;
 
+    public sealed record Unban(PrincipalId Principal) : CounterInput;
+
     public sealed record Join(PrincipalId Principal) : CounterInput;
 
     public sealed record Delete : CounterInput;
@@ -379,6 +381,7 @@ internal sealed class CounterDomain : IRoomDomain<Counter, CounterInput, Counter
             }),
             CounterInput.ClearTimer clear => Accept(new CounterEvent("untimer", 0, EventDurability.MemoryOnly) { TimerKey = clear.Key }),
             CounterInput.Ban ban => Accept(new CounterEvent("ban", 0, EventDurability.MemoryOnly) { Subject = ban.Principal }),
+            CounterInput.Unban unban => Accept(new CounterEvent("unban", 0, EventDurability.MemoryOnly) { Subject = unban.Principal }),
             CounterInput.Join join => Accept(new CounterEvent("join", 0, EventDurability.MemoryOnly) { Subject = join.Principal }),
             CounterInput.Delete => Accept(new CounterEvent("delete", 0, EventDurability.Committed)),
             CounterInput.Explode => throw new InvalidOperationException("decider bug"),
@@ -402,6 +405,9 @@ internal sealed class CounterDomain : IRoomDomain<Counter, CounterInput, Counter
                 break;
             case "ban":
                 state.Banned.Add(evt.Subject!.Value);
+                break;
+            case "unban":
+                state.Banned.Remove(evt.Subject!.Value);
                 break;
             case "join":
                 state.Members.Add(evt.Subject!.Value);
