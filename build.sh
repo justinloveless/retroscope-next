@@ -14,6 +14,14 @@ ARTIFACTS="$ROOT/artifacts"
 POSTGRES_IMAGE="postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873"
 cd "$ROOT"
 
+if [[ -z "${DOCKER_HOST:-}" && -S "$HOME/.rd/docker.sock" ]]; then
+  export DOCKER_HOST="unix://$HOME/.rd/docker.sock"
+fi
+if [[ "${DOCKER_HOST:-}" == "unix://$HOME/.rd/docker.sock" ]]; then
+  # Rancher Desktop: Ryuk must bind-mount the socket path as seen inside the VM.
+  export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE="${TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE:-/var/run/docker.sock}"
+fi
+
 log() { printf '\n==> %s\n' "$*"; }
 die() { printf 'build.sh: %s\n' "$*" >&2; exit 1; }
 
@@ -153,13 +161,14 @@ cmd_aot_smoke() {
     sleep 0.5
   done
   local db_url="Host=127.0.0.1;Port=$pg_port;Database=retroscope;Username=retroscope_owner;Password=smoke"
+  local app_db_url="Host=127.0.0.1;Port=$pg_port;Database=retroscope;Username=retroscope_app;Password=smoke-app"
 
   log "smoke probe"
   SMOKE_DATABASE_URL="$db_url" "$ARTIFACTS/aot/smoke/retroscope-aot-smoke"
 
   log "server binary serves /healthz"
   app_port="$(free_port)"
-  DOTNET_hostBuilder__reloadConfigOnChange=false ASPNETCORE_URLS="http://127.0.0.1:$app_port" DATABASE_URL="$db_url" DATABASE_OWNER_URL="$db_url" \
+  DOTNET_hostBuilder__reloadConfigOnChange=false ASPNETCORE_URLS="http://127.0.0.1:$app_port" DATABASE_URL="$app_db_url" DATABASE_OWNER_URL="$db_url" \
     PUBLIC_URL="http://127.0.0.1:$app_port" "$ARTIFACTS/aot/server/retroscope" >"$ARTIFACTS/aot/server-run.log" 2>&1 &
   SMOKE_PID=$!
   wait_http "http://127.0.0.1:$app_port/healthz" || { cat "$ARTIFACTS/aot/server-run.log"; die "/healthz did not answer"; }
