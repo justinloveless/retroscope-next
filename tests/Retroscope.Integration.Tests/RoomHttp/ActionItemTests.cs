@@ -148,7 +148,7 @@ public sealed class ActionItemTests(PostgresFixture postgres) {
             await app.ExecAsync(
                 "insert into retro_boards (id, code, team_id, title, created_by, visibility) values ($1, $2, $3, 'Sprint 7', $4, 'team')",
                 board,
-                $"AI{board:N}"[..12],
+                RoomCode.NewRandom().Value,
                 team,
                 admin);
             await app.ExecAsync(
