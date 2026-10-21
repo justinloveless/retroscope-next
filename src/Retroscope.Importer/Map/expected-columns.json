@@ -36,6 +36,10 @@
         "email"
       ]
     },
+    "auth.instances": {
+      "disposition": "exclude",
+      "reason": "GoTrue internal configuration"
+    },
     "auth.mfa_amr_claims": {
       "disposition": "exclude",
       "reason": "ephemeral credentials"
