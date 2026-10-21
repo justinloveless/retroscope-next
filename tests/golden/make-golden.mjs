@@ -16,9 +16,14 @@ import * as esbuild from 'esbuild';
 const root = dirname(fileURLToPath(import.meta.url));
 const commit = '7f48a79';
 
+const usage = 'usage: node tests/golden/make-golden.mjs [--verify] [--orig <dir>]';
 const args = process.argv.slice(2);
 const verify = args.includes('--verify');
 const origArg = args.indexOf('--orig');
+if (origArg >= 0 && (args[origArg + 1] === undefined || args[origArg + 1].startsWith('--'))) {
+  console.error(`--orig needs a directory\n${usage}`);
+  process.exit(2);
+}
 const origDir = origArg >= 0 ? args[origArg + 1] : process.env.RETROSCOPE_ORIG;
 
 const sha256 = (text) => createHash('sha256').update(text).digest('hex');
