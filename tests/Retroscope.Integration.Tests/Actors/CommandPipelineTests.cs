@@ -98,6 +98,29 @@ public sealed class CommandPipelineTests {
         Assert.Equal(5, room.Store.Persisted!.Value);
     }
 
+    // A twin tab sharing the cid: one tab's q=5 was rejected, a later commit moved the cursor past it, and the other
+    // tab's different intent under q=5 must be refused rather than acked dup without ever being decided.
+    [Fact]
+    public async Task A_different_payload_under_a_rejected_q_the_cursor_has_passed_is_cid_reuse() {
+        var room = new CounterRoom();
+        var (alice, _) = await room.JoinAsync(Alice);
+        var actor = await room.ActorAsync();
+        var reveal = new PokerRoundReveal(Round(1));
+        actor.Command(alice, Alice, Cmd(5, reveal));
+        Assert.Equal(NackCode.RoundRevealed, (await alice.UntilAsync<NackFrame>()).Code);
+        actor.Command(alice, Alice, Cmd(6, Vote(2)));
+        await alice.UntilAsync<AckFrame>();
+
+        actor.Command(alice, Alice, Cmd(5, Vote(9)));
+        var reuse = await alice.NextAsync<NackFrame>();
+        actor.Command(alice, Alice, Cmd(5, reveal));
+        var resent = await alice.NextAsync<AckFrame>();
+
+        Assert.Equal((5L, NackCode.CidReuse), (reuse.Q, reuse.Code));
+        Assert.Equal((5L, true), (resent.Q, resent.Dup));
+        Assert.Equal(2, room.Store.Persisted!.Value);
+    }
+
     [Fact]
     public async Task Persisted_cursor_dedupes_after_a_restart_and_a_foreign_cid_is_forbidden() {
         var room = new CounterRoom();
