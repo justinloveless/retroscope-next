@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using System.Text.Json;
 using Microsoft.Net.Http.Headers;
 
 namespace Retroscope.Server.Hosting;
@@ -6,11 +7,20 @@ namespace Retroscope.Server.Hosting;
 /// <summary>
 /// Serves <c>/assets/*</c> from the manifest's file list only (§g.7). Names are content-hashed, so responses are
 /// <c>immutable</c>; the precompressed sibling is chosen br → gzip → identity, each with its own strong ETag.
-/// Bytes stay on disk and go out with <c>SendFileAsync</c>.
+/// Bytes stay on disk and go out with <c>SendFileAsync</c>. The few files browsers and crawlers ask for at the site
+/// root (<see cref="RootFiles"/>) come from the manifest's <c>public</c> list and keep their names, so they are cached
+/// for a day and revalidated by ETag.
 /// </summary>
-public sealed class StaticAssets(WebBuild build) {
+public sealed class StaticAssets(WebBuild build, HostingOptions options) {
     public const string Prefix = "/assets/";
     public const string CacheControl = "public, max-age=31536000, immutable";
+    public const string RootCacheControl = "public, max-age=86400";
+
+    public static readonly FrozenSet<string> RootFiles = FrozenSet.ToFrozenSet(
+        ["/favicon.ico", "/manifest.webmanifest", "/robots.txt"],
+        StringComparer.Ordinal);
+
+    private readonly FrozenDictionary<string, WebFile> _root = LoadRootFiles(options.WebRoot);
 
     private static readonly FrozenDictionary<string, string> ContentTypes = new Dictionary<string, string> {
         [".js"] = "text/javascript; charset=utf-8",
@@ -33,26 +43,40 @@ public sealed class StaticAssets(WebBuild build) {
 
     public static void Use(WebApplication app) {
         var assets = app.Services.GetRequiredService<StaticAssets>();
-        app.Use((context, next) => context.Request.Path.StartsWithSegments("/assets", StringComparison.Ordinal)
-            ? assets.ServeAsync(context)
-            : next(context));
+        app.Use((context, next) => {
+            var path = context.Request.Path;
+            if (path.StartsWithSegments("/assets", StringComparison.Ordinal)) {
+                return assets.ServeAsync(context);
+            }
+            return assets._root.TryGetValue(path.Value ?? "", out var file)
+                ? ServeAsync(context, file, RootCacheControl)
+                : next(context);
+        });
     }
 
+    /// <summary>Whether the build ships <paramref name="path"/> (one of <see cref="RootFiles"/>), for the shell's links.</summary>
+    public bool HasRootFile(string path) => _root.ContainsKey(path);
+
     public Task ServeAsync(HttpContext context) {
+        var file = build.Files.GetValueOrDefault(context.Request.Path.Value ?? "");
+        return ServeAsync(context, file, CacheControl);
+    }
+
+    private static Task ServeAsync(HttpContext context, WebFile? file, string cacheControl) {
         var request = context.Request;
         var response = context.Response;
         if (!HttpMethods.IsGet(request.Method) && !HttpMethods.IsHead(request.Method)) {
             response.Headers.Allow = "GET, HEAD";
             return Problem.WriteAsync(context, StatusCodes.Status405MethodNotAllowed, "method_not_allowed");
         }
-        if (!build.Files.TryGetValue(request.Path.Value ?? "", out var file)) {
+        if (file is null) {
             return Problem.WriteAsync(context, StatusCodes.Status404NotFound, "not_found");
         }
 
         var (encoding, suffix, length) = Negotiate(request, file);
         var etag = suffix.Length == 0 ? file.ETag : file.ETag.Insert(file.ETag.Length - 1, suffix);
         var headers = response.Headers;
-        headers.CacheControl = CacheControl;
+        headers.CacheControl = cacheControl;
         headers.ETag = etag;
         if (file.Brotli is not null || file.Gzip is not null) {
             headers.Vary = HeaderNames.AcceptEncoding;
@@ -114,4 +138,34 @@ public sealed class StaticAssets(WebBuild build) {
     }
 
     private static string StripWeak(string tag) => tag.StartsWith("W/", StringComparison.Ordinal) ? tag[2..] : tag;
+
+    // Only the names in RootFiles are taken from the manifest's "public" list, so a build cannot publish anything
+    // else at the root.
+    private static FrozenDictionary<string, WebFile> LoadRootFiles(string webRoot) {
+        var manifestPath = Path.Combine(webRoot, "manifest.json");
+        if (!File.Exists(manifestPath)) {
+            return FrozenDictionary<string, WebFile>.Empty;
+        }
+        using var manifest = JsonDocument.Parse(File.ReadAllBytes(manifestPath));
+        if (!manifest.RootElement.TryGetProperty("public", out var listed) || listed.ValueKind != JsonValueKind.Object) {
+            return FrozenDictionary<string, WebFile>.Empty;
+        }
+        var files = new Dictionary<string, WebFile>(StringComparer.Ordinal);
+        foreach (var entry in listed.EnumerateObject()) {
+            if (!RootFiles.Contains(entry.Name)) {
+                continue;
+            }
+            files[entry.Name] = new WebFile(
+                entry.Name,
+                Path.Combine(webRoot, entry.Name.TrimStart('/')),
+                entry.Value.GetProperty("size").GetInt64(),
+                entry.Value.GetProperty("etag").GetString() ?? throw new InvalidOperationException($"{entry.Name} has no etag."),
+                OptionalSize(entry.Value, "br"),
+                OptionalSize(entry.Value, "gz"));
+        }
+        return files.ToFrozenDictionary(StringComparer.Ordinal);
+    }
+
+    private static long? OptionalSize(JsonElement file, string name) =>
+        file.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetInt64() : null;
 }
