@@ -13,8 +13,8 @@ services:
     environment:
       ASPNETCORE_URLS: http://0.0.0.0:8080
       PUBLIC_URL: ${PUBLIC_URL:?}
-      DATABASE_URL: "Host=db;Database=retroscope;Username=retroscope_app;Password=${DB_APP_PASSWORD:?};Maximum Pool Size=8;Minimum Pool Size=1;Connection Idle Lifetime=60;Max Auto Prepare=50;Timeout=5;Command Timeout=10;Keepalive=10"
-      DATABASE_OWNER_URL: "Host=db;Database=retroscope;Username=retroscope_owner;Password=${DB_OWNER_PASSWORD:?}"
+      DATABASE_URL: "Host=db;Database=retroscope;Username=retroscope_app;Password=${DB_APP_PASSWORD:?};Maximum Pool Size=8;Minimum Pool Size=1;Connection Idle Lifetime=60;Max Auto Prepare=50;Timeout=5;Command Timeout=10;Keepalive=10;GSS Encryption Mode=Disable"
+      DATABASE_OWNER_URL: "Host=db;Database=retroscope;Username=retroscope_owner;Password=${DB_OWNER_PASSWORD:?};GSS Encryption Mode=Disable"
       APP_KEYS: ${APP_KEYS:?}
       ANON_TAG_KEY: ${ANON_TAG_KEY:?}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
@@ -104,7 +104,7 @@ services:
     profiles: ["import"]
     image: ghcr.io/${GHCR_OWNER:?}/retroscope-import@sha256:${IMPORTER_DIGEST}
     environment:
-      DATABASE_OWNER_URL: "Host=db;Database=retroscope;Username=retroscope_owner;Password=${DB_OWNER_PASSWORD:?}"
+      DATABASE_OWNER_URL: "Host=db;Database=retroscope;Username=retroscope_owner;Password=${DB_OWNER_PASSWORD:?};GSS Encryption Mode=Disable"
       IMPORT_SOURCE_PG: ${IMPORT_SOURCE_PG:-}
       IMPORT_SEAL_PUBKEY: ${IMPORT_SEAL_PUBKEY:-}
       IMPORT_ADMIN_EMAILS: ${IMPORT_ADMIN_EMAILS:-}

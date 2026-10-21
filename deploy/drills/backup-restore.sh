@@ -53,8 +53,8 @@ echo "row counts match in $(wc -l < "$WORK/live.txt" | tr -d ' ') tables ($(awk 
 echo "== spot-load and start the app on the restored copy"
 env_of() { docker inspect retroscope-test-app-1 --format '{{range .Config.Env}}{{println .}}{{end}}' | grep "^$1=" | cut -d= -f2-; }
 app_env=(
-  -e "DATABASE_URL=Host=127.0.0.1;Database=retroscope;Username=retroscope_app;Password=restore-app"
-  -e "DATABASE_OWNER_URL=Host=127.0.0.1;Database=retroscope;Username=retroscope_owner;Password=restore"
+  -e "DATABASE_URL=Host=127.0.0.1;Database=retroscope;Username=retroscope_app;Password=restore-app;GSS Encryption Mode=Disable"
+  -e "DATABASE_OWNER_URL=Host=127.0.0.1;Database=retroscope;Username=retroscope_owner;Password=restore;GSS Encryption Mode=Disable"
   -e "PUBLIC_URL=http://localhost:8080" -e "APP_KEYS=$(env_of APP_KEYS)" -e "ANON_TAG_KEY=$(env_of ANON_TAG_KEY)"
 )
 docker run --rm --network "container:$RESTORE" "${app_env[@]}" retroscope:test spot-load --sample 20

@@ -42,8 +42,8 @@ services:
       dockerfile: deploy/Dockerfile
     environment:
       PUBLIC_URL: https://localhost:${RS_TEST_HTTPS_PORT:-18443}
-      DATABASE_URL: "Host=db;Database=retroscope;Username=retroscope_app;Password=test-app;Maximum Pool Size=8;Minimum Pool Size=1;Connection Idle Lifetime=60;Max Auto Prepare=50;Timeout=5;Command Timeout=10;Keepalive=10"
-      DATABASE_OWNER_URL: "Host=db;Database=retroscope;Username=retroscope_owner;Password=test-owner"
+      DATABASE_URL: "Host=db;Database=retroscope;Username=retroscope_app;Password=test-app;Maximum Pool Size=8;Minimum Pool Size=1;Connection Idle Lifetime=60;Max Auto Prepare=50;Timeout=5;Command Timeout=10;Keepalive=10;GSS Encryption Mode=Disable"
+      DATABASE_OWNER_URL: "Host=db;Database=retroscope;Username=retroscope_owner;Password=test-owner;GSS Encryption Mode=Disable"
       APP_KEYS: "k1:ZsxdOqKgd1qzxDBEsssdzxtVQUML/Oh0/6YtdKPnwHY="
       ANON_TAG_KEY: "RiqCIorRanT2jsnLH4uZ0TWpCBUD+65PuY9HNcD4kao="
       SMTP_HOST: mailpit
