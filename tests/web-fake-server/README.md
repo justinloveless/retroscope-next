@@ -48,7 +48,8 @@ const client = await TestClient.connect(fake);   // a protocol client for node -
 | `fake.me` | The `welcome.me`, or `(req) => me` |
 | `fake.clockOffsetMs` | Added to the `welcome.n` and `pong.n` server clock (clock-skew tests) |
 | `fake.room(key, {snapshot, overlay, epoch, seq})` | Creates or updates a room. `snapshot` and `overlay` may be functions of the connection (per-viewer projections) |
-| `fake.onCommand(kind or '*', handler)` | `handler(ctx)` gets `{frame, conn, room, commit(events), ack(), nack(code, {msg, d})}`. `commit` sends the tx, then the ack. A handler that answers nothing leaves the command unanswered. Without a handler, commands are acked at the current seq (NoOp). Resent `q`s at or below the cid's cursor get `ack {dup:true}` automatically |
+| `fake.onCommand(kind or '*', handler)` | `handler(ctx)` gets `{frame, conn, room, commit(events), ack(), nack(code, {msg, d})}`. `commit` sends the tx, then the ack. A handler that answers nothing leaves the command unanswered. Without a handler, commands are acked at the current seq (NoOp). Resent `q`s at or below the cid's cursor get `ack {dup:true}` automatically, or `nack cid_reuse` when the payload differs from the one recorded for that `(cid, q)` (DESIGN §c.6) |
+| `fake.seedCommands(room, cid, [{q, k, d}])` | Records commands as if another tab with the same cid had sent them and had them acked. The cid's cursor (and so `lastQ`) moves to the highest `q`, and a resend of one of those `q`s with a different payload gets `nack cid_reuse`. `fake.bye({newEpoch:true})` forgets the recorded payloads, as a restart empties the server's LRU |
 | `fake.tx(room, events)` | Appends and fans out one tx. `events` is a list of `{k, d}` or `(conn) => list` |
 | `fake.gap(room, n)` | Advances the seq silently, so the next tx arrives as a gap. A resubscribe replays the skipped entries |
 | `fake.x(room, k, d)`, `fake.kick(room, code)` | Unsequenced cache fill, and room kick |
