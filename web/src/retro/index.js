@@ -8,8 +8,11 @@ import { createButton } from '../ui/button.js';
 import { toast } from '../ui/toast.js';
 import { createRetroModel } from './model.js';
 import { createBoard } from './board.js';
+import { actionItems } from './actions.js';
+import { previousActionItems } from './prev-actions.js';
+import { kudos } from './kudos.js';
 
-const FEATURES = [];
+const FEATURES = [actionItems, previousActionItems, kudos];
 
 const NACK_MESSAGES = {
   forbidden: 'You are not allowed to do that on this board.',
