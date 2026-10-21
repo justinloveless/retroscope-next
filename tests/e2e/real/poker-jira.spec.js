@@ -90,7 +90,7 @@ test('the holder previews an issue for everyone, commits it, and a preview left 
   await expect(bob.page.locator('.nt-strip .nt-chip-key', { hasText: ground.key(9) })).toHaveCount(1);
 });
 
-test('the drawer prefetches on hover and edits a description without losing its table or screenshot', async ({ open }, testInfo) => {
+test('the drawer prefetches on hover and edits the summary and a description without losing its table or screenshot', async ({ open }, testInfo) => {
   const { players, path, ground, team } = await jiraTable(open, testInfo, ['Ann Drawer']);
   const [ann] = players;
   const key = ground.key(7);
@@ -131,6 +131,13 @@ test('the drawer prefetches on hover and edits a description without losing its 
   await ann.page.keyboard.type('Then ');
   await sheet.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(sheet.locator('.jira-description li').last()).toHaveText('Then asks for the CVC');
+  await expect(sheet.locator('.jira-description .island td').first()).toHaveText('Visa');
+
+  const summary = `Pay with a stored card at ${Date.now()}`;
+  await sheet.getByRole('button', { name: /^Edit summary/ }).click();
+  await sheet.getByRole('textbox', { name: 'Summary' }).fill(summary);
+  await sheet.getByRole('textbox', { name: 'Summary' }).press('Enter');
+  await expect(sheet.getByRole('button', { name: /^Edit summary/ })).toHaveText(summary);
   await expect(sheet.locator('.jira-description .island td').first()).toHaveText('Visa');
 
   const fresh = await (await ann.page.request.get(`/api/teams/${team.id}/jira/issues/${key}`, { headers: { 'X-RS': '1' } })).json();

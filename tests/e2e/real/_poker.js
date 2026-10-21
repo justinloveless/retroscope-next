@@ -22,8 +22,8 @@ export async function openTable(page, code, query = '') {
  * `names.length` people at one quick session created by the first; each page is open on the table and every seat is
  * visible to the first. Returns [{context, page, user}], session {id, code}.
  */
-export async function table(open, names, { teamId = null, create = null } = {}) {
-  const users = await seedUsers(names);
+export async function table(open, names, { teamId = null, create = null, ordered = false } = {}) {
+  const users = await seedUsers(names, { ordered });
   const players = [];
   for (const user of users) {
     const player = await open(user);

@@ -39,8 +39,10 @@ const literal = (value) => `'${String(value).replaceAll("'", "''")}'`;
  * Inserts accounts straight into the database: signing up through the route sends a verification mail per person,
  * and the global email budget (200/h) would run out within one run of the matrix. The auth specs sign up for real.
  */
-export async function seedUsers(names, { verified = true } = {}) {
-  const users = names.map((name) => ({ id: randomUUID(), email: `e2e-${randomUUID()}@example.test`, name }));
+export async function seedUsers(names, { verified = true, ordered = false } = {}) {
+  // `ordered` makes the ids sort in the order of `names` (seats sort by principal id), for the visual baselines.
+  const id = (i) => (ordered ? `${i.toString(16)}${randomUUID().slice(1)}` : randomUUID());
+  const users = names.map((name, i) => ({ id: id(i), email: `e2e-${randomUUID()}@example.test`, name }));
   await sql(`
     insert into principals (id, kind) values ${users.map((u) => `(${literal(u.id)}, 'user')`).join(', ')};
     insert into users (id, email, email_verified_at, password_hash, full_name) values ${users.map((u) =>
