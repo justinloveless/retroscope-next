@@ -297,15 +297,12 @@ export function installJira(server, { teamId, fixture = DEFAULT_JIRA_FIXTURE, co
       issue.links = [...(issue.links ?? []), link];
       return json(link, 201);
     },
-    'DELETE /links/:linkId': ({ params }) => {
-      for (const issue of issues.values()) {
-        const before = issue.links?.length ?? 0;
-        issue.links = (issue.links ?? []).filter((l) => l.id !== params.linkId);
-        if (issue.links.length !== before) {
-          return { status: 204 };
-        }
+    'DELETE /issues/:key/links/:linkId': ({ issue, params }) => {
+      if (!(issue.links ?? []).some((l) => l.id === params.linkId)) {
+        return problem(404, 'jira_not_found');
       }
-      return problem(404, 'jira_not_found');
+      issue.links = issue.links.filter((l) => l.id !== params.linkId);
+      return { status: 204 };
     },
     'GET /issues/:key/attachments/:attachmentId': ({ issue, params }) => {
       const attachment = issue.attachments.find((a) => a.id === params.attachmentId);

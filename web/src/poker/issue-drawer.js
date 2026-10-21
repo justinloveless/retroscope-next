@@ -528,7 +528,7 @@ export function createIssueDrawer(ctx) {
         h('ul', { style: { 'list-style': 'none', margin: '0', padding: '0', display: 'grid', gap: '0.25rem' } }, items.map((link) => h('li', { class: 'jira-link', dataset: { key: link.key }, style: ROW },
           h('button', { type: 'button', class: 'btn btn-ghost btn-sm', style: { 'font-family': 'var(--font-mono)' }, text: link.key, on: { click: () => open(link.key) } }),
           h('span', { style: { flex: '1', 'min-width': '0', 'font-size': '0.8125rem' }, text: link.summary ?? '' }),
-          canEdit ? createButton({ label: `Remove link to ${link.key}`, icon: 'x', iconOnly: true, variant: 'ghost', size: 'icon', onClick: () => write(http.del(`${base}/links/${encodeURIComponent(link.id)}`), `Removed the link to ${link.key}`) }).el : null)))));
+          canEdit ? createButton({ label: `Remove link to ${link.key}`, icon: 'x', iconOnly: true, variant: 'ghost', size: 'icon', onClick: () => write(http.del(issuePath(`/links/${encodeURIComponent(link.id)}`)), `Removed the link to ${link.key}`) }).el : null)))));
     }
     if (links.length === 0) {
       section.append(h('p', { style: MUTED, text: 'No linked issues.' }));
