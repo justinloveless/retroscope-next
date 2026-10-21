@@ -82,12 +82,18 @@ async function listFiles(dir) {
   return entries.filter((e) => e.isFile()).map((e) => join(e.parentPath ?? e.path, e.name)).sort();
 }
 
+// web/assets/public/* is served from the site root under fixed names (favicon.ico, robots.txt, …).
+const PUBLIC_DIR = 'public';
+
 // Copies web/assets/** to dist/assets/ under content-hashed names; returns logical name → public URL.
 async function copyStaticAssets(dist) {
   const map = {};
   const source = join(root, 'assets');
   for (const file of await listFiles(source)) {
     const name = relative(source, file).split(sep).join('/');
+    if (name.startsWith(`${PUBLIC_DIR}/`)) {
+      continue;
+    }
     const ext = extname(name);
     const hashed = `${name.slice(0, -ext.length)}-${shortHash(await readFile(file))}${ext}`;
     const target = join(dist, 'assets', 'static', hashed);
@@ -96,6 +102,31 @@ async function copyStaticAssets(dist) {
     map[name] = `/assets/static/${hashed}`;
   }
   return map;
+}
+
+// Copies web/assets/public/* to the root of dist. The web manifest names its icons by logical asset
+// name; they are rewritten to the hashed URLs. Returns the copied files.
+async function copyPublicFiles(dist, staticAssets) {
+  const source = join(root, 'assets', PUBLIC_DIR);
+  const copied = [];
+  for (const file of await listFiles(source)) {
+    const name = relative(source, file).split(sep).join('/');
+    const target = join(dist, name);
+    if (name === 'manifest.webmanifest') {
+      const manifest = JSON.parse(await readFile(file, 'utf8'));
+      manifest.icons = (manifest.icons ?? []).map((icon) => {
+        if (!staticAssets[icon.src]) {
+          throw new Error(`manifest.webmanifest names an icon that is not in web/assets: ${icon.src}`);
+        }
+        return { ...icon, src: staticAssets[icon.src] };
+      });
+      await writeFile(target, JSON.stringify(manifest) + '\n');
+    } else {
+      await copyFile(file, target);
+    }
+    copied.push(target);
+  }
+  return copied;
 }
 
 // The pre-paint theme script, minified exactly as the shell will inline it, and its CSP source.
@@ -291,6 +322,7 @@ export async function buildWeb({ dist = join(root, 'dist'), budgetsFile = join(r
   await mkdir(assetsDir, { recursive: true });
 
   const staticAssets = await copyStaticAssets(dist);
+  const publicFiles = await copyPublicFiles(dist, staticAssets);
   const theme = await themeScript();
   const toPublic = (file) => '/' + relative(dist, join(root, file)).split(sep).join('/');
 
@@ -366,6 +398,7 @@ export async function buildWeb({ dist = join(root, 'dist'), budgetsFile = join(r
   ];
   const compressed = await Promise.all(served.map((file) => precompress(join(root, file))));
   const files = Object.fromEntries(served.map((file, i) => [toPublic(file), compressed[i]]));
+  const rootFiles = await Promise.all(publicFiles.map(precompress));
 
   const manifest = {
     entry: [...entryFiles].map(toPublic),
@@ -375,6 +408,7 @@ export async function buildWeb({ dist = join(root, 'dist'), budgetsFile = join(r
     styles: Object.fromEntries(Object.entries(styles).map(([name, file]) => [name, toPublic(file)])),
     assets: staticAssets,
     files,
+    public: Object.fromEntries(publicFiles.map((file, i) => ['/' + relative(dist, file).split(sep).join('/'), rootFiles[i]])),
   };
   await writeFile(join(dist, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   await writeFile(join(dist, 'csp.json'), JSON.stringify({ scriptHashes: [theme.hash], themeScript: theme.text }, null, 2) + '\n');
