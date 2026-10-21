@@ -123,7 +123,7 @@ public sealed class BlobsRepo(NpgsqlDataSource dataSource) {
             )
             select board_bytes + $4 <= $8, exists (select 1 from inserted) from usage
             """);
-        AddImage(command, id, board.Value, image, createdBy);
+        AddImage(command.Parameters, id, board.Value, image, createdBy);
         command.Parameters.Add(new NpgsqlParameter<long> { TypedValue = BoardQuotaBytes });
         command.Parameters.Add(new NpgsqlParameter<long> { TypedValue = ceilingBytes });
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -134,17 +134,24 @@ public sealed class BlobsRepo(NpgsqlDataSource dataSource) {
         return reader.GetBoolean(0) ? BoardImageInsert.StoreFull : BoardImageInsert.BoardFull;
     }
 
-    /// <summary>For the avatar upload (U16) and the Google profile picture (U18); setting <c>users.avatar_blob_id</c> is theirs.</summary>
+    /// <summary>An avatar on its own. A user's avatar is stored with <see cref="UsersRepo.SetAvatarAsync"/>.</summary>
     public async Task InsertAvatarAsync(BlobId id, PrincipalId createdBy, SniffedImage image, CancellationToken cancellationToken) {
+        await using var batch = dataSource.CreateBatch();
+        batch.BatchCommands.Add(InsertAvatar(id, createdBy, image));
+        await batch.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>The avatar row as a batch command, for the transaction that also points <c>users.avatar_blob_id</c> at it.</summary>
+    public static NpgsqlBatchCommand InsertAvatar(BlobId id, PrincipalId createdBy, SniffedImage image) {
         if (image.Bytes.Length > AvatarMaxBytes) {
             throw new ArgumentOutOfRangeException(nameof(image), "Avatars are at most 256 KiB.");
         }
-        await using var command = dataSource.CreateCommand("""
+        var command = new NpgsqlBatchCommand("""
             insert into blobs (id, purpose, board_id, content_type, byte_size, sha256, bytes, created_by)
             values ($1, 'avatar', $2, $3, $4, $5, $6, $7)
             """);
-        AddImage(command, id, null, image, createdBy);
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        AddImage(command.Parameters, id, null, image, createdBy);
+        return command;
     }
 
     /// <summary>Total bytes of all board images, the figure the global ceiling applies to.</summary>
@@ -169,14 +176,14 @@ public sealed class BlobsRepo(NpgsqlDataSource dataSource) {
     private static NpgsqlParameter<Guid?> Principal(PrincipalId? caller) =>
         new NpgsqlParameter<Guid?> { TypedValue = caller?.Value, NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Uuid };
 
-    private static void AddImage(NpgsqlCommand command, BlobId id, Guid? board, SniffedImage image, PrincipalId createdBy) {
-        command.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = id.Value });
-        command.Parameters.Add(new NpgsqlParameter<Guid?> { TypedValue = board, NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Uuid });
-        command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = image.ContentType });
-        command.Parameters.Add(new NpgsqlParameter<int> { TypedValue = image.Bytes.Length });
-        command.Parameters.Add(new NpgsqlParameter<byte[]> { TypedValue = image.Sha256 });
-        command.Parameters.Add(new NpgsqlParameter<byte[]> { TypedValue = image.Bytes });
-        command.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = createdBy.Value });
+    private static void AddImage(NpgsqlParameterCollection parameters, BlobId id, Guid? board, SniffedImage image, PrincipalId createdBy) {
+        parameters.Add(new NpgsqlParameter<Guid> { TypedValue = id.Value });
+        parameters.Add(new NpgsqlParameter<Guid?> { TypedValue = board, NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Uuid });
+        parameters.Add(new NpgsqlParameter<string> { TypedValue = image.ContentType });
+        parameters.Add(new NpgsqlParameter<int> { TypedValue = image.Bytes.Length });
+        parameters.Add(new NpgsqlParameter<byte[]> { TypedValue = image.Sha256 });
+        parameters.Add(new NpgsqlParameter<byte[]> { TypedValue = image.Bytes });
+        parameters.Add(new NpgsqlParameter<Guid> { TypedValue = createdBy.Value });
     }
 
     private static BoardView? ReadBoard(NpgsqlDataReader reader, int at, PrincipalId? caller) {

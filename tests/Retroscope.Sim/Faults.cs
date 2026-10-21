@@ -15,16 +15,16 @@ internal enum Faults {
     StaleStorage = 128,
 
     /// <summary>
-    /// Opt-in: a duplicated tab whose original stays open and misses the boot check (the residual case of §c.6). Two
-    /// live tabs then hold one outbox, and each can be answered truthfully for the same intent (see UF9 decisions).
+    /// A duplicated tab whose original stays open and misses the boot check (the residual case of §c.6). Two live tabs
+    /// then hold one outbox and one cid, and each can be answered truthfully for the same intent (see UF13 decisions).
     /// </summary>
     Twins = 256,
 
     /// <summary>The server notices a dropped socket only after the client reconnected (4409).</summary>
     StaleSocket = 512,
 
-    Default = Network | Commits | Crashes | Storage | FullQueues | Membership | Board | StaleStorage | StaleSocket,
-    All = Default | StaleStorage | Twins | StaleSocket,
+    Default = Network | Commits | Crashes | Storage | FullQueues | Membership | Board | StaleStorage | Twins | StaleSocket,
+    All = Default,
 }
 
 internal sealed record WorldOptions(int Steps, InjectedBug Bug, Faults Faults, bool Trace);
@@ -61,6 +61,9 @@ internal sealed class Stats {
 
     public int CidReuseNacks { get; set; }
 
+    /// <summary>Twin intents lost to the residual case §c.6 accepts (see <see cref="Oracle.TwinResiduals"/>).</summary>
+    public int TwinResiduals { get; set; }
+
     /// <summary>Crashes that lost a spotlight position which had not settled yet (§c.8).</summary>
     public int SpotlightLost { get; set; }
 
@@ -84,6 +87,7 @@ internal sealed class Stats {
         AutoReveals += other.AutoReveals;
         TimerExpiries += other.TimerExpiries;
         CidReuseNacks += other.CidReuseNacks;
+        TwinResiduals += other.TwinResiduals;
         SpotlightLost += other.SpotlightLost;
         Acked += other.Acked;
         Nacked += other.Nacked;

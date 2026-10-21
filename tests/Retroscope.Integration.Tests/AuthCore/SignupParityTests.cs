@@ -30,6 +30,8 @@ public sealed class SignupParityTests(PostgresFixture postgres) {
         Assert.Equal(1L, await host.ScalarAsync<long>("select count(*) from audit_log where action = 'auth.signup.taken'"));
     }
 
+    // Compared within one run, like the login test: the two outcomes alternate and the fastest of each counts, so load
+    // slows both alike.
     [Fact]
     public async Task A_taken_address_costs_as_much_time_as_a_new_one() {
         await using var host = await AuthHost.StartAsync(postgres);
@@ -37,16 +39,14 @@ public sealed class SignupParityTests(PostgresFixture postgres) {
 
         var created = new List<double>();
         var taken = new List<double>();
-        for (var i = 0; i < 5; i++) {
-            created.Add(await TimeAsync(() => SignupAsync(host, $"new{i}@example.com", $"198.51.100.{i}")));
-            taken.Add(await TimeAsync(() => SignupAsync(host, "ada@example.com", $"198.51.101.{i}")));
+        for (var i = 0; i < 9; i++) {
+            created.Add(await TimeAsync(() => SignupAsync(host, $"new{i}@example.com", $"198.51.{100 + i}.7")));
+            taken.Add(await TimeAsync(() => SignupAsync(host, "ada@example.com", $"203.0.{113 + i}.7")));
         }
 
-        var createdMedian = created.Order().ElementAt(2);
-        var takenMedian = taken.Order().ElementAt(2);
         Assert.True(
-            takenMedian > createdMedian * 0.6 && createdMedian > takenMedian * 0.6,
-            $"A new address took {createdMedian:F1} ms, a taken one {takenMedian:F1} ms: timing reveals the account.");
+            taken.Min() > created.Min() * 0.6 && created.Min() > taken.Min() * 0.6,
+            $"A new address took {created.Min():F1} ms at best, a taken one {taken.Min():F1} ms: timing reveals the account.");
     }
 
     private static async Task SignupAsync(AuthHost host, string email, string peer) {

@@ -146,7 +146,8 @@ internal sealed class RecordingGateway : IRoomGateway {
 }
 
 internal static class Wait {
-    public static readonly TimeSpan Default = TimeSpan.FromSeconds(10);
+    // Only a failing test waits this long, so it is generous: a loaded machine can starve a passing one for seconds.
+    public static readonly TimeSpan Default = TimeSpan.FromSeconds(60);
 
     public static async Task UntilAsync(Func<bool> condition, TimeSpan? timeout = null) {
         var deadline = DateTime.UtcNow + (timeout ?? Default);

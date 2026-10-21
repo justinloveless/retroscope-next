@@ -4,6 +4,7 @@ using Npgsql;
 using NpgsqlTypes;
 using Retroscope.Core.Ids;
 using Retroscope.Core.Room;
+using Retroscope.Server.Endpoints;
 
 namespace Retroscope.Server.Data.Repos;
 
@@ -182,27 +183,55 @@ public sealed class UsersRepo(NpgsqlDataSource dataSource) {
     }
 
     /// <summary>
-    /// Points the user's avatar at <paramref name="blob"/> (null removes it) and deletes the avatar it replaces; when the
-    /// user is gone the new blob is deleted instead. <c>returning old</c> names the value this update overwrote, so two
-    /// concurrent uploads each delete the one before theirs.
+    /// Stores <paramref name="image"/> as the user's avatar and deletes the avatar it replaces, in one transaction. When
+    /// no user matches, or <paramref name="onlyIfNone"/> is set and the user already has one, nothing is written.
     /// </summary>
-    /// <returns>False when the user does not exist.</returns>
-    public async Task<bool> SetAvatarAsync(PrincipalId id, BlobId? blob, DateTimeOffset now, CancellationToken cancellationToken) {
+    /// <returns>True when the avatar changed.</returns>
+    public async Task<bool> SetAvatarAsync(
+        PrincipalId id,
+        SniffedImage image,
+        bool onlyIfNone,
+        DateTimeOffset now,
+        CancellationToken cancellationToken) {
+        var blob = new BlobId(Guid.NewGuid());
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var batch = new NpgsqlBatch(connection, transaction) {
+            BatchCommands = { BlobsRepo.InsertAvatar(blob, id, image), PointAvatar(id, blob, onlyIfNone, now) },
+        };
+        if (!(bool)(await batch.ExecuteScalarAsync(cancellationToken))!) {
+            await transaction.RollbackAsync(CancellationToken.None);
+            return false;
+        }
+        await transaction.CommitAsync(CancellationToken.None);
+        return true;
+    }
+
+    /// <summary>
+    /// Verifies the email of an unverified account and audits <c>auth.verify</c> with <paramref name="proof"/>, in one
+    /// statement that reads the row itself. False, and nothing written, when the account was already verified.
+    /// </summary>
+    public async Task<bool> VerifyAsync(PrincipalId id, string proof, DateTimeOffset now, CancellationToken cancellationToken) {
         await using var command = dataSource.CreateCommand("""
-            with updated as (
-              update users set avatar_blob_id = $2, updated_at = $3 where id = $1
-              returning old.avatar_blob_id as previous
-            ), deleted as (
-              delete from blobs
-              where purpose = 'avatar'
-                and (id = (select previous from updated) or (id = $2 and not exists (select 1 from updated)))
+            with verified as (
+              update users set email_verified_at = $2, updated_at = $2
+              where id = $1 and email_verified_at is null
+              returning id
             )
-            select exists (select 1 from updated)
+            insert into audit_log (at, actor_id, action, target, meta)
+            select $2, id, 'auth.verify', id::text, jsonb_build_object('proof', $3::text) from verified
             """);
         command.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = id.Value });
-        command.Parameters.Add(new NpgsqlParameter<Guid?> { TypedValue = blob?.Value, NpgsqlDbType = NpgsqlDbType.Uuid });
         command.Parameters.Add(new NpgsqlParameter<DateTimeOffset> { TypedValue = now });
-        return (bool)(await command.ExecuteScalarAsync(cancellationToken))!;
+        command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = proof });
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+    }
+
+    /// <summary>Removes the user's avatar and deletes its blob; false when no user matches.</summary>
+    public async Task<bool> ClearAvatarAsync(PrincipalId id, DateTimeOffset now, CancellationToken cancellationToken) {
+        await using var batch = dataSource.CreateBatch();
+        batch.BatchCommands.Add(PointAvatar(id, null, onlyIfNone: false, now));
+        return (bool)(await batch.ExecuteScalarAsync(cancellationToken))!;
     }
 
     public async Task<IReadOnlyList<UserTeam>> TeamsAsync(PrincipalId id, CancellationToken cancellationToken) {
@@ -248,6 +277,27 @@ public sealed class UsersRepo(NpgsqlDataSource dataSource) {
         command.Parameters.Add(new() { Value = id.Value });
         return (int)(await command.ExecuteScalarAsync(cancellationToken))!;
     }
+
+    // Concurrent writers each delete exactly the avatar they replaced: PostgreSQL 18's old.avatar_blob_id is the row's
+    // value under the update's own row lock.
+    private static NpgsqlBatchCommand PointAvatar(PrincipalId id, BlobId? blob, bool onlyIfNone, DateTimeOffset now) =>
+        new("""
+            with updated as (
+              update users set avatar_blob_id = $2, updated_at = $3
+              where id = $1 and (not $4 or avatar_blob_id is null)
+              returning old.avatar_blob_id as previous
+            ), deleted as (
+              delete from blobs where purpose = 'avatar' and id = (select previous from updated)
+            )
+            select exists (select 1 from updated)
+            """) {
+            Parameters = {
+                new NpgsqlParameter<Guid> { TypedValue = id.Value },
+                new NpgsqlParameter<Guid?> { TypedValue = blob?.Value, NpgsqlDbType = NpgsqlDbType.Uuid },
+                new NpgsqlParameter<DateTimeOffset> { TypedValue = now },
+                new NpgsqlParameter<bool> { TypedValue = onlyIfNone },
+            },
+        };
 
     public static NpgsqlBatchCommand SetPasswordHash(PrincipalId id, string? passwordHash, DateTimeOffset now) =>
         new("update users set password_hash = $2, updated_at = $3 where id = $1") {

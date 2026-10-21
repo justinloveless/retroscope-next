@@ -96,7 +96,6 @@ public static class MeEndpoints {
 
     public static void AddServices(IServiceCollection services, IConfiguration configuration) {
         services.AddSingleton<MeBuilder>();
-        services.TryAddSingleton<BlobsRepo>();
         services.AddSingleton<IBootContributor, MeBootContributor>();
     }
 
@@ -221,7 +220,6 @@ public static class MeEndpoints {
     private static async Task<IResult> PutAvatarAsync(
         HttpContext context,
         UsersRepo users,
-        BlobsRepo blobs,
         Sessions sessions,
         TimeProvider time) {
         var cancellationToken = context.RequestAborted;
@@ -233,9 +231,7 @@ public static class MeEndpoints {
             return Problem.Result(StatusCodes.Status415UnsupportedMediaType, "unsupported_media_type");
         }
         var user = (await context.GetCallerAsync())!.Principal.Id;
-        var blob = new BlobId(Guid.NewGuid());
-        await blobs.InsertAvatarAsync(blob, user, image, cancellationToken);
-        if (!await users.SetAvatarAsync(user, blob, time.GetUtcNow(), cancellationToken)) {
+        if (!await users.SetAvatarAsync(user, image, onlyIfNone: false, time.GetUtcNow(), cancellationToken)) {
             return Problem.Result(StatusCodes.Status401Unauthorized, "unauthenticated");
         }
         sessions.EvictUser(user);
@@ -244,7 +240,7 @@ public static class MeEndpoints {
 
     private static async Task<IResult> DeleteAvatarAsync(HttpContext context, UsersRepo users, Sessions sessions, TimeProvider time) {
         var user = (await context.GetCallerAsync())!.Principal.Id;
-        if (!await users.SetAvatarAsync(user, null, time.GetUtcNow(), context.RequestAborted)) {
+        if (!await users.ClearAvatarAsync(user, time.GetUtcNow(), context.RequestAborted)) {
             return Problem.Result(StatusCodes.Status401Unauthorized, "unauthenticated");
         }
         sessions.EvictUser(user);

@@ -46,6 +46,9 @@ internal sealed class Intent(int id, RoomKey room, Command command, DateTimeOffs
 
     public DecisionSeen LastDecision { get; set; }
 
+    /// <summary>The server process that last decided it (<see cref="Oracle.Generation"/>).</summary>
+    public int DecidedIn { get; set; } = -1;
+
     public IntentOutcome Outcome { get; set; }
 
     /// <summary>
@@ -53,6 +56,12 @@ internal sealed class Intent(int id, RoomKey room, Command command, DateTimeOffs
     /// answer is not judged against the old one (a second commit still is).
     /// </summary>
     public bool Resurrected { get; set; }
+
+    /// <summary>
+    /// Two live tabs hold it (a twin copied the outbox): each tab's answer is about its own send, so an ack in one after
+    /// a final nack in the other is not judged against it (a second commit still is).
+    /// </summary>
+    public bool Shared { get; set; }
 
     public string? Detail { get; set; }
 
@@ -75,6 +84,8 @@ internal sealed class Oracle(SimClock clock) {
     private readonly List<Intent> _intents = [];
     private readonly Dictionary<Command, Intent> _byCommand = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<(RoomKey, ClientId, long), Intent> _bySend = [];
+    private readonly Dictionary<(RoomKey, ClientId, long), List<Intent>> _sentUnder = [];
+    private readonly HashSet<ClientId> _twinned = [];
     private readonly Dictionary<RoomKey, List<(long Ms, PrincipalId Principal)>> _leaves = [];
     private readonly Dictionary<(RoomKey, PrincipalId), List<Interval>> _connected = [];
     private readonly Dictionary<(RoomKey, ConnectionId), Interval> _open = [];
@@ -124,6 +135,12 @@ internal sealed class Oracle(SimClock clock) {
 
     public int TimerExpiries { get; private set; }
 
+    /// <summary>Server processes started so far; the payload-hash LRU of §c.6 lives and dies with one.</summary>
+    public int Generation { get; private set; }
+
+    /// <summary>Twin intents acked <c>dup</c> undecided because a restart emptied the LRU (the §c.6 residual).</summary>
+    public int TwinResiduals { get; private set; }
+
     public void Fail(string message) {
         lock (_lock) {
             if (_violations.Count < MaxViolations) {
@@ -148,6 +165,25 @@ internal sealed class Oracle(SimClock clock) {
     public void Transmitted(Intent intent, ClientId client, long q) {
         lock (_lock) {
             _bySend[(intent.Room, client, q)] = intent;
+            if (!_sentUnder.TryGetValue((intent.Room, client, q), out var sent)) {
+                _sentUnder[(intent.Room, client, q)] = sent = [];
+            }
+            if (!sent.Contains(intent)) {
+                sent.Add(intent);
+            }
+        }
+    }
+
+    /// <summary>Two live tabs now hold <paramref name="client"/>: a duplicate whose original stayed open.</summary>
+    public void Twinned(ClientId client) {
+        lock (_lock) {
+            _twinned.Add(client);
+        }
+    }
+
+    public void Restarted() {
+        lock (_lock) {
+            Generation++;
         }
     }
 
@@ -164,6 +200,7 @@ internal sealed class Oracle(SimClock clock) {
             if (_byCommand.TryGetValue(command, out var intent)) {
                 Trace?.Invoke($"server: decided {intent}: {decision}");
                 intent.LastDecision = decision;
+                intent.DecidedIn = Generation;
             }
         }
     }
@@ -201,16 +238,21 @@ internal sealed class Oracle(SimClock clock) {
         }
     }
 
-    public void Acked(Intent intent, bool dup) {
+    public void Acked(Intent intent, bool dup, ClientId client, long q) {
         lock (_lock) {
-            if (intent.Outcome is IntentOutcome.Nacked && !dup && !intent.Resurrected) {
+            if (intent.Outcome is IntentOutcome.Nacked && !dup && !intent.Resurrected && !intent.Shared) {
                 Fail($"{intent} applied after a final nack ({intent.Detail})");
             }
             if (dup) {
                 // dup means "this q was processed": a resend whose nack was lost is acked dup too. Only an intent
                 // the server never decided at all has been skipped.
                 if (intent.Commits == 0 && intent.LastDecision == DecisionSeen.None) {
-                    Fail($"{intent} acked dup but the server never decided it: the intent is lost");
+                    if (IsTwinResidual(intent, client, q)) {
+                        TwinResiduals++;
+                        Trace?.Invoke($"oracle: {intent} acked dup undecided: its twin's intent under q={q} was decided before a restart (§c.6 residual)");
+                    } else {
+                        Fail($"{intent} acked dup but the server never decided it: the intent is lost");
+                    }
                 }
             } else if (intent.LastDecision == DecisionSeen.Committed && intent.Commits == 0) {
                 Fail($"{intent} acked but its transaction never committed");
@@ -251,6 +293,19 @@ internal sealed class Oracle(SimClock clock) {
                 intent.Detail = why;
             }
         }
+    }
+
+    /// <summary>
+    /// §c.6 accepts one way to lose an intent: two tabs share a cid (a twin), one of them has another intent decided
+    /// under the same q, and the server restarts before the other sends this one, so the payload-hash LRU that would
+    /// refuse it <c>cid_reuse</c> is empty. Anything else acked <c>dup</c> undecided is a violation.
+    /// </summary>
+    private bool IsTwinResidual(Intent intent, ClientId client, long q) {
+        if (!_twinned.Contains(client) || !_sentUnder.TryGetValue((intent.Room, client, q), out var sent)) {
+            return false;
+        }
+        var decided = sent.Where(x => x != intent && x.LastDecision != DecisionSeen.None).ToList();
+        return decided.Count > 0 && decided.All(x => x.DecidedIn < Generation);
     }
 
     /// <summary>The server answered a subscription on this connection: the principal is connected to the room.</summary>

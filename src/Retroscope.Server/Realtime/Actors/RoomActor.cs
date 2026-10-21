@@ -332,6 +332,11 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
 
     private async Task SubscribeAsync(SubscribeMessage message) {
         var (peer, viewer, epoch, seq) = message;
+        // Kicks, unsubscribes and closes reach the connection at once but this queue later: a subscribe queued before
+        // one of them would otherwise start a subscription the connection no longer holds.
+        if (!peer.Wanted) {
+            return;
+        }
         if (_status == Status.Missing || _binding.IsDeleted(_state!)) {
             peer.Kick(Key, KickCode.NotFound);
             return;
@@ -435,7 +440,11 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
             peer.Send(reused ? Nack(frame.Q, NackCode.CidReuse) : Ack(frame.Q, dup: true));
             return;
         }
-        switch (_binding.Domain.Decide(_state!, input, Context(viewer))) {
+        var decision = _binding.Domain.Decide(_state!, input, Context(viewer));
+        // Every decided q is remembered, not only committed ones: a later commit moves the cursor past a rejected q,
+        // and another intent sent under it (a twin tab sharing the cid) must be refused cid_reuse, not acked dup.
+        _recentHashes.Set((viewer.Client, frame.Q), frame.DataHash);
+        switch (decision) {
             case Decision<TEvent>.Reject reject:
                 peer.Send(FrameBytes.Frame(new NackFrame(Key, frame.Q, reject.Code, reject.Detail, reject.Data)));
                 break;
@@ -446,7 +455,6 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
                 var advance = new CursorAdvance(viewer.Client, viewer.Who.Id, frame.Q);
                 switch (await CommitAndPublishAsync(accept.Events, [], advance, frame.K)) {
                     case Outcome.Applied:
-                        _recentHashes.Set((viewer.Client, frame.Q), frame.DataHash);
                         peer.Send(Ack(frame.Q));
                         break;
                     case Outcome.Rejected:

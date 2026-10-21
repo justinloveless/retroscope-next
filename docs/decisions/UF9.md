@@ -91,3 +91,11 @@ Spec: `docs/followups/UF9.md`. Amendments to U13, U14, U15, U21, U22, U23 and U2
 ## Verification
 
 See the end of the unit's report; the numbers are recorded in the U15 amendment.
+
+## Amendment (UF13)
+
+1. **Decision 1, `rate_limited`:** the `sub` that lifts the refusal now borrows its rate token instead of passing for
+   free (UF13 decision 1).
+2. **Decision 9, `Twins`:** fixed and on by default. The actor remembers the hash of every decided `q`; the oracle
+   judges each twin's answer on its own send and counts the restart residual that §c.6 accepts instead of failing it.
+   Seeds 1–12000 with `Twins` on: all pass, 3 intents counted as the residual (UF13 decision 3).

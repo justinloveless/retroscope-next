@@ -16,6 +16,11 @@ internal enum RateVerdict : byte {
 /// that keeps sending faster than the refill rate is refused a few times every second and is closed at the end of
 /// the abuse window, while a short burst is only nacked.
 /// </summary>
+/// <remarks>
+/// A frame that must get through (the <c>sub</c> that lifts a <c>rate_limited</c> refusal) borrows its token: the
+/// bucket may go up to one burst into debt, which later frames repay before any is allowed. So such frames still cost
+/// the rate, and over any interval the connection is let through at most the refill plus two bursts.
+/// </remarks>
 internal sealed class ConnRateLimit {
     private static readonly TimeSpan StreakGap = TimeSpan.FromSeconds(1);
 
@@ -37,11 +42,12 @@ internal sealed class ConnRateLimit {
         _refilledAt = time.GetTimestamp();
     }
 
-    public RateVerdict Take() {
+    /// <param name="borrow">Allow the frame on credit while the debt is below one burst.</param>
+    public RateVerdict Take(bool borrow = false) {
         var now = _time.GetTimestamp();
         _tokens = Math.Min(_burst, _tokens + (_time.GetElapsedTime(_refilledAt, now).TotalSeconds * _perSecond));
         _refilledAt = now;
-        if (_tokens >= 1) {
+        if (_tokens >= 1 || (borrow && _tokens > -_burst)) {
             _tokens -= 1;
             return RateVerdict.Allowed;
         }

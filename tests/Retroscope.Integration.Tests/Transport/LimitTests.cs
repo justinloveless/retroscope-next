@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using Retroscope.Core.Ids;
 using Retroscope.Core.Protocol;
@@ -120,10 +121,40 @@ public sealed class LimitTests {
 
         await client.SendAsync(new SubFrame(room, null, null));
         await Wait.UntilAsync(() => app.Gateway.Of("sub").Count(x => x.Room == room) == 2);
-        await Task.Delay(TimeSpan.FromSeconds(1.2), TestContext.Current.CancellationToken);
+        // The sub borrowed its token, so the bucket refills it before the next frame.
+        await Task.Delay(TimeSpan.FromSeconds(2.2), TestContext.Current.CancellationToken);
         await client.SendAsync(new CmdFrame(room, 4, Reveal()));
 
         Assert.Equal(4L, Assert.IsType<AckFrame>(await client.ReceiveAsync()).Q);
+    }
+
+    // The sub that lifts a rate_limited refusal is never dropped for being over the rate, but it still costs a token:
+    // alternating refused commands and subs cannot fetch a snapshot per sub.
+    [Fact]
+    public async Task Repeated_subs_cannot_fetch_snapshots_beyond_the_rate_limit() {
+        var options = new TransportOptions { FramesPerSecond = 1, FrameBurst = 3, AbuseWindow = TimeSpan.FromMinutes(5) };
+        await using var app = await TransportApp.StartAsync(options);
+        var room = TransportApp.NewRoom();
+        app.Gateway.OnCommand = (connection, command) => connection.Send(new AckFrame(command.R, command.Q, 0));
+        await using var client = await app.HelloAsync("user", null, new SubCursor(room));
+        await app.Gateway.WaitForAsync("sub");
+        Command Reveal() => new PokerRoundReveal(new RoundId(Guid.CreateVersion7()));
+        const int Rounds = 50;
+        var started = Stopwatch.StartNew();
+
+        for (var q = 1; q <= Rounds; q++) {
+            await client.SendAsync(new SubFrame(room, null, null));
+            await client.SendAsync(new CmdFrame(room, q, Reveal()));
+        }
+        for (var i = 0; i < Rounds; i++) {
+            Assert.IsNotType<KickFrame>(await client.ReceiveAsync());
+        }
+        var elapsed = started.Elapsed;
+
+        // The hello's sub, the burst, one burst of debt, and what the rate refilled while the frames were handled.
+        var allowed = 1 + (2 * options.FrameBurst) + (int)Math.Ceiling(elapsed.TotalSeconds * options.FramesPerSecond);
+        var subs = app.Gateway.Of("sub").Count(x => x.Room == room);
+        Assert.True(subs <= allowed, $"{subs} subs reached the gateway in {elapsed}; the limit allows {allowed}");
     }
 
     [Fact]

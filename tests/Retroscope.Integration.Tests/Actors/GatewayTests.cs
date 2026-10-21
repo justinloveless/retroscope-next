@@ -72,6 +72,59 @@ public sealed class GatewayTests {
         Assert.Equal(NackCode.NotSubscribed, (await alice.UntilAsync<NackFrame>()).Code);
     }
 
+    // The transport records a sub before handing it to the gateway, and an actor kick can land in between: the sub was
+    // received before the kick, so the kick ends it too.
+    [Fact]
+    public async Task A_subscribe_handed_over_after_the_connection_was_kicked_starts_no_subscription() {
+        var room = new CounterRoom();
+        var gateway = new RoomGateway(room.Registry, [RoomType.Of(room.Binding, room.Store, room.Access)], [], NullLogger<RoomGateway>.Instance);
+        var alice = new FakeConnection(Alice);
+        gateway.Subscribe(alice, Room, null, null);
+        await alice.NextAsync<SnapFrame>();
+        await room.SettleAsync();
+
+        room.Registry.Post<Counter, CounterInput>(Room, new CounterInput.Ban(Alice.Who.Id));
+        room.Registry.AccessChanged(Room);
+        Assert.Equal(KickCode.AccessRevoked, (await alice.UntilAsync<KickFrame>()).Code);
+        room.Registry.Post<Counter, CounterInput>(Room, new CounterInput.Unban(Alice.Who.Id));
+        gateway.Subscribe(alice, Room, null, null);
+        await room.SettleAsync();
+        room.Registry.Post<Counter, CounterInput>(Room, new CounterInput.Add(1));
+        await room.SettleAsync();
+
+        Assert.Empty(alice.Pending());
+        Assert.False(await room.QueryAsync(view => view.Presence.IsConnected(Alice.Who.Id, Alice.Client)));
+    }
+
+    // The actor reads its queue in order: a resume queued behind the access check that kicks the connection must not
+    // subscribe it again once the kick has made the connection forget the room.
+    [Fact]
+    public async Task A_subscribe_queued_while_the_connection_is_kicked_starts_no_subscription() {
+        var room = new CounterRoom();
+        var gateway = new RoomGateway(room.Registry, [RoomType.Of(room.Binding, room.Store, room.Access)], [], NullLogger<RoomGateway>.Instance);
+        var alice = new FakeConnection(Alice);
+        gateway.Subscribe(alice, Room, null, null);
+        var snap = await alice.NextAsync<SnapFrame>();
+        await room.SettleAsync();
+        var release = room.Store.HoldNextCommit();
+        gateway.Command(alice, Cmd(1, Vote(1)));
+        await room.Store.CommitEntered;
+
+        room.Registry.Post<Counter, CounterInput>(Room, new CounterInput.Ban(Alice.Who.Id));
+        room.Registry.AccessChanged(Room);
+        room.Registry.Post<Counter, CounterInput>(Room, new CounterInput.Unban(Alice.Who.Id));
+        gateway.Subscribe(alice, Room, snap.E, snap.S);
+        release.SetResult();
+        await room.SettleAsync();
+
+        var frames = alice.Pending();
+        Assert.Equal(KickCode.AccessRevoked, Assert.Single(frames.OfType<KickFrame>()).Code);
+        Assert.DoesNotContain(frames.SkipWhile(x => x is not KickFrame), x => x is SnapFrame or ReplayFrame or TxFrame);
+        Assert.False(await room.QueryAsync(view => view.Presence.IsConnected(Alice.Who.Id, Alice.Client)));
+        gateway.Command(alice, Cmd(2, Vote(2)));
+        Assert.Equal(NackCode.NotSubscribed, (await alice.UntilAsync<NackFrame>()).Code);
+    }
+
     [Fact]
     public async Task A_room_kind_nobody_registered_is_not_found() {
         var room = new CounterRoom();
@@ -84,7 +137,10 @@ public sealed class GatewayTests {
         Assert.Equal(KickCode.NotFound, (await alice.UntilAsync<KickFrame>()).Code);
     }
 
-    /// <summary>A socket as the gateway sees it: frames are parsed and kept in order; kicks are recorded.</summary>
+    /// <summary>
+    /// A socket as the gateway sees it: frames are parsed and kept in order; kicks are recorded. It holds every room
+    /// it has not been kicked from, as a connection holds a room from its <c>sub</c> until a kick.
+    /// </summary>
     private sealed class FakeConnection(Viewer viewer) : IClientConnection {
         private readonly Channel<ServerFrame> _frames = Channel.CreateUnbounded<ServerFrame>();
 
@@ -107,7 +163,22 @@ public sealed class GatewayTests {
             Send(new KickFrame(room, code));
         }
 
+        public bool Holds(RoomKey room) {
+            lock (Kicked) {
+                return !Kicked.Contains(room);
+            }
+        }
+
         public void Restart() => Send(new ByeFrame(ByeCode.Restart, 500));
+
+        /// <summary>Every frame sent so far that the test has not read.</summary>
+        public List<ServerFrame> Pending() {
+            var frames = new List<ServerFrame>();
+            while (_frames.Reader.TryRead(out var frame)) {
+                frames.Add(frame);
+            }
+            return frames;
+        }
 
         public async Task<T> NextAsync<T>() where T : ServerFrame {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(Token);
