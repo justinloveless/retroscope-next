@@ -5,7 +5,7 @@
 import { h, replaceContent } from '../core/h.js';
 import { ApiError, http } from '../core/http.js';
 import { shallowEq } from '../core/store.js';
-import { createSocket } from '../net/socket.js';
+import { getSocket, setMe } from '../screens/app.js';
 import { createButton } from '../ui/button.js';
 import { icon } from '../ui/icons.js';
 import { toast } from '../ui/toast.js';
@@ -55,24 +55,6 @@ const NACK_TEXT = {
   outbox_full: 'You have been offline too long. Reload the page to sync.',
 };
 
-// One socket per tab; it outlives a single poker page so in-app navigation keeps the connection. A new
-// principal (guest join, sign-in) gets a new socket, so hello and the outbox carry the right pid.
-let tabSocket = null;
-let tabSocketPid = null;
-
-function socketFor(pid) {
-  if (tabSocket && tabSocketPid !== pid) {
-    tabSocket.stop();
-    tabSocket = null;
-  }
-  if (!tabSocket) {
-    tabSocket = createSocket({ pid });
-    tabSocketPid = pid;
-    tabSocket.start();
-  }
-  return tabSocket;
-}
-
 /** The boot JSON's `me` is the /api/me body (`{principal:{id,…}}`); welcome.me carries `pid`. */
 export function pidOf(me) {
   return me?.principal?.id ?? me?.pid ?? null;
@@ -93,7 +75,7 @@ function message(title, text, ...actions) {
     ...actions);
 }
 
-export function mount(root, boot = {}) {
+export function mount(root, boot = {}, app = {}) {
   const backLink = h('a', { class: 'btn btn-ghost btn-sm nt-back', href: '/', dataset: { nav: '' } }, icon('chevron-left'), h('span', { text: 'Back' }));
   const codeChip = h('span', { class: 'nt-code' });
   const copy = createButton({
@@ -386,6 +368,7 @@ export function mount(root, boot = {}) {
             event.preventDefault();
             try {
               const result = await http.post('/api/guest', { displayName: input.value.trim() });
+              setMe({ principal: result.principal, teams: [], unreadMentions: 0 });
               resolve(pidOf(result));
             } catch (failure) {
               error.hidden = false;
@@ -427,7 +410,14 @@ export function mount(root, boot = {}) {
     if (disposed || code !== sessionCode) {
       return;
     }
-    socket = socketFor(me);
+    // The entry hands over the tab's socket when the visitor already had a principal; a guest who just
+    // joined gets the one made for their new principal.
+    const shared = app.socket ?? await getSocket();
+    if (disposed || code !== sessionCode) {
+      return;
+    }
+    socket = shared;
+    socket.start();
     let own = null;
     room = socket.room(key, pokerModel(me, { pending: () => own?.pending() ?? [] }), { onNack: (nack) => toast(nackText(nack), { variant: 'error', duration: 5000 }) });
     own = room;

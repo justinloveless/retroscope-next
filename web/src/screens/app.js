@@ -100,6 +100,7 @@ export function nackMessage(nack) {
 }
 
 let socket = null;
+let socketPid = null;
 let signedOutNotice = null;
 
 // Room screens draw their own "Reconnecting…" banner; only the terminal close is shown here, because
@@ -114,14 +115,27 @@ function showStatus({ state, code }) {
   }
 }
 
+function stopSocket() {
+  const stopping = socket;
+  socket = null;
+  socketPid = null;
+  return stopping?.then((s) => s.stop(), () => {});
+}
+
 /**
- * Resolves to the tab's socket, created on first use with the signed-in principal; start() is
- * idempotent, so callers simply call it.
+ * Resolves to the tab's one socket, created on first use with the signed-in principal. A tab whose
+ * principal changed (a guest joined, someone signed in) gets a new socket, so its hello and outbox
+ * carry the right pid. start() is idempotent, so callers simply call it.
  */
 export function getSocket() {
+  const pid = currentMe()?.principal?.id ?? null;
+  if (socket !== null && socketPid !== pid) {
+    stopSocket();
+  }
+  socketPid = pid;
   socket ??= import('../net/socket.js').then(({ createSocket }) => {
     const created = createSocket({
-      pid: currentMe()?.principal?.id ?? null,
+      pid,
       onNack: (nack) => toast(nackMessage(nack), { variant: 'error', duration: 6000 }),
     });
     created.status.select((s) => s, Object.is, showStatus);
@@ -132,9 +146,7 @@ export function getSocket() {
 
 export async function signOut({ everywhere = false } = {}) {
   await http.post(everywhere ? '/api/auth/logout-all' : '/api/auth/logout');
-  const stopping = socket;
-  socket = null;
-  (await stopping)?.stop();
+  await stopSocket();
   setMe(null);
   await navigate('/login');
 }

@@ -3,7 +3,7 @@
 
 import { h, replaceContent } from '../core/h.js';
 import { ApiError, http } from '../core/http.js';
-import { createSocket } from '../net/socket.js';
+import { getSocket } from '../screens/app.js';
 import { createButton } from '../ui/button.js';
 import { toast } from '../ui/toast.js';
 import { createRetroModel } from './model.js';
@@ -50,11 +50,13 @@ export function mount(root, boot, app = {}) {
   let code = null;
   let generation = 0;
   let socket = app.socket ?? null;
-  let ownSocket = false;
   let room = null;
   let board = null;
 
-  const me = () => socket?.me ?? boot.me ?? null;
+  // Until the welcome names the viewer, the boot JSON's /api/me body stands in, in welcome.me's shape.
+  const principal = boot.me?.principal;
+  const bootMe = principal ? { pid: principal.id, kind: principal.kind, name: principal.name, avatar: principal.avatar } : boot.me ?? null;
+  const me = () => socket?.me ?? bootMe;
 
   function leave() {
     board?.destroy();
@@ -75,12 +77,12 @@ export function mount(root, boot, app = {}) {
     return { id: found.id, access: found.access, snap: null };
   }
 
-  function join(id, snap) {
-    if (!socket) {
-      socket = createSocket({ pid: boot.me?.pid ?? null });
-      ownSocket = true;
-      socket.start();
+  async function join(id, snap, mine) {
+    socket ??= await getSocket();
+    if (mine !== generation) {
+      return;
     }
+    socket.start();
     const model = createRetroModel({ me, now: () => socket.clock.serverNow() });
     room = socket.room(`board:${id}`, model, { onNack: (nack) => toast(nackMessage(nack), { variant: 'error' }) });
     if (snap && room.view === null) {
@@ -112,7 +114,7 @@ export function mount(root, boot, app = {}) {
             return;
           }
           if (mine === generation) {
-            join(id, null);
+            join(id, null, mine);
           }
         },
       },
@@ -141,7 +143,7 @@ export function mount(root, boot, app = {}) {
       return;
     }
     if (found.access === 'granted') {
-      join(found.id, found.snap);
+      join(found.id, found.snap, mine);
     } else if (found.access === 'password') {
       unlockForm(found.id, mine);
     } else if (found.access === 'signin') {
@@ -162,9 +164,6 @@ export function mount(root, boot, app = {}) {
     unmount() {
       generation++;
       leave();
-      if (ownSocket) {
-        socket.stop();
-      }
       root.replaceChildren();
     },
   };

@@ -2,6 +2,7 @@
 // carries members, action items and the list notices; the lists themselves come over HTTP.
 
 import { h, replaceContent } from '../core/h.js';
+import { getSocket, navigate } from '../screens/app.js';
 import { createTabs } from '../ui/tabs.js';
 import { createButton } from '../ui/button.js';
 import { icon } from '../ui/icons.js';
@@ -20,29 +21,6 @@ const TABS = [
 // Each tab keeps its filters in the query string; switching tabs drops the others' filters.
 const TAB_PARAMS = ['archived', 'status', 'assignee', 'sort', 'period'];
 
-// The browser tab's one socket outlives this screen, so returning to the team resumes instead of
-// reconnecting. socket.js is imported dynamically: on room routes the entry already holds it.
-let socket = null;
-
-async function teamSocket(pid) {
-  if (socket === null) {
-    const { createSocket } = await import('../net/socket.js');
-    if (socket === null) {
-      socket = createSocket({ pid });
-      socket.start();
-    }
-  }
-  return socket;
-}
-
-/** Navigates in-app when the router handles data-nav links, otherwise with a page load. */
-function navigate(href) {
-  const link = h('a', { href, 'data-nav': '', hidden: true });
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-}
-
 function message(title, detail) {
   return h('div', { class: 'team-message card' },
     h('h1', { text: title }),
@@ -50,7 +28,7 @@ function message(title, detail) {
     h('a', { class: 'btn btn-secondary', href: '/teams', 'data-nav': '' }, 'All teams'));
 }
 
-export function mount(root, boot) {
+export function mount(root, boot, app = {}) {
   const me = boot?.me?.principal ?? null;
   const user = boot?.me?.user ?? null;
   const page = h('div', { class: 'team-page' });
@@ -63,6 +41,13 @@ export function mount(root, boot) {
   let screen = null;
   let showing = null;
   let unwatch = [];
+  let socket = app.socket ?? null;
+
+  async function teamSocket() {
+    socket ??= await getSocket();
+    socket.start();
+    return socket;
+  }
 
   function setQuery(changes) {
     const url = new URL(location.href);
@@ -130,7 +115,7 @@ export function mount(root, boot) {
 
     let connected;
     try {
-      [team, connected] = await Promise.all([context.api.get(''), teamSocket(me?.id ?? null)]);
+      [team, connected] = await Promise.all([context.api.get(''), teamSocket()]);
     } catch (error) {
       if (run === generation) {
         const missing = error?.status === 404 || error?.status === 403;
