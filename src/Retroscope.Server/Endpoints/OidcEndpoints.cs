@@ -136,6 +136,7 @@ public static class OidcEndpoints {
         var signIn = (OidcResolution.SignIn)resolution;
         if (signIn.NewLink) {
             await StorePictureAsync(signIn.User, identity, oidc, accounts, cancellationToken);
+            sessions.EvictUser(signIn.User);
         }
         var profile = await users.GetProfileAsync(signIn.User, cancellationToken);
         if (profile is null) {
