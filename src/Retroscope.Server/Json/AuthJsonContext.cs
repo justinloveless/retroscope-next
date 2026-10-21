@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Retroscope.Server.Endpoints;
 
 namespace Retroscope.Server.Json;
 
@@ -7,7 +8,13 @@ namespace Retroscope.Server.Json;
     JsonSerializerDefaults.Web,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-// Placeholder until the module adds its own types: the generator emits nothing for an empty context.
-[JsonSerializable(typeof(JsonElement))]
+[JsonSerializable(typeof(SignupRequest))]
+[JsonSerializable(typeof(LoginRequest))]
+[JsonSerializable(typeof(GuestRequest))]
+[JsonSerializable(typeof(GuestResponse))]
+[JsonSerializable(typeof(ProfileRequest))]
+[JsonSerializable(typeof(PasswordRequest))]
+[JsonSerializable(typeof(MeResponse))]
+[JsonSerializable(typeof(IReadOnlyList<SessionInfo>))]
 public sealed partial class AuthJsonContext : JsonSerializerContext {
 }
