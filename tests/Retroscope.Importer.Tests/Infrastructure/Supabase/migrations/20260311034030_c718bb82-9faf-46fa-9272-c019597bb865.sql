@@ -1,0 +1,1 @@
+ALTER TABLE public.retro_board_config ADD COLUMN sort_chronologically boolean DEFAULT false;
