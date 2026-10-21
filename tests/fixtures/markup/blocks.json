@@ -1,0 +1,284 @@
+{
+"cases": [
+  {
+    "name": "empty input",
+    "dialect": "retro",
+    "input": "",
+    "doc": {"t":"doc","c":[]},
+    "markup": ""
+  },
+  {
+    "name": "whitespace only",
+    "dialect": "retro",
+    "input": "  \n\t\n",
+    "doc": {"t":"doc","c":[]},
+    "markup": ""
+  },
+  {
+    "name": "paragraph",
+    "dialect": "retro",
+    "input": "Hello world",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"Hello world"}]}]},
+    "markup": "Hello world"
+  },
+  {
+    "name": "single newline is a line break",
+    "dialect": "retro",
+    "input": "line one\nline two",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"line one"},{"t":"br"},{"t":"text","v":"line two"}]}]},
+    "markup": "line one\nline two"
+  },
+  {
+    "name": "line edges are trimmed",
+    "dialect": "retro",
+    "input": "  padded  \n   next",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"padded"},{"t":"br"},{"t":"text","v":"next"}]}]},
+    "markup": "padded\nnext"
+  },
+  {
+    "name": "blank line separates paragraphs",
+    "dialect": "retro",
+    "input": "first\n\nsecond",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"first"}]},{"t":"p","c":[{"t":"text","v":"second"}]}]},
+    "markup": "first\n\nsecond"
+  },
+  {
+    "name": "many blank lines",
+    "dialect": "retro",
+    "input": "a\n\n\n\nb",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"a"}]},{"t":"p","c":[{"t":"text","v":"b"}]}]},
+    "markup": "a\n\nb"
+  },
+  {
+    "name": "CRLF and CR normalise to LF",
+    "dialect": "retro",
+    "input": "a\r\nb\r\n\r\nc\rd",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"a"},{"t":"br"},{"t":"text","v":"b"}]},{"t":"p","c":[{"t":"text","v":"c"},{"t":"br"},{"t":"text","v":"d"}]}]},
+    "markup": "a\nb\n\nc\nd"
+  },
+  {
+    "name": "bullet list",
+    "dialect": "retro",
+    "input": "- one\n- two",
+    "doc": {"t":"doc","c":[{"t":"ul","c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"one"}]}]},{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"two"}]}]}]}]},
+    "markup": "- one\n- two"
+  },
+  {
+    "name": "ordered list",
+    "dialect": "retro",
+    "input": "1. one\n2. two",
+    "doc": {"t":"doc","c":[{"t":"ol","start":1,"c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"one"}]}]},{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"two"}]}]}]}]},
+    "markup": "1. one\n2. two"
+  },
+  {
+    "name": "ordered list keeps its first number only",
+    "dialect": "retro",
+    "input": "3. three\n7. four",
+    "doc": {"t":"doc","c":[{"t":"ol","start":3,"c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"three"}]}]},{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"four"}]}]}]}]},
+    "markup": "3. three\n4. four"
+  },
+  {
+    "name": "leading zeros",
+    "dialect": "retro",
+    "input": "007. bond",
+    "doc": {"t":"doc","c":[{"t":"ol","start":7,"c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"bond"}]}]}]}]},
+    "markup": "7. bond"
+  },
+  {
+    "name": "marker kind switch starts a new list",
+    "dialect": "retro",
+    "input": "- a\n1. b",
+    "doc": {"t":"doc","c":[{"t":"ul","c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"a"}]}]}]},{"t":"ol","start":1,"c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"b"}]}]}]}]},
+    "markup": "- a\n\n1. b"
+  },
+  {
+    "name": "unindented line ends the list",
+    "dialect": "retro",
+    "input": "- a\nb",
+    "doc": {"t":"doc","c":[{"t":"ul","c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"a"}]}]}]},{"t":"p","c":[{"t":"text","v":"b"}]}]},
+    "markup": "- a\n\nb"
+  },
+  {
+    "name": "blank line between items makes two lists",
+    "dialect": "retro",
+    "input": "- a\n\n- b",
+    "doc": {"t":"doc","c":[{"t":"ul","c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"a"}]}]}]},{"t":"ul","c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"b"}]}]}]}]},
+    "markup": "- a\n\n- b"
+  },
+  {
+    "name": "empty items",
+    "dialect": "retro",
+    "input": "-\n- b\n1.",
+    "doc": {"t":"doc","c":[{"t":"ul","c":[{"t":"li","c":[]},{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"b"}]}]}]},{"t":"ol","start":1,"c":[{"t":"li","c":[]}]}]},
+    "markup": "-\n- b\n\n1."
+  },
+  {
+    "name": "nested list",
+    "dialect": "retro",
+    "input": "- a\n  - b\n  - c\n- d",
+    "doc": {"t":"doc","c":[{"t":"ul","c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"a"}]},{"t":"ul","c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"b"}]}]},{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"c"}]}]}]}]},{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"d"}]}]}]}]},
+    "markup": "- a\n  - b\n  - c\n- d"
+  },
+  {
+    "name": "item continuation after a blank line",
+    "dialect": "retro",
+    "input": "- a\n\n  more\n- b",
+    "doc": {"t":"doc","c":[{"t":"ul","c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"a"}]},{"t":"p","c":[{"t":"text","v":"more"}]}]},{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"b"}]}]}]}]},
+    "markup": "- a\n\n  more\n- b"
+  },
+  {
+    "name": "ordered continuation uses the marker width",
+    "dialect": "retro",
+    "input": "10. ten\n    continued",
+    "doc": {"t":"doc","c":[{"t":"ol","start":10,"c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"ten"},{"t":"br"},{"t":"text","v":"continued"}]}]}]}]},
+    "markup": "10. ten\n    continued"
+  },
+  {
+    "name": "dash needs a space",
+    "dialect": "retro",
+    "input": "-not a list",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"-not a list"}]}]},
+    "markup": "-not a list"
+  },
+  {
+    "name": "ten digits is not a marker",
+    "dialect": "retro",
+    "input": "1234567890. x",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"1234567890. x"}]}]},
+    "markup": "1234567890. x"
+  },
+  {
+    "name": "list interrupts a paragraph",
+    "dialect": "retro",
+    "input": "intro\n- a",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"intro"}]},{"t":"ul","c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"a"}]}]}]}]},
+    "markup": "intro\n- a"
+  },
+  {
+    "name": "quote",
+    "dialect": "retro",
+    "input": "> quoted\n> more",
+    "doc": {"t":"doc","c":[{"t":"quote","c":[{"t":"p","c":[{"t":"text","v":"quoted"},{"t":"br"},{"t":"text","v":"more"}]}]}]},
+    "markup": "> quoted\n> more"
+  },
+  {
+    "name": "nested quote",
+    "dialect": "retro",
+    "input": "> > deep",
+    "doc": {"t":"doc","c":[{"t":"quote","c":[{"t":"quote","c":[{"t":"p","c":[{"t":"text","v":"deep"}]}]}]}]},
+    "markup": "> > deep"
+  },
+  {
+    "name": "quote without space",
+    "dialect": "retro",
+    "input": ">tight",
+    "doc": {"t":"doc","c":[{"t":"quote","c":[{"t":"p","c":[{"t":"text","v":"tight"}]}]}]},
+    "markup": "> tight"
+  },
+  {
+    "name": "quote containing a list",
+    "dialect": "retro",
+    "input": "> - a\n> - b",
+    "doc": {"t":"doc","c":[{"t":"quote","c":[{"t":"ul","c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"a"}]}]},{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"b"}]}]}]}]}]},
+    "markup": "> - a\n> - b"
+  },
+  {
+    "name": "quote ends at a blank line",
+    "dialect": "retro",
+    "input": "> a\n\nb",
+    "doc": {"t":"doc","c":[{"t":"quote","c":[{"t":"p","c":[{"t":"text","v":"a"}]}]},{"t":"p","c":[{"t":"text","v":"b"}]}]},
+    "markup": "> a\n\nb"
+  },
+  {
+    "name": "quote interrupts a paragraph",
+    "dialect": "retro",
+    "input": "a\n> b",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"a"}]},{"t":"quote","c":[{"t":"p","c":[{"t":"text","v":"b"}]}]}]},
+    "markup": "a\n\n> b"
+  },
+  {
+    "name": "fenced code is verbatim",
+    "dialect": "retro",
+    "input": "```\ncode *not* parsed\n```",
+    "doc": {"t":"doc","c":[{"t":"pre","v":"code *not* parsed"}]},
+    "markup": "```\ncode *not* parsed\n```"
+  },
+  {
+    "name": "fence language",
+    "dialect": "retro",
+    "input": "```js\nlet x = 1;\n```",
+    "doc": {"t":"doc","c":[{"t":"pre","lang":"js","v":"let x = 1;"}]},
+    "markup": "```js\nlet x = 1;\n```"
+  },
+  {
+    "name": "fence language with spaces",
+    "dialect": "retro",
+    "input": "``` sql \nselect 1\n```",
+    "doc": {"t":"doc","c":[{"t":"pre","lang":"sql","v":"select 1"}]},
+    "markup": "```sql\nselect 1\n```"
+  },
+  {
+    "name": "unclosed fence runs to the end",
+    "dialect": "retro",
+    "input": "```\nopen\n\nstill code",
+    "doc": {"t":"doc","c":[{"t":"pre","v":"open\n\nstill code"}]},
+    "markup": "```\nopen\n\nstill code\n```"
+  },
+  {
+    "name": "longer fence contains a shorter one",
+    "dialect": "retro",
+    "input": "````\n```\n````",
+    "doc": {"t":"doc","c":[{"t":"pre","v":"```"}]},
+    "markup": "````\n```\n````"
+  },
+  {
+    "name": "fence info with a space is not a fence",
+    "dialect": "retro",
+    "input": "```js extra\nx\n```",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"```js extra"},{"t":"br"},{"t":"text","v":"x"}]},{"t":"pre","v":""}]},
+    "markup": "\\`\\`\\`js extra\nx\n\n```\n```"
+  },
+  {
+    "name": "fence inside a list item",
+    "dialect": "retro",
+    "input": "- ```\n  x\n  ```",
+    "doc": {"t":"doc","c":[{"t":"ul","c":[{"t":"li","c":[{"t":"pre","v":"x"}]}]}]},
+    "markup": "- ```\n  x\n  ```"
+  },
+  {
+    "name": "blank lines in an item lose only leading spaces",
+    "dialect": "retro",
+    "input": "- ```\n  a\n\t\n  b\n  ```",
+    "doc": {"t":"doc","c":[{"t":"ul","c":[{"t":"li","c":[{"t":"pre","v":"a\n\t\nb"}]}]}]},
+    "markup": "- ```\n  a\n  \t\n  b\n  ```"
+  },
+  {
+    "name": "fence keeps blank lines and indentation",
+    "dialect": "retro",
+    "input": "```\n  a\n\n\tb\n```",
+    "doc": {"t":"doc","c":[{"t":"pre","v":"  a\n\n\tb"}]},
+    "markup": "```\n  a\n\n\tb\n```"
+  },
+  {
+    "name": "indentation is not code",
+    "dialect": "retro",
+    "input": "    indented",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"indented"}]}]},
+    "markup": "indented"
+  },
+  {
+    "name": "fence interrupts a paragraph",
+    "dialect": "retro",
+    "input": "text\n```\ncode\n```",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"text"}]},{"t":"pre","v":"code"}]},
+    "markup": "text\n\n```\ncode\n```"
+  },
+  {
+    "name": "container depth is capped at 16",
+    "dialect": "retro",
+    "input": "> > > > > > > > > > > > > > > > > > > > x",
+    "doc": {"t":"doc","c":[{"t":"quote","c":[{"t":"quote","c":[{"t":"quote","c":[{"t":"quote","c":[{"t":"quote","c":[{"t":"quote","c":[{"t":"quote","c":[{"t":"quote","c":[{"t":"quote","c":[{"t":"quote","c":[{"t":"quote","c":[{"t":"quote","c":[{"t":"quote","c":[{"t":"quote","c":[{"t":"quote","c":[{"t":"quote","c":[{"t":"p","c":[{"t":"text","v":"> > > > x"}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]},
+    "markup": "> > > > > > > > > > > > > > > > \\> > > > x"
+  }
+]
+}

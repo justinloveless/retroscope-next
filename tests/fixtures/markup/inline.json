@@ -1,0 +1,263 @@
+{
+"cases": [
+  {
+    "name": "bold",
+    "dialect": "retro",
+    "input": "**bold**",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"b","c":[{"t":"text","v":"bold"}]}]}]},
+    "markup": "**bold**"
+  },
+  {
+    "name": "italic with stars",
+    "dialect": "retro",
+    "input": "*it*",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"i","c":[{"t":"text","v":"it"}]}]}]},
+    "markup": "_it_"
+  },
+  {
+    "name": "italic with underscores",
+    "dialect": "retro",
+    "input": "_it_",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"i","c":[{"t":"text","v":"it"}]}]}]},
+    "markup": "_it_"
+  },
+  {
+    "name": "strike",
+    "dialect": "retro",
+    "input": "~~gone~~",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"s","c":[{"t":"text","v":"gone"}]}]}]},
+    "markup": "~~gone~~"
+  },
+  {
+    "name": "code",
+    "dialect": "retro",
+    "input": "`x = 1`",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"code","v":"x = 1"}]}]},
+    "markup": "`x = 1`"
+  },
+  {
+    "name": "intraword underscores stay literal",
+    "dialect": "retro",
+    "input": "snake_case_name",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"snake_case_name"}]}]},
+    "markup": "snake\\_case\\_name"
+  },
+  {
+    "name": "intraword stars emphasise",
+    "dialect": "retro",
+    "input": "un*frigging*believable",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"un"},{"t":"i","c":[{"t":"text","v":"frigging"}]},{"t":"text","v":"believable"}]}]},
+    "markup": "un*frigging*believable"
+  },
+  {
+    "name": "unclosed bold",
+    "dialect": "retro",
+    "input": "**open",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"**open"}]}]},
+    "markup": "\\*\\*open"
+  },
+  {
+    "name": "delimiters next to spaces do not open or close",
+    "dialect": "retro",
+    "input": "a * b * c and a ** b **",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"a * b * c and a ** b **"}]}]},
+    "markup": "a \\* b \\* c and a \\*\\* b \\*\\*"
+  },
+  {
+    "name": "nested bold and italic",
+    "dialect": "retro",
+    "input": "**bold _it_ bold**",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"b","c":[{"t":"text","v":"bold "},{"t":"i","c":[{"t":"text","v":"it"}]},{"t":"text","v":" bold"}]}]}]},
+    "markup": "**bold _it_ bold**"
+  },
+  {
+    "name": "italic around bold",
+    "dialect": "retro",
+    "input": "_it **b** it_",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"i","c":[{"t":"text","v":"it "},{"t":"b","c":[{"t":"text","v":"b"}]},{"t":"text","v":" it"}]}]}]},
+    "markup": "_it **b** it_"
+  },
+  {
+    "name": "triple stars read as bold around italic",
+    "dialect": "retro",
+    "input": "***both***",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"b","c":[{"t":"i","c":[{"t":"text","v":"both"}]}]}]}]},
+    "markup": "**_both_**"
+  },
+  {
+    "name": "adjacent italics",
+    "dialect": "retro",
+    "input": "*a*_b_",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"i","c":[{"t":"text","v":"a"}]},{"t":"i","c":[{"t":"text","v":"b"}]}]}]},
+    "markup": "_a_*b*"
+  },
+  {
+    "name": "same delimiter does not nest",
+    "dialect": "retro",
+    "input": "**a **b** c**",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"b","c":[{"t":"text","v":"a **b"}]},{"t":"text","v":" c**"}]}]},
+    "markup": "**a \\*\\*b** c\\*\\*"
+  },
+  {
+    "name": "single tilde is literal",
+    "dialect": "retro",
+    "input": "~a~",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"~a~"}]}]},
+    "markup": "\\~a\\~"
+  },
+  {
+    "name": "escapes",
+    "dialect": "retro",
+    "input": "\\*not\\* \\_em\\_ \\[x\\]",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"*not* _em_ [x]"}]}]},
+    "markup": "\\*not\\* \\_em\\_ \\[x\\]"
+  },
+  {
+    "name": "escaped backslash",
+    "dialect": "retro",
+    "input": "a\\\\b",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"a\\b"}]}]},
+    "markup": "a\\\\b"
+  },
+  {
+    "name": "backslash before a non-punctuation character is literal",
+    "dialect": "retro",
+    "input": "\\a \\é",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"\\a \\é"}]}]},
+    "markup": "\\\\a \\\\é"
+  },
+  {
+    "name": "double backtick code holds a backtick",
+    "dialect": "retro",
+    "input": "``a`b``",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"code","v":"a`b"}]}]},
+    "markup": "``a`b``"
+  },
+  {
+    "name": "code strips one padding space",
+    "dialect": "retro",
+    "input": "` `` `",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"code","v":"``"}]}]},
+    "markup": "``` `` ```"
+  },
+  {
+    "name": "all-space code is kept",
+    "dialect": "retro",
+    "input": "`  `",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"code","v":"  "}]}]},
+    "markup": "`  `"
+  },
+  {
+    "name": "unclosed code is literal",
+    "dialect": "retro",
+    "input": "`open",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"`open"}]}]},
+    "markup": "\\`open"
+  },
+  {
+    "name": "no emphasis inside code",
+    "dialect": "retro",
+    "input": "`**x**`",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"code","v":"**x**"}]}]},
+    "markup": "`**x**`"
+  },
+  {
+    "name": "code does not cross lines",
+    "dialect": "retro",
+    "input": "`a\nb`",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"`a"},{"t":"br"},{"t":"text","v":"b`"}]}]},
+    "markup": "\\`a\nb\\`"
+  },
+  {
+    "name": "emphasis crosses lines",
+    "dialect": "retro",
+    "input": "**a\nb**",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"b","c":[{"t":"text","v":"a"},{"t":"br"},{"t":"text","v":"b"}]}]}]},
+    "markup": "**a\nb**"
+  },
+  {
+    "name": "link",
+    "dialect": "retro",
+    "input": "[label](https://example.com/path?q=1#f)",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"a","href":"https://example.com/path?q=1#f","c":[{"t":"text","v":"label"}]}]}]},
+    "markup": "[label](https://example.com/path?q=1#f)"
+  },
+  {
+    "name": "link label with emphasis",
+    "dialect": "retro",
+    "input": "[**b** and `c`](https://x.io)",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"a","href":"https://x.io","c":[{"t":"b","c":[{"t":"text","v":"b"}]},{"t":"text","v":" and "},{"t":"code","v":"c"}]}]}]},
+    "markup": "[**b** and `c`](https://x.io)"
+  },
+  {
+    "name": "mailto link",
+    "dialect": "retro",
+    "input": "[mail](mailto:a@b.co)",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"a","href":"mailto:a@b.co","c":[{"t":"text","v":"mail"}]}]}]},
+    "markup": "[mail](mailto:a@b.co)"
+  },
+  {
+    "name": "scheme is case-insensitive",
+    "dialect": "retro",
+    "input": "[x](HTTPS://X.IO)",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"a","href":"HTTPS://X.IO","c":[{"t":"text","v":"x"}]}]}]},
+    "markup": "[x](HTTPS://X.IO)"
+  },
+  {
+    "name": "empty label is not a link",
+    "dialect": "retro",
+    "input": "[](https://x.io)",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"[](https://x.io)"}]}]},
+    "markup": "\\[\\](https://x.io)"
+  },
+  {
+    "name": "first closing bracket ends the label",
+    "dialect": "retro",
+    "input": "[a [b](https://x.io)](https://y.io)",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"a","href":"https://x.io","c":[{"t":"text","v":"a [b"}]},{"t":"text","v":"](https://y.io)"}]}]},
+    "markup": "[a \\[b](https://x.io)\\](https://y.io)"
+  },
+  {
+    "name": "escaped bracket inside a label",
+    "dialect": "retro",
+    "input": "[a\\]b](https://x.io)",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"a","href":"https://x.io","c":[{"t":"text","v":"a]b"}]}]}]},
+    "markup": "[a\\]b](https://x.io)"
+  },
+  {
+    "name": "parentheses end the href",
+    "dialect": "retro",
+    "input": "[w](https://en.wikipedia.org/wiki/A_(b))",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"[w](https://en.wikipedia.org/wiki/A_(b))"}]}]},
+    "markup": "\\[w\\](https://en.wikipedia.org/wiki/A\\_(b))"
+  },
+  {
+    "name": "bare URLs are not linked",
+    "dialect": "retro",
+    "input": "see https://example.com",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"see https://example.com"}]}]},
+    "markup": "see https://example.com"
+  },
+  {
+    "name": "emphasis does not close inside a link",
+    "dialect": "retro",
+    "input": "*a [b*](https://x.io) c*",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"i","c":[{"t":"text","v":"a "},{"t":"a","href":"https://x.io","c":[{"t":"text","v":"b*"}]},{"t":"text","v":" c"}]}]}]},
+    "markup": "_a [b\\*](https://x.io) c_"
+  },
+  {
+    "name": "raw HTML is text",
+    "dialect": "retro",
+    "input": "<b>bold</b> & <script>alert(1)</script>",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"<b>bold</b> & <script>alert(1)</script>"}]}]},
+    "markup": "<b>bold</b> & <script>alert(1)</script>"
+  },
+  {
+    "name": "entities are not decoded",
+    "dialect": "retro",
+    "input": "&lt;div&gt; &amp;",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"&lt;div&gt; &amp;"}]}]},
+    "markup": "&lt;div&gt; &amp;"
+  }
+]
+}
