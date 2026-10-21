@@ -50,11 +50,25 @@ public static class SeedData {
             var rich = jira.AddIssue($"{project}-7", "Pay with a saved card");
             jira.AddIssue($"{project}-8", "Points land in Jira");
             jira.AddIssue($"{project}-9", "Preview me while spotlighting");
+            var hostile = jira.AddIssue($"{project}-10", "<img src=x onerror=alert(10)> summary");
             var id = (++attachment).ToString(CultureInfo.InvariantCulture);
             jira.AddAttachment($"{project}-7", id, "screenshot.png", "image/png", Screenshot);
             rich["fields"]!["description"] = RichDescription();
+            hostile["fields"]!["description"] = HostileDescription();
         }
     }
+
+    /// <summary>Links and cards that must never become live, and markup-looking text (the XSS corpus, §j).</summary>
+    private static JsonNode HostileDescription() => JsonNode.Parse("""
+        {"type":"doc","version":1,"content":[
+          {"type":"paragraph","content":[
+            {"type":"text","text":"click me","marks":[{"type":"link","attrs":{"href":"javascript:alert(11)"}}]},
+            {"type":"text","text":" <script>alert(12)</script> "},
+            {"type":"text","text":"data","marks":[{"type":"link","attrs":{"href":"data:text/html,<script>alert(13)</script>"}}]},
+            {"type":"inlineCard","attrs":{"url":"javascript:alert(14)"}}]},
+          {"type":"paragraph","content":[{"type":"text","text":"<img src=x onerror=alert(15)>"}]}
+        ]}
+        """)!;
 
     /// <summary>A paragraph, a table and a screenshot (both islands for Retroscope's editor) and a list to edit.</summary>
     private static JsonNode RichDescription() => JsonNode.Parse("""
