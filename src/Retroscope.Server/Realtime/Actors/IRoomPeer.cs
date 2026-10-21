@@ -1,4 +1,5 @@
 using Retroscope.Core.Ids;
+using Retroscope.Core.Protocol;
 
 namespace Retroscope.Server.Realtime.Actors;
 
@@ -11,6 +12,12 @@ public interface IRoomPeer {
     /// closing, including when this frame overflowed its outbound budget (the connection then closes with 4008).
     /// </summary>
     bool Send(byte[] frame);
+
+    /// <summary>Ends the subscription to <paramref name="room"/> with a <c>kick</c>; the connection forgets the room.</summary>
+    bool Kick(RoomKey room, KickCode code) => Send(FrameBytes.Frame(new KickFrame(room, code)));
+
+    /// <summary>Sends the <c>snap</c> or <c>replay</c> that starts (or resumes) the subscription's seq.</summary>
+    bool SendSync(byte[] frame) => Send(frame);
 
     /// <summary>Sends <c>bye{restart}</c> and closes with 1012 so the client reconnects and resends (R2, R3).</summary>
     void Restart();

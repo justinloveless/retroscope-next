@@ -17,12 +17,7 @@ namespace Retroscope.Server.Realtime.Rooms;
 public static class RetroRoom {
     public static void AddServices(IServiceCollection services, IConfiguration configuration) {
         services.TryAddSingleton<IAnonTagger>(_ => new ConfiguredAnonTagger(configuration));
-        // The membership cache and the team notices come from the team room (U23). Resolved with GetService so the
-        // board room still starts without them; until then every role and grant reads as absent.
-        services.AddSingleton(sp => RoomType.Of(
-            new RetroBinding(sp.GetRequiredService<IAnonTagger>()),
-            Store(sp),
-            sp.GetService<IAccessView>() ?? NoAccess.Instance));
+        services.AddRoom(sp => new RetroBinding(sp.GetRequiredService<IAnonTagger>()), Store);
     }
 
     public static void Map(IEndpointRouteBuilder app) {
@@ -69,14 +64,6 @@ public static class RetroRoom {
             services.GetRequiredService<CursorRepo>(),
             services.GetService<ITeamNotices>(),
             services.GetRequiredService<ILogger<RetroStore>>());
-    }
-
-    private sealed class NoAccess : IAccessView {
-        public static readonly NoAccess Instance = new();
-
-        public TeamRole? RoleIn(TeamId team, PrincipalId principal) => null;
-
-        public bool HasCurrentGrant(BoardId board, PrincipalId principal, DateTimeOffset? passwordSetAt) => false;
     }
 }
 

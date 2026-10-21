@@ -321,18 +321,18 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
     private async Task SubscribeAsync(SubscribeMessage message) {
         var (peer, viewer, epoch, seq) = message;
         if (_status == Status.Missing || _binding.IsDeleted(_state!)) {
-            peer.Send(Kick(KickCode.NotFound));
+            peer.Kick(Key, KickCode.NotFound);
             return;
         }
         var state = _state!;
         if (!_binding.CanSubscribe(state, viewer, _access)) {
             Leave(peer.Id);
-            peer.Send(Kick(KickCode.Forbidden));
+            peer.Kick(Key, KickCode.Forbidden);
             return;
         }
         var existing = _subs.GetValueOrDefault(peer.Id);
         if (existing is null && _presence.ConnectionsOf(viewer.Who.Id) >= _runtime.Options.ConnectionsPerPrincipal) {
-            peer.Send(Kick(KickCode.Forbidden));
+            peer.Kick(Key, KickCode.Forbidden);
             return;
         }
         var member = _binding.IsMember(state, viewer, _access);
@@ -361,11 +361,11 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
         if (epoch == _epoch && seq is { } last && last <= _seq) {
             var txs = new List<(long Seq, byte[] Events)>();
             if (last == _seq || (last >= _ring.FirstSeq - 1 && _ring.TryReplay(last, _seq, new Audience(viewer.Who.Id, member), txs))) {
-                peer.Send(FrameBytes.Replay(Key, _epoch, last + 1, lastQ, txs));
+                peer.SendSync(FrameBytes.Replay(Key, _epoch, last + 1, lastQ, txs));
                 return;
             }
         }
-        peer.Send(await SnapFrameAsync(_state!, viewer, member, lastQ));
+        peer.SendSync(await SnapFrameAsync(_state!, viewer, member, lastQ));
     }
 
     private async ValueTask<byte[]> SnapFrameAsync(TState state, Viewer viewer, bool member, long lastQ) {
@@ -595,7 +595,7 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
         foreach (var subscriber in _subs.Values.ToList()) {
             var viewer = subscriber.Viewer;
             if (!_binding.CanSubscribe(_state!, viewer, _access)) {
-                subscriber.Peer.Send(Kick(KickCode.AccessRevoked));
+                subscriber.Peer.Kick(Key, KickCode.AccessRevoked);
                 Leave(subscriber.Peer.Id);
                 continue;
             }
@@ -606,13 +606,13 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
                 CachedCursor cursor;
                 try {
                     cursor = await CursorAsync(viewer);
-                } catch (Exception e) {
+                } catch (Exception e) when (e is not OperationCanceledException) {
                     ActorLog.Poisoned(_logger, e, Key, "access", "the cursor could not be loaded");
                     Leave(subscriber.Peer.Id);
                     subscriber.Peer.Restart();
                     continue;
                 }
-                subscriber.Peer.Send(await SnapFrameAsync(_state!, viewer, member, cursor.LastQ));
+                subscriber.Peer.SendSync(await SnapFrameAsync(_state!, viewer, member, cursor.LastQ));
             }
         }
     }
@@ -657,7 +657,7 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
 
     private void KickAll(KickCode code) {
         foreach (var subscriber in _subs.Values) {
-            subscriber.Peer.Send(Kick(code));
+            subscriber.Peer.Kick(Key, code);
         }
         _subs.Clear();
         _presence.Clear();
@@ -772,8 +772,6 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
     private byte[] Ack(long q, bool dup = false) => FrameBytes.Frame(new AckFrame(Key, q, _seq, dup));
 
     private byte[] Nack(long q, NackCode code) => FrameBytes.Frame(new NackFrame(Key, q, code));
-
-    private byte[] Kick(KickCode code) => FrameBytes.Frame(new KickFrame(Key, code));
 
     private enum Outcome : byte {
         Applied,
