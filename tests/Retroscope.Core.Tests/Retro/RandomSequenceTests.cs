@@ -105,13 +105,19 @@ public sealed class RandomSequenceTests {
         if (command is not null) {
             return new Generated(command);
         }
-        return random.Next(5) switch {
+        return random.Next(6) switch {
             0 => new Generated(new RetroInput.TimerDue(state.Timer.EndsAt ?? fx.Now), Internal: true),
             1 => new Generated(new RetroInput.TeamSettingsChanged(random.Next(0, 4)), Internal: true),
             2 => new Generated(new RetroInput.ArchiveSet(state.Archived ? true : random.Next(4) == 0, who.Id), Internal: true),
             3 => new Generated(new RetroInput.ArchiveSet(false, who.Id), Internal: true),
+            4 => new Generated(new RetroInput.MembersChanged(Roster()), Internal: true),
             _ => new Generated(new RetroInput.AccessSet(BoardVisibility.Link, null), Internal: true),
         };
+
+        List<MemberInfo> Roster() {
+            var owner = new MemberInfo(Alice.Id, Alice.DisplayName, TeamRole.Owner);
+            return [owner, new MemberInfo(Bob.Id, Bob.DisplayName, Coin() ? TeamRole.Member : TeamRole.Admin)];
+        }
 
         RetroCommand EditCard() {
             var card = Card();

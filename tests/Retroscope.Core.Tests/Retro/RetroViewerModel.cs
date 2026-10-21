@@ -26,6 +26,7 @@ internal sealed class RetroViewerModel {
     private RetroReadiness _readiness;
     private CardId? _focus;
     private int? _maxEndorsements;
+    private List<MemberInfo>? _members;
 
     public RetroViewerModel(RetroSnapshot snapshot, RetroOverlay overlay) {
         _base = snapshot;
@@ -36,6 +37,7 @@ internal sealed class RetroViewerModel {
         _readiness = snapshot.Readiness;
         _focus = snapshot.Focus;
         _maxEndorsements = snapshot.MaxEndorsements;
+        _members = snapshot.Members?.ToList();
         _columns = [.. snapshot.Columns];
         _cards = snapshot.Cards.ToDictionary(c => c.Id);
         _comments = snapshot.Comments.ToDictionary(c => c.Id);
@@ -120,6 +122,9 @@ internal sealed class RetroViewerModel {
             case RetroEndorsementRemoved e:
                 _endorsements!.Remove(e.EndorsementId);
                 break;
+            case RetroMembers e:
+                _members = [.. e.Members];
+                break;
             case TeamSettingsChanged e:
                 _maxEndorsements = e.MaxEndorsements ?? _maxEndorsements;
                 break;
@@ -144,6 +149,7 @@ internal sealed class RetroViewerModel {
             Focus = _focus,
             Endorsements = _endorsements?.Values.OrderBy(e => e.CreatedAt).ThenBy(e => e.Id.Value).ToList(),
             MaxEndorsements = _maxEndorsements,
+            Members = _members,
         };
         var comments = snapshot.Comments.Select(c => c.Id).ToList();
         var overlay = new RetroOverlay(
