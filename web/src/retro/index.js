@@ -13,8 +13,14 @@ import { focusFeature } from './focus.js';
 import { timerFeature } from './timer.js';
 import { configFeature } from './config.js';
 import { shareFeature } from './share.js';
+import { actionItems } from './actions.js';
+import { previousActionItems } from './prev-actions.js';
+import { kudos } from './kudos.js';
 
-const FEATURES = [stagesFeature, focusFeature, timerFeature, shareFeature, configFeature];
+const FEATURES = [
+  stagesFeature, focusFeature, timerFeature, shareFeature, configFeature,
+  actionItems, previousActionItems, kudos,
+];
 
 const NACK_MESSAGES = {
   forbidden: 'You are not allowed to do that on this board.',
