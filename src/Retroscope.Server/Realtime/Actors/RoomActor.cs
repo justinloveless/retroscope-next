@@ -260,7 +260,8 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
                 }
                 break;
             case PurgeMessage purge:
-                if (_subs.Count > 0 || _external.Reader.Count > 0) {
+                // Anything still queued (a resume, an ask) would load the room again once the purge has run.
+                if (_subs.Count > 0 || _internal.Reader.TryPeek(out _) || _external.Reader.Count > 0) {
                     purge.Reply.TrySetResult(false);
                 } else {
                     Retire();
@@ -364,16 +365,16 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
                 return;
             }
         }
-        peer.Send(await SnapFrameAsync(viewer, member, lastQ));
+        peer.Send(await SnapFrameAsync(_state!, viewer, member, lastQ));
     }
 
-    private async ValueTask<byte[]> SnapFrameAsync(Viewer viewer, bool member, long lastQ) {
-        var shared = await SharedSnapshotAsync(member);
-        return FrameBytes.Snap(Key, _epoch, _seq, lastQ, shared, _binding.Overlay(_state!, viewer));
+    private async ValueTask<byte[]> SnapFrameAsync(TState state, Viewer viewer, bool member, long lastQ) {
+        var shared = await SharedSnapshotAsync(state, member);
+        return FrameBytes.Snap(Key, _epoch, _seq, lastQ, shared, _binding.Overlay(state, viewer));
     }
 
     /// <summary>The public document for this seq and variant, serialized once and shared by every viewer (R11).</summary>
-    private async ValueTask<byte[]> SharedSnapshotAsync(bool member) {
+    private async ValueTask<byte[]> SharedSnapshotAsync(TState state, bool member) {
         if (_sharedSeq != _seq) {
             Array.Clear(_shared);
             _sharedSeq = _seq;
@@ -384,7 +385,7 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
         }
         await _runtime.SnapshotGate.WaitAsync();
         try {
-            var snapshot = _binding.Snapshot(_state!, _binding.TracksPresence ? _presence.Infos : [], member);
+            var snapshot = _binding.Snapshot(state, _binding.TracksPresence ? _presence.Infos : [], member);
             return _shared[index] = FrameBytes.SharedSnapshot(Key.Kind, snapshot);
         } finally {
             _runtime.SnapshotGate.Release();
@@ -602,8 +603,16 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
             if (member != subscriber.Member) {
                 _subs[subscriber.Peer.Id] = subscriber with { Member = member };
                 _presence.Add(subscriber.Peer.Id, viewer, member);
-                var cursor = await CursorAsync(viewer);
-                subscriber.Peer.Send(await SnapFrameAsync(viewer, member, cursor.LastQ));
+                CachedCursor cursor;
+                try {
+                    cursor = await CursorAsync(viewer);
+                } catch (Exception e) {
+                    ActorLog.Poisoned(_logger, e, Key, "access", "the cursor could not be loaded");
+                    Leave(subscriber.Peer.Id);
+                    subscriber.Peer.Restart();
+                    continue;
+                }
+                subscriber.Peer.Send(await SnapFrameAsync(_state!, viewer, member, cursor.LastQ));
             }
         }
     }
@@ -680,9 +689,21 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
 
     /// <summary>
     /// R17: completing both queues is the close, so a racing <c>TryWrite</c> fails instead of being lost; whatever
-    /// was buffered before the close goes to the next incarnation.
+    /// was buffered before the close goes to the next incarnation. The registry closes the queues under its lock and
+    /// installs the next incarnation in the same step, so a sender that saw <see cref="PostResult.Closed"/> finds it.
     /// </summary>
     private void Retire() {
+        if (_registry is null) {
+            Close().ForEach(Abandon);
+        } else {
+            _registry.Retire(this, Close);
+        }
+        _timers.Clear();
+        _runtimeTimers.Clear();
+        _ring.Release();
+    }
+
+    private List<ActorMessage> Close() {
         _closed = true;
         _internal.Writer.TryComplete();
         _external.Writer.TryComplete();
@@ -690,14 +711,7 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
         while (_internal.Reader.TryRead(out var message) || _external.Reader.TryRead(out message)) {
             leftovers.Add(message);
         }
-        _timers.Clear();
-        _runtimeTimers.Clear();
-        _ring.Release();
-        if (_registry is null) {
-            leftovers.ForEach(Abandon);
-        } else {
-            _registry.Retired(this, leftovers);
-        }
+        return leftovers;
     }
 
     /// <summary>Step 6 and eviction: rearm the domain's timers and start or stop the idle clock.</summary>
@@ -738,14 +752,21 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
 
     private CommandContext Context(Viewer? viewer) => new(viewer, Now, _presence.View, _access);
 
+    /// <summary>
+    /// The delegates capture the state they were built for, never the field: a missing or deleted room gets a view
+    /// that answers not-found, and a view kept past a poison cannot reach a state that is gone.
+    /// </summary>
     private RoomView<TState> View() {
+        if (_status != Status.Loaded || _state is not { } state || _binding.IsDeleted(state)) {
+            return RoomView<TState>.NotFound(_epoch, _seq, _presence.View);
+        }
         return new RoomView<TState>(
-            _status == Status.Loaded && !_binding.IsDeleted(_state!) ? _state : null,
+            state,
             _epoch,
             _seq,
             _presence.View,
-            viewer => _binding.CanSubscribe(_state!, viewer, _access),
-            viewer => SnapFrameAsync(viewer, _binding.IsMember(_state!, viewer, _access), 0));
+            viewer => _binding.CanSubscribe(state, viewer, _access),
+            viewer => SnapFrameAsync(state, viewer, _binding.IsMember(state, viewer, _access), 0));
     }
 
     private byte[] Ack(long q, bool dup = false) => FrameBytes.Frame(new AckFrame(Key, q, _seq, dup));

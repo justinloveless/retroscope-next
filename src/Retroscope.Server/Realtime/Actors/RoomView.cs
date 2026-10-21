@@ -25,6 +25,17 @@ public sealed class RoomView<TState> where TState : class {
         _snapFrame = snapFrame;
     }
 
+    /// <summary>A room that does not exist (or was deleted): <see cref="Found"/> is false and nobody may subscribe.</summary>
+    internal static RoomView<TState> NotFound(Epoch epoch, long seq, PresenceView presence) {
+        return new RoomView<TState>(
+            null,
+            epoch,
+            seq,
+            presence,
+            static _ => false,
+            static _ => throw new InvalidOperationException("The room does not exist."));
+    }
+
     /// <summary>False when the room does not exist (or was deleted).</summary>
     public bool Found => State is not null;
 

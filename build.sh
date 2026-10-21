@@ -3,8 +3,9 @@
 #   ./build.sh                     restore, build, test, web
 #   ./build.sh test                every suite except e2e and soak
 #   ./build.sh web                 esbuild bundle into web/dist (emits manifest.json)
-#   ./build.sh aot-smoke           AOT publish with zero warnings, probe against a throwaway Postgres,
-#                                  chiseled image serves /healthz (needs Docker)
+#   ./build.sh aot-smoke           AOT publish with zero warnings, probe against a throwaway Postgres, the
+#                                  native server signs a user up and holds a /ws session (hello/welcome,
+#                                  protocol PING/PONG), chiseled image serves /healthz (needs Docker)
 #   ./build.sh fake-e2e <glob>     Playwright specs under tests/e2e/fake/ against tests/web-fake-server
 #   ./build.sh e2e <glob>          Playwright specs under tests/e2e/ against deploy/compose.test.yml
 set -euo pipefail
@@ -130,6 +131,145 @@ aot_publish() {
   fi
 }
 
+# Against the native server at $1: signs a user up and in through the real routes, then speaks the wire protocol over
+# a raw socket, so the WebSocket control frames are visible: welcome after hello, a PONG for the client's PING, a
+# server PING (keep-alive, every 15 s) answered with a PONG, and an app-level ping/pong on the same live socket.
+ws_smoke() {
+  SMOKE_URL="$1" node - <<'JS'
+const crypto = require("node:crypto");
+const http = require("node:http");
+const net = require("node:net");
+
+const base = new URL(process.env.SMOKE_URL);
+const origin = base.origin;
+const fail = (message) => { console.error(`ws smoke: ${message}`); process.exit(1); };
+
+function post(path, body) {
+  const payload = Buffer.from(JSON.stringify(body));
+  return new Promise((resolve, reject) => {
+    const request = http.request(new URL(path, base), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Content-Length": payload.length, "X-RS": "1", Origin: origin },
+    }, (response) => {
+      response.resume();
+      response.on("end", () => resolve(response));
+    });
+    request.on("error", reject);
+    request.end(payload);
+  });
+}
+
+function frame(opcode, payload) {
+  const mask = crypto.randomBytes(4);
+  const header = payload.length < 126 ? Buffer.from([0x80 | opcode, 0x80 | payload.length])
+    : Buffer.from([0x80 | opcode, 0x80 | 126, payload.length >> 8, payload.length & 0xff]);
+  const masked = Buffer.from(payload.map((byte, i) => byte ^ mask[i % 4]));
+  return Buffer.concat([header, mask, masked]);
+}
+
+class Socket {
+  constructor(socket, rest) {
+    this.socket = socket;
+    this.buffer = rest;
+    this.waiters = [];
+    socket.on("data", (data) => { this.buffer = Buffer.concat([this.buffer, data]); this.pump(); });
+    socket.on("close", () => this.waiters.splice(0).forEach((w) => w.reject(new Error("socket closed"))));
+  }
+
+  pump() {
+    while (this.waiters.length > 0 && this.buffer.length >= 2) {
+      let length = this.buffer[1] & 0x7f;
+      let offset = 2;
+      if (length === 126) { length = this.buffer.readUInt16BE(2); offset = 4; }
+      if (length === 127) { length = Number(this.buffer.readBigUInt64BE(2)); offset = 10; }
+      if (this.buffer.length < offset + length) return;
+      const opcode = this.buffer[0] & 0x0f;
+      const payload = this.buffer.subarray(offset, offset + length);
+      this.buffer = this.buffer.subarray(offset + length);
+      this.waiters.shift().resolve({ opcode, payload });
+    }
+  }
+
+  next(ms) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`no frame within ${ms} ms`)), ms);
+      this.waiters.push({ resolve: (f) => { clearTimeout(timer); resolve(f); }, reject });
+      this.pump();
+    });
+  }
+
+  send(opcode, payload) { this.socket.write(frame(opcode, Buffer.from(payload))); }
+}
+
+function upgrade(cookie) {
+  const key = crypto.randomBytes(16).toString("base64");
+  const expected = crypto.createHash("sha1").update(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest("base64");
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(Number(base.port), base.hostname, () => {
+      socket.write([
+        "GET /ws HTTP/1.1", `Host: ${base.host}`, "Upgrade: websocket", "Connection: Upgrade",
+        `Sec-WebSocket-Key: ${key}`, "Sec-WebSocket-Version: 13", `Origin: ${origin}`, `Cookie: ${cookie}`, "", "",
+      ].join("\r\n"));
+    });
+    let head = Buffer.alloc(0);
+    const onData = (data) => {
+      head = Buffer.concat([head, data]);
+      const end = head.indexOf("\r\n\r\n");
+      if (end < 0) return;
+      socket.off("data", onData);
+      const lines = head.subarray(0, end).toString().split("\r\n");
+      if (!lines[0].startsWith("HTTP/1.1 101")) return reject(new Error(`upgrade refused: ${lines[0]}`));
+      const accept = lines.find((l) => l.toLowerCase().startsWith("sec-websocket-accept:"));
+      if (accept?.split(":")[1].trim() !== expected) return reject(new Error("bad Sec-WebSocket-Accept"));
+      resolve(new Socket(socket, head.subarray(end + 4)));
+    };
+    socket.on("data", onData);
+    socket.on("error", reject);
+  });
+}
+
+(async () => {
+  const email = `smoke-${crypto.randomUUID()}@example.com`;
+  const password = "correct horse battery staple";
+  const signup = await post("/api/auth/signup", { email, password, fullName: "Smoke Test" });
+  if (signup.statusCode !== 202) fail(`signup answered ${signup.statusCode}`);
+  const login = await post("/api/auth/login", { email, password });
+  if (login.statusCode !== 200) fail(`login answered ${login.statusCode}`);
+  const session = (login.headers["set-cookie"] ?? []).map((c) => c.split(";")[0]).find((c) => c.startsWith("__Host-rs_sid="));
+  if (!session) fail("login set no session cookie");
+  console.log("signed up and logged in through the real routes");
+
+  const ws = await upgrade(session);
+  ws.send(0x1, JSON.stringify({ t: "hello", v: 1, cid: crypto.randomUUID(), subs: [] }));
+  const welcome = await ws.next(5000);
+  const hello = welcome.opcode === 0x1 ? JSON.parse(welcome.payload) : null;
+  if (hello?.t !== "welcome" || hello.me.kind !== "user" || hello.me.name !== "Smoke Test") fail(`expected welcome, got ${welcome.payload}`);
+  console.log("hello -> welcome as the signed-up user");
+
+  ws.send(0x9, "rs-smoke");
+  const pong = await ws.next(5000);
+  if (pong.opcode !== 0xa || pong.payload.toString() !== "rs-smoke") fail(`expected PONG rs-smoke, got opcode ${pong.opcode}`);
+  console.log("client PING -> server PONG");
+
+  const ping = await ws.next(25000);
+  if (ping.opcode !== 0x9) fail(`expected a server PING, got opcode ${ping.opcode}`);
+  ws.send(0xa, ping.payload);
+  console.log("server keep-alive PING -> client PONG");
+
+  ws.send(0x1, JSON.stringify({ t: "ping", c: 42 }));
+  const clock = await ws.next(5000);
+  const reply = clock.opcode === 0x1 ? JSON.parse(clock.payload) : null;
+  if (reply?.t !== "pong" || reply.c !== 42) fail(`expected pong 42, got ${clock.payload}`);
+  console.log("app ping -> pong on the same live socket");
+
+  ws.send(0x8, Buffer.from([0x03, 0xe8]));
+  const close = await ws.next(5000);
+  if (close.opcode !== 0x8) fail(`expected close, got opcode ${close.opcode}`);
+  ws.socket.destroy();
+})().catch((e) => fail(e.message));
+JS
+}
+
 smoke_cleanup() {
   [[ -n "${SMOKE_PID:-}" ]] && kill "$SMOKE_PID" 2>/dev/null
   docker rm -f "$SMOKE_PG" "$SMOKE_APP" >/dev/null 2>&1 || true
@@ -170,11 +310,16 @@ cmd_aot_smoke() {
 
   log "server binary serves /healthz"
   app_port="$(free_port)"
+  local app_keys
+  app_keys="k1:$(node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("base64"))')"
   DOTNET_hostBuilder__reloadConfigOnChange=false ASPNETCORE_URLS="http://127.0.0.1:$app_port" DATABASE_URL="$app_db_url" DATABASE_OWNER_URL="$db_url" \
-    PUBLIC_URL="http://127.0.0.1:$app_port" "$ARTIFACTS/aot/server/retroscope" >"$ARTIFACTS/aot/server-run.log" 2>&1 &
+    PUBLIC_URL="http://127.0.0.1:$app_port" APP_KEYS="$app_keys" "$ARTIFACTS/aot/server/retroscope" >"$ARTIFACTS/aot/server-run.log" 2>&1 &
   SMOKE_PID=$!
   wait_http "http://127.0.0.1:$app_port/healthz" || { cat "$ARTIFACTS/aot/server-run.log"; die "/healthz did not answer"; }
   HEALTHCHECK_PORT="$app_port" retry 5 "$ARTIFACTS/aot/server/retroscope" healthcheck || die "healthcheck subcommand failed"
+
+  log "server binary: signup, login and a /ws session"
+  ws_smoke "http://127.0.0.1:$app_port" || { cat "$ARTIFACTS/aot/server-run.log"; die "the /ws smoke failed"; }
   kill "$SMOKE_PID"
   SMOKE_PID=""
 

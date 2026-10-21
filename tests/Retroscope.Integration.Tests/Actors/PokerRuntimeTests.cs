@@ -9,10 +9,16 @@ namespace Retroscope.Integration.Tests.Actors;
 
 /// <summary>The real poker domain on the runtime: the client command converts to <see cref="PokerInput"/>.</summary>
 [Trait("Category", "Actors")]
-public sealed class PokerRuntimeTests {
+public sealed class PokerRuntimeTests : IAsyncLifetime {
+    private PokerRoom _room = null!;
+
+    public async ValueTask InitializeAsync() => _room = await PokerRoom.StartAsync();
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
     [Fact]
     public async Task Vote_values_reach_only_their_own_principal_live_and_on_replay() {
-        var room = new PokerRoom();
+        var room = _room;
         var (alice, _) = await room.JoinAsync(Alice);
         var (bob, _) = await room.JoinAsync(Bob);
         var from = await room.Registry.QueryAsync<PokerState, PokerInput, (Epoch, long)>(
@@ -34,7 +40,7 @@ public sealed class PokerRuntimeTests {
 
     [Fact]
     public async Task Auto_reveal_fires_once_after_everyone_locked() {
-        var room = new PokerRoom();
+        var room = _room;
         var (alice, _) = await room.JoinAsync(Alice);
         var (bob, _) = await room.JoinAsync(Bob);
 
@@ -64,7 +70,7 @@ public sealed class PokerRuntimeTests {
     }
 
     private sealed class PokerRoom {
-        public PokerRoom() {
+        private PokerRoom() {
             Time = Clock();
             var state = new PokerState { SessionId = new SessionId(Room.Id), Code = "ABCD1234", WarmUntil = Start, NextRoundNumber = 2 };
             var round = new Round { Id = Round(1), Number = 1 };
@@ -73,7 +79,6 @@ public sealed class PokerRuntimeTests {
             state.CurrentRoundId = round.Id;
             Store = new MemoryStore<PokerState, PokerEvent>(state, x => x.Clone(), PokerApply.Apply);
             Registry = new ActorRegistry(Runtime(Time), [RoomType.Of(new Binding(), Store, new TestAccess())]);
-            Actor = (IRoomActor<PokerState, PokerInput>)Registry.GetOrStartAsync(Room, Token).AsTask().Result;
         }
 
         public Microsoft.Extensions.Time.Testing.FakeTimeProvider Time { get; }
@@ -82,7 +87,13 @@ public sealed class PokerRuntimeTests {
 
         public ActorRegistry Registry { get; }
 
-        public IRoomActor<PokerState, PokerInput> Actor { get; }
+        public IRoomActor<PokerState, PokerInput> Actor { get; private set; } = null!;
+
+        public static async Task<PokerRoom> StartAsync() {
+            var room = new PokerRoom();
+            room.Actor = (IRoomActor<PokerState, PokerInput>)await room.Registry.GetOrStartAsync(Room, Token);
+            return room;
+        }
 
         public async Task<(TestPeer Peer, SnapFrame Snap)> JoinAsync(Viewer viewer) {
             var peer = new TestPeer(viewer);

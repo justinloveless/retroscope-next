@@ -12,6 +12,10 @@ namespace Retroscope.Server.Realtime.Transport;
 /// send loop drains the <see cref="OutboundQueue"/> in order, so an ack always follows the tx frame queued before it.
 /// </summary>
 public sealed class Connection : IClientConnection {
+    private const int HelloPending = 0;
+    private const int HelloAccepted = 1;
+    private const int HelloExpired = 2;
+
     private readonly WebSocket _socket;
     private readonly TransportOptions _options;
     private readonly ConnectionRegistry _registry;
@@ -22,11 +26,14 @@ public sealed class Connection : IClientConnection {
     private readonly ConnRateLimit _rate;
     private readonly HashSet<RoomKey> _rooms = [];
     private readonly TaskCompletionSource _finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly Lock _timerLock = new();
     private Viewer? _viewer;
     private int _closeRequested;
+    private int _hello = HelloPending;
     private volatile bool _discardOutbound;
     private ITimer? _helloTimer;
     private ITimer? _abortTimer;
+    private bool _timersDisposed;
 
     internal Connection(
         WebSocket socket,
@@ -61,9 +68,9 @@ public sealed class Connection : IClientConnection {
     public string IpKey { get; }
 
     /// <summary>The tab's client id, once <c>hello</c> has bound it.</summary>
-    public ClientId? Client => _viewer?.Client;
+    public ClientId? Client => Volatile.Read(ref _viewer)?.Client;
 
-    public Viewer Viewer => _viewer ?? throw new InvalidOperationException("The connection has not sent hello yet.");
+    public Viewer Viewer => Volatile.Read(ref _viewer) ?? throw new InvalidOperationException("The connection has not sent hello yet.");
 
     public bool IsOpen => Volatile.Read(ref _closeRequested) == 0;
 
@@ -103,19 +110,26 @@ public sealed class Connection : IClientConnection {
             _discardOutbound = true;
         }
         _outbound.Close((WebSocketCloseStatus)code, reason);
-        _abortTimer = _time.CreateTimer(
-            static state => ((Connection)state!)._socket.Abort(),
-            this,
-            _options.CloseTimeout,
-            Timeout.InfiniteTimeSpan);
+        // Close may run on any thread, also while RunAsync is disposing the timers at the end of the connection.
+        lock (_timerLock) {
+            if (!_timersDisposed) {
+                _abortTimer = _time.CreateTimer(
+                    static state => ((Connection)state!)._socket.Abort(),
+                    this,
+                    _options.CloseTimeout,
+                    Timeout.InfiniteTimeSpan);
+            }
+        }
     }
 
     internal async Task RunAsync(CancellationToken aborted) {
-        _helloTimer = _time.CreateTimer(
-            static state => ((Connection)state!).Close(CloseCodes.ProtocolViolation, "no hello", urgent: true),
-            this,
-            _options.HelloTimeout,
-            Timeout.InfiniteTimeSpan);
+        lock (_timerLock) {
+            _helloTimer = _time.CreateTimer(
+                static state => ((Connection)state!).HelloTimedOut(),
+                this,
+                _options.HelloTimeout,
+                Timeout.InfiniteTimeSpan);
+        }
         var sending = SendLoopAsync();
         var peerClosed = false;
         try {
@@ -134,8 +148,11 @@ public sealed class Connection : IClientConnection {
         }
         // After the peer's close frame the send loop still answers it; the abort timer bounds that.
         await sending;
-        _helloTimer.Dispose();
-        _abortTimer?.Dispose();
+        lock (_timerLock) {
+            _timersDisposed = true;
+            _helloTimer?.Dispose();
+            _abortTimer?.Dispose();
+        }
         _socket.Dispose();
         _finished.TrySetResult();
     }
@@ -235,7 +252,7 @@ public sealed class Connection : IClientConnection {
 
     private void Handle(ReadOnlySpan<byte> utf8) {
         var parsed = WireParser.ParseClient(utf8);
-        if (_viewer is null) {
+        if (Volatile.Read(ref _viewer) is null) {
             if (parsed.Frame is HelloFrame hello) {
                 Hello(hello);
             } else {
@@ -277,7 +294,23 @@ public sealed class Connection : IClientConnection {
         }
     }
 
+    /// <summary>
+    /// The hello timer and <see cref="Hello"/> race for <see cref="_hello"/>: a timer that wins closes 4400 and no
+    /// welcome follows; a hello that wins sends welcome and the timer does nothing, even if it already fired.
+    /// </summary>
+    private void HelloTimedOut() {
+        if (Interlocked.CompareExchange(ref _hello, HelloExpired, HelloPending) == HelloPending) {
+            Close(CloseCodes.ProtocolViolation, "no hello", urgent: true);
+        }
+    }
+
     private void Hello(HelloFrame hello) {
+        if (Interlocked.CompareExchange(ref _hello, HelloAccepted, HelloPending) != HelloPending) {
+            return;
+        }
+        lock (_timerLock) {
+            _helloTimer?.Dispose();
+        }
         if (hello.V != 1) {
             Violation("unsupported protocol version");
             return;
@@ -286,8 +319,7 @@ public sealed class Connection : IClientConnection {
             Close(CloseCodes.CidInUse, "cid_in_use", urgent: true);
             return;
         }
-        _helloTimer?.Dispose();
-        _viewer = new Viewer(Principal, hello.Cid, Id);
+        Volatile.Write(ref _viewer, new Viewer(Principal, hello.Cid, Id));
         var me = new PrincipalInfo(Principal.Id, Principal.Kind, Principal.DisplayName, Principal.AvatarBlobId);
         Send(new WelcomeFrame(Id, me, _time.GetUtcNow().ToUnixTimeMilliseconds()));
         foreach (var sub in hello.Subs) {

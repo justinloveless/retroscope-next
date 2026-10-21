@@ -76,6 +76,33 @@ public sealed partial class SecurityHeaderTests : IDisposable {
         Assert.False(response.Headers.Contains("Server"));
     }
 
+    [Theory]
+    [InlineData("/")]
+    [InlineData("/dashboard")]
+    [InlineData("/healthz")]
+    public async Task An_https_public_url_sends_hsts(string path) {
+        await using var app = await TestApp.StartAsync(_web.Settings());
+
+        using var response = await app.Client.GetAsync(new Uri(path, UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.Equal("max-age=63072000; includeSubDomains", Header(response, "Strict-Transport-Security"));
+    }
+
+    [Theory]
+    [InlineData("/")]
+    [InlineData("/dashboard")]
+    [InlineData("/healthz")]
+    public async Task An_http_public_url_sends_no_hsts(string path) {
+        var settings = _web.Settings();
+        settings["PUBLIC_URL"] = "http://localhost:5000";
+        await using var app = await TestApp.StartAsync(settings);
+
+        using var response = await app.Client.GetAsync(new Uri(path, UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.False(response.Headers.Contains("Strict-Transport-Security"));
+        Assert.Equal("nosniff", Header(response, "X-Content-Type-Options"));
+    }
+
     [Fact]
     public async Task An_endpoint_may_replace_the_csp_with_a_stricter_one() {
         const string Sandbox = "default-src 'none'; sandbox";
