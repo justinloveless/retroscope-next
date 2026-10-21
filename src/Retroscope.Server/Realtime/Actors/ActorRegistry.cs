@@ -7,12 +7,12 @@ namespace Retroscope.Server.Realtime.Actors;
 
 /// <summary>
 /// Every live room actor, by room key (R17). <see cref="GetOrStartAsync"/> starts an actor on first use; an actor
-/// retires itself after idling, and a post that loses that race is retried on the next incarnation. A key being
-/// purged (<see cref="TryPurgeAsync"/>) is closed: nobody can start or load it until the purge finishes (R18).
+/// retires itself after idling, and a post that loses that race goes to the next incarnation, which the retiring
+/// actor installs in the same locked step that closes its queues. A key being purged (<see cref="TryPurgeAsync"/>)
+/// is closed: nobody can start or load it until the purge finishes (R18), and a caller waits for that at most
+/// <see cref="ActorOptions.IncarnationWait"/> before it is answered <c>server_busy</c>.
 /// </summary>
 public sealed class ActorRegistry {
-    private const int MaxAttempts = 100;
-
     private readonly ConcurrentDictionary<RoomKey, IRoomActor> _actors = new();
     private readonly Dictionary<RoomKey, TaskCompletionSource> _closing = [];
     private readonly Dictionary<RoomKey, List<ActorMessage>> _deferred = [];
@@ -30,23 +30,12 @@ public sealed class ActorRegistry {
     public bool TryGet(RoomKey key, out IRoomActor actor) => _actors.TryGetValue(key, out actor!);
 
     /// <summary>The live actor for <paramref name="key"/>, started if needed; waits while the key is being purged.</summary>
-    public async ValueTask<IRoomActor> GetOrStartAsync(RoomKey key, CancellationToken cancellationToken) {
-        while (true) {
-            if (_actors.TryGetValue(key, out var live)) {
-                return live;
-            }
-            Task? closing;
-            lock (_lock) {
-                if (_closing.TryGetValue(key, out var gate)) {
-                    closing = gate.Task;
-                } else {
-                    return _actors.GetOrAdd(key, Start);
-                }
-            }
-            await closing.WaitAsync(cancellationToken);
-        }
+    /// <exception cref="TimeoutException">The purge of the key outlasted <see cref="ActorOptions.IncarnationWait"/>.</exception>
+    public ValueTask<IRoomActor> GetOrStartAsync(RoomKey key, CancellationToken cancellationToken) {
+        return _actors.TryGetValue(key, out var live) ? ValueTask.FromResult(live) : CurrentAsync(key, cancellationToken);
     }
 
+    /// <returns><see cref="PostResult.Busy"/> when the room could not take it now; the transport decides.</returns>
     public async ValueTask<PostResult> SubscribeAsync(
         RoomKey key,
         IRoomPeer peer,
@@ -54,16 +43,26 @@ public sealed class ActorRegistry {
         Epoch? epoch,
         long? seq,
         CancellationToken cancellationToken) {
-        return await SendAsync(key, actor => actor.Subscribe(peer, viewer, epoch, seq), cancellationToken);
+        try {
+            return await SendAsync(key, actor => actor.Subscribe(peer, viewer, epoch, seq), cancellationToken);
+        } catch (TimeoutException) {
+            return PostResult.Busy;
+        }
     }
 
+    /// <returns><see cref="PostResult.Busy"/> after the peer was nacked <c>server_busy</c>.</returns>
     public async ValueTask<PostResult> CommandAsync(
         RoomKey key,
         IRoomPeer peer,
         Viewer viewer,
         CmdFrame frame,
         CancellationToken cancellationToken) {
-        return await SendAsync(key, actor => actor.Command(peer, viewer, frame), cancellationToken);
+        try {
+            return await SendAsync(key, actor => actor.Command(peer, viewer, frame), cancellationToken);
+        } catch (TimeoutException) {
+            peer.Send(FrameBytes.Frame(new NackFrame(key, frame.Q, NackCode.ServerBusy)));
+            return PostResult.Busy;
+        }
     }
 
     /// <summary>Only a live actor can hold the subscription, so nothing is started.</summary>
@@ -85,6 +84,7 @@ public sealed class ActorRegistry {
     }
 
     /// <summary>An HTTP-originated change (§c.2: an HTTP handler may ask, an actor never does).</summary>
+    /// <returns><see cref="AskStatus.Unavailable"/> with <c>server_busy</c> when the room did not start in time.</returns>
     public async Task<AskResult> AskAsync<TState, TInput>(
         RoomKey key,
         TInput input,
@@ -92,29 +92,38 @@ public sealed class ActorRegistry {
         CancellationToken cancellationToken)
         where TState : class
         where TInput : class {
-        for (var attempt = 0; ; attempt++) {
-            var actor = Typed<TState, TInput>(await GetOrStartAsync(key, cancellationToken));
-            try {
-                return await actor.AskAsync(input, viewer, cancellationToken);
-            } catch (ActorClosedException) when (attempt < MaxAttempts) {
-                await Task.Yield();
+        try {
+            var actor = await GetOrStartAsync(key, cancellationToken);
+            while (true) {
+                try {
+                    return await Typed<TState, TInput>(actor).AskAsync(input, viewer, cancellationToken);
+                } catch (ActorClosedException) {
+                    actor = await CurrentAsync(key, cancellationToken);
+                }
             }
+        } catch (TimeoutException) {
+            return new AskResult(AskStatus.Unavailable, Code: NackCode.ServerBusy);
         }
     }
 
+    /// <exception cref="RoomUnavailableException">The room did not start in time, could not be loaded or stopped.</exception>
     public async Task<T> QueryAsync<TState, TInput, T>(
         RoomKey key,
         Func<RoomView<TState>, ValueTask<T>> query,
         CancellationToken cancellationToken)
         where TState : class
         where TInput : class {
-        for (var attempt = 0; ; attempt++) {
-            var actor = Typed<TState, TInput>(await GetOrStartAsync(key, cancellationToken));
-            try {
-                return await actor.QueryAsync(query, cancellationToken);
-            } catch (ActorClosedException) when (attempt < MaxAttempts) {
-                await Task.Yield();
+        try {
+            var actor = await GetOrStartAsync(key, cancellationToken);
+            while (true) {
+                try {
+                    return await Typed<TState, TInput>(actor).QueryAsync(query, cancellationToken);
+                } catch (ActorClosedException) {
+                    actor = await CurrentAsync(key, cancellationToken);
+                }
             }
+        } catch (TimeoutException e) {
+            throw new RoomUnavailableException(key, e);
         }
     }
 
@@ -156,11 +165,13 @@ public sealed class ActorRegistry {
     }
 
     /// <summary>
-    /// Called by a retiring actor: removes exactly that incarnation and hands what it still had queued to the next
-    /// one, which takes those messages before anything posted after the close.
+    /// Called by a retiring actor: <paramref name="close"/> completes its queues and returns what they still held,
+    /// and in the same locked step exactly that incarnation is removed and the leftovers go to the next one, which
+    /// takes them before anything posted after the close.
     /// </summary>
-    internal void Retired(IRoomActor actor, IReadOnlyList<ActorMessage> leftovers) {
+    internal void Retire(IRoomActor actor, Func<IReadOnlyList<ActorMessage>> close) {
         lock (_lock) {
+            var leftovers = close();
             if (leftovers.Count == 0) {
                 _actors.TryRemove(new KeyValuePair<RoomKey, IRoomActor>(actor.Key, actor));
                 return;
@@ -177,8 +188,6 @@ public sealed class ActorRegistry {
         }
     }
 
-    private IRoomActor Start(RoomKey key) => Start(key, []);
-
     private IRoomActor Start(RoomKey key, IReadOnlyList<ActorMessage> backlog) {
         if (!_types.TryGetValue(key.Kind, out var type)) {
             throw new InvalidOperationException($"No room type is registered for {key.Kind} rooms.");
@@ -186,21 +195,45 @@ public sealed class ActorRegistry {
         return type.Start(key, _runtime, this, backlog);
     }
 
-    private async ValueTask<PostResult> SendAsync(RoomKey key, Func<IRoomActor, PostResult> send, CancellationToken cancellationToken) {
-        for (var attempt = 0; attempt < MaxAttempts; attempt++) {
-            var result = send(await GetOrStartAsync(key, cancellationToken));
-            if (result != PostResult.Closed) {
-                return result;
+    /// <summary>
+    /// The incarnation to post to, read under the lock: an actor closes its queues inside <see cref="Retire"/>, so
+    /// after a <see cref="PostResult.Closed"/> this never returns the closed one again.
+    /// </summary>
+    private async ValueTask<IRoomActor> CurrentAsync(RoomKey key, CancellationToken cancellationToken) {
+        while (true) {
+            Task closing;
+            lock (_lock) {
+                if (_actors.TryGetValue(key, out var live)) {
+                    return live;
+                }
+                if (!_closing.TryGetValue(key, out var gate)) {
+                    return _actors[key] = Start(key, []);
+                }
+                closing = gate.Task;
             }
-            await Task.Yield();
+            await closing.WaitAsync(_runtime.Options.IncarnationWait, _runtime.Time, cancellationToken);
         }
-        return PostResult.Closed;
+    }
+
+    private async ValueTask<PostResult> SendAsync(RoomKey key, Func<IRoomActor, PostResult> send, CancellationToken cancellationToken) {
+        var actor = await GetOrStartAsync(key, cancellationToken);
+        var result = send(actor);
+        while (result == PostResult.Closed) {
+            actor = await CurrentAsync(key, cancellationToken);
+            result = send(actor);
+        }
+        return result;
     }
 
     private void SendIfLive(RoomKey key, Func<IRoomActor, PostResult> send) {
-        for (var attempt = 0; attempt < MaxAttempts && _actors.TryGetValue(key, out var actor); attempt++) {
-            if (send(actor) != PostResult.Closed) {
-                return;
+        if (!_actors.TryGetValue(key, out var actor)) {
+            return;
+        }
+        while (send(actor) == PostResult.Closed) {
+            lock (_lock) {
+                if (!_actors.TryGetValue(key, out actor)) {
+                    return;
+                }
             }
         }
     }

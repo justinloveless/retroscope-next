@@ -21,6 +21,12 @@ public sealed record ActorOptions {
     /// <summary>An actor with no subscribers and no armed timers retires after this long (R17).</summary>
     public TimeSpan IdleEviction { get; init; } = TimeSpan.FromMinutes(5);
 
+    /// <summary>
+    /// How long a message waits for a room whose key is being purged to start again; past it the caller gets a
+    /// retryable <c>server_busy</c> (R18).
+    /// </summary>
+    public TimeSpan IncarnationWait { get; init; } = TimeSpan.FromSeconds(5);
+
     public int ConnectionsPerPrincipal { get; init; } = 6;
 
     /// <summary>Recent <c>(cid, q) → payload hash</c> entries per room, for <c>cid_reuse</c> (§c.6).</summary>
