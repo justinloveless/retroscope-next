@@ -104,7 +104,7 @@ public static class EmailEndpoints {
         var user = use.User ?? await users.FindIdAsync(use.Email, cancellationToken);
         if (user is null) {
             var created = new PrincipalId(Guid.CreateVersion7());
-            user = await users.CreateAsync(created, use.Email, passwordHash: null, fullName: "", emailVerifiedAt: now, now, cancellationToken)
+            user = await users.CreateAsync(new NewUser(created, use.Email, PasswordHash: null, FullName: "", EmailVerifiedAt: now, now), cancellationToken)
                 ? created
                 : await users.FindIdAsync(use.Email, cancellationToken);
         }
