@@ -158,6 +158,38 @@ public sealed class WireParserMatrixTests {
         Assert.Null(result.Frame);
     }
 
+    [Theory]
+    [InlineData("{\"t\\ud800\":\"cmd\"}")]
+    [InlineData("{\"t\":\"ping\",\"\\udc00c\":1}")]
+    [InlineData("{\"t\":\"cmd\",\"r\":\"" + Room + "\",\"q\":3,\"k\":\"poker.vote.set\",\"d\\ud800\":{}}")]
+    public void An_escaped_lone_surrogate_in_a_client_member_name_is_malformed(string json) {
+        var result = WireParser.ParseClient(Encoding.UTF8.GetBytes(json));
+
+        Assert.Equal(FrameError.Malformed, result.Error);
+        Assert.Null(result.Frame);
+    }
+
+    [Theory]
+    [InlineData("{\"t\\ud800\":\"tx\"}", FrameError.Malformed)]
+    [InlineData("{\"t\":\"pong\",\"c\":1,\"\\udc00n\":1}", FrameError.Malformed)]
+    [InlineData("{\"t\":\"tx\",\"r\":\"" + Board + "\",\"s\":1,\"ev\":[{\"k\\ud800\":\"retro.focus\",\"d\":{}}]}", FrameError.Malformed)]
+    [InlineData("{\"t\":\"replay\",\"r\":\"" + Board + "\",\"e\":\"0123456789abcdef\",\"from\":1,\"lastQ\":0,\"txs\":[{\"\\udc00s\":1,\"ev\":[]}]}", FrameError.Malformed)]
+    [InlineData("{\"t\":\"tx\",\"r\":\"" + Board + "\",\"s\":1,\"ev\":[{\"k\":\"retro.card.edited\",\"d\":{\"cardId\":\"" + Round + "\",\"body\":\"\\ud800\",\"version\":1}}]}", FrameError.InvalidData)]
+    [InlineData("{\"t\":\"x\",\"r\":\"" + Room + "\",\"k\":\"jira.meta\",\"d\":{\"key\":\"\\udc00\"}}", FrameError.InvalidData)]
+    public void An_escaped_lone_surrogate_in_a_server_frame_is_rejected_without_throwing(string json, FrameError expected) {
+        var result = WireParser.ParseServer(Encoding.UTF8.GetBytes(json));
+
+        Assert.Equal(expected, result.Error);
+        Assert.Null(result.Frame);
+    }
+
+    [Theory]
+    [InlineData("{\"t\":\"tx\",\"r\":\"" + Board + "\",\"s\":1,\"ev\":[{\"k\":\"retro.card.edited\",\"d\":{\"cardId\":\"" + Round + "\",\"body\":\"\\ud83d\\ude00\",\"version\":1}}]}")]
+    [InlineData("{\"t\":\"x\",\"r\":\"" + Room + "\",\"k\":\"jira.meta\",\"d\":{\"key\":\"\\ud83d\\ude00\"}}")]
+    public void An_escaped_surrogate_pair_in_a_server_payload_parses(string json) {
+        Assert.True(WireParser.ParseServer(Encoding.UTF8.GetBytes(json)).Ok);
+    }
+
     private static byte[] WithInvalidUtf8(string template) {
         var parts = template.Split('\uFFFF');
         var bytes = new List<byte>();
