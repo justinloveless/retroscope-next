@@ -15,6 +15,11 @@ public static class PokerDecider {
     public const decimal MaxJiraPoints = 1000m;
 
     public static Decision<PokerEvent> Decide(PokerState state, PokerInput input, CommandContext context, PolicyCheck can) {
+        // Internal transitions after a delete are leftovers (timers, Jira replies, fan-out); a client still hears
+        // not_found, so it learns why nothing happened.
+        if (state.Deleted && input is not ClientCommand) {
+            return NoOp();
+        }
         var decision = input switch {
             ClientCommand c => DecideClient(state, c.Command, context, can),
             AutoRevealDue c => DecideAutoReveal(state, c, context),
@@ -160,7 +165,7 @@ public static class PokerDecider {
         if (context.Viewer is not { } viewer || !can(viewer.Who, Capability.PokerDeleteSession, Facts(state, viewer), context.Access)) {
             return Reject(NackCode.Forbidden, "Only a team admin or the quick session's creator may delete it.");
         }
-        return state.Deleted ? NoOp() : Accept(new SessionDeleted());
+        return Accept(new SessionDeleted());
     }
 
     internal static ResourceFacts Facts(PokerState state, Viewer viewer) {
