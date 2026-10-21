@@ -24,6 +24,9 @@ const THEMES = [
 const OWN_SIGN_IN = new Set(['/login', '/auth/*', '/teams/:id', '/teams/:id/settings', '/retro/:code']);
 const POKER_ROUTES = new Set(['/poker/:code', '/teams/:tid/poker/:code']);
 
+// The session as the header shows it: a body without a principal counts as signed out.
+const visitor = () => (session.get().me?.principal ? session.get().me : null);
+
 export const navLink = (href, text, props = {}) => h('a', { href, 'data-nav': '', ...props }, text);
 const here = () => location.pathname + location.search;
 
@@ -117,7 +120,7 @@ export function createHeader() {
   burger.addEventListener('click', async () => {
     const { createSheet } = await import('./sheet.js');
     sheet ??= createSheet({ themes: THEMES, here, signOut: signOutNow });
-    sheet.open(session.get().me);
+    sheet.open(visitor());
   });
 
   function teamName(me) {
@@ -200,8 +203,8 @@ export function createHeader() {
     }
   });
   themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-  const stop = session.select((s) => s.me, Object.is, render);
-  render(session.get().me);
+  const stop = session.select((s) => s.me, Object.is, () => render(visitor()));
+  render(visitor());
 
   return {
     el,
@@ -216,7 +219,7 @@ export function createHeader() {
         pinnedCenter = false;
         center.replaceChildren();
       }
-      render(session.get().me);
+      render(visitor());
       mirrorTitle();
     },
     /** Puts `nodes` in the centre slot (null restores the page title); cleared on the next route. */

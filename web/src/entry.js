@@ -38,7 +38,7 @@ function notFound(root) {
 }
 
 async function sharedSocket(route) {
-  if (!SHARED_SOCKET.has(route.module) || !currentMe()) {
+  if (!SHARED_SOCKET.has(route.module) || !currentMe()?.principal) {
     return {};
   }
   const socket = await getSocket();
