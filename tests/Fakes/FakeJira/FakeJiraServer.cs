@@ -34,11 +34,17 @@ public sealed record FakeJiraResponse(
 public sealed partial class FakeJiraServer : IAsyncDisposable {
     public const string MediaHost = "api.media.atlassian.com";
 
+    private static readonly JsonObject[] LinkTypes = [
+        new JsonObject { ["id"] = "10000", ["name"] = "Blocks", ["inward"] = "is blocked by", ["outward"] = "blocks" },
+    ];
+
     private readonly WebApplication _app;
     private readonly ConcurrentQueue<FakeJiraRequest> _requests = new();
     private readonly Lock _scriptGate = new();
     private readonly List<(string Method, string PathPrefix, Queue<FakeJiraResponse> Replies)> _scripts = [];
+    private readonly ConcurrentDictionary<string, long> _ranks = new(StringComparer.Ordinal);
     private int _nextId = 20000;
+    private long _nextRank;
 
     private FakeJiraServer(WebApplication app) {
         _app = app;
@@ -101,15 +107,34 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
 
     public void ClearRequests() => _requests.Clear();
 
-    public JsonObject AddIssue(string key, string summary, long? sprintId = null, decimal? points = null, string status = "To Do") {
+    /// <summary>
+    /// Adds an issue ranked after every issue so far. <paramref name="status"/> "Done" is in the Done category, "In
+    /// Progress" and "In Review" in In Progress, anything else in To Do.
+    /// </summary>
+    public JsonObject AddIssue(
+        string key,
+        string summary,
+        long? sprintId = null,
+        decimal? points = null,
+        string status = "To Do",
+        string issueType = "Story") {
+        var (categoryKey, categoryName) = status switch {
+            "Done" => ("done", "Done"),
+            "In Progress" or "In Review" => ("indeterminate", "In Progress"),
+            _ => ("new", "To Do"),
+        };
         var fields = new JsonObject {
             ["summary"] = summary,
             ["status"] = new JsonObject {
                 ["id"] = "1",
                 ["name"] = status,
-                ["statusCategory"] = new JsonObject { ["key"] = status == "Done" ? "done" : "new", ["name"] = status },
+                ["statusCategory"] = new JsonObject { ["key"] = categoryKey, ["name"] = categoryName },
             },
-            ["issuetype"] = new JsonObject { ["id"] = "10001", ["name"] = "Story", ["subtask"] = false },
+            ["issuetype"] = new JsonObject {
+                ["id"] = issueType == "Story" ? "10001" : NextId(),
+                ["name"] = issueType,
+                ["subtask"] = issueType == "Sub-task",
+            },
             ["priority"] = new JsonObject { ["id"] = "3", ["name"] = "Medium" },
             ["project"] = new JsonObject { ["id"] = "10000", ["key"] = key[..key.IndexOf('-', StringComparison.Ordinal)], ["name"] = "Project" },
             ["created"] = "2026-01-05T10:00:00.000+0000",
@@ -126,8 +151,18 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
 
         var issue = new JsonObject { ["id"] = NextId(), ["key"] = key, ["fields"] = fields };
         Issues[key] = issue;
+        _ranks[key] = Interlocked.Increment(ref _nextRank);
         return issue;
     }
+
+    /// <summary>Moves <paramref name="key"/> to the top of the rank order, as dragging it in Jira would.</summary>
+    public void RankFirst(string key) => _ranks[key] = _ranks.Values.DefaultIfEmpty(0).Min() - 1;
+
+    /// <summary>The ids of every issue link, as Jira holds them.</summary>
+    public IReadOnlyList<string> LinkIds => [.. Issues.Values
+        .SelectMany(issue => issue["fields"]!["issuelinks"] as JsonArray ?? [])
+        .Select(link => (string)link!["id"]!)
+        .Distinct()];
 
     public JsonObject AddSprint(long id, string name, string state, string? startDate) {
         var sprint = new JsonObject { ["id"] = id, ["name"] = name, ["state"] = state };
@@ -295,10 +330,12 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
                 var states = ((string?)query["state"] ?? "active,future,closed").Split(',');
                 return (200, ValuesPage(Sprints.Where(s => states.Contains((string?)s["state"])).ToList(), query));
             }
-            case "GET" when (m = SprintIssuesPath().Match(path)).Success:
-                return (200, IssuePage(Issues.Values.Where(i => InSprint(i, long.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture))).ToList(), query));
+            case "GET" when (m = SprintIssuesPath().Match(path)).Success: {
+                var sprintId = long.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
+                return AgilePage(i => InSprint(i, sprintId), query);
+            }
             case "GET" when (m = BacklogPath().Match(path)).Success:
-                return (200, IssuePage(Issues.Values.Where(i => i["fields"]![SprintFieldId] is null).ToList(), query));
+                return AgilePage(i => i["fields"]![SprintFieldId] is null, query);
             case "POST" when (m = MoveToSprintPath().Match(path)).Success:
                 return MoveIssues(body, Sprints.FirstOrDefault(s => (long)s["id"]! == long.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)));
             case "POST" when BacklogMovePath().IsMatch(path):
@@ -337,11 +374,11 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
                     {"startAt":0,"maxResults":200,"total":2,"issueTypes":[{"id":"10001","name":"Story","subtask":false},{"id":"10003","name":"Sub-task","subtask":true}]}
                     """));
             case "GET" when path == "/rest/api/3/issueLinkType":
-                return (200, JsonNode.Parse("""{"issueLinkTypes":[{"id":"10000","name":"Blocks","inward":"is blocked by","outward":"blocks"}]}"""));
+                return (200, new JsonObject { ["issueLinkTypes"] = new JsonArray([.. LinkTypes.Select(t => t.DeepClone())]) });
             case "POST" when path == "/rest/api/3/issueLink":
-                return (201, null);
-            case "DELETE" when path.StartsWith("/rest/api/3/issueLink/", StringComparison.Ordinal):
-                return (204, null);
+                return CreateLink(body);
+            case "DELETE" when (m = IssueLinkPath().Match(path)).Success:
+                return DeleteLink(m.Groups[1].Value);
             case "GET" when path == "/rest/api/3/user/assignable/search":
                 return (200, JsonNode.Parse("""[{"accountId":"acc-1","displayName":"Ada Lovelace"}]"""));
             case "POST" when path == "/rest/api/3/issue":
@@ -414,17 +451,13 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
 
     private (int, JsonNode?) Search(string body) {
         var request = JsonNode.Parse(body)!;
-        var jql = (string?)request["jql"] ?? "";
         var maxResults = (int?)request["maxResults"] ?? 50;
         var start = int.TryParse((string?)request["nextPageToken"], CultureInfo.InvariantCulture, out var token) ? token : 0;
-
-        IEnumerable<JsonObject> matches = Issues.Values.OrderBy(i => i["key"]!.GetValue<string>(), StringComparer.Ordinal);
-        if (KeyIn().Match(jql) is { Success: true } keyIn) {
-            var keys = KeyLiteral().Matches(keyIn.Groups[1].Value).Select(k => k.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
-            matches = matches.Where(i => keys.Contains((string)i["key"]!));
+        if (Query((string?)request["jql"] ?? "") is not { } query) {
+            return JqlError((string?)request["jql"] ?? "");
         }
 
-        var page = matches.Skip(start).Take(maxResults + 1).ToList();
+        var page = Select(query, query.ByRank).Skip(start).Take(maxResults + 1).ToList();
         var isLast = page.Count <= maxResults;
         var result = new JsonObject {
             ["issues"] = new JsonArray([.. page.Take(maxResults).Select(i => i.DeepClone())]),
@@ -436,6 +469,86 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
         return (200, result);
     }
 
+    // The Agile issue endpoints filter by their optional jql parameter and answer in rank order, as Jira does.
+    private (int, JsonNode?) AgilePage(Func<JsonObject, bool> scope, IQueryCollection query) {
+        var jql = (string?)query["jql"] ?? "";
+        if (Query(jql) is not { } filter) {
+            return JqlError(jql);
+        }
+        var all = Select(filter, byRank: true).Where(scope).ToList();
+        var startAt = int.TryParse(query["startAt"], CultureInfo.InvariantCulture, out var s) ? s : 0;
+        var maxResults = int.TryParse(query["maxResults"], CultureInfo.InvariantCulture, out var m) ? m : 50;
+        return (200, new JsonObject {
+            ["startAt"] = startAt,
+            ["maxResults"] = maxResults,
+            ["total"] = all.Count,
+            ["issues"] = new JsonArray([.. all.Skip(startAt).Take(maxResults).Select(i => i.DeepClone())]),
+        });
+    }
+
+    private FakeJqlQuery? Query(string jql) {
+        try {
+            return FakeJql.Parse(jql, SprintFieldId, id => (string?)Sprints.FirstOrDefault(s => (long)s["id"]! == id)?["state"]);
+        } catch (FakeJqlException) {
+            return null;
+        }
+    }
+
+    private static (int, JsonNode?) JqlError(string jql) =>
+        (400, new JsonObject { ["errorMessages"] = new JsonArray($"Error in the JQL Query: {jql}"), ["errors"] = new JsonObject() });
+
+    private IEnumerable<JsonObject> Select(FakeJqlQuery query, bool byRank) {
+        var matching = Issues.Values.Where(query.Matches);
+        return byRank
+            ? matching.OrderBy(i => _ranks.GetValueOrDefault((string)i["key"]!))
+            : matching.OrderBy(i => (string)i["key"]!, StringComparer.Ordinal);
+    }
+
+    // Each issue lists the link with the other issue on the side the request named for it.
+    private (int, JsonNode?) CreateLink(string body) {
+        var request = JsonNode.Parse(body)!;
+        var name = (string?)request["type"]?["name"];
+        if (!Issues.TryGetValue((string?)request["inwardIssue"]?["key"] ?? "", out var inward)
+            || !Issues.TryGetValue((string?)request["outwardIssue"]?["key"] ?? "", out var outward)) {
+            return NotFound("Issue does not exist or you do not have permission to see it.");
+        }
+        if (LinkTypes.FirstOrDefault(t => (string?)t["name"] == name) is not { } type) {
+            return (400, new JsonObject { ["errorMessages"] = new JsonArray($"No issue link type with name '{name}' found."), ["errors"] = new JsonObject() });
+        }
+        var id = NextId();
+        AddLink(outward, id, type, "outwardIssue", inward);
+        AddLink(inward, id, type, "inwardIssue", outward);
+        return (201, null);
+    }
+
+    private static void AddLink(JsonObject issue, string id, JsonObject type, string side, JsonObject other) {
+        var fields = issue["fields"]!.AsObject();
+        if (fields["issuelinks"] is not JsonArray links) {
+            fields["issuelinks"] = links = [];
+        }
+        links.Add(new JsonObject {
+            ["id"] = id,
+            ["type"] = type.DeepClone(),
+            [side] = new JsonObject {
+                ["key"] = other["key"]!.DeepClone(),
+                ["fields"] = new JsonObject {
+                    ["summary"] = other["fields"]!["summary"]!.DeepClone(),
+                    ["status"] = other["fields"]!["status"]!.DeepClone(),
+                },
+            },
+        });
+    }
+
+    private (int, JsonNode?) DeleteLink(string id) {
+        var removed = 0;
+        foreach (var issue in Issues.Values) {
+            if (issue["fields"]!["issuelinks"] is JsonArray links) {
+                removed += links.RemoveAll(link => (string?)link!["id"] == id);
+            }
+        }
+        return removed > 0 ? (204, null) : NotFound("No issue link with id " + id + " exists.");
+    }
+
     private static JsonObject ValuesPage(List<JsonObject> all, IQueryCollection query) {
         var startAt = int.TryParse(query["startAt"], CultureInfo.InvariantCulture, out var s) ? s : 0;
         var maxResults = int.TryParse(query["maxResults"], CultureInfo.InvariantCulture, out var m) ? m : 50;
@@ -445,18 +558,6 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
             ["maxResults"] = maxResults,
             ["isLast"] = startAt + page.Count >= all.Count,
             ["values"] = new JsonArray([.. page.Select(v => v.DeepClone())]),
-        };
-    }
-
-    private static JsonObject IssuePage(List<JsonObject> all, IQueryCollection query) {
-        var startAt = int.TryParse(query["startAt"], CultureInfo.InvariantCulture, out var s) ? s : 0;
-        var maxResults = int.TryParse(query["maxResults"], CultureInfo.InvariantCulture, out var m) ? m : 50;
-        var ordered = all.OrderBy(i => (string)i["key"]!, StringComparer.Ordinal).ToList();
-        return new JsonObject {
-            ["startAt"] = startAt,
-            ["maxResults"] = maxResults,
-            ["total"] = ordered.Count,
-            ["issues"] = new JsonArray([.. ordered.Skip(startAt).Take(maxResults).Select(i => i.DeepClone())]),
         };
     }
 
@@ -493,9 +594,6 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
     [GeneratedRegex(@"^/file/([0-9]+)/binary$")]
     private static partial Regex MediaPath();
 
-    [GeneratedRegex(@"key\s+in\s*\(([^)]*)\)", RegexOptions.IgnoreCase)]
-    private static partial Regex KeyIn();
-
-    [GeneratedRegex("\"([^\"]+)\"")]
-    private static partial Regex KeyLiteral();
+    [GeneratedRegex(@"^/rest/api/3/issueLink/([0-9]+)$")]
+    private static partial Regex IssueLinkPath();
 }
