@@ -10,5 +10,7 @@ RUN dotnet publish tests/Fakes.Host -c Release -o /out
 FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:d5633778c754e89a386882eddf8dbee6942447a8a4b8267c19cf1e1158d0b0ac
 WORKDIR /app
 COPY --from=build /out/ /app/
+# The shared inotify instance limit aborts start-up otherwise (docs/decisions/U0.md, decision 14).
+ENV DOTNET_hostBuilder__reloadConfigOnChange=false
 EXPOSE 443
 ENTRYPOINT ["dotnet", "/app/retroscope-fakes.dll"]

@@ -8,6 +8,9 @@ using Retroscope.Fakes.Host;
 var bundlePath = Environment.GetEnvironmentVariable("CERT_BUNDLE") ?? "/certs/bundle.pem";
 var hosts = (Environment.GetEnvironmentVariable("FAKEJIRA_HOSTS") ?? $"*.atlassian.net,{FakeJiraServer.MediaHost}")
     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+if (File.Exists(bundlePath)) {
+    File.Delete(bundlePath);
+}
 
 await using var jira = await FakeJiraServer.StartAsync();
 jira.Email = Environment.GetEnvironmentVariable("FAKEJIRA_EMAIL") ?? jira.Email;
