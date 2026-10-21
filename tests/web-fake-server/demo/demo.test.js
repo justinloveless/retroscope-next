@@ -13,6 +13,7 @@ import { DEMO, MARCUS, PRIYA } from './people.js';
 import { winnerOf } from './poker.js';
 
 const THEME = '(function(){document.documentElement.dataset.theme="light"})();';
+const ROOT_FILES = { 'favicon.ico': 'ICO', 'manifest.webmanifest': '{"name":"Retroscope"}', 'robots.txt': 'User-agent: *\n' };
 
 // A dist with the shape build.mjs writes, so these tests do not depend on ./build.sh web.
 async function makeDist() {
@@ -28,7 +29,12 @@ async function makeDist() {
     styles: {},
     assets: {},
     files: { '/assets/entry-TEST.js': { size: text.length, etag: '"test"', br: null, gz: null } },
+    public: {},
   };
+  for (const [name, body] of Object.entries(ROOT_FILES)) {
+    await writeFile(join(dir, name), body);
+    manifest.public[`/${name}`] = { size: body.length, etag: `"${name}"`, br: null, gz: null };
+  }
   await writeFile(join(dir, 'manifest.json'), JSON.stringify(manifest));
   await writeFile(join(dir, 'csp.json'), JSON.stringify({ scriptHashes: [`sha256-${createHash('sha256').update(THEME).digest('base64')}`], themeScript: THEME }));
   return dir;
@@ -427,5 +433,19 @@ describe('HTTP', () => {
     assert.equal(avatar.headers.get('content-type'), 'image/svg+xml');
     assert.match(await avatar.text(), /^<svg/);
     assert.equal((await fetch(`${fake.url}/blob/${randomUUID()}`)).status, 404);
+  });
+
+  test('the root files are served with their types, a one-day cache and ETag revalidation', async () => {
+    const types = { 'favicon.ico': 'image/x-icon', 'manifest.webmanifest': 'application/manifest+json', 'robots.txt': 'text/plain; charset=utf-8' };
+    for (const [name, type] of Object.entries(types)) {
+      const response = await fetch(`${fake.url}/${name}`);
+      assert.equal(response.status, 200, name);
+      assert.equal(response.headers.get('content-type'), type);
+      assert.equal(response.headers.get('cache-control'), 'public, max-age=86400');
+      assert.equal(response.headers.get('etag'), `"${name}"`);
+      assert.equal(await response.text(), ROOT_FILES[name]);
+      const again = await fetch(`${fake.url}/${name}`, { headers: { 'If-None-Match': `"${name}"` } });
+      assert.equal(again.status, 304, name);
+    }
   });
 });
