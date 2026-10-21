@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text.Json;
 using Retroscope.Core.Ids;
 using Retroscope.Core.Security;
 using Retroscope.Integration.Tests.Schema;
@@ -89,50 +88,6 @@ public sealed class ActionItemTests(PostgresFixture postgres) {
         Assert.Equal(HttpStatusCode.BadRequest, empty.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, noId.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, extra.StatusCode);
-    }
-
-    [Fact]
-    public async Task The_action_item_list_filters_sorts_and_names_the_board() {
-        await using var app = await RoomHttpApp.StartAsync(postgres);
-        var scene = await Scene.CreateAsync(app);
-        var done = Guid.CreateVersion7();
-        var assigned = Guid.CreateVersion7();
-        await app.ExecAsync(
-            "insert into team_action_items (id, team_id, text, created_at, done_at, done_by) values ($1, $2, 'Done thing', now() - interval '3 days', now(), $3)",
-            done,
-            scene.Team,
-            scene.Admin);
-        await app.ExecAsync(
-            "insert into team_action_items (id, team_id, text, created_at, assigned_to) values ($1, $2, 'Assigned thing', now() - interval '2 days', $3)",
-            assigned,
-            scene.Team,
-            scene.Member);
-        var member = RoomHttpApp.User(scene.Member);
-
-        var open = await ItemsAsync(app, $"/api/teams/{scene.Team}/action-items", member);
-        var all = await ItemsAsync(app, $"/api/teams/{scene.Team}/action-items?status=all&sort=oldest", member);
-        var finished = await ItemsAsync(app, $"/api/teams/{scene.Team}/action-items?status=done", member);
-        var mine = await ItemsAsync(app, $"/api/teams/{scene.Team}/action-items?assignee={scene.Member}", member);
-        var nobody = await ItemsAsync(app, $"/api/teams/{scene.Team}/action-items?assignee=unassigned", member);
-        using var badStatus = await app.GetAsync($"/api/teams/{scene.Team}/action-items?status=later", member);
-
-        Assert.Equal([scene.Item, assigned], open.Select(Id));
-        Assert.Equal([done, assigned, scene.Item], all.Select(Id));
-        Assert.Equal([done], finished.Select(Id));
-        Assert.Equal([assigned], mine.Select(Id));
-        Assert.Equal([scene.Item], nobody.Select(Id));
-        Assert.Equal("Sprint 7", open[0].GetProperty("boardTitle").GetString());
-        Assert.Equal(scene.Card, open[0].GetProperty("sourceCardId").GetGuid());
-        Assert.Equal(0, open[0].GetProperty("commentCount").GetInt32());
-        Assert.False(open[1].TryGetProperty("boardTitle", out _));
-        Assert.Equal(HttpStatusCode.BadRequest, badStatus.StatusCode);
-    }
-
-    private static Guid Id(JsonElement item) => item.GetProperty("id").GetGuid();
-
-    private static async Task<List<JsonElement>> ItemsAsync(RoomHttpApp app, string path, string caller) {
-        var page = await RoomHttpApp.JsonAsync(await app.GetAsync(path, caller));
-        return [.. page.GetProperty("items").EnumerateArray()];
     }
 
     // A team whose admin Ann wrote an action-item card on a team board; Mia is a member.

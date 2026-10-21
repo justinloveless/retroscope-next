@@ -160,6 +160,52 @@ public sealed class TeamListsTests(PostgresFixture postgres) {
     }
 
     [Fact]
+    public async Task Action_items_count_comments_on_the_source_card_and_page_within_one_millisecond() {
+        await using var host = await TeamHttpHost.StartAsync(postgres);
+        var owner = await host.UserAsync("Olive");
+        var member = await host.UserAsync("Mia");
+        var team = await host.TeamAsync(owner, "Platform", (member, "member"));
+        var board = Guid.CreateVersion7();
+        var column = Guid.CreateVersion7();
+        var card = Guid.CreateVersion7();
+        await host.ExecuteAsync("insert into retro_boards (id, code, team_id, title, visibility) values ($1, 'ITEMS00002', $2, 'Sprint 8', 'team')", board, team);
+        await host.ExecuteAsync("insert into retro_columns (id, board_id, title, color, sort_key, is_action_items) values ($1, $2, 'Actions', 'yellow', 0, true)", column, board);
+        await host.ExecuteAsync("insert into retro_cards (id, board_id, column_id, body, author_id) values ($1, $2, $3, 'Fix the build', $4)", card, board, column, owner.Guid);
+        for (var i = 0; i < 2; i++) {
+            await host.ExecuteAsync("insert into retro_comments (id, card_id, board_id, body, author_id) values ($1, $2, $3, 'On it', $4)", Guid.CreateVersion7(), card, board, owner.Guid);
+        }
+        // Three items in the same millisecond, microseconds apart: a millisecond cursor would skip the middle one.
+        var at = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.AddDays(-1).ToUnixTimeMilliseconds());
+        var ids = new List<Guid>();
+        for (var i = 0; i < 3; i++) {
+            var id = Guid.CreateVersion7();
+            ids.Add(id);
+            await host.ExecuteAsync(
+                """
+                insert into team_action_items (id, team_id, text, source_board_id, source_card_id, created_at)
+                values ($1, $2, $3, $4, $5, $6)
+                """,
+                id, team, $"item {i}", i == 0 ? board : null, i == 0 ? card : null, at.AddTicks(100 + i * 10));
+        }
+
+        var seen = new List<Guid>();
+        string? cursor = null;
+        do {
+            var page = await ItemsAsync(host, member, team, cursor is null ? "limit=1" : $"limit=1&cursor={Uri.EscapeDataString(cursor)}");
+            seen.AddRange(page.Items);
+            cursor = page.Next;
+        } while (cursor is not null && seen.Count < 10);
+        Assert.Equal([ids[2], ids[1], ids[0]], seen);
+
+        using var raw = await host.GetAsync(member, $"/api/teams/{team}/action-items?sort=oldest");
+        var items = (await TeamHttpHost.JsonAsync(raw)).GetProperty("items").EnumerateArray().ToList();
+        Assert.Equal(2, items[0].GetProperty("commentCount").GetInt32());
+        Assert.Equal("Sprint 8", items[0].GetProperty("boardTitle").GetString());
+        Assert.Equal(0, items[1].GetProperty("commentCount").GetInt32());
+        Assert.False(items[1].TryGetProperty("boardTitle", out _));
+    }
+
+    [Fact]
     public async Task The_dashboard_lists_teams_favorites_and_the_rooms_the_user_can_still_open() {
         await using var host = await TeamHttpHost.StartAsync(postgres);
         var owner = await host.UserAsync("Olive");
