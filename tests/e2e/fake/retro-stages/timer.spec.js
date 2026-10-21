@@ -89,9 +89,15 @@ test('two tabs whose clocks are 60 s apart agree on the countdown within 100 ms'
   await bob.context().close();
 });
 
-test('a wall-clock jump while running resamples the clock', async ({ page, fake }) => {
+test('a wall-clock jump while running resamples the clock through the socket', async ({ page, fake }) => {
   const timer = running(fake, 300_000);
   servePeople(fake, { alice: ALICE }, snapshot({ timer }));
+  await page.addInitScript(() => {
+    window.__onlineEvents = 0;
+    window.addEventListener('online', () => {
+      window.__onlineEvents++;
+    });
+  });
   await asPerson(page, fake, 'alice', { init: [skewedClock(0)] });
   await openAs(page);
   await settled(fake, page);
@@ -104,6 +110,7 @@ test('a wall-clock jump while running resamples the clock', async ({ page, fake 
   await fake.waitForFrame((f) => f.t === 'ping', { after, timeout: 3000 });
   await expect.poll(async () => Math.abs((await realDeadline(page, 60_000)) - timer.endsAt)).toBeLessThan(100);
   await expect(display(page)).toHaveText(/^4:[0-9]{2}$/);
+  expect(await page.evaluate(() => window.__onlineEvents)).toBe(0);
 });
 
 test('the alarm plays once per end time, whether the tab or the server sees it first', async ({ page, fake }) => {
