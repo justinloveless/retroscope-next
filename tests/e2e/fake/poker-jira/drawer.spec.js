@@ -245,7 +245,7 @@ test('links are added with a type and removed', async ({ page, fake }) => {
 
   await sheet.getByRole('button', { name: 'Remove link to RS-13' }).click();
   await expect(sheet.locator('.jira-link')).toHaveCount(0);
-  expect(jira.calls.some((c) => c.method === 'DELETE' && c.route === '/links/:linkId')).toBe(true);
+  expect(jira.calls.some((c) => c.method === 'DELETE' && c.route === '/issues/:key/links/:linkId')).toBe(true);
 });
 
 test('Clone creates a copy in Jira and adds it to the rounds', async ({ page, fake }) => {

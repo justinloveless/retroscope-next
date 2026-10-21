@@ -603,7 +603,8 @@ describe('fake Jira proxy', () => {
     assert.equal((await write('POST', '/issues/RS-13/transition', { transitionId: '31' })).status, 204);
     assert.equal(jira.issues.get('RS-13').statusCategory, 'done');
     const link = await (await write('POST', '/issues/RS-13/links', { typeId: '10000', targetKey: 'RS-12' })).json();
-    assert.equal((await write('DELETE', `/links/${link.id}`)).status, 204);
+    assert.equal((await write('DELETE', `/issues/RS-12/links/${link.id}`)).status, 404);
+    assert.equal((await write('DELETE', `/issues/RS-13/links/${link.id}`)).status, 204);
   });
 
   test('errors: injected failures, unknown issues, other teams and unconfigured teams', async () => {
