@@ -254,7 +254,7 @@ public static class WireParser {
         try {
             return JsonSerializer.Deserialize(json, typeInfo) as T
                 ?? throw new FrameException(FrameError.InvalidData, $"{member} is null");
-        } catch (JsonException) {
+        } catch (Exception e) when (e is JsonException or InvalidOperationException) {
             throw new FrameException(FrameError.InvalidData, $"{member} does not match {typeInfo.Type.Name}");
         }
     }
@@ -421,6 +421,9 @@ public static class WireParser {
                 return true;
             } catch (JsonException) {
                 problem = "not valid JSON";
+                return false;
+            } catch (InvalidOperationException) {
+                problem = InvalidUtf8;
                 return false;
             }
         }
