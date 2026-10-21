@@ -6,6 +6,8 @@ import { defineConfig, devices } from '@playwright/test';
 
 const target = process.env.RS_E2E_TARGET ?? 'fake';
 const ci = !!process.env.CI;
+// Rendered times and number formats must not depend on the machine that runs the specs.
+const pinned = { timezoneId: 'UTC', locale: 'en-US' };
 
 export default defineConfig({
   testDir: target === 'fake' ? './fake' : '.',
@@ -17,13 +19,13 @@ export default defineConfig({
   retries: 0,
   reporter: ci ? [['list'], ['html', { open: 'never', outputFolder: '../../artifacts/e2e/report' }]] : 'list',
   use: {
-    baseURL: target === 'fake' ? undefined : process.env.RS_E2E_BASE_URL ?? 'http://localhost:8080',
+    baseURL: target === 'fake' ? undefined : process.env.RS_E2E_BASE_URL ?? 'https://localhost:18443',
     trace: 'retain-on-failure',
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-    { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
-    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
-    { name: 'mobile-webkit', use: { ...devices['iPhone 13'] } },
+    { name: 'chromium', use: { ...devices['Desktop Chrome'], ...pinned } },
+    { name: 'firefox', use: { ...devices['Desktop Firefox'], ...pinned } },
+    { name: 'webkit', use: { ...devices['Desktop Safari'], ...pinned } },
+    { name: 'mobile-webkit', use: { ...devices['iPhone 13'], ...pinned } },
   ],
 });
