@@ -22,7 +22,7 @@ public abstract record ActorMessage {
 /// reschedule timers. A failure whose outcome is unknown poisons the actor: every subscriber gets <c>bye</c> and
 /// 1012, and the next message reloads the room from the database with a new epoch (R2).
 /// </summary>
-public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInput>, IClosable
+public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInput>, IClosable, IQuiescent
     where TState : class
     where TInput : class {
     private readonly Channel<ActorMessage> _internal = Channel.CreateUnbounded<ActorMessage>(new UnboundedChannelOptions {
@@ -102,6 +102,19 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
     public Task Completion { get; }
 
     private DateTimeOffset Now => _runtime.Time.GetUtcNow();
+
+    bool IQuiescent.IsParked {
+        get {
+            if (Completion.IsCompleted) {
+                return true;
+            }
+            // The single-reader unbounded channel cannot count, but it can peek, as the loop itself does.
+            if (_internal.Reader.TryPeek(out _) || _external.Reader.Count > 0) {
+                return false;
+            }
+            return Volatile.Read(ref _internalReady) is { IsCompleted: false } && Volatile.Read(ref _externalReady) is { IsCompleted: false };
+        }
+    }
 
     public PostResult Subscribe(IRoomPeer peer, Viewer viewer, Epoch? epoch = null, long? seq = null) {
         var message = new SubscribeMessage(peer, viewer, epoch, seq);
