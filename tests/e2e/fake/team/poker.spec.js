@@ -71,7 +71,7 @@ test.describe('poker tab', () => {
     });
     await page.goto(teamUrl('?tab=poker'));
     await expect(page.locator(`[data-id="${SESSION_1}"]`).getByText('2/5 stories pointed')).toBeVisible();
-    await fake.waitForConnection();
+    await fake.waitForSubscription(ROOM);
 
     const loads = calls.sessions.length;
     fake.tx(ROOM, [{ k: 'team.poker.changed', d: { sessionId: SESSION_1, pointed: 3, total: 5 } }]);

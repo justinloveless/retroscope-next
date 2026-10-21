@@ -1,29 +1,14 @@
 // Shared fixtures for the team screen specs: a team room snapshot, the boot JSON of a signed-in
 // member, and HTTP routes for the lists. Response shapes follow docs/decisions/U30.md.
-import { test as harness } from '../_harness/fixtures.js';
 import { json } from '../../../web-fake-server/http.js';
 
-export { expect } from '../_harness/fixtures.js';
+export { expect, test } from '../_harness/fixtures.js';
 
-// WebKit reports a style-src-attr violation for every native <select>: the inline styles live in
-// its own user-agent shadow tree, not in our markup (docs/decisions/U30.md). Only that report, on a
-// select without a style attribute of its own, is dropped before the harness's document listener
-// records it; any other violation still fails the test.
-export const test = harness.extend({
-  page: async ({ page, browserName }, use) => {
-    if (browserName === 'webkit') {
-      await page.addInitScript(() => {
-        window.addEventListener('securitypolicyviolation', (event) => {
-          const target = event.target;
-          if (target?.nodeName === 'SELECT' && !target.hasAttribute('style') && event.effectiveDirective === 'style-src-attr') {
-            event.stopImmediatePropagation();
-          }
-        }, true);
-      });
-    }
-    await use(page);
-  },
-});
+/** Picks `option` from a menu-button choice (ui/choice.js), the screens' stand-in for a native select. */
+export async function choose(choice, option) {
+  await choice.click();
+  await choice.page().getByRole('menuitem', { name: option, exact: true }).click();
+}
 
 export const TEAM_ID = '0192f0a0-0000-7000-8000-00000000a001';
 export const ROOM = `team:${TEAM_ID}`;

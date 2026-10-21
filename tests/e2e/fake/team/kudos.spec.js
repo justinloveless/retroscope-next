@@ -1,5 +1,5 @@
 import { json } from '../../../web-fake-server/http.js';
-import { ADMIN, MEMBER, TEAM_ID, TYPE_1, TYPE_2, setupTeam, teamUrl, expect, test } from './_team.js';
+import { ADMIN, MEMBER, TEAM_ID, TYPE_1, TYPE_2, setupTeam, teamUrl, choose, expect, test } from './_team.js';
 
 test.describe('kudos tab', () => {
   test('shows the leaderboard per period with a column per kudos type', async ({ page, fake }) => {
@@ -22,7 +22,7 @@ test.describe('kudos tab', () => {
     await expect(table.locator(`tr[data-pid="${ADMIN}"] td`)).toHaveText(['2', 'AAAdam Admin', '0', '1', '1']);
     expect(calls.leaderboard.at(-1).query.get('period')).toBe('30d');
 
-    await page.getByLabel('Period').selectOption('all');
+    await choose(page.getByLabel('Period'), 'All time');
     await expect(page).toHaveURL(/period=all/);
     await expect(table.locator(`tr[data-pid="${MEMBER}"] td`).last()).toHaveText('9');
     expect(calls.leaderboard.at(-1).query.get('period')).toBe('all');

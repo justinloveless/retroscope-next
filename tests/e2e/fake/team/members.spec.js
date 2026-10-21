@@ -1,5 +1,5 @@
 import { json, problem } from '../../../web-fake-server/http.js';
-import { ADMIN, MEMBER, OWNER, ROOM, TEAM_ID, members, setupTeam, teamUrl, expect, test } from './_team.js';
+import { ADMIN, MEMBER, OWNER, ROOM, TEAM_ID, members, setupTeam, teamUrl, choose, expect, test } from './_team.js';
 
 const INVITE_1 = '0192f0a0-0000-7000-8000-000000006001';
 const INVITE_2 = '0192f0a0-0000-7000-8000-000000006002';
@@ -19,7 +19,7 @@ test.describe('members tab', () => {
     await expect(row(page, MEMBER).locator('.badge')).toHaveText('Member');
     await expect(page.locator('.team-member')).toHaveCount(3);
 
-    await fake.waitForConnection();
+    await fake.waitForSubscription(ROOM);
     const next = members().map((m) => (m.pid === MEMBER ? { ...m, role: 'admin' } : m));
     fake.tx(ROOM, [{ k: 'team.members', d: { members: next } }]);
     await expect(row(page, MEMBER).locator('.badge')).toHaveText('Admin');
@@ -126,13 +126,13 @@ test.describe('invites', () => {
     await page.getByRole('button', { name: 'Invite by email' }).click();
     const emailDialog = page.getByRole('dialog', { name: 'Invite by email' });
     await emailDialog.getByLabel('Email').fill('zoe@example.com');
-    await emailDialog.getByLabel('Role').selectOption('admin');
+    await choose(emailDialog.getByLabel('Role'), 'Admin');
     await emailDialog.getByRole('button', { name: 'Send invite' }).click();
     await expect(invites).toContainText('z•••@example.com');
 
     await page.getByRole('button', { name: 'Invite link' }).click();
     const linkDialog = page.getByRole('dialog', { name: 'Create an invite link' });
-    await linkDialog.getByLabel('Expires after').selectOption('30');
+    await choose(linkDialog.getByLabel('Expires after'), '30 days');
     await linkDialog.getByRole('button', { name: 'Create link' }).click();
     await expect(invites.locator(`[data-id="${INVITE_2}"] code`)).toHaveText('http://127.0.0.1/invite#t=abc');
 
