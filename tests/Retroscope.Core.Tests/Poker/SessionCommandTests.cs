@@ -236,7 +236,7 @@ public sealed class SessionCommandTests {
         var noJira = PokerHarness.Team(jira: false);
         noJira.Accepted(Bob, new PokerRoundReveal(R(1)));
         Rejected(noJira.Send(Bob, new PokerJiraSubmitPoints(R(1), 5)), NackCode.JiraNotConfigured);
-        Rejected(Quick().Send(Bob, new PokerJiraSubmitPoints(R(1), 5)), NackCode.JiraNotConfigured);
+        Rejected(Quick().Send(Bob, new PokerJiraSubmitPoints(R(1), 5)), NackCode.Forbidden);
 
         var room = PokerHarness.Team();
         Rejected(room.Send(Outsider, new PokerJiraSubmitPoints(R(1), 5)), NackCode.Forbidden);
@@ -254,6 +254,20 @@ public sealed class SessionCommandTests {
         room.Send(null, new JiraSettingsChanged(new TeamJiraSettings(true, "ABC", false)));
         Rejected(room.Send(Bob, new PokerJiraSubmitPoints(R(2), 5)), NackCode.Forbidden);
         room.Accepted(Dave, new PokerJiraSubmitPoints(R(2), 5));
+    }
+
+    [Fact]
+    public void A_caller_without_permission_hears_forbidden_before_jira_not_configured() {
+        var noJira = PokerHarness.Team(jira: false);
+        noJira.Accepted(Bob, new PokerRoundReveal(R(1)));
+
+        Rejected(noJira.Send(Outsider, new PokerJiraSubmitPoints(R(1), 5)), NackCode.Forbidden);
+        Rejected(noJira.Send(Guest, new PokerJiraSubmitPoints(R(1), 5)), NackCode.Forbidden);
+        Rejected(noJira.Send(Bob, new PokerJiraSubmitPoints(R(1), 5)), NackCode.JiraNotConfigured);
+
+        noJira.Send(null, new JiraSettingsChanged(new TeamJiraSettings(false, "ABC", false)));
+        Rejected(noJira.Send(Bob, new PokerJiraSubmitPoints(R(1), 5)), NackCode.Forbidden);
+        Rejected(noJira.Send(Dave, new PokerJiraSubmitPoints(R(1), 5)), NackCode.JiraNotConfigured);
     }
 
     [Fact]
@@ -313,5 +327,39 @@ public sealed class SessionCommandTests {
         var quick = Quick();
         Rejected(quick.Send(Bob, new DeleteSession()), NackCode.Forbidden);
         quick.Accepted(Alice, new DeleteSession());
+    }
+
+    [Fact]
+    public void A_deleted_session_ignores_every_internal_input() {
+        var room = PokerHarness.Team();
+        room.Join(Bob);
+        room.Join(Carol);
+        room.Accepted(Bob, new PokerRoundSetTicket(R(1), "ABC-5", 1));
+        room.Accepted(Bob, new PokerRoundReveal(R(1)));
+        room.Accepted(Bob, new PokerJiraSubmitPoints(R(1), 5));
+        room.Accepted(Bob, new PokerRoundCreate(R(2), ForceNew: true));
+        room.Accepted(Bob, new PokerSpotlightTake(R(2), false));
+        room.Accepted(Bob, new PokerSpotlightMove(R(1)));
+        Assert.True(room.State.Spotlight!.Dirty);
+        var gen = room.Round(2).AutoRevealGen;
+        room.Accepted(Dave, new DeleteSession());
+        room.Now += TimeSpan.FromHours(1);
+
+        PokerInput[] inputs = [
+            new AutoRevealDue(R(2), gen),
+            new SpotlightGraceDue(Bob.Who.Id),
+            new SpotlightSettleDue(),
+            new JiraPointsResult(R(1), "ABC-5", 5, Bob.Who.Id, true),
+            new JiraMetaLoaded([new JiraMeta("ABC-5", ParentKey: "ABC-1")]),
+            new RosterChanged([Info(Alice)]),
+            new PointDescriptionsChanged(new Dictionary<string, string> { ["1"] = "an hour" }),
+            new JiraSettingsChanged(TeamJiraSettings.None),
+            new DeleteSession(),
+        ];
+        foreach (var input in inputs) {
+            NoOp(room.Send(null, input));
+            NoOp(room.Send(Dave, input));
+        }
+        Rejected(room.Send(Bob, new PokerVoteSet(R(1), 3)), NackCode.NotFound);
     }
 }

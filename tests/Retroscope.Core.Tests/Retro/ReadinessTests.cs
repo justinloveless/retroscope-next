@@ -20,6 +20,20 @@ public sealed class ReadinessTests {
     }
 
     [Fact]
+    public void On_team_boards_only_members_mark_themselves_ready() {
+        foreach (var visibility in new[] { BoardVisibility.Link, BoardVisibility.Password }) {
+            var fx = new RetroFixture(team: true);
+            fx.State.Visibility = visibility;
+            fx.EnableStages(RetroStage.Thinking);
+
+            fx.Rejects(Carol, new RetroReadySet(RetroStage.Thinking, true), NackCode.Forbidden);
+            fx.Rejects(Gus, new RetroReadySet(RetroStage.Thinking, true), NackCode.Forbidden);
+            fx.Do(Bob, new RetroReadySet(RetroStage.Thinking, true));
+            Assert.Equal([Bob.Id], fx.State.ReadyThisStage);
+        }
+    }
+
+    [Fact]
     public void Ready_for_another_stage_is_stale_and_carries_the_current_stage() {
         var fx = new RetroFixture();
         fx.EnableStages(RetroStage.Voting);

@@ -149,11 +149,14 @@ public sealed class ProjectionTests {
     }
 
     [Fact]
-    public void Membership_updates_change_the_roster_without_a_wire_event() {
+    public void Membership_updates_reach_members_only_as_retro_members() {
         var fx = new RetroFixture(team: true);
         var events = fx.Do(null, new RetroInput.MembersChanged([new MemberInfo(Bob.Id, "Bob", Room.TeamRole.Owner)]));
-        Assert.Empty(fx.Projection.ForViewer(fx.State, events, Bob.Id, true));
-        Assert.Equal([Bob.Id], RetroProjection.Snapshot(fx.State, [], true).Members!.Select(m => m.Pid));
+
+        var members = Assert.IsType<RetroMembers>(Assert.Single(fx.Projection.ForViewer(fx.State, events, Bob.Id, true)));
+        Assert.Equal(RetroProjection.Snapshot(fx.State, [], true).Members, members.Members);
+        Assert.Equal([Bob.Id], members.Members.Select(m => m.Pid));
+        Assert.Empty(fx.Projection.ForViewer(fx.State, events, Alice.Id, false));
     }
 
     [Fact]

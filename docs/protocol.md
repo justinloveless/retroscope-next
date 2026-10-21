@@ -116,6 +116,7 @@ Protocol version 1. One same-origin WebSocket per tab at `GET /ws`; every frame 
 | `retro.timer` | board | `state`: TimerState<br>`durationMs`: integer<br>`alarm`: boolean<br>`music`: boolean<br>`endsAt?`: integer<br>`remainingMs?`: integer<br>`expired?`: boolean | Timer state on the server clock. |
 | `retro.endorsement.added` | board | `endorsement`: EndorsementInfo<br>`celebrate?`: boolean | An endorsement (team members only). |
 | `retro.endorsement.removed` | board | `endorsementId`: uuid (EndorsementId) | An endorsement was withdrawn. |
+| `retro.members` | board | `members`: MemberInfo[] | The team's members with roles (team members only). |
 | `team.action.added` | team | `item`: ActionItemInfo | A new action item. |
 | `team.action.updated` | team | `item`: ActionItemInfo | An action item's new state. |
 | `team.action.text` | team | `itemId`: uuid (ActionItemId)<br>`text`: string<br>`sourceVersion`: integer | Text synced from the source card. |

@@ -36,7 +36,11 @@ public enum Capability : byte {
 
     TeamUpdateActionItem,
     TeamDeleteActionItem,
+    /// <summary>Invite and remove plain members; admin or owner (§d).</summary>
     TeamManageMembers,
+
+    /// <summary>Change a role, remove an admin, transfer ownership; owner only (§d).</summary>
+    TeamManageAdmins,
     TeamManageSettings,
     TeamDelete,
     JiraEditIssues,

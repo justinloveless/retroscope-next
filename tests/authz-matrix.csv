@@ -108,8 +108,8 @@ RetroComment,board_team_deleted,-,-,-,-,-,-,-,-,-,-,-,-,-,-
 RetroReady,board_quick_link,-,-,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y
 RetroReady,board_quick_password,-,-,-,-,-,-,-,-,-,Y,Y,Y,-,-
 RetroReady,board_team_team,-,-,-,-,-,Y,Y,Y,Y,-,-,-,-,Y
-RetroReady,board_team_link,-,-,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y
-RetroReady,board_team_password,-,-,-,-,-,Y,Y,Y,Y,-,-,Y,-,Y
+RetroReady,board_team_link,-,-,-,-,-,Y,Y,Y,Y,-,-,-,-,Y
+RetroReady,board_team_password,-,-,-,-,-,Y,Y,Y,Y,-,-,-,-,Y
 RetroReady,board_quick_link_archived,-,-,-,-,-,-,-,-,-,-,-,-,-,-
 RetroReady,board_team_team_archived,-,-,-,-,-,-,-,-,-,-,-,-,-,-
 RetroReady,board_quick_deleted,-,-,-,-,-,-,-,-,-,-,-,-,-,-
@@ -117,8 +117,8 @@ RetroReady,board_team_deleted,-,-,-,-,-,-,-,-,-,-,-,-,-,-
 RetroFocus,board_quick_link,-,-,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y
 RetroFocus,board_quick_password,-,-,-,-,-,-,-,-,-,Y,Y,Y,-,-
 RetroFocus,board_team_team,-,-,-,-,-,Y,Y,Y,Y,-,-,-,-,Y
-RetroFocus,board_team_link,-,-,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y
-RetroFocus,board_team_password,-,-,-,-,-,Y,Y,Y,Y,-,-,Y,-,Y
+RetroFocus,board_team_link,-,-,-,-,-,Y,Y,Y,Y,-,-,-,-,Y
+RetroFocus,board_team_password,-,-,-,-,-,Y,Y,Y,Y,-,-,-,-,Y
 RetroFocus,board_quick_link_archived,-,-,-,-,-,-,-,-,-,-,-,-,-,-
 RetroFocus,board_team_team_archived,-,-,-,-,-,-,-,-,-,-,-,-,-,-
 RetroFocus,board_quick_deleted,-,-,-,-,-,-,-,-,-,-,-,-,-,-
@@ -126,8 +126,8 @@ RetroFocus,board_team_deleted,-,-,-,-,-,-,-,-,-,-,-,-,-,-
 RetroTimer,board_quick_link,-,-,-,Y,Y,Y,Y,Y,Y,Y,-,Y,Y,Y
 RetroTimer,board_quick_password,-,-,-,-,-,-,-,-,-,Y,-,Y,-,-
 RetroTimer,board_team_team,-,-,-,-,-,Y,Y,Y,Y,-,-,-,-,Y
-RetroTimer,board_team_link,-,-,-,Y,Y,Y,Y,Y,Y,Y,-,Y,Y,Y
-RetroTimer,board_team_password,-,-,-,-,-,Y,Y,Y,Y,-,-,Y,-,Y
+RetroTimer,board_team_link,-,-,-,-,-,Y,Y,Y,Y,-,-,-,-,Y
+RetroTimer,board_team_password,-,-,-,-,-,Y,Y,Y,Y,-,-,-,-,Y
 RetroTimer,board_quick_link_archived,-,-,-,-,-,-,-,-,-,-,-,-,-,-
 RetroTimer,board_team_team_archived,-,-,-,-,-,-,-,-,-,-,-,-,-,-
 RetroTimer,board_quick_deleted,-,-,-,-,-,-,-,-,-,-,-,-,-,-
@@ -198,6 +198,10 @@ TeamManageMembers,team,-,-,-,-,-,-,Y,Y,-,-,-,-,-,-
 TeamManageMembers,team_jira,-,-,-,-,-,-,Y,Y,-,-,-,-,-,-
 TeamManageMembers,team_jira_admins,-,-,-,-,-,-,Y,Y,-,-,-,-,-,-
 TeamManageMembers,team_deleted,-,-,-,-,-,-,-,-,-,-,-,-,-,-
+TeamManageAdmins,team,-,-,-,-,-,-,-,Y,-,-,-,-,-,-
+TeamManageAdmins,team_jira,-,-,-,-,-,-,-,Y,-,-,-,-,-,-
+TeamManageAdmins,team_jira_admins,-,-,-,-,-,-,-,Y,-,-,-,-,-,-
+TeamManageAdmins,team_deleted,-,-,-,-,-,-,-,-,-,-,-,-,-,-
 TeamManageSettings,team,-,-,-,-,-,-,Y,Y,-,-,-,-,-,-
 TeamManageSettings,team_jira,-,-,-,-,-,-,Y,Y,-,-,-,-,-,-
 TeamManageSettings,team_jira_admins,-,-,-,-,-,-,Y,Y,-,-,-,-,-,-

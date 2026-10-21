@@ -113,6 +113,9 @@ public sealed record RetroEndorsementAdded(EndorsementInfo Endorsement, bool? Ce
 
 public sealed record RetroEndorsementRemoved(EndorsementId EndorsementId) : WireEvent;
 
+/// <summary>The board team's whole roster (team members only), so a folded member view matches a fresh snapshot.</summary>
+public sealed record RetroMembers(IReadOnlyList<MemberInfo> Members) : WireEvent;
+
 public sealed record TeamActionAdded(ActionItemInfo Item) : WireEvent;
 
 public sealed record TeamActionUpdated(ActionItemInfo Item) : WireEvent;

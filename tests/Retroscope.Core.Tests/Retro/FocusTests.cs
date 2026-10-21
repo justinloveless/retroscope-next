@@ -8,6 +8,20 @@ namespace Retroscope.Core.Tests.Retro;
 [Trait("Category", "Retro")]
 public sealed class FocusTests {
     [Fact]
+    public void On_team_boards_only_members_move_the_focus() {
+        foreach (var visibility in new[] { BoardVisibility.Link, BoardVisibility.Password }) {
+            var fx = new RetroFixture(team: true);
+            fx.State.Visibility = visibility;
+            var card = fx.AddCard(Carol, Good);
+            fx.EnableStages(RetroStage.Discussing);
+
+            fx.Rejects(Carol, new RetroFocusSet(card, null), NackCode.Forbidden);
+            fx.Rejects(Gus, new RetroFocusSet(card, null), NackCode.Forbidden);
+            fx.Do(Bob, new RetroFocusSet(card, null));
+        }
+    }
+
+    [Fact]
     public void Any_participant_moves_the_focus_with_compare_and_set() {
         var fx = new RetroFixture();
         fx.EnableStages(RetroStage.Discussing);

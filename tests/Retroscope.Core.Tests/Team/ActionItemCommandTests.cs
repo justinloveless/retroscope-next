@@ -1,3 +1,4 @@
+using Retroscope.Core.Ids;
 using Retroscope.Core.Protocol;
 using Retroscope.Core.Room;
 using Retroscope.Core.Team;
@@ -121,5 +122,22 @@ public sealed class ActionItemCommandTests {
         _team.Run(TeamInput.From(new TeamActionDelete(_team.Item.Id)), _team.Admin);
 
         Assert.Empty(_team.State.ActionItems);
+    }
+
+    [Fact]
+    public void Applying_any_event_prunes_items_closed_more_than_30_days_ago() {
+        var day = TimeSpan.FromDays(1).TotalMilliseconds;
+        var now = TeamFixture.Now.ToUnixTimeMilliseconds();
+        var stale = TeamFixture.NewItem(new CardId(Guid.CreateVersion7())) with { DoneAt = now - (long)(31 * day) };
+        var recent = TeamFixture.NewItem(new CardId(Guid.CreateVersion7())) with { DoneAt = now - (long)(29 * day) };
+        _team.State.ActionItems[stale.Id] = stale;
+        _team.State.ActionItems[recent.Id] = recent;
+
+        _team.Run(new TeamInput.BoardsChanged(new BoardId(Guid.CreateVersion7())));
+
+        Assert.Equal(
+            new HashSet<ActionItemId> { _team.Item.Id, recent.Id },
+            _team.State.ActionItems.Keys.ToHashSet());
+        Assert.Null(_team.State.FindBySourceCard(stale.SourceCardId!.Value));
     }
 }

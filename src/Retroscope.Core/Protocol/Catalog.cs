@@ -155,6 +155,7 @@ public static class Catalog {
         Ev("retro.endorsement.added", RoomScope.Board, Json.RetroEndorsementAdded,
             "An endorsement (team members only)."),
         Ev("retro.endorsement.removed", RoomScope.Board, Json.RetroEndorsementRemoved, "An endorsement was withdrawn."),
+        Ev("retro.members", RoomScope.Board, Json.RetroMembers, "The team's members with roles (team members only)."),
 
         Ev("team.action.added", RoomScope.Team, Json.TeamActionAdded, "A new action item."),
         Ev("team.action.updated", RoomScope.Team, Json.TeamActionUpdated, "An action item's new state."),

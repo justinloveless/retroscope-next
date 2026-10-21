@@ -29,7 +29,10 @@ public sealed partial class RetroDecider(IAnonTagger tagger) : IRoomDomain<Retro
             RetroInput.TeamSettingsChanged settings => settings.MaxEndorsements == state.MaxEndorsements
                 ? NoOp
                 : Accept(new MaxEndorsementsChanged(settings.MaxEndorsements)),
-            RetroInput.MembersChanged members => Accept(new MembersReplaced(members.Members)),
+            RetroInput.MembersChanged members => members.Members.SequenceEqual(state.Members)
+                ? NoOp
+                : Accept(new MembersReplaced(members.Members)),
+            RetroInput.ActionItemCommentAdd comment => AddActionItemComment(state, comment, context),
             RetroInput.ArchiveSet archive => archive.Archived == state.Archived
                 ? NoOp
                 : Accept(new ArchivedChanged(archive.Archived, archive.By, context.Now)),
@@ -76,15 +79,15 @@ public sealed partial class RetroDecider(IAnonTagger tagger) : IRoomDomain<Retro
             RetroBoardRename c => Rename(state, c, who, access),
             RetroConfigUpdate c => UpdateConfig(state, c, who, access),
             RetroStageSet c => SetStage(state, c, who, context),
-            RetroReadySet c => SetReady(state, c, who),
-            RetroFocusSet c => SetFocus(state, c),
+            RetroReadySet c => SetReady(state, c, who, access),
+            RetroFocusSet c => SetFocus(state, c, who, access),
             RetroTimerStart c => RunTimer(state, who, access, () => TimerRules.Start(state.Timer, c.From, c.DurationMs, c.Alarm, c.Music, context.Now)),
             RetroTimerPause c => RunTimer(state, who, access, () => TimerRules.Pause(state.Timer, c.From, context.Now)),
             RetroTimerResume c => RunTimer(state, who, access, () => TimerRules.Resume(state.Timer, c.From, context.Now)),
             RetroTimerReset c => RunTimer(state, who, access, () => TimerRules.Reset(state.Timer, c.From)),
             RetroTimerSetFlags c => RunTimer(state, who, access, () => TimerRules.SetFlags(state.Timer, c.Alarm, c.Music)),
             RetroEndorseGive c => GiveEndorsement(state, c, who, context),
-            RetroEndorseRevoke c => RevokeEndorsement(state, c, who),
+            RetroEndorseRevoke c => RevokeEndorsement(state, c, who, access),
             _ => Reject(NackCode.Invalid, $"{command.GetType().Name} is not a board command."),
         };
     }

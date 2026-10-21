@@ -116,7 +116,8 @@ internal sealed class ClientDecider(PokerState state, Viewer viewer, CommandCont
             return Reject(NackCode.NotHolder, "Only the spotlight holder can preview a pending round.");
         }
         var changes = new PokerChanges(state);
-        if (command.ForceNew != true && FillPlaceholder(changes, ticket)) {
+        // A preview must never write its key onto the shared committed round.
+        if (!pending && command.ForceNew != true && FillPlaceholder(changes, ticket)) {
             return changes.ToDecision();
         }
         AddRound(changes, command.RoundId, ticket, pending);
@@ -457,6 +458,12 @@ internal sealed class ClientDecider(PokerState state, Viewer viewer, CommandCont
     }
 
     public Decision<PokerEvent> SubmitJiraPoints(PokerJiraSubmitPoints command) {
+        // The policy also denies an unconfigured Jira; asking as if it were configured lets a caller who may
+        // submit hear jira_not_configured, and everyone else forbidden.
+        var configured = Facts(state, viewer) with { JiraConfigured = true };
+        if (!can(viewer.Who, Capability.PokerSubmitJiraPoints, configured, context.Access)) {
+            return Reject(NackCode.Forbidden, "Not allowed.");
+        }
         if (state.TeamId is null || !state.Jira.Configured) {
             return Reject(NackCode.JiraNotConfigured, "This session's team has no Jira configured.");
         }

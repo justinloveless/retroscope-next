@@ -141,6 +141,33 @@ public sealed partial class RetroDecider {
             images));
     }
 
+    /// <summary>
+    /// The team page comments on action items long after their board moved on, so neither the stage gate nor the
+    /// archive applies. The caller must still be a member of the board's team, and the comment is never anonymous.
+    /// </summary>
+    private Decision<RetroEvent> AddActionItemComment(RetroState state, RetroInput.ActionItemCommentAdd command, CommandContext context) {
+        if (context.Viewer is not { Who: var who } || !RetroRoles.IsMember(state, who, context.Access)) {
+            return Reject(NackCode.Forbidden, "Team members only.");
+        }
+        if (state.Comments.ContainsKey(command.CommentId)) {
+            return Reject(NackCode.Invalid, "The comment id is taken.");
+        }
+        if (!state.Cards.ContainsKey(command.CardId)) {
+            return Reject(NackCode.NotFound, "No such card.");
+        }
+        if (CheckBody(state, command.Body, MarkupField.Comment, context.Access, out var mentions, out var images) is { } rejection) {
+            return rejection;
+        }
+        return Accept(new CommentAdded(
+            command.CommentId,
+            command.CardId,
+            command.Body,
+            AuthorshipOf(state, who, anonymous: false),
+            context.Now,
+            mentions,
+            images));
+    }
+
     private Decision<RetroEvent> DeleteComment(RetroState state, RetroCommentDelete command, Principal who) {
         if (!state.Comments.TryGetValue(command.CommentId, out var comment)) {
             return Reject(NackCode.NotFound, "No such comment.");

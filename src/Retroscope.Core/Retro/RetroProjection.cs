@@ -132,6 +132,9 @@ public sealed class RetroProjection(IAnonTagger tagger) {
             case MaxEndorsementsChanged e when roster:
                 wire.Add(new TeamSettingsChanged(MaxEndorsements: e.MaxEndorsements));
                 break;
+            case MembersReplaced when roster:
+                wire.Add(new RetroMembers(state.Members.ToList()));
+                break;
             case EndorsementAdded or EndorsementRemoved or MaxEndorsementsChanged or MembersReplaced:
                 break;
             default:

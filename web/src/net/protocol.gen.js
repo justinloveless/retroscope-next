@@ -93,6 +93,7 @@ export const EVENTS = Object.freeze({
   'retro.timer': Object.freeze({ rooms: ['board'], fields: ['state', 'durationMs', 'alarm', 'music', 'endsAt', 'remainingMs', 'expired'] }),
   'retro.endorsement.added': Object.freeze({ rooms: ['board'], fields: ['endorsement', 'celebrate'] }),
   'retro.endorsement.removed': Object.freeze({ rooms: ['board'], fields: ['endorsementId'] }),
+  'retro.members': Object.freeze({ rooms: ['board'], fields: ['members'] }),
   'team.action.added': Object.freeze({ rooms: ['team'], fields: ['item'] }),
   'team.action.updated': Object.freeze({ rooms: ['team'], fields: ['item'] }),
   'team.action.text': Object.freeze({ rooms: ['team'], fields: ['itemId', 'text', 'sourceVersion'] }),
