@@ -251,6 +251,76 @@ test('commands sent during a retry backoff queue behind the retried one', () => 
   assert.ok(wire.every(([q], i) => i === 0 || q > wire[i - 1][0]), 'q strictly increases on the wire');
 });
 
+const vote = (points) => ({ roundId: 'r1', points });
+const edit = (body) => ({ cardId: 'c1', body, baseVersion: 1 });
+
+test('vote 3 then 5: a retryable nack on 3 never resends it over 5', () => {
+  const { room, net, timers, nacks } = setup();
+  snap(room);
+  room.send('poker.vote.set', vote('3'));
+  room.send('poker.vote.set', vote('5'));
+  room.handle({ t: 'nack', r: ROOM, q: 1, code: 'rate_limited', retry: true });
+  room.handle({ t: 'ack', r: ROOM, q: 2, s: 11 });
+  timers.advance(10_000);
+  room.handle({ t: 'replay', r: ROOM, e: EPOCH, from: 11, lastQ: 2, txs: [] });
+  assert.deepEqual(net.cmds().map((f) => [f.q, f.d.points]), [[1, '3'], [2, '5']]);
+  assert.equal(room.pending().length, 0);
+  assert.deepEqual(nacks, []);
+});
+
+test('a retry waiting out its backoff is dropped once a newer intent for its target is sent', () => {
+  const { room, net, timers, nacks } = setup();
+  snap(room);
+  room.send('retro.card.edit', edit('first'));
+  room.handle({ t: 'nack', r: ROOM, q: 1, code: 'server_busy', retry: true });
+  room.send('retro.card.edit', edit('second'));
+  timers.advance(250);
+  assert.deepEqual(net.cmds().map((f) => [f.q, f.d.body]), [[1, 'first'], [3, 'second']]);
+  assert.deepEqual(room.pending().map((e) => e.d.body), ['second']);
+  assert.deepEqual(nacks, []);
+});
+
+test('edit then edit: a retryable nack on the first drops it while the second is in flight', () => {
+  const { room, net, timers } = setup();
+  snap(room);
+  room.send('retro.card.edit', edit('first'));
+  room.send('retro.card.edit', edit('second'));
+  room.handle({ t: 'nack', r: ROOM, q: 1, code: 'server_busy', retry: true });
+  assert.deepEqual(room.pending().map((e) => e.d.body), ['second']);
+  timers.advance(10_000);
+  assert.deepEqual(net.cmds().map((f) => f.d.body), ['first', 'second']);
+});
+
+test('a superseded retry is still dropped after a reload', () => {
+  const storage = memoryStorage();
+  const first = setup({ storage });
+  snap(first.room);
+  first.room.send('poker.vote.set', vote('3'));
+  first.room.handle({ t: 'nack', r: ROOM, q: 1, code: 'rate_limited', retry: true });
+  first.room.send('poker.vote.set', vote('5'));
+
+  const reloaded = setup({ storage });
+  snap(reloaded.room, { lastQ: 1 });
+  assert.deepEqual(reloaded.net.cmds().map((f) => [f.q, f.d.points]), [[3, '5']]);
+  assert.deepEqual(reloaded.room.pending().map((e) => e.d.points), ['5']);
+});
+
+test('other targets and creates still retry', () => {
+  const { room, net, timers } = setup();
+  snap(room);
+  room.send('poker.vote.set', vote('3'));
+  room.send('poker.vote.set', { roundId: 'r2', points: '5' });
+  room.send('retro.card.add', add('x'));
+  room.send('retro.card.add', add('x'));
+  for (const q of [1, 3]) {
+    room.handle({ t: 'nack', r: ROOM, q, code: 'rate_limited', retry: true });
+  }
+  room.handle({ t: 'ack', r: ROOM, q: 2, s: 11 });
+  room.handle({ t: 'ack', r: ROOM, q: 4, s: 11 });
+  timers.advance(10_000);
+  assert.deepEqual(net.cmds().slice(4).map((f) => [f.k, f.d.points ?? f.d.body]), [['poker.vote.set', '3'], ['retro.card.add', 'x']]);
+});
+
 test('a retryable nack resends at the next snap or replay without waiting', () => {
   const { room, net } = setup();
   snap(room);
