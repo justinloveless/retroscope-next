@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Npgsql;
 using Retroscope.Core.Ids;
 using Retroscope.Core.Room;
 using Retroscope.Core.Security;
@@ -32,6 +33,30 @@ public static class AuthEndpoints {
 
     public static readonly RateLimit Logout = RateLimit.Define(
         "auth.logout", RateRule.PerIp(60, TimeSpan.FromMinutes(1)), RateRule.PerPrincipal(30, TimeSpan.FromMinutes(1)));
+
+    // One statement for both outcomes: it creates the principal and the user when the address is free and returns the
+    // owner's id when it is taken. Both outcomes write an audit row, so both commit a write and wait for the same WAL
+    // flush: a read-only taken path answered measurably faster (no account oracle).
+    private const string SignupSql = """
+        with taken as (
+          select id from users where email = $2
+        ), principal as (
+          insert into principals (id, kind, created_at)
+          select $1, 'user', $5 where not exists (select 1 from taken)
+          returning id
+        ), created as (
+          insert into users (id, email, email_verified_at, password_hash, full_name, mentions_seen_at, created_at, updated_at)
+          select id, $2, null, $3, $4, $5, $5, $5 from principal
+          returning id
+        ), audited as (
+          insert into audit_log (at, actor_id, action, target, meta)
+          select $5, (select id from created),
+                 case when exists (select 1 from created) then 'auth.signup' else 'auth.signup.taken' end,
+                 coalesce((select id from created), (select id from taken))::text,
+                 jsonb_build_object('email_hmac', $6::text, 'ip', $7::text)
+        )
+        select (select id from created), (select id from taken)
+        """;
 
     public static void AddServices(IServiceCollection services, IConfiguration configuration) {
         services.TryAddSingleton(_ => Keyring.Parse(
@@ -78,13 +103,15 @@ public static class AuthEndpoints {
     }
 
     // Always 202 (no account oracle): an existing address gets a "you already have an account" mail instead. The
-    // password is hashed either way, so both paths cost the same.
+    // password is hashed and the signup statement runs either way, so both paths cost the same.
     private static async Task<IResult> SignupAsync(
         SignupRequest body,
         HttpContext context,
+        NpgsqlDataSource dataSource,
         UsersRepo users,
         HashGate gate,
         IAccountMail mail,
+        AuthAudit audit,
         TimeProvider time) {
         var fields = new Dictionary<string, string>();
         var email = NormalizeEmail(body.Email);
@@ -109,12 +136,48 @@ public static class AuthEndpoints {
         }
         var ip = ClientIp.Of(context);
         var id = new PrincipalId(Guid.CreateVersion7());
-        if (await users.CreateAsync(id, email!, hashed.Value, fullName, emailVerifiedAt: null, time.GetUtcNow(), cancellationToken)) {
+        var signup = new SignupRow(
+            id,
+            email!,
+            hashed.Value,
+            fullName,
+            time.GetUtcNow(),
+            audit.EmailHmac(email!),
+            ClientIp.AuditPrefix(ip));
+        var (created, existing) = await CreateOrFindAsync(dataSource, users, signup, cancellationToken);
+        if (created) {
             await mail.SignedUpAsync(id, email!, ip, cancellationToken);
-        } else if (await users.FindIdAsync(email!, cancellationToken) is { } existing) {
-            await mail.AlreadyRegisteredAsync(existing, email!, ip, cancellationToken);
+        } else if (existing is { } owner) {
+            await mail.AlreadyRegisteredAsync(owner, email!, ip, cancellationToken);
         }
         return Results.StatusCode(StatusCodes.Status202Accepted);
+    }
+
+    /// <returns>Whether the user was created, else the id of the account that holds the address.</returns>
+    private static async Task<(bool Created, PrincipalId? Existing)> CreateOrFindAsync(
+        NpgsqlDataSource dataSource,
+        UsersRepo users,
+        SignupRow signup,
+        CancellationToken cancellationToken) {
+        await using var command = dataSource.CreateCommand(SignupSql);
+        command.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = signup.Id.Value });
+        command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = signup.Email });
+        command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = signup.PasswordHash });
+        command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = signup.FullName });
+        command.Parameters.Add(new NpgsqlParameter<DateTimeOffset> { TypedValue = signup.Now });
+        command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = signup.EmailHmac });
+        command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = signup.IpPrefix });
+        try {
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            await reader.ReadAsync(cancellationToken);
+            if (!reader.IsDBNull(0)) {
+                return (true, null);
+            }
+            return (false, reader.IsDBNull(1) ? null : new PrincipalId(reader.GetGuid(1)));
+        } catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation && e.ConstraintName == "users_email_uq") {
+            // A concurrent signup took the address between the lookup and the insert; only that race pays the lookup.
+            return (false, await users.FindIdAsync(signup.Email, cancellationToken));
+        }
     }
 
     // §e: the password is compared as raw UTF-8 with no policy (imported 6-character passwords work) and is never
@@ -193,4 +256,13 @@ public static class AuthEndpoints {
         Sessions.ClearCookie(context.Response);
         return Results.NoContent();
     }
+
+    private sealed record SignupRow(
+        PrincipalId Id,
+        string Email,
+        string PasswordHash,
+        string FullName,
+        DateTimeOffset Now,
+        string EmailHmac,
+        string IpPrefix);
 }
