@@ -38,14 +38,21 @@ async function makeDist() {
     await writeFile(join(dir, path), text);
     meta[path] = { size: Buffer.byteLength(text), etag: `"${createHash('sha256').update(text).digest('hex').slice(0, 16)}"`, br: null, gz: null };
   }
+  const root = { '/favicon.ico': 'ICO', '/manifest.webmanifest': '{"name":"Retroscope"}', '/robots.txt': 'User-agent: *\n' };
+  const publicFiles = {};
+  for (const [path, text] of Object.entries(root)) {
+    await writeFile(join(dir, path), text);
+    publicFiles[path] = { size: Buffer.byteLength(text), etag: `"${path.slice(1)}"`, br: null, gz: null };
+  }
   const manifest = {
     entry: ['/assets/entry-TEST.js', '/assets/chunks/shared-TEST.js'],
     css: ['/assets/kit-TEST.css'],
     routes: { '/poker/:code': ['/assets/chunks/poker-TEST.js', '/assets/chunks/shared-TEST.js'] },
     routeCss: { '/poker/:code': ['/assets/neotro-TEST.css'] },
     styles: {},
-    assets: {},
+    assets: { 'logo.svg': '/assets/static/logo-TEST.svg' },
     files: meta,
+    public: publicFiles,
   };
   const hash = `sha256-${createHash('sha256').update(THEME).digest('base64')}`;
   await writeFile(join(dir, 'manifest.json'), JSON.stringify(manifest));
@@ -204,6 +211,25 @@ describe('HTTP', () => {
     assert.equal(missing.status, 404);
     assert.equal(missing.headers.get('content-type'), 'application/problem+json');
     assert.equal((await missing.json()).code, 'not_found');
+  });
+
+  test('serves the root files with a day of caching and ETag revalidation, and links them from the shell', async () => {
+    const types = { '/favicon.ico': 'image/x-icon', '/manifest.webmanifest': 'application/manifest+json', '/robots.txt': 'text/plain; charset=utf-8' };
+    for (const [path, type] of Object.entries(types)) {
+      const response = await fetch(`${fake.url}${path}`);
+      assert.equal(response.status, 200, path);
+      assert.equal(response.headers.get('content-type'), type);
+      assert.equal(response.headers.get('cache-control'), 'public, max-age=86400');
+      const etag = response.headers.get('etag');
+      assert.equal(etag, `"${path.slice(1)}"`);
+      assert.equal((await fetch(`${fake.url}${path}`, { headers: { 'If-None-Match': etag } })).status, 304);
+    }
+    assert.equal(await (await fetch(`${fake.url}/robots.txt`)).text(), 'User-agent: *\n');
+    const html = await (await fetch(`${fake.url}/poker/ABC`)).text();
+    for (const link of ['<meta name="theme-color" content="#111827">', '<link rel="icon" href="/favicon.ico" sizes="48x48">',
+      '<link rel="icon" href="/assets/static/logo-TEST.svg" type="image/svg+xml">', '<link rel="manifest" href="/manifest.webmanifest">']) {
+      assert.ok(html.includes(link), link);
+    }
   });
 
   test('fixture routes take params, functions and override earlier ones; requests are recorded', async () => {
