@@ -73,7 +73,7 @@ internal static class PolicyRules {
                 or Capability.TeamManageMembers
                 or Capability.TeamManageSettings
                 or Capability.JiraConfigure => s.IsTeamAdmin,
-            Capability.TeamDelete => s.Role == TeamRole.Owner,
+            Capability.TeamManageAdmins or Capability.TeamDelete => s.Role == TeamRole.Owner,
             Capability.JiraEditIssues => s.CanEditJira,
             _ => false,
         };

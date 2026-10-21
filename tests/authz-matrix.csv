@@ -198,6 +198,10 @@ TeamManageMembers,team,-,-,-,-,-,-,Y,Y,-,-,-,-,-,-
 TeamManageMembers,team_jira,-,-,-,-,-,-,Y,Y,-,-,-,-,-,-
 TeamManageMembers,team_jira_admins,-,-,-,-,-,-,Y,Y,-,-,-,-,-,-
 TeamManageMembers,team_deleted,-,-,-,-,-,-,-,-,-,-,-,-,-,-
+TeamManageAdmins,team,-,-,-,-,-,-,-,Y,-,-,-,-,-,-
+TeamManageAdmins,team_jira,-,-,-,-,-,-,-,Y,-,-,-,-,-,-
+TeamManageAdmins,team_jira_admins,-,-,-,-,-,-,-,Y,-,-,-,-,-,-
+TeamManageAdmins,team_deleted,-,-,-,-,-,-,-,-,-,-,-,-,-,-
 TeamManageSettings,team,-,-,-,-,-,-,Y,Y,-,-,-,-,-,-
 TeamManageSettings,team_jira,-,-,-,-,-,-,Y,Y,-,-,-,-,-,-
 TeamManageSettings,team_jira_admins,-,-,-,-,-,-,Y,Y,-,-,-,-,-,-
