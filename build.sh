@@ -105,7 +105,7 @@ cmd_test() {
   dotnet test --solution Retroscope.slnx --no-build
 
   log "simulation (PR seeds)"
-  dotnet run --no-build --project tests/Retroscope.Sim -- --seeds 2000
+  dotnet run --no-build --project tests/Retroscope.Sim -- --seeds 2000 --strict
 
   local web_tests=() dir file
   for dir in tests/web-unit tests/web-fake-server; do
