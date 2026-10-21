@@ -257,8 +257,8 @@ public static class RetroEndpoints {
     }
 
     /// <summary>
-    /// §d: a soft delete. The board has no deletion input yet (U22 follow-up), so a board nobody is subscribed to is
-    /// retired at once; live subscribers keep it until a deletion input lets the actor kick them (see U25 decisions).
+    /// §d: a soft delete, then Ask → the board kicks every subscriber (<c>deleted</c>) and the actor is retired, so the
+    /// next subscribe loads the board as missing.
     /// </summary>
     private static async Task<IResult> DeleteAsync(
         HttpContext context,
@@ -281,7 +281,10 @@ public static class RetroEndpoints {
         if (!await repo.SoftDeleteAsync(boardId, cancellationToken)) {
             return Problem.Result(StatusCodes.Status404NotFound, "not_found");
         }
-        await registry.TryPurgeAsync(RoomKey.Board(boardId), _ => Task.CompletedTask, cancellationToken);
+        var room = RoomKey.Board(boardId);
+        // The row is gone either way: a board that could not be told loads as missing when it next starts.
+        await registry.AskAsync<RetroState, RetroInput>(room, new RetroInput.Delete(), HttpViewer.Of(who), cancellationToken);
+        await registry.TryPurgeAsync(room, _ => Task.CompletedTask, cancellationToken);
         if (board.Facts.Team is { } team) {
             context.RequestServices.GetService<ITeamNotices>()?.BoardsChanged(team, boardId);
         }
