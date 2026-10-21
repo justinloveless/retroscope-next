@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { brotliDecompressSync } from 'node:zlib';
+import { brotliDecompressSync, inflateSync } from 'node:zlib';
 import {
-  CARD_FRAMES, CARD_GUTTER, CARD_HEIGHT, CARD_WIDTH, ICONS, decodePng, encodePng, packCards,
+  CARD_FRAMES, CARD_GUTTER, CARD_HEIGHT, CARD_WIDTH, ICONS, decodePng, filterScanlines, packCards, pngHeader,
+  readPngChunks,
 } from '../../tools/make-sprite.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -152,9 +153,13 @@ test('each sprite frame holds exactly its source card and the gutters are transp
   }
 });
 
+// Compares the data before deflate: the compressed bytes depend on the zlib build bundled with Node.
 test('the committed sprite is what make-sprite produces from the source frames', () => {
   const frames = CARD_FRAMES.map((name) => ({ name, image: decodePng(read(join('cards', `${name}.png`))) }));
-  assert.ok(encodePng(packCards(frames).image).equals(read('cards.png')));
+  const { image } = packCards(frames);
+  const { header, idat } = readPngChunks(read('cards.png'));
+  assert.ok(header.equals(pngHeader(image)), 'IHDR');
+  assert.ok(inflateSync(idat).equals(filterScanlines(image)), 'filtered scanlines');
 });
 
 test('cards.png stays near its budget', () => {
