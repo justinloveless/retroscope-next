@@ -49,6 +49,16 @@ public static class TeamApply {
             default:
                 throw new ArgumentOutOfRangeException(nameof(evt), evt.GetType().Name, "Unknown team event.");
         }
+        PruneClosed(state, evt.At);
+    }
+
+    /// <summary>Items closed before the snapshot window leave the live state too, as they would on a reload.</summary>
+    private static void PruneClosed(TeamState state, DateTimeOffset now) {
+        // Millisecond arithmetic: an event built outside the decider carries the default time, which would underflow.
+        var closedSince = now.ToUnixTimeMilliseconds() - (long)TeamProjection.ClosedItemWindow.TotalMilliseconds;
+        foreach (var item in state.ActionItems.Values.Where(x => x.DoneAt < closedSince).ToList()) {
+            state.ActionItems.Remove(item.Id);
+        }
     }
 
     private static void Update(TeamState state, ActionItemId id, Func<ActionItemInfo, ActionItemInfo> change) {

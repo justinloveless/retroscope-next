@@ -10,6 +10,10 @@ public sealed class TeamDecider : IRoomDomain<TeamState, TeamInput, TeamEvent> {
     public static readonly TeamDecider Instance = new();
 
     public Decision<TeamEvent> Decide(TeamState state, TeamInput input, CommandContext context) {
+        return Stamped(DecideInput(state, input, context), context.Now);
+    }
+
+    private static Decision<TeamEvent> DecideInput(TeamState state, TeamInput input, CommandContext context) {
         return input switch {
             TeamInput.Client client => DecideClient(state, client.Command, context),
             TeamInput.ActionItemCreated created => Created(state, created.Item),
@@ -153,6 +157,12 @@ public sealed class TeamDecider : IRoomDomain<TeamState, TeamInput, TeamEvent> {
 
     private static bool SameEntries(IReadOnlyDictionary<string, string> a, IReadOnlyDictionary<string, string> b) {
         return a.Count == b.Count && a.All(x => b.TryGetValue(x.Key, out var value) && string.Equals(value, x.Value, StringComparison.Ordinal));
+    }
+
+    private static Decision<TeamEvent> Stamped(Decision<TeamEvent> decision, DateTimeOffset now) {
+        return decision is Decision<TeamEvent>.Accept accept
+            ? new Decision<TeamEvent>.Accept(accept.Events.Select(x => x with { At = now }).ToList())
+            : decision;
     }
 
     private static Decision<TeamEvent> Accept(TeamEvent evt) => new Decision<TeamEvent>.Accept([evt]);

@@ -12,6 +12,9 @@ public abstract record TeamEvent {
     private protected TeamEvent() {
     }
 
+    /// <summary>When the decision was made; <see cref="TeamApply"/> prunes closed items against it.</summary>
+    public DateTimeOffset At { get; init; }
+
     /// <summary>Changes <c>assigned_to</c> only.</summary>
     public sealed record ActionItemAssigned(ActionItemInfo Item) : TeamEvent;
 
