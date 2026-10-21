@@ -29,7 +29,7 @@ public static class HostingModule {
             options.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(2);
         });
         Forwarded.AddServices(services);
-        RequestLog.AddServices(services, configuration);
+        RequestLog.AddLogging(services, configuration);
     }
 
     // Order (§a): request log → forwarded headers → security headers → static files → CSRF → rate limits → WebSockets. Errors are

@@ -17,7 +17,7 @@ public static partial class RequestLog {
     public const string FrameworkCategory = "Microsoft.AspNetCore";
     public const string RedactedInvitePath = "/invite/[redacted]";
 
-    public static void AddServices(IServiceCollection services, IConfiguration configuration) {
+    public static void AddLogging(IServiceCollection services, IConfiguration configuration) {
         services.AddLogging(logging => logging.AddFilter(FrameworkCategory, LogLevel.Warning));
         var formatter = configuration["Logging:Console:FormatterName"];
         services.AddOptions<ConsoleLoggerOptions>().PostConfigure<IHostEnvironment>((options, environment) =>
