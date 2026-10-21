@@ -33,7 +33,14 @@ const CONTENT_TYPES = {
   '.woff2': 'font/woff2',
   '.mp3': 'audio/mpeg',
   '.map': 'application/json; charset=utf-8',
+  '.ico': 'image/x-icon',
+  '.webmanifest': 'application/manifest+json',
+  '.txt': 'text/plain; charset=utf-8',
 };
+
+// Root files (favicon, web manifest, robots.txt) are the manifest's `public` map, cached for a day and
+// revalidated by ETag, as the real server's StaticAssets serves them.
+const ROOT_CACHE = 'public, max-age=86400';
 
 export function newEpoch() {
   return randomBytes(8).toString('hex');
@@ -242,6 +249,10 @@ export class FakeServer extends EventEmitter {
         await this.serveFile(res, url.pathname, req.method === 'HEAD');
         return;
       }
+      if (Object.hasOwn(this.dist.manifest.public ?? {}, url.pathname)) {
+        await this.serveRootFile(req, res, url.pathname);
+        return;
+      }
       const route = shellRoute(url.pathname);
       if (route) {
         const html = renderShell(this.dist, route, this.bootFor(url.pathname + url.search, req));
@@ -264,6 +275,19 @@ export class FakeServer extends EventEmitter {
       ETag: etag,
     });
     res.end(headOnly ? null : bytes);
+  }
+
+  async serveRootFile(req, res, publicPath) {
+    const { etag } = this.dist.manifest.public[publicPath];
+    const headers = { 'Cache-Control': ROOT_CACHE, ETag: etag, 'X-Content-Type-Options': 'nosniff' };
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, headers);
+      res.end();
+      return;
+    }
+    const bytes = await readFile(join(this.dist.dir, publicPath));
+    res.writeHead(200, { ...headers, 'Content-Type': CONTENT_TYPES[extname(publicPath)] ?? 'application/octet-stream', 'Content-Length': bytes.length });
+    res.end(req.method === 'HEAD' ? null : bytes);
   }
 
   // ---- WebSocket: rooms and scripting ------------------------------------------------------------
@@ -383,6 +407,14 @@ export class FakeServer extends EventEmitter {
   async waitForConnection({ timeout = 5000, hello = true } = {}) {
     const ready = () => this.liveConnections().find((c) => !hello || c.cid !== null);
     return waitFor(this, hello ? 'hello' : 'connection', ready, timeout, 'a WebSocket connection');
+  }
+
+  // Resolves with the live connection subscribed to `key` once its snap or replay was sent. Pages join
+  // rooms on the tab's socket after its hello, so a spec that scripts a room waits for this rather than
+  // for the connection.
+  async waitForSubscription(key, { timeout = 5000 } = {}) {
+    const ready = () => [...(this.rooms.get(key)?.subscribers ?? [])].find((c) => c.open);
+    return waitFor(this, 'subscribe', ready, timeout, `a subscription to ${key}`);
   }
 
   // Resolves with the first received client frame matching `predicate(frame, conn)` (already received

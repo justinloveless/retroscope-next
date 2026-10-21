@@ -59,6 +59,7 @@ const client = await TestClient.connect(fake);   // a protocol client for node -
 | `fake.replayTranscript(pathOrObject, {step})` | Replays a golden transcript to whoever subscribes to its room. With `step:true`, `player.next(n)` and `player.rest()` release the frames |
 | `fake.connections`, `fake.received`, `fake.violations` | Connections; every client frame `{conn, frame}`; client frames the protocol refused |
 | `fake.waitForConnection()`, `fake.waitForFrame(pred, {after, timeout})` | Waits for a hello'd connection or a matching client frame |
+| `fake.waitForSubscription(roomKey)` | Waits until a live connection holds the room (its snap or replay was sent); pages join rooms after the tab socket's hello |
 
 `sub` answers the way the real server does: the current `{e, s}` gets an empty replay, an older `s` in the
 same epoch gets the missed txs, and anything else gets a snapshot. `lastQ` is the highest acked `q` of
