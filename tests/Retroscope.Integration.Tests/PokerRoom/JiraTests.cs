@@ -73,6 +73,46 @@ public sealed class JiraTests(PostgresFixture postgres) {
     }
 
     [Fact]
+    public async Task Rounds_set_to_an_already_fetched_key_get_its_parent_back_without_a_new_fetch() {
+        var jira = new FakeJiraPort();
+        jira.Issues["RS-1"] = new JiraMeta("RS-1", "Pay with a card", "Story", "To Do", "RS-100", "Payments");
+        jira.Issues["RS-2"] = new JiraMeta("RS-2", "Refunds", "Bug", "Done");
+        await using var scope = await PokerScope.CreateAsync(postgres, jira);
+        var alice = await scope.Seed.UserAsync("Alice");
+        var team = await scope.Seed.TeamAsync((alice, TeamRole.Member));
+        await scope.Seed.JiraAsync(team);
+        var room = await scope.Seed.SessionAsync(alice, team, "RS-1");
+        var r1 = (await scope.Seed.RoundsAsync(room))[0];
+        var host = await scope.StartAsync();
+        await using var a = await host.JoinAsync(alice, room);
+        // The snap is sent before the actor tracks the loaded keys; a query drains the join first.
+        await host.QueryAsync(room, _ => 0);
+        await host.AdvanceAsync(room, PokerJiraLoop.Coalesce);
+        var round = await ParentFilledAsync(a, r1, 0);
+
+        round = Updated(await a.AckedAsync(room, new PokerRoundSetTicket(r1, "RS-2", round.Version)));
+        Assert.Null(round.ParentKey);
+        await host.QueryAsync(room, _ => 0);
+        await host.AdvanceAsync(room, PokerJiraLoop.Coalesce);
+        await a.WaitForAsync<XFrame>(x => x.D is JiraMeta { Key: "RS-2" });
+
+        var from = a.Count;
+        round = Updated(await a.AckedAsync(room, new PokerRoundSetTicket(r1, "RS-1", round.Version)));
+        Assert.Null(round.ParentKey);
+        await ParentFilledAsync(a, r1, from);
+
+        var r2 = new RoundId(Guid.CreateVersion7());
+        from = a.Count;
+        await a.AckedAsync(room, new PokerRoundCreate(r2, "RS-1", ForceNew: true));
+        await ParentFilledAsync(a, r2, from);
+
+        Assert.Equal([["RS-1"], ["RS-2"]], jira.MetaCalls);
+        Assert.Equal(2L, await scope.Seed.ScalarAsync<long>(
+            "select count(*) from poker_rounds where session_id = $1 and parent_key = 'RS-100'", room.Id));
+        await host.AssertPersistedAsync(room);
+    }
+
+    [Fact]
     public async Task Quick_sessions_and_teams_without_jira_never_call_the_port() {
         var jira = new FakeJiraPort();
         await using var scope = await PokerScope.CreateAsync(postgres, jira);
@@ -126,5 +166,16 @@ public sealed class JiraTests(PostgresFixture postgres) {
         var failed = await a.WaitForAsync<TxFrame>(x => x.Ev.Any(e => e is PokerJiraPoints { Status: JiraSubmitStatus.Failed }), from);
         Assert.Equal("jira_forbidden", failed.Ev.OfType<PokerJiraPoints>().Single().Code);
         Assert.Equal(3.5m, await scope.Seed.ScalarAsync<decimal>("select jira_points from poker_rounds where id = $1", r1.Value));
+    }
+
+    private static RoundInfo Updated(IReadOnlyList<WireEvent> events) {
+        return events.OfType<PokerRoundUpdated>().First().Round;
+    }
+
+    private static async Task<RoundInfo> ParentFilledAsync(PokerSocket socket, RoundId round, int from) {
+        var tx = await socket.WaitForAsync<TxFrame>(
+            x => x.Ev.Any(e => e is PokerRoundUpdated { Round.ParentKey: "RS-100" } u && u.Round.Id == round),
+            from);
+        return tx.Ev.OfType<PokerRoundUpdated>().Single(x => x.Round.Id == round).Round;
     }
 }
