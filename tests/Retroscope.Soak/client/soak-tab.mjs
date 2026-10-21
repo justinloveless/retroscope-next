@@ -1,5 +1,5 @@
 // One soak tab: the drill Tab (cid, q, outbox resend, resume) plus what a browser tab also does and what the soak
-// has to observe. It folds every frame through the real client models (web/src/*/model.js), renumbers commands after a
+// has to observe. It folds every frame through the real client models (web/src/*/model.js), resubscribes after a
 // retryable nack, drops ephemeral commands queued for more than 10 s (§c.8), and checks each frame it receives: no
 // other principal's vote values before reveal (§c.4 vote secrecy) and no seq gaps (§c.3).
 import { Tab } from '../../../deploy/drills/tab.mjs';
@@ -29,6 +29,9 @@ export class SoakTab extends Tab {
     this.model = null;
     this.nextIntent = 0;
     this.acks = 0;
+    this.retryTimer = null;
+    this.retryAttempt = 0;
+    this.resubscribing = false;
     this.rejected = [];
     this.dropped = [];
     this.violations = [];
@@ -60,6 +63,7 @@ export class SoakTab extends Tab {
         this.fromSnap(f);
         super.receive(f, settle);
         this.dropStaleEphemeral();
+        this.afterResubscribe();
         return;
       case 'replay':
         if (f.e !== this.e) {
@@ -70,6 +74,7 @@ export class SoakTab extends Tab {
         }
         super.receive(f, settle);
         this.dropStaleEphemeral();
+        this.afterResubscribe();
         return;
       case 'tx':
         this.fold(this.e, f.s, f.ev);
@@ -79,6 +84,7 @@ export class SoakTab extends Tab {
         if (entry) {
           entry.ackS = f.s;
           entry.ackOrder = ++this.acks;
+          this.retryAttempt = 0;
         }
         break;
       }
@@ -101,18 +107,38 @@ export class SoakTab extends Tab {
       this.rejected.push({ intent: entry.intent, k: entry.frame.k, d: entry.frame.d, code: f.code });
       return;
     }
-    // A retryable nack leaves the cursor where it was, but later commands move it on; resending the same q would then be
-    // acked as a duplicate without being applied. So the intent goes out again under a new q, as outbox.js does.
-    this.outbox.delete(f.q);
-    const q = ++this.q;
-    entry.frame = { ...entry.frame, q };
-    this.outbox.set(q, entry);
-    setTimeout(() => {
-      if (this.connected && this.outbox.get(q) === entry) {
-        entry.sentAt = Date.now();
-        this.socket.send(entry.frame);
+    // As room.js does: the entry keeps its q, new commands wait behind it, and after a backoff the room is subscribed
+    // again. The server refuses every later command of the room until that sub, so nothing can commit ahead of the
+    // resend and turn it into a dup; the replay's lastQ settles anything that did commit.
+    if (this.retryTimer !== null) {
+      return;
+    }
+    const socket = this.socket;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      if (this.socket === socket && socket !== null) {
+        this.resubscribing = true;
+        socket.send({ t: 'sub', r: this.room, e: this.e, s: this.s });
       }
-    }, 500 + Math.random() * 1000);
+    }, Math.min(4000, 250 * 2 ** this.retryAttempt++));
+  }
+
+  get connected() {
+    return this.socket !== null && this.ready === null && this.retryTimer === null && !this.resubscribing;
+  }
+
+  resendAll() {
+    this.resubscribing = false;
+    for (const [, entry] of [...this.outbox].sort(([a], [b]) => a - b)) {
+      entry.sentAt = Date.now();
+      this.socket.send(entry.frame);
+    }
+  }
+
+  afterResubscribe() {
+    if (this.resubscribing && this.socket !== null) {
+      this.resendAll();
+    }
   }
 
   dropStaleEphemeral() {
@@ -190,6 +216,9 @@ export class SoakTab extends Tab {
   closed(code, settle) {
     const wasReady = this.ready === null;
     this.socket = null;
+    clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    this.resubscribing = false;
     if (!wasReady) {
       settle.reject(new Error(`closed ${code} before the room arrived`));
       return;
@@ -249,9 +278,9 @@ const sorted = (list, compare) => [...(list ?? [])].sort(compare);
 
 /**
  * `{d, o}` as one string to compare: object members sorted, presence in pid order (the server's order; the board model
- * keeps arrival order) and `heldByThisTab` left out, because it belongs to the tab and not to the room. A board's cards,
- * comments and votes are compared as sets: the server orders cards created in the same millisecond by their stored
- * microseconds, the model by id, and the screens sort cards themselves.
+ * keeps arrival order) and `heldByThisTab` left out, because it belongs to the tab and not to the room. A board's
+ * cards, comments and votes are compared as sets: the server orders cards created in the same millisecond by their
+ * stored microseconds, the model by id, and the screens sort cards themselves.
  */
 export function canonicalView(kind, d, o) {
   const data = { ...d, presence: sorted(d.presence, byPid) };

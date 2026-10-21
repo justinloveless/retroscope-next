@@ -171,6 +171,8 @@ async function fillStormBoard(room) {
   const columns = tab.state.columns.map((c) => c.id);
   for (let i = 0; i < config.storm.cards; i++) {
     await until(() => tab.outbox.size < 8, 60_000);
+    // Below the 20 commands/s a connection may send (§c.7), as a person pasting cards would be.
+    await sleep(70);
     tab.command('retro.card.add', { cardId: uuidv7(), columnId: columns[i % columns.length], body: body(tab.label), anonymous: false });
   }
   await until(() => tab.outbox.size === 0, 60_000);

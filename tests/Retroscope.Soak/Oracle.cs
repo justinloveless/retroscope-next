@@ -1,19 +1,23 @@
 namespace Retroscope.Soak;
 
-/// <summary>One broken §j guarantee. <see cref="Gate"/> names the guarantee, so the report can count per gate.</summary>
+/// <summary>
+/// One broken §j guarantee. <see cref="Gate"/> names the guarantee, so the report can count per gate.
+/// </summary>
 internal sealed record Finding(string Gate, string Detail);
 
-/// <summary>A span in which the app was down or restarting: frames from it may be missing from every tab (new epoch).</summary>
+/// <summary>
+/// A span in which the app was down or restarting: frames from it may be missing from every tab (new epoch).
+/// </summary>
 internal sealed record Outage(string Name, DateTimeOffset From, DateTimeOffset To) {
     public bool Covers(DateTimeOffset instant) => instant >= From - TimeSpan.FromSeconds(2) && instant <= To + TimeSpan.FromSeconds(10);
 }
 
 /// <summary>
 /// Compares what the clients were told with what the database holds after the run (DESIGN §j): no lost acked command,
-/// no duplicate entity, no stale overwrite, one reveal and one timer expiry per transition, nothing left unanswered.
-/// An <c>ack</c> is a certain application. A <c>dup</c> ack (or a resume cursor past the command) is almost always one,
-/// but a final nack lost with its socket is also answered <c>dup</c> once a later command moved the cursor (§c.7 step 1),
-/// so where the final state depends on such an intent every outcome it allows is accepted.
+/// no duplicate entity, no stale overwrite, one reveal and one timer expiry per transition, nothing left unanswered. An
+/// <c>ack</c> is a certain application. A <c>dup</c> ack (or a resume cursor past the command) is almost always one,
+/// but a final nack lost with its socket is also answered <c>dup</c> once a later command moved the cursor (§c.7,
+/// step 1), so where the final state depends on such an intent every outcome it allows is accepted.
 /// </summary>
 internal static class Oracle {
     public static IReadOnlyList<Finding> Check(ClientResults results, Rows rows, IReadOnlyList<Outage> outages, DateTimeOffset runEnd) {
@@ -149,8 +153,9 @@ internal static class Oracle {
     }
 
     /// <summary>
-    /// Overwrites with a precondition (<paramref name="baseMember"/>): two applied overwrites from the same base mean one
-    /// was decided on a stale value; the final value must be the newest applied one (or one a dup-acked intent wrote).
+    /// Overwrites with a precondition (<paramref name="baseMember"/>): two applied overwrites from the same base mean
+    /// one was decided on a stale value; the final value must be the newest applied one (or one a dup-acked intent
+    /// wrote).
     /// </summary>
     private static void CheckOverwrites(
         string what, IReadOnlyList<IntentResult> writes, string baseMember, string valueMember, string? original, string? actual,
@@ -189,8 +194,8 @@ internal static class Oracle {
     }
 
     /// <summary>
-    /// The final states a sequence of set-semantics commands allows: the last certain one (in ack order) or any dup-acked
-    /// one; with no certain one, also <paramref name="absent"/>.
+    /// The final states a sequence of set-semantics commands allows: the last certain one (in ack order) or any
+    /// dup-acked one; with no certain one, also <paramref name="absent"/>.
     /// </summary>
     private static HashSet<string> Allowed(IReadOnlyList<IntentResult> ops, Func<IntentResult, string> outcome, string absent) {
         var allowed = ops.Where(o => o.Uncertain).Select(outcome).ToHashSet();

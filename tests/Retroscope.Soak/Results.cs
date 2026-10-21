@@ -14,7 +14,9 @@ internal sealed record ClientResults(
     public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 }
 
-/// <param name="Reveals">Round id → distinct (epoch, seq) of the <c>poker.round.revealed</c> frames any tab folded.</param>
+/// <param name="Reveals">
+/// Round id → distinct (epoch, seq) of the <c>poker.round.revealed</c> frames any tab folded.
+/// </param>
 internal sealed record RoomResult(
     string Key,
     string Kind,
@@ -30,11 +32,13 @@ internal sealed record TimerResult(long EndsAt, long? StartedAt, int Expired);
 internal sealed record TabResult(string Room, string Label, Guid? Pid, bool Twin, IReadOnlyList<IntentResult> Intents);
 
 /// <param name="Via">
-/// <c>ack</c> (applied, seq <paramref name="S"/>), <c>dup</c> or <c>cursor</c> (the server's cursor had passed it: applied
-/// unless its answer was a nack that got lost with a socket), <c>nack</c>, <c>dropped</c> (ephemeral, queued over 10 s) or
-/// <c>pending</c> (never answered).
+/// <c>ack</c> (applied, seq <paramref name="S"/>), <c>dup</c> or <c>cursor</c> (the server's cursor had passed it:
+/// applied unless its answer was a nack that got lost with a socket), <c>nack</c>, <c>dropped</c> (ephemeral, queued
+/// over 10 s) or <c>pending</c> (never answered).
 /// </param>
-/// <param name="Order">The tab's count of acks when this one arrived: acks come in commit order, across epochs too.</param>
+/// <param name="Order">
+/// The tab's count of acks when this one arrived: acks come in commit order, across epochs too.
+/// </param>
 internal sealed record IntentResult(
     int Intent, string K, JsonElement D, string Via, string? Code = null, long? S = null, long? Order = null) {
     public bool Certain => Via == "ack";

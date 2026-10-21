@@ -137,7 +137,9 @@ internal sealed class Run(Profile profile, TimeSpan duration, Stack stack, strin
         await ConvergeAsync("partition", clients);
     }
 
-    /// <summary>After a heal: the load pauses, every tab must agree with a fresh snapshot, then the load resumes.</summary>
+    /// <summary>
+    /// After a heal: the load pauses, every tab must agree with a fresh snapshot, then the load resumes.
+    /// </summary>
     private async Task ConvergeAsync(string after, ClientHost clients) {
         var converged = new Converged(after, await clients.AskAsync("converge", TimeSpan.FromMinutes(5)));
         _convergence.Add(converged);

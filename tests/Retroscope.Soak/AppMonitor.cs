@@ -8,8 +8,9 @@ namespace Retroscope.Soak;
 internal sealed record MemorySample(DateTimeOffset At, long RssBytes);
 
 /// <summary>
-/// Samples the app's own RSS once a second through <c>GET /api/admin/stats</c> (<c>Environment.WorkingSet</c>, U27) as an
-/// app admin made for the run. A sample fails while the app or the client network is down; those seconds have no value.
+/// Samples the app's own RSS once a second through <c>GET /api/admin/stats</c> (<c>Environment.WorkingSet</c>, U27) as
+/// an app admin made for the run. A sample fails while the app or the client network is down; those seconds have no
+/// value.
 /// </summary>
 internal sealed class AppMonitor : IDisposable {
     private const string Password = "soak monitor password 1";
@@ -37,7 +38,9 @@ internal sealed class AppMonitor : IDisposable {
         }
     }
 
-    /// <summary>Signs a user up, makes it an app admin in the database, then signs in (the flag is read at sign-in).</summary>
+    /// <summary>
+    /// Signs a user up, makes it an app admin in the database, then signs in (the flag is read at sign-in).
+    /// </summary>
     public async Task SignInAsAdminAsync(Stack stack) {
         var email = $"soak-admin-{Guid.NewGuid():N}@example.test";
         await SendGatedAsync(() => _http.PostAsJsonAsync("/api/auth/signup", new JsonObject {

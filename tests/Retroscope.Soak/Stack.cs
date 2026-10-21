@@ -42,8 +42,8 @@ internal sealed class Stack(string root, int httpsPort) {
     public Task WaitHealthyAsync() => ComposeAsync(TimeSpan.FromMinutes(3), "up", "-d", "--no-build", "--wait");
 
     /// <summary>
-    /// One statement through psql inside the db container, as the owner; returns the unaligned output. (The database port is
-    /// not published: Rancher Desktop's port forwarder did not always come back after the DB restart.)
+    /// One statement through psql inside the db container, as the owner; returns the unaligned output. (The database
+    /// port is not published: Rancher Desktop's port forwarder did not always come back after the DB restart.)
     /// </summary>
     public async Task<string> PsqlAsync(string sql) =>
         (await ComposeAsync(TimeSpan.FromMinutes(2), "exec", "-T", "db", "psql", "-U", "retroscope_owner", "-d", "retroscope",

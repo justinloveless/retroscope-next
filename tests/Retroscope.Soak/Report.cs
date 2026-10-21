@@ -45,8 +45,8 @@ internal sealed record Report(bool Passed, IReadOnlyList<Finding> Findings, IRea
         }
 
         var intents = results.Tabs.SelectMany(t => t.Intents).ToList();
-        // §c.6: `internal` marks a bug, and a transient database failure should never surface as one (it is answered with
-        // bye + 1012 so the intent is resent). Reported, not gated: §j does not list it.
+        // §c.6: `internal` marks a bug, and a transient database failure should never surface as one (it is answered
+        // with bye + 1012 so the intent is resent). Reported, not gated: §j does not list it.
         var warnings = results.Tabs.SelectMany(t => t.Intents.Where(i => i.Code == "internal")
             .Select(i => new Finding("internal_nack", $"{t.Label} {i.K} #{i.Intent} was refused internal"))).ToList();
         var document = new JsonObject {

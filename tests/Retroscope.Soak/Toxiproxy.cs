@@ -31,14 +31,18 @@ internal sealed class Toxiproxy(int apiPort) : IDisposable {
     public Task AddLatencyAsync(int latencyMs, int jitterMs) =>
         AddToxicAsync("latency", "latency", 1, new JsonObject { ["latency"] = latencyMs, ["jitter"] = jitterMs });
 
-    /// <summary>Resets each live connection (and each one opened meanwhile) with probability <paramref name="share"/>.</summary>
+    /// <summary>
+    /// Resets each live connection (and each one opened meanwhile) with probability <paramref name="share"/>.
+    /// </summary>
     public async Task ResetSomeAsync(double share) {
         await AddToxicAsync("reset", "reset_peer", share, new JsonObject { ["timeout"] = 0 });
         await Task.Delay(300);
         await RemoveToxicAsync("reset");
     }
 
-    /// <summary>A disabled proxy closes every client connection and refuses new ones until it is enabled again.</summary>
+    /// <summary>
+    /// A disabled proxy closes every client connection and refuses new ones until it is enabled again.
+    /// </summary>
     public async Task SetEnabledAsync(bool enabled) {
         var response = await _http.PostAsJsonAsync($"/proxies/{Proxy}", new JsonObject { ["enabled"] = enabled });
         response.EnsureSuccessStatusCode();
