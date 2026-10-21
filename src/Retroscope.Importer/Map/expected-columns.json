@@ -5,6 +5,10 @@
       "disposition": "exclude",
       "reason": "ephemeral credentials"
     },
+    "auth.custom_oauth_providers": {
+      "disposition": "exclude",
+      "reason": "identity provider configuration"
+    },
     "auth.flow_state": {
       "disposition": "exclude",
       "reason": "ephemeral credentials"
@@ -52,6 +56,30 @@
       "disposition": "exclude",
       "reason": "ephemeral credentials"
     },
+    "auth.mfa_recovery_code_sets": {
+      "disposition": "exclude",
+      "reason": "ephemeral credentials"
+    },
+    "auth.mfa_recovery_codes": {
+      "disposition": "exclude",
+      "reason": "ephemeral credentials"
+    },
+    "auth.oauth_authorizations": {
+      "disposition": "exclude",
+      "reason": "ephemeral credentials"
+    },
+    "auth.oauth_client_states": {
+      "disposition": "exclude",
+      "reason": "ephemeral credentials"
+    },
+    "auth.oauth_clients": {
+      "disposition": "exclude",
+      "reason": "identity provider configuration"
+    },
+    "auth.oauth_consents": {
+      "disposition": "exclude",
+      "reason": "ephemeral credentials"
+    },
     "auth.one_time_tokens": {
       "disposition": "exclude",
       "reason": "ephemeral credentials"
@@ -60,9 +88,37 @@
       "disposition": "exclude",
       "reason": "ephemeral credentials"
     },
+    "auth.saml_providers": {
+      "disposition": "exclude",
+      "reason": "identity provider configuration"
+    },
+    "auth.saml_relay_states": {
+      "disposition": "exclude",
+      "reason": "ephemeral credentials"
+    },
+    "auth.schema_migrations": {
+      "disposition": "exclude",
+      "reason": "GoTrue migration ledger"
+    },
+    "auth.scim_tokens": {
+      "disposition": "exclude",
+      "reason": "ephemeral credentials"
+    },
+    "auth.scim_users": {
+      "disposition": "exclude",
+      "reason": "identity provider configuration"
+    },
     "auth.sessions": {
       "disposition": "exclude",
       "reason": "ephemeral credentials"
+    },
+    "auth.sso_domains": {
+      "disposition": "exclude",
+      "reason": "identity provider configuration"
+    },
+    "auth.sso_providers": {
+      "disposition": "exclude",
+      "reason": "identity provider configuration"
     },
     "auth.users": {
       "disposition": "map",
@@ -72,18 +128,18 @@
       "columns": {
         "instance_id": "uuid",
         "id": "uuid",
-        "aud": "text",
-        "role": "text",
-        "email": "text",
-        "encrypted_password": "text",
+        "aud": "varchar",
+        "role": "varchar",
+        "email": "varchar",
+        "encrypted_password": "varchar",
         "email_confirmed_at": "timestamptz",
         "invited_at": "timestamptz",
-        "confirmation_token": "text",
+        "confirmation_token": "varchar",
         "confirmation_sent_at": "timestamptz",
-        "recovery_token": "text",
+        "recovery_token": "varchar",
         "recovery_sent_at": "timestamptz",
-        "email_change_token_new": "text",
-        "email_change": "text",
+        "email_change_token_new": "varchar",
+        "email_change": "varchar",
         "email_change_sent_at": "timestamptz",
         "last_sign_in_at": "timestamptz",
         "raw_app_meta_data": "jsonb",
@@ -94,13 +150,13 @@
         "phone": "text",
         "phone_confirmed_at": "timestamptz",
         "phone_change": "text",
-        "phone_change_token": "text",
+        "phone_change_token": "varchar",
         "phone_change_sent_at": "timestamptz",
         "confirmed_at": "timestamptz",
-        "email_change_token_current": "text",
+        "email_change_token_current": "varchar",
         "email_change_confirm_status": "int2",
         "banned_until": "timestamptz",
-        "reauthentication_token": "text",
+        "reauthentication_token": "varchar",
         "reauthentication_sent_at": "timestamptz",
         "is_sso_user": "bool",
         "deleted_at": "timestamptz",
@@ -146,6 +202,14 @@
         "reauthentication_sent_at",
         "is_sso_user"
       ]
+    },
+    "auth.webauthn_challenges": {
+      "disposition": "exclude",
+      "reason": "ephemeral credentials"
+    },
+    "auth.webauthn_credentials": {
+      "disposition": "exclude",
+      "reason": "ephemeral credentials"
     },
     "public.app_config": {
       "disposition": "archive",
@@ -712,21 +776,6 @@
         "session_id": "text",
         "created_at": "timestamptz",
         "board_id": "uuid"
-      }
-    },
-    "public.team_action_item_comments": {
-      "disposition": "archive",
-      "primaryKey": [
-        "id"
-      ],
-      "columns": {
-        "id": "uuid",
-        "action_item_id": "uuid",
-        "author": "text",
-        "author_id": "uuid",
-        "text": "text",
-        "created_at": "timestamptz",
-        "session_id": "text"
       }
     },
     "public.team_action_items": {

@@ -41,6 +41,11 @@ public sealed class ImporterDatabases : IAsyncLifetime {
         "20250921111500_update_notifications_policies.sql",
     ];
 
+    // Migrations the production project never ran (U46 found their tables missing there).
+    private static readonly HashSet<string> NotInProduction = [
+        "20250822130500_create_team_action_item_comments.sql",
+    ];
+
     private readonly PostgreSqlContainer _container = new PostgreSqlBuilder(Image)
         .WithDatabase("postgres")
         .WithUsername("postgres")
@@ -71,7 +76,7 @@ public sealed class ImporterDatabases : IAsyncLifetime {
         await ExecuteFileAsync(template, Path.Combine(SupabaseDirectory, "00-platform-stubs.sql"));
         await ExecuteFileAsync(template, Path.Combine(SupabaseDirectory, "schema-dump-99b8c3a.sql"));
         foreach (var migration in Directory.GetFiles(Path.Combine(SupabaseDirectory, "migrations"), "*.sql").Order(StringComparer.Ordinal)) {
-            if (!InDump.Contains(Path.GetFileName(migration))) {
+            if (!InDump.Contains(Path.GetFileName(migration)) && !NotInProduction.Contains(Path.GetFileName(migration))) {
                 await ExecuteFileAsync(template, migration);
             }
         }

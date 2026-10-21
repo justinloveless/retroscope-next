@@ -28,6 +28,15 @@ public sealed class SettingsTests {
     }
 
     [Fact]
+    public void The_source_disables_gss_encryption_unless_it_says_otherwise() {
+        var defaulted = ImporterSettings.FromEnvironment(Env(("IMPORT_SOURCE_PG", "postgres://u:p@db.example:5432/postgres")));
+        var explicitMode = ImporterSettings.FromEnvironment(Env(("IMPORT_SOURCE_PG", "Host=db;Database=postgres;GSS Encryption Mode=Prefer")));
+
+        Assert.Equal(GssEncryptionMode.Disable, new NpgsqlConnectionStringBuilder(defaulted.SourceConnectionString).GssEncryptionMode);
+        Assert.Equal(GssEncryptionMode.Prefer, new NpgsqlConnectionStringBuilder(explicitMode.SourceConnectionString).GssEncryptionMode);
+    }
+
+    [Fact]
     public void The_same_database_on_the_same_host_is_refused() {
         var same = ImporterSettings.FromEnvironment(Env(
             ("IMPORT_SOURCE_PG", "postgres://u:p@DB.example:5432/app"),
@@ -49,6 +58,25 @@ public sealed class SettingsTests {
         Assert.Equal("IMPORT_SOURCE_PG is not set.", Assert.Throws<SettingsException>(settings.RequireSource).Message);
         Assert.Throws<SettingsException>(() => ImporterSettings.FromEnvironment(Env(("IMPORT_STORAGE_URL", "http://x.example"))));
         Assert.Equal("ImporterSettings", settings.ToString());
+    }
+
+    [Theory]
+    [InlineData("https://project.supabase.example/storage/v1/object/public/avatars")]
+    [InlineData("https://project.supabase.example/storage/v1/object/public/avatars/")]
+    [InlineData("https://project.supabase.example/?x=1")]
+    public void The_storage_url_must_be_the_project_origin(string value) {
+        var failure = Assert.Throws<SettingsException>(() => ImporterSettings.FromEnvironment(Env(("IMPORT_STORAGE_URL", value))));
+
+        Assert.Contains("without a path", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("https://project.supabase.example")]
+    [InlineData("https://project.supabase.example/")]
+    public void The_project_origin_is_the_storage_url(string value) {
+        var settings = ImporterSettings.FromEnvironment(Env(("IMPORT_STORAGE_URL", value)));
+
+        Assert.Equal(new Uri("https://project.supabase.example/"), settings.RequireStorageUrl());
     }
 
     [Fact]
