@@ -23,6 +23,9 @@ public sealed class PostgresFixture : IAsyncLifetime {
         .WithDatabase("retroscope")
         .WithUsername(Owner)
         .WithPassword("owner-password-for-tests")
+        // Throwaway test data: trade durability for far less disk and CPU work.
+        .WithTmpfsMount("/var/lib/postgresql")
+        .WithCommand("-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off")
         .Build();
 
     // The container can report ready before the host port forward accepts connections (seen with Rancher Desktop).

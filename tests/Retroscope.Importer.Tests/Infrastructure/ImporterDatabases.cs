@@ -45,6 +45,9 @@ public sealed class ImporterDatabases : IAsyncLifetime {
         .WithDatabase("postgres")
         .WithUsername("postgres")
         .WithPassword("importer-tests")
+        // Throwaway test data: trade durability for far less disk and CPU work.
+        .WithTmpfsMount("/var/lib/postgresql")
+        .WithCommand("-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off")
         .Build();
 
     public static string RepositoryRoot { get; } = FindRepositoryRoot();

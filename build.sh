@@ -13,12 +13,26 @@
 #                                  from deploy/compose.preview.yml on http://localhost:8080 (needs Docker)
 #   ./build.sh screenshots         smoke-checks the demo, then captures every route and key state, light and dark,
 #                                  desktop and iPhone, into artifacts/screenshots (index.html is the contact sheet)
+#
+# Load: everything runs at low priority (RS_NICE, default 10) and test parallelism is capped at RS_JOBS
+# (default a third of the cores, at least 2). RS_JOBS=0 lifts the cap for CI.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ARTIFACTS="$ROOT/artifacts"
 POSTGRES_IMAGE="postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873"
 cd "$ROOT"
+
+renice -n "${RS_NICE:-10}" -p $$ >/dev/null 2>&1 || true
+CORES="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
+RS_JOBS="${RS_JOBS:-$(( CORES / 3 > 2 ? CORES / 3 : 2 ))}"
+if [[ "$RS_JOBS" == 0 ]]; then
+  BUILD_LIMIT=() TEST_LIMIT=() PW_LIMIT=()
+else
+  BUILD_LIMIT=("-maxcpucount:$RS_JOBS")
+  TEST_LIMIT=(--max-parallel-test-modules "$RS_JOBS" --max-threads "$RS_JOBS")
+  PW_LIMIT=("--workers=$RS_JOBS")
+fi
 
 if [[ -z "${DOCKER_HOST:-}" && -S "$HOME/.rd/docker.sock" ]]; then
   export DOCKER_HOST="unix://$HOME/.rd/docker.sock"
@@ -32,7 +46,7 @@ log() { printf '\n==> %s\n' "$*"; }
 die() { printf 'build.sh: %s\n' "$*" >&2; exit 1; }
 
 node_deps() {
-  if [[ ! -d node_modules ]] || [[ package-lock.json -nt node_modules ]]; then
+  if [[ ! -f node_modules/.package-lock.json ]] || [[ package-lock.json -nt node_modules/.package-lock.json ]]; then
     log "npm ci"
     npm ci --no-audit --no-fund
   fi
@@ -99,10 +113,10 @@ cmd_web() {
 cmd_test() {
   node_deps
   log "dotnet build"
-  dotnet build Retroscope.slnx
+  dotnet build Retroscope.slnx ${BUILD_LIMIT[@]+"${BUILD_LIMIT[@]}"}
 
   log "dotnet test (unit, integration, importer)"
-  dotnet test --solution Retroscope.slnx --no-build
+  dotnet test --solution Retroscope.slnx --no-build ${TEST_LIMIT[@]+"${TEST_LIMIT[@]}"}
 
   log "simulation (PR seeds)"
   dotnet run --no-build --project tests/Retroscope.Sim -- --seeds 2000
@@ -350,7 +364,7 @@ cmd_fake_e2e() {
   local glob="${1:?usage: ./build.sh fake-e2e <spec-glob under tests/e2e/fake/>}"
   cmd_web
   log "Playwright (fake server): $glob"
-  RS_E2E_TARGET=fake npx playwright test --config tests/e2e/playwright.config.js \
+  RS_E2E_TARGET=fake npx playwright test ${PW_LIMIT[@]+"${PW_LIMIT[@]}"} --config tests/e2e/playwright.config.js \
     "tests/e2e/fake/$(glob_to_regex "$glob")$"
 }
 
@@ -362,7 +376,7 @@ cmd_e2e() {
   docker compose -f deploy/compose.test.yml up -d --wait
   trap 'docker compose -f deploy/compose.test.yml down -v >/dev/null 2>&1 || true' EXIT
   log "Playwright (compose stack): $glob"
-  RS_E2E_TARGET=compose npx playwright test --config tests/e2e/playwright.config.js \
+  RS_E2E_TARGET=compose npx playwright test ${PW_LIMIT[@]+"${PW_LIMIT[@]}"} --config tests/e2e/playwright.config.js \
     "tests/e2e/$(glob_to_regex "$glob")$"
 }
 
@@ -517,7 +531,7 @@ cmd_screenshots() {
     SHOTS_PID=$!
     wait_http "$url/__demo/state" || { cat "$log_file"; die "the demo server did not start"; }
     log "Playwright: $mode ($url)"
-    RS_PREVIEW_URL="$url" npx playwright test --config tests/e2e/screenshots/playwright.config.js "$mode.spec.js"
+    RS_PREVIEW_URL="$url" npx playwright test ${PW_LIMIT[@]+"${PW_LIMIT[@]}"} --config tests/e2e/screenshots/playwright.config.js "$mode.spec.js"
     kill "$SHOTS_PID"
     wait "$SHOTS_PID" 2>/dev/null || true
     SHOTS_PID=""
