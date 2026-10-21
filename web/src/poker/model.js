@@ -5,6 +5,8 @@
 export const DECK = Object.freeze([1, 2, 3, 5, 8, 13, 21]);
 
 const NO_NAV = Object.freeze({ roundId: null });
+const SPOTLIGHT_CLAIMS = new Set(['poker.spotlight.take', 'poker.spotlight.move']);
+const NO_CLAIM = () => false;
 const INTERNAL = new Set(['me', 'votes', 'own', 'submits', 'presence', 'heldByThisTab', 'deleted', 'nav']);
 
 // Pids and round ids compare as lower-case strings, ordinally (the server's canonical order).
@@ -160,17 +162,25 @@ function applyOrder(state, order) {
   return { ...state, rounds };
 }
 
-// R13: a change of the spotlight's round moves followers, never the holder.
-function applySpotlight(state, d) {
+// R13: a change of the spotlight's round moves followers, never the holder. The server binds the tab
+// whose take or move produced the event; that tab still has the command in flight, because the ack
+// follows its tx frame on the same queue. Any other change to a spotlight I hold keeps the binding,
+// except that the spotlight becoming mine without a claim (a give, another tab's take) leaves this tab
+// unbound.
+function applySpotlight(state, d, claimed) {
   const spotlight = d.holder && d.roundId ? { holder: d.holder, roundId: d.roundId } : null;
   const follow = d.holder
     && d.holder !== state.me
     && d.roundId !== (state.spotlight?.roundId ?? null)
     && state.followSpotlight;
+  let heldByThisTab = false;
+  if (d.holder && d.holder === state.me) {
+    heldByThisTab = claimed(d) || (state.spotlight?.holder === state.me && state.heldByThisTab);
+  }
   return {
     ...state,
     spotlight,
-    heldByThisTab: d.holder === state.me ? state.heldByThisTab : false,
+    heldByThisTab,
     nav: follow ? { roundId: d.roundId } : state.nav,
   };
 }
@@ -182,7 +192,19 @@ function upsertPresence(state, info) {
 }
 
 /** Folds one wire event `{k, d}`. Unknown kinds leave the state alone. */
-export function apply(state, { k, d = {} }) {
+export function apply(state, event) {
+  return fold(state, event, NO_CLAIM);
+}
+
+/**
+ * True when `pending` (this tab's outbox entries for the room) holds a spotlight take or move for the
+ * round a `poker.spotlight` event names, i.e. the event is the result of this tab's own command.
+ */
+export function claimsSpotlight(pending, d) {
+  return pending.some((entry) => SPOTLIGHT_CLAIMS.has(entry.k) && entry.d?.roundId === d.roundId);
+}
+
+function fold(state, { k, d = {} }, claimed) {
   switch (k) {
     case 'poker.vote.state':
       return applyVoteState(state, d);
@@ -203,7 +225,7 @@ export function apply(state, { k, d = {} }) {
     case 'poker.pointer':
       return { ...state, currentRoundId: d.roundId ?? null, nav: d.nav ? { roundId: d.roundId } : state.nav };
     case 'poker.spotlight':
-      return applySpotlight(state, d);
+      return applySpotlight(state, d, claimed);
     case 'poker.settings':
       return {
         ...state,
@@ -346,11 +368,15 @@ export function optimistic(state, k, d) {
   }
 }
 
-/** The RoomStore model (U28 contract) for the viewer `me`. */
-export function pokerModel(me) {
+/**
+ * The RoomStore model (U28 contract) for the viewer `me`. `pending()` returns the room's outbox entries
+ * (`room.pending()`); it tells this tab's own spotlight take or move apart from everyone else's.
+ */
+export function pokerModel(me, { pending = () => [] } = {}) {
+  const claimed = (d) => claimsSpotlight(pending(), d);
   return {
     snapshot: (d, o) => fromSnapshot(d, o, me),
-    apply,
+    apply: (state, event) => fold(state, event, claimed),
     optimistic,
   };
 }

@@ -48,12 +48,19 @@ const NACK_TEXT = {
   outbox_full: 'You have been offline too long. Reload the page to sync.',
 };
 
-// One socket per tab; it outlives a single poker page so in-app navigation keeps the connection.
+// One socket per tab; it outlives a single poker page so in-app navigation keeps the connection. A new
+// principal (guest join, sign-in) gets a new socket, so hello and the outbox carry the right pid.
 let tabSocket = null;
+let tabSocketPid = null;
 
 function socketFor(pid) {
+  if (tabSocket && tabSocketPid !== pid) {
+    tabSocket.stop();
+    tabSocket = null;
+  }
   if (!tabSocket) {
     tabSocket = createSocket({ pid });
+    tabSocketPid = pid;
     tabSocket.start();
   }
   return tabSocket;
@@ -414,7 +421,9 @@ export function mount(root, boot = {}) {
       return;
     }
     socket = socketFor(me);
-    room = socket.room(key, pokerModel(me), { onNack: (nack) => toast(nackText(nack), { variant: 'error', duration: 5000 }) });
+    let own = null;
+    room = socket.room(key, pokerModel(me, { pending: () => own?.pending() ?? [] }), { onNack: (nack) => toast(nackText(nack), { variant: 'error', duration: 5000 }) });
+    own = room;
     if (!seeded && boot.room?.r === key && room.confirmed === null) {
       room.seed(boot.room);
     }
