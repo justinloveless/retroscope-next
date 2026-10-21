@@ -17,7 +17,15 @@ public sealed class PostgresFixtureTests(PostgresFixture postgres) {
         await using var count = new NpgsqlCommand(
             "select count(*) from pg_stat_activity where datname = any($1) and pid <> pg_backend_pid()", connection);
         count.Parameters.Add(new NpgsqlParameter { Value = databases.Select(x => x.Name).ToArray() });
-        Assert.Equal(0L, (long)(await count.ExecuteScalarAsync(TestContext.Current.CancellationToken))!);
+        // A closed connection's backend exits asynchronously, so one can still be listed for a moment.
+        var lingering = -1L;
+        for (var attempt = 0; attempt < 50 && lingering != 0; attempt++) {
+            if (attempt > 0) {
+                await Task.Delay(100, TestContext.Current.CancellationToken);
+            }
+            lingering = (long)(await count.ExecuteScalarAsync(TestContext.Current.CancellationToken))!;
+        }
+        Assert.Equal(0L, lingering);
 
         NpgsqlConnection.ClearPool(connection);
         await connection.CloseAsync();

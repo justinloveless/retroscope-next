@@ -58,10 +58,12 @@ public sealed class PostgresFixture : IAsyncLifetime {
             await create.ExecuteNonQueryAsync();
         }
 
-        var owner = new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = name };
+        // Test code opens owner connections ad hoc; pooled, each database would park one until max_connections ran out.
+        var owner = new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = name, Pooling = false };
         var app = new NpgsqlConnectionStringBuilder(owner.ConnectionString) {
             Username = Db.AppRole,
             Password = AppPassword,
+            Pooling = true,
         };
         return new TestDatabase(name, owner.ConnectionString, app.ConnectionString);
     }
