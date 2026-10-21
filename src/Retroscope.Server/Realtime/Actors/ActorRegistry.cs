@@ -167,14 +167,20 @@ public sealed class ActorRegistry {
     /// <summary>
     /// Called by a retiring actor: <paramref name="close"/> completes its queues and returns what they still held,
     /// and in the same locked step exactly that incarnation is removed and the leftovers go to the next one, which
-    /// takes them before anything posted after the close.
+    /// takes them before anything posted after the close. A retirement <paramref name="forPurge"/> that finds
+    /// leftovers hands them to a next incarnation started at once, even though the key is closed, and returns false so
+    /// the purge is refused: they were accepted before the close and must not be served by a purged room.
     /// </summary>
-    internal void Retire(IRoomActor actor, Func<IReadOnlyList<ActorMessage>> close) {
+    internal bool Retire(IRoomActor actor, Func<IReadOnlyList<ActorMessage>> close, bool forPurge = false) {
         lock (_lock) {
             var leftovers = close();
             if (leftovers.Count == 0) {
                 _actors.TryRemove(new KeyValuePair<RoomKey, IRoomActor>(actor.Key, actor));
-                return;
+                return true;
+            }
+            if (forPurge) {
+                _actors.TryUpdate(actor.Key, Start(actor.Key, leftovers), actor);
+                return false;
             }
             if (_closing.ContainsKey(actor.Key)) {
                 _actors.TryRemove(new KeyValuePair<RoomKey, IRoomActor>(actor.Key, actor));
@@ -182,9 +188,10 @@ public sealed class ActorRegistry {
                     _deferred[actor.Key] = deferred = [];
                 }
                 deferred.AddRange(leftovers);
-                return;
+                return false;
             }
             _actors.TryUpdate(actor.Key, Start(actor.Key, leftovers), actor);
+            return false;
         }
     }
 

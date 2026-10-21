@@ -277,8 +277,7 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
                 if (_subs.Count > 0 || _internal.Reader.TryPeek(out _) || _external.Reader.Count > 0) {
                     purge.Reply.TrySetResult(false);
                 } else {
-                    Retire();
-                    purge.Reply.TrySetResult(true);
+                    purge.Reply.TrySetResult(Retire(forPurge: true));
                 }
                 break;
             case ShutdownMessage shutdown:
@@ -704,16 +703,22 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
     /// R17: completing both queues is the close, so a racing <c>TryWrite</c> fails instead of being lost; whatever
     /// was buffered before the close goes to the next incarnation. The registry closes the queues under its lock and
     /// installs the next incarnation in the same step, so a sender that saw <see cref="PostResult.Closed"/> finds it.
+    /// For a purge, false when the close still found messages: they arrived after the purge checked the queues, and
+    /// the next incarnation serves them at once instead of the purge running under them.
     /// </summary>
-    private void Retire() {
+    private bool Retire(bool forPurge = false) {
+        bool clean;
         if (_registry is null) {
-            Close().ForEach(Abandon);
+            var leftovers = Close();
+            leftovers.ForEach(Abandon);
+            clean = leftovers.Count == 0;
         } else {
-            _registry.Retire(this, Close);
+            clean = _registry.Retire(this, Close, forPurge);
         }
         _timers.Clear();
         _runtimeTimers.Clear();
         _ring.Release();
+        return clean;
     }
 
     private List<ActorMessage> Close() {
