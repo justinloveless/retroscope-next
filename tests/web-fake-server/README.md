@@ -66,3 +66,13 @@ that cid. An unknown room gets `kick not_found`. A cmd without a sub gets `nack 
 cmd with a valid envelope but a bad kind or payload gets `nack invalid`. Other protocol violations close
 with 4400. A missing hello closes with 4400 after 5 s, a frame over 64 KiB with 4413 and a foreign
 Origin with 4403.
+
+## Browser notes
+
+- **WebKit reports close code 1012 as 1005.** When the fake closes with 1012 after `bye` (`fake.bye()`),
+  desktop and mobile WebKit give `CloseEvent.code === 1005`, while Chromium and Firefox give 1012. Codes
+  in the 4000 range (4409, 4401, …) come through unchanged everywhere. Front-end code (U28) must act on
+  the `bye` frame and treat 1005 like 1012, never on the close code alone. `_harness/ws.spec.js` pins
+  this behaviour.
+- **Firefox does not emulate `prefers-color-scheme: dark`** under Playwright: `colorScheme: 'dark'`
+  leaves `matchMedia` false, so theme specs skip that one combination.
