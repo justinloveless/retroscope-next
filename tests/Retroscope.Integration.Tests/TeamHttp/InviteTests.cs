@@ -116,6 +116,33 @@ public sealed partial class InviteTests(PostgresFixture postgres) {
         Assert.Empty((await TeamHttpHost.JsonAsync(listed)).GetProperty("items").EnumerateArray());
     }
 
+    [Theory]
+    [InlineData("live")]
+    [InlineData("revoked")]
+    [InlineData("expired")]
+    public async Task Replaying_a_used_email_invite_never_brings_a_removed_member_back(string state) {
+        await using var host = await TeamHttpHost.StartAsync(postgres);
+        var owner = await host.UserAsync("Olive");
+        var invited = await host.UserAsync("Ivy", email: "ivy@example.com");
+        var team = await host.TeamAsync(owner);
+        var token = await EmailTokenAsync(host, owner, team, "ivy@example.com", "admin");
+        using var accepted = await host.PostAsync(invited, "/api/invites/accept", new { token });
+        Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+        using var removed = await host.SendAsync(owner, HttpMethod.Delete, $"/api/teams/{team}/members/{invited.Guid}", null);
+        Assert.Equal(HttpStatusCode.NoContent, removed.StatusCode);
+        if (state == "revoked") {
+            await host.ExecuteAsync("update team_invites set revoked_at = now() where team_id = $1", team);
+        } else if (state == "expired") {
+            await host.ExecuteAsync("update team_invites set expires_at = now() - interval '1 minute' where team_id = $1", team);
+        }
+
+        using var replayed = await host.PostAsync(invited, "/api/invites/accept", new { token });
+
+        Assert.Equal(HttpStatusCode.NotFound, replayed.StatusCode);
+        Assert.Equal(0L, await host.ScalarAsync<long>("select count(*) from team_members where team_id = $1 and user_id = $2", team, invited.Guid));
+        Assert.Null(host.Service<MembershipCache>().RoleIn(new TeamId(team), invited.Id));
+    }
+
     [Fact]
     public async Task Email_invites_need_a_verified_sender_and_the_owner_to_grant_admin() {
         await using var host = await TeamHttpHost.StartAsync(postgres);
