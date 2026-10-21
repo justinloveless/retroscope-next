@@ -27,7 +27,7 @@ internal sealed class World {
     private readonly HashSet<RoomKey> _held = [];
     private readonly HashSet<SimConnection> _serverLive = [];
     private readonly Queue<SimConnection> _restarts = new();
-    private readonly Queue<(SimProcess Process, Action<ActorRegistry> Post)> _actorPosts = new();
+    private readonly Queue<(SimProcess Process, Action<ActorRegistry> Post)> _posts = new();
     private readonly Lock _lock = new();
     private readonly List<string> _trace = [];
     private readonly Dictionary<SimTab, Storage> _checkpoints = [];
@@ -36,7 +36,7 @@ internal sealed class World {
     private readonly Principal _bob;
     private readonly Principal _carol;
     private readonly Principal _dave;
-    private readonly Dictionary<Guid, (PrincipalId Author, bool Anonymous)> _posts = [];
+    private readonly Dictionary<Guid, (PrincipalId Author, bool Anonymous)> _authors = [];
     private RoundId? _shownSpotlight;
     private long _ids;
     private int _intents;
@@ -152,12 +152,12 @@ internal sealed class World {
         switch (command) {
             case RetroCardAdd add:
                 lock (_lock) {
-                    _posts[add.CardId.Value] = (by, add.Anonymous);
+                    _authors[add.CardId.Value] = (by, add.Anonymous);
                 }
                 break;
             case RetroCommentAdd add:
                 lock (_lock) {
-                    _posts[add.CommentId.Value] = (by, add.Anonymous);
+                    _authors[add.CommentId.Value] = (by, add.Anonymous);
                 }
                 break;
         }
@@ -177,14 +177,14 @@ internal sealed class World {
             _ => null,
         };
         lock (_lock) {
-            return post is { } id && _posts.TryGetValue(id, out var author) && author.Author == who && Db.Members.Any(x => x.Pid == who);
+            return post is { } id && _authors.TryGetValue(id, out var author) && author.Author == who && Db.Members.Any(x => x.Pid == who);
         }
     }
 
     /// <summary>The cards and comments <paramref name="who"/> posted, for the workload's edits and deletes.</summary>
     public bool IsAuthor(Guid post, PrincipalId who) {
         lock (_lock) {
-            return _posts.TryGetValue(post, out var author) && author.Author == who;
+            return _authors.TryGetValue(post, out var author) && author.Author == who;
         }
     }
 
@@ -233,7 +233,7 @@ internal sealed class World {
     /// </summary>
     public void PostLater(SimProcess process, Action<ActorRegistry> post) {
         lock (_lock) {
-            _actorPosts.Enqueue((process, post));
+            _posts.Enqueue((process, post));
         }
     }
 
@@ -301,7 +301,7 @@ internal sealed class World {
         foreach (var (id, anonymous, author, mine) in posts) {
             (PrincipalId Author, bool Anonymous) posted;
             lock (_lock) {
-                if (!_posts.TryGetValue(id, out posted)) {
+                if (!_authors.TryGetValue(id, out posted)) {
                     continue;
                 }
             }
@@ -317,7 +317,7 @@ internal sealed class World {
     private void CheckMine(SimTab tab, IEnumerable<Guid> mine) {
         foreach (var id in mine) {
             lock (_lock) {
-                if (_posts.TryGetValue(id, out var posted) && posted.Author != tab.Who.Id) {
+                if (_authors.TryGetValue(id, out var posted) && posted.Author != tab.Who.Id) {
                     Oracle.Fail($"anonymity: {tab} was told post {id} by someone else is its own");
                 }
             }
@@ -348,7 +348,7 @@ internal sealed class World {
             bool hasPost;
             lock (_lock) {
                 _restarts.TryDequeue(out restarted);
-                hasPost = _actorPosts.TryDequeue(out posted);
+                hasPost = _posts.TryDequeue(out posted);
             }
             if (restarted is null && !hasPost) {
                 return;
@@ -593,7 +593,7 @@ internal sealed class World {
         _held.Clear();
         lock (_lock) {
             _restarts.Clear();
-            _actorPosts.Clear();
+            _posts.Clear();
         }
         Process = new SimProcess(this);
     }
