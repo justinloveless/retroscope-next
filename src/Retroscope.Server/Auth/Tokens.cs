@@ -73,14 +73,15 @@ public sealed class Tokens(NpgsqlDataSource dataSource, TimeProvider time) {
 
     /// <summary>
     /// Consumes a live token and, in the same transaction, runs <paramref name="then"/>; nothing is consumed when the
-    /// token is unknown, expired, used, or (with <paramref name="requiredUser"/>) issued to someone else.
+    /// token is unknown, expired, used, (with <paramref name="requiredUser"/>) issued to someone else, or when
+    /// <paramref name="then"/> returns false.
     /// </summary>
     /// <returns>Whom the token was issued for; null when nothing was consumed.</returns>
     public async Task<TokenUse?> ConsumeAsync(
         string? token,
         TokenPurpose purpose,
         PrincipalId? requiredUser,
-        Func<TokenUse, NpgsqlConnection, NpgsqlTransaction, Task>? then,
+        Func<TokenUse, NpgsqlConnection, NpgsqlTransaction, Task<bool>>? then,
         CancellationToken cancellationToken) {
         if (!OpaqueToken.IsWellFormed(token)) {
             return null;
@@ -115,8 +116,8 @@ public sealed class Tokens(NpgsqlDataSource dataSource, TimeProvider time) {
             siblings.Parameters.Add(new() { Value = use.Email });
             await siblings.ExecuteNonQueryAsync(cancellationToken);
         }
-        if (then is not null) {
-            await then(use, connection, transaction);
+        if (then is not null && !await then(use, connection, transaction)) {
+            return null;
         }
         await transaction.CommitAsync(CancellationToken.None);
         return use;

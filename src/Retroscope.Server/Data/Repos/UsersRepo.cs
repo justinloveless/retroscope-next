@@ -246,6 +246,18 @@ public sealed class UsersRepo(NpgsqlDataSource dataSource) {
             Parameters = { new() { Value = id.Value }, new() { Value = now } },
         };
 
+    /// <summary>Marks the email verified (keeping an earlier verification time) without claiming the account.</summary>
+    public static NpgsqlBatchCommand MarkVerified(PrincipalId id, DateTimeOffset now) =>
+        new("update users set email_verified_at = coalesce(email_verified_at, $2), updated_at = $2 where id = $1") {
+            Parameters = { new() { Value = id.Value }, new() { Value = now } },
+        };
+
+    /// <summary>Removes every external identity of the user, returning one <c>provider</c> row per identity.</summary>
+    public static NpgsqlBatchCommand UnlinkIdentities(PrincipalId id) =>
+        new("delete from external_identities where user_id = $1 returning provider") {
+            Parameters = { new() { Value = id.Value } },
+        };
+
     /// <summary>An <c>audit_log</c> row; <paramref name="meta"/> holds ids, codes and HMACs, never content or secrets.</summary>
     public static NpgsqlBatchCommand Audit(
         string action,
