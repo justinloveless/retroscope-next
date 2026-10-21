@@ -26,6 +26,7 @@ internal sealed class InlineParser(string text, bool retro) {
     private readonly Dictionary<int, AtomToken?> _mentions = [];
     private readonly Dictionary<int, AtomToken?> _images = [];
     private readonly Dictionary<CloserKey, Dictionary<int, int>> _closers = [];
+    private Brackets? _brackets;
 
     // Delimiters already open around a scope. Emphasis never nests inside emphasis opened with the same
     // delimiter: the outer closer search would stop at the inner delimiter, so no writer could reproduce it.
@@ -267,10 +268,7 @@ internal sealed class InlineParser(string text, bool retro) {
     }
 
     private LinkToken? ScanLink(int i) {
-        var k = i + 1;
-        while (k < text.Length && text[k] is not (']' or '\n')) {
-            k += text[k] == '\\' && k + 1 < text.Length && IsAsciiPunctuation(text[k + 1]) ? 2 : 1;
-        }
+        var k = Ends().Escaped[i + 1];
         if (k + 1 >= text.Length || k == i + 1 || text[k] != ']' || text[k + 1] != '(') {
             return null;
         }
@@ -333,14 +331,33 @@ internal sealed class InlineParser(string text, bool retro) {
 
     // Raw characters up to the first ']' or newline; returns -1 when the label is longer than allowed.
     private int ScanLabel(int start, int maxLength) {
-        var k = start;
-        while (k < text.Length && text[k] is not (']' or '\n')) {
-            if (k - start == maxLength) {
-                return -1;
-            }
-            k++;
+        var k = Ends().Raw[start];
+        return k - start > maxLength ? -1 : k;
+    }
+
+    // For every index, the next ']' or newline: Raw counts every character, Escaped steps over backslash escapes
+    // the way Parse does. Scanning from each '[' instead makes a line of 32,000 '[' quadratic.
+    private sealed record Brackets(int[] Raw, int[] Escaped);
+
+    private Brackets Ends() {
+        if (_brackets != null) {
+            return _brackets;
         }
-        return k;
+        var raw = new int[text.Length + 1];
+        var escaped = new int[text.Length + 1];
+        raw[text.Length] = escaped[text.Length] = text.Length;
+        for (var k = text.Length - 1; k >= 0; k--) {
+            if (text[k] is ']' or '\n') {
+                raw[k] = escaped[k] = k;
+                continue;
+            }
+            raw[k] = raw[k + 1];
+            escaped[k] = text[k] == '\\' && k + 1 < text.Length && IsAsciiPunctuation(text[k + 1])
+                ? escaped[k + 2]
+                : escaped[k + 1];
+        }
+        _brackets = new Brackets(raw, escaped);
+        return _brackets;
     }
 
     private int RunEnd(int k, char c, int end) {

@@ -15,8 +15,11 @@ public sealed class SpotlightConstraintTests(PostgresFixture postgres) {
     public async Task Deleting_the_spotlit_round_without_repair_fails_at_commit() {
         await using var connection = await OpenSpotlitSessionAsync();
 
+        await using var tx = await connection.BeginTransactionAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, await ExecuteAsync(connection, tx, "delete from poker_rounds where id = @id", _round));
         var error = await Assert.ThrowsAsync<PostgresException>(
-            () => InTransactionAsync(connection, "delete from poker_rounds where id = @id", _round));
+            () => tx.CommitAsync(TestContext.Current.CancellationToken));
 
         Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, error.SqlState);
         Assert.Equal(1, await CountAsync(connection, "select count(*) from poker_rounds"));
@@ -26,10 +29,14 @@ public sealed class SpotlightConstraintTests(PostgresFixture postgres) {
     public async Task Deleting_the_spotlight_holder_without_repair_fails_at_commit() {
         await using var connection = await OpenSpotlitSessionAsync();
 
+        await using var tx = await connection.BeginTransactionAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, await ExecuteAsync(connection, tx, "delete from principals where id = @id", _holder));
         var error = await Assert.ThrowsAsync<PostgresException>(
-            () => InTransactionAsync(connection, "delete from principals where id = @id", _holder));
+            () => tx.CommitAsync(TestContext.Current.CancellationToken));
 
         Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, error.SqlState);
+        Assert.Equal(1, await CountAsync(connection, "select count(*) from principals"));
     }
 
     [Fact]
@@ -77,9 +84,13 @@ public sealed class SpotlightConstraintTests(PostgresFixture postgres) {
 
     private static async Task InTransactionAsync(NpgsqlConnection connection, string sql, Guid id) {
         await using var tx = await connection.BeginTransactionAsync(TestContext.Current.CancellationToken);
-        await using var command = new NpgsqlCommand(sql, connection, tx) { Parameters = { new("id", id) } };
-        await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        await ExecuteAsync(connection, tx, sql, id);
         await tx.CommitAsync(TestContext.Current.CancellationToken);
+    }
+
+    private static async Task<int> ExecuteAsync(NpgsqlConnection connection, NpgsqlTransaction tx, string sql, Guid id) {
+        await using var command = new NpgsqlCommand(sql, connection, tx) { Parameters = { new("id", id) } };
+        return await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
     }
 
     private static async Task<long> CountAsync(NpgsqlConnection connection, string sql) {

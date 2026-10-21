@@ -49,10 +49,14 @@ public sealed class Sealer : IDisposable {
         string table,
         string primaryKey,
         string field,
-        string sealedValue,
+        string? sealedValue,
         [NotNullWhen(true)] out byte[]? value) {
         ArgumentNullException.ThrowIfNull(privateKey);
         value = null;
+        if (sealedValue is null) {
+            return false;
+        }
+
         byte[] key;
         try {
             key = privateKey.Decrypt(wrappedKey.ToArray(), RSAEncryptionPadding.OaepSHA256);

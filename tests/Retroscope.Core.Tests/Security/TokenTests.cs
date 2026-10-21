@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Retroscope.Core.Ids;
 using Retroscope.Core.Security;
 
 namespace Retroscope.Core.Tests.Security;
@@ -50,8 +51,8 @@ public sealed class TokenTests {
     [Fact]
     public void Anon_tag_is_hmac_of_board_then_principal_in_rfc_4122_byte_order() {
         var key = Enumerable.Range(0, 32).Select(i => (byte)i).ToArray();
-        var board = Guid.Parse("00112233-4455-6677-8899-aabbccddeeff");
-        var principal = Guid.Parse("ffeeddcc-bbaa-9988-7766-554433221100");
+        var board = new BoardId(Guid.Parse("00112233-4455-6677-8899-aabbccddeeff"));
+        var principal = new PrincipalId(Guid.Parse("ffeeddcc-bbaa-9988-7766-554433221100"));
         var message = Convert.FromHexString("00112233445566778899aabbccddeeff" + "ffeeddccbbaa99887766554433221100");
 
         var tag = AnonTagger.Parse(Convert.ToBase64String(key)).Tag(board, principal);
@@ -59,17 +60,29 @@ public sealed class TokenTests {
         Assert.Equal(HMACSHA256.HashData(key, message), tag);
     }
 
+    // Stored anon_tag values (and the importer's) depend on these exact bytes.
+    [Fact]
+    public void Anon_tag_matches_the_pinned_vector() {
+        var key = Enumerable.Range(0, 32).Select(i => (byte)i).ToArray();
+        var board = new BoardId(Guid.Parse("00112233-4455-6677-8899-aabbccddeeff"));
+        var principal = new PrincipalId(Guid.Parse("ffeeddcc-bbaa-9988-7766-554433221100"));
+
+        var tag = new AnonTagger(key).Tag(board, principal);
+
+        Assert.Equal("ed655cacf94fb2c0a0b816fce8a4937a88824f9c62b4ea3b5e1da45c020c9ab6", Convert.ToHexStringLower(tag));
+    }
+
     [Fact]
     public void Anon_tag_proves_ownership_only_for_the_same_board_and_principal() {
         var tagger = new AnonTagger(RandomNumberGenerator.GetBytes(AnonTagger.KeySize));
-        var board = Guid.NewGuid();
-        var principal = Guid.NewGuid();
+        var board = new BoardId(Guid.NewGuid());
+        var principal = new PrincipalId(Guid.NewGuid());
         var tag = tagger.Tag(board, principal);
 
         Assert.True(tagger.Owns(tag, board, principal));
-        Assert.False(tagger.Owns(tag, Guid.NewGuid(), principal));
-        Assert.False(tagger.Owns(tag, board, Guid.NewGuid()));
-        Assert.False(tagger.Owns(tag, principal, board));
+        Assert.False(tagger.Owns(tag, new BoardId(Guid.NewGuid()), principal));
+        Assert.False(tagger.Owns(tag, board, new PrincipalId(Guid.NewGuid())));
+        Assert.False(tagger.Owns(tag, new BoardId(principal.Value), new PrincipalId(board.Value)));
         Assert.False(tagger.Owns(tag.AsSpan(1), board, principal));
     }
 

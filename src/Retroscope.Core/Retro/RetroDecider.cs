@@ -151,7 +151,7 @@ public sealed partial class RetroDecider(IAnonTagger tagger) : IRoomDomain<Retro
 
     private Authorship AuthorshipOf(RetroState state, Principal who, bool anonymous) {
         return anonymous
-            ? new Authorship(null, tagger.Tag(state.BoardId.Value, who.Id.Value))
+            ? new Authorship(null, tagger.Tag(state.BoardId, who.Id))
             : new Authorship(new AuthorInfo(who.DisplayName, who.Kind == PrincipalKind.Guest, who.Id, who.AvatarBlobId), null);
     }
 

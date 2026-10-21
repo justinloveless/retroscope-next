@@ -161,6 +161,34 @@ test('a slower earlier navigation never overwrites a later one', async () => {
   assert.deepEqual(log, ['unmount landing', 'mount team {}', 'update team {"id":"t9","route":"/teams/:id"}']);
 });
 
+test('a superseded navigation that fails reports nothing and never reloads its URL', async () => {
+  for (const withOnError of [true, false]) {
+    browser = fakeBrowser('http://app.test/');
+    const log = [];
+    const errors = [];
+    let fail;
+    const gate = { poker: new Promise((_resolve, reject) => {
+      fail = reject;
+    }) };
+    const router = createRouter({
+      routes: testRoutes(log, gate),
+      root: doc.body,
+      boot: {},
+      loadBoot: async () => ({}),
+      onError: withOnError ? (error, url) => errors.push([error.message, url.pathname]) : undefined,
+    });
+    await router.start();
+    log.length = 0;
+    const slow = router.navigate('/poker/abc');
+    await router.navigate('/teams/t9');
+    fail(new Error('chunk failed'));
+    await slow;
+    assert.deepEqual(errors, []);
+    assert.deepEqual(browser.assigned, []);
+    assert.deepEqual(log, ['unmount landing', 'mount team {}', 'update team {"id":"t9","route":"/teams/:id"}']);
+  }
+});
+
 test('unknown paths and malformed URLs render notFound', async () => {
   const log = [];
   const router = createRouter({

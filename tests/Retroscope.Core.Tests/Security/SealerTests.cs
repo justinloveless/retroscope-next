@@ -73,6 +73,14 @@ public sealed class SealerTests : IClassFixture<SealerTests.TestRsaKey> {
     }
 
     [Fact]
+    public void A_null_sealed_value_does_not_open() {
+        using var sealer = Sealer.Create(_rsa.PublicPem);
+
+        Assert.False(Sealer.TryOpen(_rsa.Key, sealer.WrappedKey.Span, "t", "p", "f", null, out var value));
+        Assert.Null(value);
+    }
+
+    [Fact]
     public void Keys_shorter_than_rsa_3072_are_refused() {
         using var small = RSA.Create(2048);
 

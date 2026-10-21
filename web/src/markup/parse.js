@@ -267,6 +267,7 @@ class InlineParser {
     this.links = new Map();
     this.mentions = new Map();
     this.images = new Map();
+    this.brackets = null;
   }
 
   parse(scope) {
@@ -478,10 +479,7 @@ class InlineParser {
 
   scanLink(i) {
     const text = this.text;
-    let k = i + 1;
-    while (k < text.length && text[k] !== ']' && text[k] !== '\n') {
-      k += text[k] === '\\' && k + 1 < text.length && isAsciiPunctuation(text[k + 1]) ? 2 : 1;
-    }
+    const k = this.ends().escaped[i + 1];
     if (k + 1 >= text.length || k === i + 1 || text[k] !== ']' || text[k + 1] !== '(') {
       return null;
     }
@@ -541,15 +539,33 @@ class InlineParser {
 
   // Raw characters up to the first ']' or newline; -1 when the label is longer than allowed.
   scanLabel(start, maxLength) {
-    const text = this.text;
-    let k = start;
-    while (k < text.length && text[k] !== ']' && text[k] !== '\n') {
-      if (k - start === maxLength) {
-        return -1;
-      }
-      k++;
+    const k = this.ends().raw[start];
+    return k - start > maxLength ? -1 : k;
+  }
+
+  // For every index, the next ']' or newline: raw counts every character, escaped steps over
+  // backslash escapes the way parse does. Scanning from each '[' instead makes a line of 32,000
+  // '[' quadratic.
+  ends() {
+    if (this.brackets !== null) {
+      return this.brackets;
     }
-    return k;
+    const text = this.text;
+    const raw = new Int32Array(text.length + 1);
+    const escaped = new Int32Array(text.length + 1);
+    raw[text.length] = escaped[text.length] = text.length;
+    for (let k = text.length - 1; k >= 0; k--) {
+      if (text[k] === ']' || text[k] === '\n') {
+        raw[k] = escaped[k] = k;
+        continue;
+      }
+      raw[k] = raw[k + 1];
+      escaped[k] = text[k] === '\\' && k + 1 < text.length && isAsciiPunctuation(text[k + 1])
+        ? escaped[k + 2]
+        : escaped[k + 1];
+    }
+    this.brackets = { raw, escaped };
+    return this.brackets;
   }
 
   runEnd(k, c, end) {
