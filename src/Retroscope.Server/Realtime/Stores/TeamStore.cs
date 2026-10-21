@@ -191,6 +191,17 @@ public sealed class TeamStore : SqlRoomStore<TeamState, TeamEvent> {
                 case TeamEvent.MemberRemoved e:
                     yield return Command("delete from team_members where team_id = $1 and user_id = $2", team, e.Member.Value);
                     break;
+                case TeamEvent.OwnershipTransferred e:
+                    // team_members_one_owner_uq is not deferrable: the demotion goes first, in the same transaction.
+                    yield return Command(
+                        "update team_members set role = 'admin' where team_id = $1 and user_id = $2 and role = 'owner'",
+                        team,
+                        e.From.Value);
+                    yield return Command(
+                        "update team_members set role = 'owner' where team_id = $1 and user_id = $2",
+                        team,
+                        e.To.Value);
+                    break;
             }
         }
     }

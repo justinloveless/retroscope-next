@@ -465,9 +465,8 @@ public static class TeamsEndpoints {
     }
 
     /// <summary>
-    /// The owner hands the team to another member and becomes an admin. <c>team_members_one_owner_uq</c> is not
-    /// deferrable, so the owner is demoted before the new owner is promoted (U23); if the promotion does not happen,
-    /// the old owner is restored.
+    /// The owner hands the team to another member and becomes an admin, in one team actor transaction, so no failure
+    /// can leave the team without an owner.
     /// </summary>
     private static async Task<IResult> TransferAsync(
         Guid id,
@@ -488,18 +487,18 @@ public static class TeamsEndpoints {
             return TeamAccess.NotFound();
         }
         var cancellationToken = context.RequestAborted;
-        var demoted = await actors.AskAsync(check.TeamId, new TeamInput.MemberRoleSet(check.Who, TeamRole.Admin), cancellationToken);
-        if (TeamActors.Failure(context, demoted) is { } failure) {
+        var result = await actors.AskAsync(check.TeamId, new TeamInput.TransferOwnership(check.Who, target), cancellationToken);
+        if (result is { Status: AskStatus.Rejected, Code: NackCode.NotFound }) {
+            return TeamAccess.NotFound();
+        }
+        if (TeamActors.Failure(context, result) is { } failure) {
             return failure;
         }
-        var promoted = await actors.AskAsync(check.TeamId, new TeamInput.MemberRoleSet(target, TeamRole.Owner), cancellationToken);
-        if (promoted.Status != AskStatus.Accepted) {
-            await actors.AskAsync(check.TeamId, new TeamInput.MemberRoleSet(check.Who, TeamRole.Owner), CancellationToken.None);
-            return TeamActors.Failure(context, promoted) ?? TeamAccess.NotFound();
+        if (result.Status == AskStatus.Accepted) {
+            await teams.WriteAsync(
+                [TeamsRepo.Audit("team.owner.transfer", check.Who, check.TeamId, target.ToString(), new Dictionary<string, string>(), time.GetUtcNow())],
+                cancellationToken);
         }
-        await teams.WriteAsync(
-            [TeamsRepo.Audit("team.owner.transfer", check.Who, check.TeamId, target.ToString(), new Dictionary<string, string>(), time.GetUtcNow())],
-            cancellationToken);
         return Results.NoContent();
     }
 

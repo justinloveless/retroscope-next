@@ -37,6 +37,9 @@ public static class TeamApply {
             case TeamEvent.MemberRemoved e:
                 ReplaceMembers(state, e.Members);
                 break;
+            case TeamEvent.OwnershipTransferred e:
+                ReplaceMembers(state, e.Members);
+                break;
             case TeamEvent.SettingsChanged e:
                 state.PointDescriptions = e.PointDescriptions ?? state.PointDescriptions;
                 state.MaxEndorsements = e.MaxEndorsements ?? state.MaxEndorsements;
