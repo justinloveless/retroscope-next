@@ -3,6 +3,7 @@
 // server's cursor dedupes. When storage fails the tab keeps going in memory with a fresh cid.
 
 import { EPHEMERAL_KINDS } from './protocol.gen.js';
+import { supersedeKey } from './supersede.js';
 
 export const OUTBOX_CAP = 200;
 export const EPHEMERAL_MAX_AGE_MS = 10_000;
@@ -29,9 +30,10 @@ export function isEphemeral(kind) {
 }
 
 /**
- * Entries are `{r, q, k, d, pid, sentAt, sent}`: `sentAt` is when the user acted, `sent` whether the
- * entry ever went out under its current `q`. Rooms keep references to entry objects, so a renumbered
- * entry stays the same object.
+ * Entries are `{r, q, k, d, pid, sentAt, sent, key, superseded, retry}`: `sentAt` is when the user acted,
+ * `sent` whether the entry ever went out under its current `q`, `key` its supersede key, `superseded`
+ * whether a later entry of the room has the same key, and `retry` whether it awaits a resend after a
+ * retryable nack. Rooms keep references to entry objects, so a renumbered entry stays the same object.
  */
 export function createOutbox({
   storage = defaultStorage(),
@@ -171,7 +173,15 @@ export function createOutbox({
       if (entries.length >= OUTBOX_CAP) {
         return null;
       }
-      const entry = { r, q: ++cseq, k, d, pid: owner, sentAt: now(), sent: false };
+      const key = supersedeKey(k, d);
+      if (key !== null) {
+        for (const older of entries) {
+          if (older.r === r && older.key === key) {
+            older.superseded = true;
+          }
+        }
+      }
+      const entry = { r, q: ++cseq, k, d, pid: owner, sentAt: now(), sent: false, key, superseded: false, retry: false };
       entries.push(entry);
       save();
       return entry;
@@ -209,10 +219,12 @@ export function createOutbox({
       }
     },
 
-    // A fresh q for an entry the server has not applied, so later commands cannot overtake it into a dup.
+    // A retryable nack: the server did not apply the entry. A fresh q keeps later commands from
+    // overtaking it into a dup.
     renumber(entry) {
       entry.q = ++cseq;
       entry.sent = false;
+      entry.retry = true;
       entries.sort((a, b) => a.q - b.q);
       save();
     },
