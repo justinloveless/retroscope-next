@@ -1,0 +1,45 @@
+using System.Diagnostics;
+
+namespace Retroscope.Server.Hosting;
+
+/// <summary>
+/// One Information line per request (§i.3): method, path, status and duration; never the query, headers or body.
+/// The legacy invite link carries its token in the path, so that path is logged as <c>/invite/[redacted]</c> (S23).
+/// ASP.NET Core's own per-request lines (hosting, routing, results) print raw URLs and redirect targets, so the whole
+/// <c>Microsoft.AspNetCore</c> category is held at Warning; this line replaces them.
+/// </summary>
+public static partial class RequestLog {
+    public const string Category = "Retroscope.Requests";
+    public const string FrameworkCategory = "Microsoft.AspNetCore";
+    public const string RedactedInvitePath = "/invite/[redacted]";
+
+    public static void AddServices(IServiceCollection services) =>
+        services.AddLogging(logging => logging.AddFilter(FrameworkCategory, LogLevel.Warning));
+
+    public static void Use(WebApplication app) {
+        var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger(Category);
+        app.Use(async (context, next) => {
+            var started = Stopwatch.GetTimestamp();
+            try {
+                await next(context);
+            } finally {
+                if (context.Request.Path != Health.Path) {
+                    Completed(
+                        logger,
+                        context.Request.Method,
+                        Redact(context.Request.Path),
+                        context.Response.StatusCode,
+                        Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+                }
+            }
+        });
+    }
+
+    public static string Redact(PathString path) =>
+        path.StartsWithSegments(LegacyInvite.Prefix, out var rest) && rest.HasValue && rest != "/"
+            ? RedactedInvitePath
+            : path.Value ?? "/";
+
+    [LoggerMessage(1, LogLevel.Information, "{Method} {Path} {Status} in {ElapsedMs:0.0} ms")]
+    private static partial void Completed(ILogger logger, string method, string path, int status, double elapsedMs);
+}

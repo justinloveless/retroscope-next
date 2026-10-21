@@ -29,12 +29,14 @@ public static class HostingModule {
             options.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(2);
         });
         Forwarded.AddServices(services);
+        RequestLog.AddServices(services);
     }
 
-    // Order (§a): forwarded headers → security headers → static files → CSRF → rate limits → WebSockets. Errors are
+    // Order (§a): request log → forwarded headers → security headers → static files → CSRF → rate limits → WebSockets. Errors are
     // caught just inside the security headers so problem responses carry them; routing runs after static files so
     // CSRF, rate limits and route policies can read the endpoint's metadata.
     public static void UsePipeline(WebApplication app) {
+        RequestLog.Use(app);
         app.UseForwardedHeaders();
         SecurityHeaders.Use(app);
         Problem.Use(app);
@@ -52,5 +54,6 @@ public static class HostingModule {
     public static void Map(IEndpointRouteBuilder app) {
         Health.Map(app);
         Shell.Map(app);
+        LegacyInvite.Map(app);
     }
 }
