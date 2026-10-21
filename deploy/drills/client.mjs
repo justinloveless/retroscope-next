@@ -36,7 +36,7 @@ export async function user(name) {
   const login = await request('POST', '/api/auth/login', { body: { email, password: PASSWORD }, ip });
   if (login.status !== 200) throw new Error(`login ${login.status} ${login.text}`);
   const cookie = (login.headers['set-cookie'] ?? []).map((c) => c.split(';')[0]).find((c) => c.startsWith('__Host-rs_sid='));
-  return { name, cookie, ip };
+  return { name, email, cookie, ip };
 }
 
 function frame(opcode, payload) {
