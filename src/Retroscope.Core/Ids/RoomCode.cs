@@ -6,7 +6,7 @@ namespace Retroscope.Core.Ids;
 /// <summary>
 /// The shareable code in a room URL. New codes are 10 Crockford base32 characters (S9). Imported codes are
 /// kept verbatim (6-character team codes, 13-character lower-case board codes, UUID text), so parsing only
-/// checks the shared grammar <c>[A-Za-z0-9-]{3,64}</c> and never rewrites characters. Lookups compare
+/// checks the shared grammar <c>[A-Za-z0-9-]{3,64}</c> and never rewrites characters. Codes compare
 /// <see cref="LookupKey"/>, matching the <c>upper(code)</c> indexes.
 /// </summary>
 public readonly record struct RoomCode {
@@ -54,6 +54,10 @@ public readonly record struct RoomCode {
         code = new RoomCode(text);
         return true;
     }
+
+    public bool Equals(RoomCode other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
+
+    public override int GetHashCode() => Value is null ? 0 : StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
 
     public override string ToString() => Value ?? "";
 }
