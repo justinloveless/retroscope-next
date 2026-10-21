@@ -57,6 +57,8 @@ internal sealed class Stats {
 
     public int AutoReveals { get; set; }
 
+    public int TimerExpiries { get; set; }
+
     public int CidReuseNacks { get; set; }
 
     /// <summary>Crashes that lost a spotlight position which had not settled yet (§c.8).</summary>
@@ -80,6 +82,7 @@ internal sealed class Stats {
         Drops += other.Drops;
         FullQueueEpisodes += other.FullQueueEpisodes;
         AutoReveals += other.AutoReveals;
+        TimerExpiries += other.TimerExpiries;
         CidReuseNacks += other.CidReuseNacks;
         SpotlightLost += other.SpotlightLost;
         Acked += other.Acked;

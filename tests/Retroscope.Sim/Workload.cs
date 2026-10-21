@@ -1,6 +1,7 @@
 using Retroscope.Core.Ids;
 using Retroscope.Core.Poker;
 using Retroscope.Core.Protocol;
+using Retroscope.Core.Retro;
 
 namespace Retroscope.Sim;
 
@@ -104,6 +105,45 @@ internal static class Workload {
             < 9 => new TeamActionDone(item.Id, rng.Next(3) != 0),
             _ => new TeamActionDelete(item.Id),
         };
+    }
+
+    /// <summary>
+    /// Posts (half of them anonymous), votes, readiness and stage moves under enforced readiness, and short timers that
+    /// run out while the process crashes and redeploys. Edits and deletes target the tab's own posts.
+    /// </summary>
+    public static Command? Retro(World world, SimTab tab, RoomClient room) {
+        if (room.Retro is not { } model) {
+            return null;
+        }
+        var rng = world.Rng;
+        var (board, _) = RetroView.Of(model);
+        var me = tab.Who.Id;
+        var cards = board.Cards;
+        var mine = cards.Where(x => world.IsAuthor(x.Id.Value, me)).ToList();
+        var myComments = board.Comments.Where(x => world.IsAuthor(x.Id.Value, me)).ToList();
+        var timer = board.Timer.State;
+        var roll = rng.Next(100);
+        return roll switch {
+            < 22 when board.Columns.Count > 0 => new RetroCardAdd(
+                new CardId(world.NewGuid()), board.Columns[rng.Next(board.Columns.Count)].Id, $"card {rng.Next(1000)}", rng.Next(2) == 0),
+            < 30 when mine.Count > 0 => Edit(rng, mine[rng.Next(mine.Count)]),
+            < 34 when mine.Count > 0 => new RetroCardDelete(mine[rng.Next(mine.Count)].Id),
+            < 46 when cards.Count > 0 => new RetroVoteSet(cards[rng.Next(cards.Count)].Id, rng.Next(3) != 0),
+            < 54 when cards.Count > 0 => new RetroCommentAdd(
+                new CommentId(world.NewGuid()), cards[rng.Next(cards.Count)].Id, $"comment {rng.Next(1000)}", rng.Next(2) == 0),
+            < 57 when myComments.Count > 0 => new RetroCommentDelete(myComments[rng.Next(myComments.Count)].Id),
+            < 70 => new RetroReadySet(board.Stage, rng.Next(5) != 0),
+            < 78 => new RetroStageSet(board.Stage, rng.Next(4) == 0 ? (RetroStage)rng.Next(4) : StageRules.Next(board.Stage) ?? RetroStage.Thinking),
+            < 88 => new RetroTimerStart(rng.Next(TimerRules.MinDurationMs, 20_000), rng.Next(2) == 0, false, timer),
+            < 92 => new RetroTimerPause(timer),
+            < 96 => new RetroTimerResume(timer),
+            _ => new RetroTimerReset(timer),
+        };
+    }
+
+    // Mostly the version on screen; sometimes one behind, as a debounced edit would carry.
+    private static RetroCardEdit Edit(Random rng, CardInfo card) {
+        return new RetroCardEdit(card.Id, $"edited {rng.Next(1000)}", rng.Next(8) == 0 ? card.Version - 1 : card.Version);
     }
 
     private static PokerKind Pick(Random rng) {

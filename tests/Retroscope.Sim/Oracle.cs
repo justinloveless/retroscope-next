@@ -1,6 +1,7 @@
 using Retroscope.Core.Ids;
 using Retroscope.Core.Poker;
 using Retroscope.Core.Protocol;
+using Retroscope.Core.Retro;
 
 namespace Retroscope.Sim;
 
@@ -121,6 +122,8 @@ internal sealed class Oracle(SimClock clock) {
 
     public int AutoReveals { get; private set; }
 
+    public int TimerExpiries { get; private set; }
+
     public void Fail(string message) {
         lock (_lock) {
             if (_violations.Count < MaxViolations) {
@@ -189,6 +192,9 @@ internal sealed class Oracle(SimClock clock) {
                         break;
                     case RoundReplayed replayed:
                         _revealsSinceVoting[replayed.Round.Id] = 0;
+                        break;
+                    case TimerChanged { ExpiredAt: not null }:
+                        TimerExpiries++;
                         break;
                 }
             }

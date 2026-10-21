@@ -2,6 +2,7 @@ using Retroscope.Core.Ids;
 using Retroscope.Core.Protocol;
 using Retroscope.Core.Room;
 using Retroscope.Core.Tests.Poker;
+using Retroscope.Core.Tests.Retro;
 using Retroscope.Server.Realtime.Actors;
 
 namespace Retroscope.Sim;
@@ -72,6 +73,12 @@ internal sealed class RoomClient(RoomKey key) {
     public List<PrincipalInfo> Presence { get; set; } = [];
 
     public TeamViewModel? Team { get; set; }
+
+    /// <summary>The board's fold, built from a snapshot without its presence (<see cref="Presence"/> holds that).</summary>
+    public RetroViewerModel? Retro { get; set; }
+
+    /// <summary>The ends of the timers this page was told expired; each is told once (R16).</summary>
+    public HashSet<long> TimerExpiries { get; } = [];
 
     public int RetryAttempt { get; set; }
 
@@ -183,7 +190,7 @@ internal sealed class SimTab {
         if (room.Kicked is not null || Closed) {
             return;
         }
-        var intent = _world.NewIntent(key, command);
+        var intent = _world.NewIntent(key, command, Who.Id);
         var entry = new Entry(intent, key, ++_cseq) { Early = !room.EverSynced };
         _entries.Add(entry);
         _world.Trace($"{Name}: issue {intent} q={entry.Q}");
@@ -320,6 +327,10 @@ internal sealed class SimTab {
             case TeamSnapshot team:
                 room.Team = new TeamViewModel(team);
                 break;
+            case RetroSnapshot retro:
+                room.Retro = new RetroViewerModel(retro with { Presence = [] }, (RetroOverlay)snap.O!);
+                room.Presence = [.. retro.Presence];
+                break;
         }
     }
 
@@ -357,7 +368,7 @@ internal sealed class SimTab {
         Apply(room, tx.S, tx.Ev);
     }
 
-    private static void Apply(RoomClient room, long seq, IReadOnlyList<WireEvent> events) {
+    private void Apply(RoomClient room, long seq, IReadOnlyList<WireEvent> events) {
         room.Seq = seq;
         if (room.Team is { } team) {
             foreach (var evt in events) {
@@ -387,6 +398,14 @@ internal sealed class SimTab {
             }
         }
         room.Poker?.Apply(domain);
+        if (room.Retro is { } retro) {
+            foreach (var evt in domain) {
+                if (evt is RetroTimer { Expired: true, EndsAt: { } end } && !room.TimerExpiries.Add(end)) {
+                    _world.Oracle.Fail($"{Name}: the timer that ended at {end} was told expired twice");
+                }
+                retro.Apply(evt);
+            }
+        }
     }
 
     private async Task SettleAsync(RoomClient room, long lastQ) {
@@ -455,6 +474,10 @@ internal sealed class SimTab {
             SortEntries();
             ScheduleRetry(room);
             return;
+        }
+        if (nack.Code == NackCode.Forbidden && _world.Authored(entry.Intent.Command, Who.Id)) {
+            // The board recognises its author by the anonymous tag too, across reloads and restarts.
+            _world.Oracle.Fail($"{Name}: {entry.Intent} on its own post was refused as forbidden");
         }
         if (nack.Retry) {
             // The server refuses every later command of the room on this connection until it is subscribed again, so

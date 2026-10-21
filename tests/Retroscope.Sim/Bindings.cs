@@ -3,9 +3,12 @@ using Retroscope.Core.Authz;
 using Retroscope.Core.Ids;
 using Retroscope.Core.Poker;
 using Retroscope.Core.Protocol;
+using Retroscope.Core.Retro;
 using Retroscope.Core.Room;
+using Retroscope.Core.Security;
 using Retroscope.Core.Team;
 using Retroscope.Server.Realtime.Actors;
+using Retroscope.Server.Realtime.Rooms;
 
 namespace Retroscope.Sim;
 
@@ -22,6 +25,8 @@ internal enum InjectedBug : byte {
 
 /// <summary>The team membership cache (U23's <c>IAccessView</c>): replaced as a whole after every member commit.</summary>
 internal sealed class SimAccess(TeamId team) : IAccessView {
+    public static readonly IAnonTagger Tagger = AnonTagger.Parse(Convert.ToBase64String(new byte[AnonTagger.KeySize]));
+
     private volatile FrozenDictionary<PrincipalId, TeamRole> _roles = FrozenDictionary<PrincipalId, TeamRole>.Empty;
 
     public void Set(IEnumerable<MemberInfo> members) => _roles = members.ToFrozenDictionary(x => x.Pid, x => x.Role);
@@ -120,4 +125,40 @@ internal sealed class TeamBinding(Oracle oracle, TimeProvider time, Func<bool> l
     }
 
     public bool IsDeleted(TeamState state) => state.Deleted;
+}
+
+/// <summary>
+/// The real board binding (U22) with its decider watched by the oracle; everything else is the real binding's.
+/// </summary>
+internal sealed class SimRetroBinding(Oracle oracle, Func<bool> live) : IRoomBinding<RetroState, RetroInput, RetroEvent> {
+    private static readonly IRoomBinding<RetroState, RetroInput, RetroEvent> Real = new RetroBinding(SimAccess.Tagger);
+
+    public RoomKind Kind => Real.Kind;
+
+    public IRoomDomain<RetroState, RetroInput, RetroEvent> Domain { get; } = new WatchedDomain<RetroState, RetroInput, RetroEvent>(
+        new RetroDecider(SimAccess.Tagger),
+        oracle,
+        x => (x as RetroInput.Client)?.Command,
+        Real.DurabilityOf,
+        live);
+
+    public RetroInput? FromClient(Command command) => Real.FromClient(command);
+
+    public bool IsCreate(Command command) => Real.IsCreate(command);
+
+    public EventDurability DurabilityOf(RetroEvent evt) => Real.DurabilityOf(evt);
+
+    public bool CanSubscribe(RetroState state, Viewer viewer, IAccessView access) => Real.CanSubscribe(state, viewer, access);
+
+    public bool IsMember(RetroState state, Viewer viewer, IAccessView access) => Real.IsMember(state, viewer, access);
+
+    public RoomSnapshot Snapshot(RetroState state, IReadOnlyList<PrincipalInfo> presence, bool forMembers) {
+        return Real.Snapshot(state, presence, forMembers);
+    }
+
+    public RoomOverlay? Overlay(RetroState state, Viewer viewer) => Real.Overlay(state, viewer);
+
+    public IReadOnlyList<WireEvent> Project(RetroState state, IReadOnlyList<RetroEvent> events, PrincipalId viewer, bool viewerIsMember) {
+        return Real.Project(state, events, viewer, viewerIsMember);
+    }
 }

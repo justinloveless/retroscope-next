@@ -2,14 +2,16 @@ using System.Text;
 using Retroscope.Core.Ids;
 using Retroscope.Core.Poker;
 using Retroscope.Core.Protocol;
+using Retroscope.Core.Retro;
 using Retroscope.Core.Room;
 using Retroscope.Core.Team;
+using Retroscope.Core.Tests.Retro;
 using Retroscope.Server.Realtime.Actors;
 
 namespace Retroscope.Sim;
 
 /// <summary>
-/// One seeded run: a team, its poker session, five tabs of four people, and a server process that crashes,
+/// One seeded run: a team, its poker session and board, five tabs of four people, and a server process that crashes,
 /// redeploys and loses commits while the tabs vote, drop off the network and lose their storage. Everything that
 /// happens is drawn from one <see cref="Random"/>, and the world waits for every actor to go quiet after each
 /// message, so a seed replays exactly.
@@ -25,7 +27,7 @@ internal sealed class World {
     private readonly HashSet<RoomKey> _held = [];
     private readonly HashSet<SimConnection> _serverLive = [];
     private readonly Queue<SimConnection> _restarts = new();
-    private readonly Queue<(SimProcess Process, Action<ActorRegistry> Post)> _posts = new();
+    private readonly Queue<(SimProcess Process, Action<ActorRegistry> Post)> _actorPosts = new();
     private readonly Lock _lock = new();
     private readonly List<string> _trace = [];
     private readonly Dictionary<SimTab, Storage> _checkpoints = [];
@@ -34,6 +36,7 @@ internal sealed class World {
     private readonly Principal _bob;
     private readonly Principal _carol;
     private readonly Principal _dave;
+    private readonly Dictionary<Guid, (PrincipalId Author, bool Anonymous)> _posts = [];
     private RoundId? _shownSpotlight;
     private long _ids;
     private int _intents;
@@ -50,7 +53,8 @@ internal sealed class World {
         }
         TeamRoom = RoomKey.Team(new TeamId(NewGuid()));
         PokerRoom = RoomKey.Poker(new SessionId(NewGuid()));
-        Rooms = [PokerRoom, TeamRoom];
+        BoardRoom = RoomKey.Board(new BoardId(NewGuid()));
+        Rooms = [PokerRoom, TeamRoom, BoardRoom];
         Access = new SimAccess(new TeamId(TeamRoom.Id));
         _alice = new Principal(new PrincipalId(NewGuid()), PrincipalKind.User, "Alice", null, false);
         _bob = new Principal(new PrincipalId(NewGuid()), PrincipalKind.User, "Bob", null, false);
@@ -84,6 +88,8 @@ internal sealed class World {
     public RoomKey PokerRoom { get; }
 
     public RoomKey TeamRoom { get; }
+
+    public RoomKey BoardRoom { get; }
 
     public IReadOnlyList<RoomKey> Rooms { get; }
 
@@ -132,6 +138,7 @@ internal sealed class World {
         }
         _stats.Commits = Oracle.Commits;
         _stats.AutoReveals = Oracle.AutoReveals;
+        _stats.TimerExpiries = Oracle.TimerExpiries;
         return new WorldResult(_seed, Digest(), Oracle.Violations, Oracle.Known, _trace, _stats);
     }
 
@@ -140,13 +147,45 @@ internal sealed class World {
         return new Guid((uint)_seed, (ushort)(id >> 32), (ushort)(0x4000 | ((id >> 16) & 0x0fff)), 0x80, 0, 0, 0, 0, (byte)(id >> 8), (byte)id, 0);
     }
 
-    public Intent NewIntent(RoomKey room, Command command) {
+    public Intent NewIntent(RoomKey room, Command command, PrincipalId by) {
         var intent = new Intent(++_intents, room, command, Clock.Now, Catalog.EntryOf(command).Ephemeral);
+        switch (command) {
+            case RetroCardAdd add:
+                lock (_lock) {
+                    _posts[add.CardId.Value] = (by, add.Anonymous);
+                }
+                break;
+            case RetroCommentAdd add:
+                lock (_lock) {
+                    _posts[add.CommentId.Value] = (by, add.Anonymous);
+                }
+                break;
+        }
         var parsed = WireParser.ParseClient(WireWriter.ToUtf8(new CmdFrame(room, 1, command)));
         intent.DataHash = parsed.Ok ? ((CmdFrame)parsed.Frame!).DataHash : 0;
         Oracle.Register(intent);
         _stats.Commands++;
         return intent;
+    }
+
+    /// <summary>The command edits or deletes a card or comment <paramref name="who"/> posted while still on the team.</summary>
+    public bool Authored(Command command, PrincipalId who) {
+        Guid? post = command switch {
+            RetroCardEdit edit => edit.CardId.Value,
+            RetroCardDelete delete => delete.CardId.Value,
+            RetroCommentDelete delete => delete.CommentId.Value,
+            _ => null,
+        };
+        lock (_lock) {
+            return post is { } id && _posts.TryGetValue(id, out var author) && author.Author == who && Db.Members.Any(x => x.Pid == who);
+        }
+    }
+
+    /// <summary>The cards and comments <paramref name="who"/> posted, for the workload's edits and deletes.</summary>
+    public bool IsAuthor(Guid post, PrincipalId who) {
+        lock (_lock) {
+            return _posts.TryGetValue(post, out var author) && author.Author == who;
+        }
     }
 
     public void Trace(string line) {
@@ -194,7 +233,7 @@ internal sealed class World {
     /// </summary>
     public void PostLater(SimProcess process, Action<ActorRegistry> post) {
         lock (_lock) {
-            _posts.Enqueue((process, post));
+            _actorPosts.Enqueue((process, post));
         }
     }
 
@@ -210,6 +249,10 @@ internal sealed class World {
         switch (frame) {
             case SnapFrame snap:
                 Oracle.Connected(snap.R, connection.Id, connection.Tab.Who.Id);
+                if (snap is { D: RetroSnapshot board, O: RetroOverlay overlay }) {
+                    CheckAnonymity(connection.Tab, board.Cards, board.Comments);
+                    CheckMine(connection.Tab, [.. overlay.MineCards.Select(x => x.Value), .. overlay.MineComments.Select(x => x.Value)]);
+                }
                 break;
             case ReplayFrame replay:
                 Oracle.Connected(replay.R, connection.Id, connection.Tab.Who.Id);
@@ -236,9 +279,48 @@ internal sealed class World {
                         case PokerVoteState { Points: not null } vote when vote.Pid != connection.Tab.Who.Id:
                             Oracle.Fail($"secrecy: {connection.Tab} was sent {vote.Pid}'s points while the round is voting");
                             break;
+                        case RetroCardAdded added:
+                            CheckAnonymity(connection.Tab, [added.Card], []);
+                            break;
+                        case RetroCommentAdded added:
+                            CheckAnonymity(connection.Tab, [], [added.Comment]);
+                            break;
                     }
                 }
                 break;
+        }
+    }
+
+    /// <summary>
+    /// S6 on the wire: an anonymous post never names its author, and only its author's tabs are told it is theirs
+    /// (the board knows them by the anonymous tag alone).
+    /// </summary>
+    private void CheckAnonymity(SimTab tab, IReadOnlyList<CardInfo> cards, IReadOnlyList<CommentInfo> comments) {
+        var posts = cards.Select(x => (x.Id.Value, x.Anonymous, x.Author, x.Mine))
+            .Concat(comments.Select(x => (x.Id.Value, x.Anonymous, x.Author, x.Mine)));
+        foreach (var (id, anonymous, author, mine) in posts) {
+            (PrincipalId Author, bool Anonymous) posted;
+            lock (_lock) {
+                if (!_posts.TryGetValue(id, out posted)) {
+                    continue;
+                }
+            }
+            if (posted.Anonymous && (!anonymous || author is not null)) {
+                Oracle.Fail($"anonymity: {tab} was sent anonymous post {id} with its author ({author?.Name ?? "not marked anonymous"})");
+            }
+            if (mine == true) {
+                CheckMine(tab, [id]);
+            }
+        }
+    }
+
+    private void CheckMine(SimTab tab, IEnumerable<Guid> mine) {
+        foreach (var id in mine) {
+            lock (_lock) {
+                if (_posts.TryGetValue(id, out var posted) && posted.Author != tab.Who.Id) {
+                    Oracle.Fail($"anonymity: {tab} was told post {id} by someone else is its own");
+                }
+            }
         }
     }
 
@@ -266,7 +348,7 @@ internal sealed class World {
             bool hasPost;
             lock (_lock) {
                 _restarts.TryDequeue(out restarted);
-                hasPost = _posts.TryDequeue(out posted);
+                hasPost = _actorPosts.TryDequeue(out posted);
             }
             if (restarted is null && !hasPost) {
                 return;
@@ -349,9 +431,15 @@ internal sealed class World {
     }
 
     private async Task CommandAsync(SimTab tab) {
-        var key = Rng.Next(100) < 82 ? PokerRoom : TeamRoom;
+        var key = Rng.Next(100) switch {
+            < 60 => PokerRoom,
+            < 85 => BoardRoom,
+            _ => TeamRoom,
+        };
         var room = tab.Room(key);
-        Command? command = key == PokerRoom ? Workload.Poker(this, tab, room) : Workload.Team(this, tab, room);
+        var command = key == PokerRoom ? Workload.Poker(this, tab, room)
+            : key == BoardRoom ? Workload.Retro(this, tab, room)
+            : Workload.Team(this, tab, room);
         if (command is not null) {
             await tab.IssueAsync(key, command);
         }
@@ -420,7 +508,11 @@ internal sealed class World {
     }
 
     private void ArmCommitFault() {
-        var room = Rng.Next(100) < 75 ? PokerRoom : TeamRoom;
+        var room = Rng.Next(100) switch {
+            < 55 => PokerRoom,
+            < 80 => BoardRoom,
+            _ => TeamRoom,
+        };
         var fault = Rng.Next(100) switch {
             < 25 => CommitFault.FailedBeforeCommit,
             < 55 => CommitFault.OutcomeUnknownLanded,
@@ -501,7 +593,7 @@ internal sealed class World {
         _held.Clear();
         lock (_lock) {
             _restarts.Clear();
-            _posts.Clear();
+            _actorPosts.Clear();
         }
         Process = new SimProcess(this);
     }
@@ -643,6 +735,7 @@ internal sealed class World {
         _ = actor switch {
             IRoomActor<PokerState, PokerInput> poker => poker.QueryAsync(Stall, CancellationToken.None),
             IRoomActor<TeamState, TeamInput> team => team.QueryAsync(Stall, CancellationToken.None),
+            IRoomActor<RetroState, RetroInput> board => board.QueryAsync(Stall, CancellationToken.None),
             _ => throw new InvalidOperationException(),
         };
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(20));
@@ -697,7 +790,7 @@ internal sealed class World {
         }
     }
 
-    /// <summary>Both rooms are for team members only (§c.11).</summary>
+    /// <summary>Every room is for team members only (§c.11; the board is team-visible).</summary>
     private bool MayJoin(SimTab tab) => Db.Members.Any(x => x.Pid == tab.Who.Id);
 
     private bool Converged() {
@@ -724,15 +817,32 @@ internal sealed class World {
         }
         Oracle.CheckPresence(Options.PresenceGrace);
         await CheckDurableAsync();
+        if (Db.RetroRows().Timer is { State: TimerState.Running, EndsAt: { } end } && end <= Clock.Now) {
+            Oracle.Fail($"the board's timer ended at t+{(end - Start).TotalMilliseconds:0}ms and never expired");
+        }
     }
 
     /// <summary>Every client's folded view equals the snapshot the server would send it now.</summary>
     private async Task CompareViewAsync(SimTab tab, RoomClient room) {
         var viewer = tab.Viewer;
-        var bytes = room.Key == PokerRoom
-            ? await QueryAsync<PokerState, PokerInput, byte[]>(PokerRoom, view => view.SnapFrameAsync(viewer))
-            : await QueryAsync<TeamState, TeamInput, byte[]>(TeamRoom, view => view.SnapFrameAsync(viewer));
+        byte[] bytes;
+        if (room.Key == PokerRoom) {
+            bytes = await QueryAsync<PokerState, PokerInput, byte[]>(PokerRoom, view => view.SnapFrameAsync(viewer));
+        } else if (room.Key == BoardRoom) {
+            bytes = await QueryAsync<RetroState, RetroInput, byte[]>(BoardRoom, view => view.SnapFrameAsync(viewer));
+        } else {
+            bytes = await QueryAsync<TeamState, TeamInput, byte[]>(TeamRoom, view => view.SnapFrameAsync(viewer));
+        }
         var expected = (SnapFrame)WireParser.ParseServer(bytes).Frame!;
+        if (room.Retro is { } retro) {
+            var snapshot = (RetroSnapshot)expected.D;
+            var folded = retro.ToJson() + "\n" + Json(room.Presence.OrderBy(x => x.Pid.ToString(), StringComparer.Ordinal));
+            var fresh = RetroViewerModel.Canonical(snapshot with { Presence = [] }, (RetroOverlay)expected.O!) + "\n" + Json(snapshot.Presence);
+            if (folded != fresh) {
+                Oracle.Fail($"{tab}: folded board view differs from a fresh snapshot\n  folded:   {folded}\n  snapshot: {fresh}");
+            }
+            return;
+        }
         string actual;
         if (room.Poker is { } poker) {
             var (snapshot, overlay) = poker.View(room.Presence);
@@ -765,6 +875,12 @@ internal sealed class World {
         if (liveTeam != loadedTeam) {
             Oracle.Fail($"team: the live room differs from a reload\n  live:   {liveTeam}\n  reload: {loadedTeam}");
         }
+        var liveBoard = await QueryAsync<RetroState, RetroInput, string>(
+            BoardRoom, view => ValueTask.FromResult(Json(BoardRoom, RetroProjection.Snapshot(view.State!, [], forMembers: true))));
+        var loadedBoard = Json(BoardRoom, RetroProjection.Snapshot(Db.LoadRetro(), [], forMembers: true));
+        if (liveBoard != loadedBoard) {
+            Oracle.Fail($"board: the live room differs from a reload\n  live:   {liveBoard}\n  reload: {loadedBoard}");
+        }
     }
 
     private async Task<T> QueryAsync<TState, TInput, T>(RoomKey room, Func<RoomView<TState>, ValueTask<T>> query)
@@ -776,7 +892,9 @@ internal sealed class World {
 
     private string Digest() {
         var outcomes = string.Join(",", Oracle.Intents.Select(x => $"{x.Id}:{x.Outcome}:{x.Detail}:{x.Commits}"));
-        var rows = Json(PokerRoom, PokerProjection.Snapshot(Db.PokerRows, [])) + Json(TeamRoom, TeamProjection.Snapshot(Db.LoadTeam(), Start));
+        var rows = Json(PokerRoom, PokerProjection.Snapshot(Db.PokerRows, []))
+            + Json(TeamRoom, TeamProjection.Snapshot(Db.LoadTeam(), Start))
+            + Json(BoardRoom, RetroProjection.Snapshot(Db.RetroRows(), [], forMembers: true));
         var bytes = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes($"{Clock.Now:O}|{outcomes}|{rows}"));
         return Convert.ToHexString(bytes)[..16];
     }
@@ -784,6 +902,8 @@ internal sealed class World {
     private static string Json(ServerFrame frame) => Encoding.UTF8.GetString(WireWriter.ToUtf8(frame));
 
     private static string Json(RoomKey room, RoomSnapshot snapshot) => Json(new SnapFrame(room, default, 0, 0, snapshot));
+
+    private static string Json(IEnumerable<PrincipalInfo> presence) => string.Join(",", presence.Select(x => $"{x.Pid}:{x.Kind}:{x.Name}:{x.Avatar}"));
 
     private SimDb CreateDb() {
         var team = new TeamState(new TeamId(TeamRoom.Id), "Sim team");
@@ -802,7 +922,8 @@ internal sealed class World {
         poker.Rounds[first.Id] = first;
         poker.Order.Add(first.Id);
         poker.CurrentRoundId = first.Id;
-        var db = new SimDb(poker, team) { Bug = _options.Bug };
+        var board = Board(team.TeamId, [new ColumnId(NewGuid()), new ColumnId(NewGuid()), new ColumnId(NewGuid())]);
+        var db = new SimDb(poker, team, board) { Bug = _options.Bug };
         for (var i = 0; i < 2; i++) {
             var card = new CardId(NewGuid());
             var text = $"seeded action {i}";
@@ -811,5 +932,30 @@ internal sealed class World {
                 text);
         }
         return db;
+    }
+
+    /// <summary>
+    /// A team-visible board with stages and enforced readiness, anonymous posts allowed and author names shown, so an
+    /// anonymous post is the only one without its author.
+    /// </summary>
+    private Func<RetroState> Board(TeamId team, ColumnId[] columns) {
+        var id = new BoardId(BoardRoom.Id);
+        var createdBy = _alice.Id;
+        return () => {
+            var board = new RetroState {
+                BoardId = id,
+                Code = "SIMBOARD",
+                TeamId = team,
+                CreatedBy = createdBy,
+                Title = "Sim retro",
+                Visibility = BoardVisibility.Team,
+                Config = RetroDefaults.Config with { StagesEnabled = true, EnforceReadiness = true },
+            };
+            string[] titles = ["Went well", "To improve", "Ideas"];
+            for (var i = 0; i < columns.Length; i++) {
+                board.Columns.Add(new Column { Id = columns[i], Title = titles[i], Color = (ColumnColor)i, SortKey = i });
+            }
+            return board;
+        };
     }
 }

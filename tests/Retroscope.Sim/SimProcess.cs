@@ -30,6 +30,7 @@ internal sealed class SimProcess {
         RoomType[] types = [
             RoomType.Of(SimPokerBinding.Create(world.Oracle, world.Bug, () => !Dead), new PokerSimStore(world, this), world.Access),
             RoomType.Of(new TeamBinding(world.Oracle, Clock, () => !Dead), new TeamSimStore(world, this), world.Access),
+            RoomType.Of(new SimRetroBinding(world.Oracle, () => !Dead), new RetroSimStore(world, this), world.Access),
         ];
         Registry = new ActorRegistry(runtime, types);
         Gateway = new RoomGateway(Registry, types, [], NullLogger<RoomGateway>.Instance);
