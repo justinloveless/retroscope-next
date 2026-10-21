@@ -212,9 +212,6 @@ source_table=public.template_columns | source_pk=00000000-0000-0000-0000-0000000
         "reason": "oldest_member"
       }
     ],
-    "preflightWarnings": [
-      "auth table auth.instances is not read (not in expected-columns.json)"
-    ],
     "renamedTeams": [
       "00000000-0000-0000-0000-0000000000c5"
     ],

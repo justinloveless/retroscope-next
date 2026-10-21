@@ -67,9 +67,6 @@ source_table=public.team_invitations | source_pk=00000000-0000-0000-0000-0000000
         "id": "00000000-0000-0000-0000-000000000502",
         "team": "00000000-0000-0000-0000-0000000000c1"
       }
-    ],
-    "preflightWarnings": [
-      "auth table auth.instances is not read (not in expected-columns.json)"
     ]
   }
 }

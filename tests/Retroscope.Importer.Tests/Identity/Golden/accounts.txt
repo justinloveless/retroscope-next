@@ -109,9 +109,6 @@ source_table=public.profiles#dropped | source_pk=00000000-0000-0000-0000-0000000
         "keptId": "00000000-0000-0000-0000-0000000000a4"
       }
     ],
-    "preflightWarnings": [
-      "auth table auth.instances is not read (not in expected-columns.json)"
-    ],
     "skippedPhoneOnly": [
       "00000000-0000-0000-0000-0000000000a6"
     ]
