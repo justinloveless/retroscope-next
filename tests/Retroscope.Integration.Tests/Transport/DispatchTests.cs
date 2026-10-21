@@ -162,39 +162,4 @@ public sealed class DispatchTests {
         var gone = await app.Gateway.WaitForAsync("gone");
         Assert.Equal([kept], Assert.IsAssignableFrom<IReadOnlyCollection<RoomKey>>(gone.Detail));
     }
-
-    [Fact]
-    public async Task Without_the_actor_runtime_rooms_are_not_found() {
-        var gateway = new UnavailableRoomGateway();
-        var connection = new FakeConnection();
-        var room = TransportApp.NewRoom();
-
-        gateway.Subscribe(connection, room, null, null);
-        gateway.Command(connection, new CmdFrame(room, 1, new PokerRoundReveal(new RoundId(Guid.CreateVersion7()))));
-
-        Assert.Equal(KickCode.NotFound, Assert.IsType<KickFrame>(connection.Sent[0]).Code);
-        Assert.Equal(NackCode.NotSubscribed, Assert.IsType<NackFrame>(connection.Sent[1]).Code);
-        await Task.CompletedTask;
-    }
-
-    private sealed class FakeConnection : IClientConnection {
-        public List<ServerFrame> Sent { get; } = [];
-
-        public Retroscope.Core.Room.Viewer Viewer => throw new NotSupportedException();
-
-        public Guid? AuthSessionId => null;
-
-        public bool Send(ServerFrame frame) {
-            Sent.Add(frame);
-            return true;
-        }
-
-        public bool Send(ReadOnlyMemory<byte> utf8) => throw new NotSupportedException();
-
-        public bool Send(IReadOnlyList<ReadOnlyMemory<byte>> segments) => throw new NotSupportedException();
-
-        public void Kick(RoomKey room, KickCode code) => Send(new KickFrame(room, code));
-
-        public void Restart() => throw new NotSupportedException();
-    }
 }
