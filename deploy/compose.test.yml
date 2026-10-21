@@ -1,0 +1,178 @@
+# The e2e and drill stack (DESIGN §j, §i.1): the production compose shape, built locally instead of pulled, behind
+# Traefik with TLS as Coolify runs it, plus Mailpit and FakeJira.
+#   docker compose -f deploy/compose.test.yml up -d --build --wait      (./build.sh e2e does this)
+#   https://localhost:18443 (self-signed; RS_TEST_HTTPS_PORT moves it), Mailpit UI on http://localhost:18025
+#   docker compose -f deploy/compose.test.yml down -v
+#
+# Our slice is app + db + backup: 200 + 288 + 48 MiB of memory and 0.6 + 0.35 + 0.05 CPUs, so the stack can never
+# use more than 1 vCPU and 1 GB, as on the VPS (deployment precondition). proxy, mailpit and fakejira stand in for
+# Coolify and the outside world and sit outside that budget.
+# Every secret below is a throwaway for this stack only.
+name: retroscope-test
+
+x-postgres-image: &postgres-image postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+
+services:
+  proxy:
+    image: traefik:v3.7.16@sha256:6d3e069ee484ab1da5adfdda555a75eb9b1545ef09096a0cc7c3043101986a20
+    command:
+      - --entrypoints.websecure.address=:8443
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+      - --providers.file.watch=false
+      - --ping=true
+      - --log.level=WARN
+    configs:
+      - source: traefik-dynamic
+        target: /etc/traefik/dynamic.yml
+    ports:
+      - "127.0.0.1:${RS_TEST_HTTPS_PORT:-18443}:8443"
+    networks: [edge]
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    depends_on: { app: { condition: service_healthy } }
+
+  app:
+    image: retroscope:test
+    pull_policy: build
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    environment:
+      PUBLIC_URL: https://localhost:${RS_TEST_HTTPS_PORT:-18443}
+      DATABASE_URL: "Host=db;Database=retroscope;Username=retroscope_app;Password=test-app;Maximum Pool Size=8;Minimum Pool Size=1;Connection Idle Lifetime=60;Max Auto Prepare=50;Timeout=5;Command Timeout=10;Keepalive=10"
+      DATABASE_OWNER_URL: "Host=db;Database=retroscope;Username=retroscope_owner;Password=test-owner"
+      APP_KEYS: "k1:ZsxdOqKgd1qzxDBEsssdzxtVQUML/Oh0/6YtdKPnwHY="
+      ANON_TAG_KEY: "RiqCIorRanT2jsnLH4uZ0TWpCBUD+65PuY9HNcD4kao="
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_SECURITY: none
+      SMTP_FROM: "Retroscope <noreply@example.test>"
+      TRUSTED_PROXY_CIDRS: 172.31.89.0/24
+      # Every test client reaches Traefik from the same host address, so per-IP limits (5 signups an hour) would
+      # throttle the suite. Clients name their own address in this header instead, the way CF-Connecting-IP works
+      # behind Cloudflare; Traefik passes it through and the app trusts it only from the proxy subnet.
+      CLIENT_IP_HEADER: X-Test-Client-Ip
+      SSL_CERT_FILE: /certs/bundle.pem
+      DOTNET_GCHeapHardLimit: "0x8000000"
+      DOTNET_gcServer: "0"
+      DOTNET_gcConcurrent: "0"
+      DOTNET_GCConserveMemory: "5"
+    depends_on:
+      db: { condition: service_healthy }
+      fakejira: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "/app/retroscope", "healthcheck"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+    stop_grace_period: 8s
+    read_only: true
+    tmpfs: ["/tmp:size=16m"]
+    volumes: ["fakes-certs:/certs:ro"]
+    mem_limit: 200m
+    cpus: 0.6
+    networks: [edge, jira]
+
+  db:
+    image: *postgres-image
+    environment:
+      POSTGRES_DB: retroscope
+      POSTGRES_USER: retroscope_owner
+      POSTGRES_PASSWORD: test-owner
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    command: >
+      postgres
+      -c shared_buffers=64MB -c effective_cache_size=192MB -c work_mem=2MB -c maintenance_work_mem=32MB
+      -c autovacuum_work_mem=16MB -c max_connections=20 -c wal_buffers=2MB
+      -c min_wal_size=64MB -c max_wal_size=256MB -c checkpoint_timeout=15min -c checkpoint_completion_target=0.9
+      -c synchronous_commit=on -c commit_delay=200 -c commit_siblings=3
+      -c wal_compression=on -c random_page_cost=1.1 -c effective_io_concurrency=100
+      -c jit=off -c huge_pages=off
+      -c max_worker_processes=2 -c max_parallel_workers=0 -c max_parallel_workers_per_gather=0
+      -c max_parallel_maintenance_workers=0 -c autovacuum_max_workers=2 -c autovacuum_naptime=60s
+      -c tcp_keepalives_idle=10 -c tcp_keepalives_interval=5 -c tcp_keepalives_count=3
+      -c log_min_duration_statement=250ms -c password_encryption=scram-sha-256
+    shm_size: 96m
+    volumes: ["pgdata:/var/lib/postgresql"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U retroscope_owner -d retroscope"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    mem_limit: 288m
+    cpus: 0.35
+    networks: [edge]
+
+  backup:
+    image: *postgres-image
+    entrypoint: ["/bin/sh", "-c", "while true; do pg_dump -Fc -h db -U retroscope_owner retroscope > /backups/rs-$$(date +%u).dump; sleep 86400; done"]
+    environment: { PGPASSWORD: test-owner }
+    volumes: ["pgbackups:/backups"]
+    mem_limit: 48m
+    cpus: 0.05
+    depends_on: { db: { condition: service_healthy } }
+    networks: [edge]
+
+  mailpit:
+    image: axllent/mailpit:v1.31.6@sha256:23fe39e81bde596a918000b3135c0f85dc8bb4c9ea6be274b051143f3e300387
+    ports: ["127.0.0.1:${RS_TEST_MAILPIT_PORT:-18025}:8025"]
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [edge]
+
+  # The Jira client refuses private addresses by design (§f), so FakeJira lives on an internal network whose subnet
+  # is publicly routable. The network has no gateway out, so nothing ever leaves for that range.
+  fakejira:
+    image: retroscope-fakes:test
+    pull_policy: build
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.fakes
+    environment:
+      CERT_BUNDLE: /certs/bundle.pem
+    volumes: ["fakes-certs:/certs"]
+    healthcheck:
+      test: ["CMD", "test", "-s", "/certs/bundle.pem"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+    networks:
+      jira:
+        aliases: [acme.atlassian.net, api.media.atlassian.com]
+
+configs:
+  traefik-dynamic:
+    content: |
+      http:
+        routers:
+          app:
+            entryPoints: [websecure]
+            rule: PathPrefix(`/`)
+            service: app
+            tls: {}
+        services:
+          app:
+            loadBalancer:
+              servers:
+                - url: http://app:8080
+
+networks:
+  edge:
+    ipam:
+      config: [{ subnet: 172.31.89.0/24 }]
+  jira:
+    internal: true
+    ipam:
+      config: [{ subnet: 198.20.89.0/24 }]
+
+volumes:
+  pgdata: {}
+  pgbackups: {}
+  fakes-certs: {}
