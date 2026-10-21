@@ -181,6 +181,30 @@ public sealed class UsersRepo(NpgsqlDataSource dataSource) {
         return await reader.ReadAsync(cancellationToken) ? ReadProfile(reader) : null;
     }
 
+    /// <summary>
+    /// Points the user's avatar at <paramref name="blob"/> (null removes it) and deletes the avatar it replaces; when the
+    /// user is gone the new blob is deleted instead. <c>returning old</c> names the value this update overwrote, so two
+    /// concurrent uploads each delete the one before theirs.
+    /// </summary>
+    /// <returns>False when the user does not exist.</returns>
+    public async Task<bool> SetAvatarAsync(PrincipalId id, BlobId? blob, DateTimeOffset now, CancellationToken cancellationToken) {
+        await using var command = dataSource.CreateCommand("""
+            with updated as (
+              update users set avatar_blob_id = $2, updated_at = $3 where id = $1
+              returning old.avatar_blob_id as previous
+            ), deleted as (
+              delete from blobs
+              where purpose = 'avatar'
+                and (id = (select previous from updated) or (id = $2 and not exists (select 1 from updated)))
+            )
+            select exists (select 1 from updated)
+            """);
+        command.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = id.Value });
+        command.Parameters.Add(new NpgsqlParameter<Guid?> { TypedValue = blob?.Value, NpgsqlDbType = NpgsqlDbType.Uuid });
+        command.Parameters.Add(new NpgsqlParameter<DateTimeOffset> { TypedValue = now });
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken))!;
+    }
+
     public async Task<IReadOnlyList<UserTeam>> TeamsAsync(PrincipalId id, CancellationToken cancellationToken) {
         await using var command = dataSource.CreateCommand("""
             select t.id, t.name, m.role

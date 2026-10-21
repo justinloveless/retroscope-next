@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Retroscope.Core.Ids;
 using Retroscope.Core.Room;
 using Retroscope.Core.Security;
@@ -95,6 +96,7 @@ public static class MeEndpoints {
 
     public static void AddServices(IServiceCollection services, IConfiguration configuration) {
         services.AddSingleton<MeBuilder>();
+        services.TryAddSingleton<BlobsRepo>();
         services.AddSingleton<IBootContributor, MeBootContributor>();
     }
 
@@ -108,6 +110,12 @@ public static class MeEndpoints {
         app.MapPut("/api/me/password", ChangePasswordAsync)
             .RequireRoutePolicy(RoutePolicy.User)
             .RequireRateLimit(PasswordChange);
+        app.MapPut("/api/me/avatar", PutAvatarAsync)
+            .RequireRoutePolicy(RoutePolicy.User)
+            .RequireRateLimit(Write);
+        app.MapDelete("/api/me/avatar", DeleteAvatarAsync)
+            .RequireRoutePolicy(RoutePolicy.User)
+            .RequireRateLimit(Write);
         app.MapGet("/api/me/sessions", ListSessionsAsync)
             .RequireRoutePolicy(RoutePolicy.User)
             .RequireRateLimit(Read);
@@ -207,6 +215,54 @@ public static class MeEndpoints {
         await sessions.RevokeAllAsync(caller.Principal.Id, keep: null, cancellationToken);
         await sessions.SignInAsync(context, caller.Principal, caller.EmailVerified, session.Method, cancellationToken);
         return Results.NoContent();
+    }
+
+    // The body is the raw image (the client crops it to 128 px); its type comes from its magic bytes, never the header.
+    private static async Task<IResult> PutAvatarAsync(
+        HttpContext context,
+        UsersRepo users,
+        BlobsRepo blobs,
+        Sessions sessions,
+        TimeProvider time) {
+        var cancellationToken = context.RequestAborted;
+        var body = await ReadBodyAsync(context.Request, BlobsRepo.AvatarMaxBytes, cancellationToken);
+        if (body is null) {
+            return Problem.Result(StatusCodes.Status413PayloadTooLarge, "too_large");
+        }
+        if (!SniffedImage.TryCreate(body, out var image)) {
+            return Problem.Result(StatusCodes.Status415UnsupportedMediaType, "unsupported_media_type");
+        }
+        var user = (await context.GetCallerAsync())!.Principal.Id;
+        var blob = new BlobId(Guid.NewGuid());
+        await blobs.InsertAvatarAsync(blob, user, image, cancellationToken);
+        if (!await users.SetAvatarAsync(user, blob, time.GetUtcNow(), cancellationToken)) {
+            return Problem.Result(StatusCodes.Status401Unauthorized, "unauthenticated");
+        }
+        sessions.EvictUser(user);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> DeleteAvatarAsync(HttpContext context, UsersRepo users, Sessions sessions, TimeProvider time) {
+        var user = (await context.GetCallerAsync())!.Principal.Id;
+        if (!await users.SetAvatarAsync(user, null, time.GetUtcNow(), context.RequestAborted)) {
+            return Problem.Result(StatusCodes.Status401Unauthorized, "unauthenticated");
+        }
+        sessions.EvictUser(user);
+        return Results.NoContent();
+    }
+
+    /// <returns>Null when the body is longer than <paramref name="max"/>.</returns>
+    private static async Task<byte[]?> ReadBodyAsync(HttpRequest request, int max, CancellationToken cancellationToken) {
+        if (request.ContentLength > max) {
+            return null;
+        }
+        var buffer = new byte[max + 1];
+        var total = 0;
+        int read;
+        while (total < buffer.Length && (read = await request.Body.ReadAsync(buffer.AsMemory(total), cancellationToken)) > 0) {
+            total += read;
+        }
+        return total > max ? null : buffer[..total];
     }
 
     private static async Task<IResult> ListSessionsAsync(HttpContext context, SessionsRepo repo, Sessions sessions) {
