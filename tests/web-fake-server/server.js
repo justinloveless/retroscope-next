@@ -3,7 +3,7 @@
 // scriptable /ws endpoint that speaks the real protocol: hello/welcome, snap/replay with per-cid
 // cursors, tx then ack, nacks, gaps, x, kick, bye and close codes. Every frame it sends is validated
 // against web/src/net/protocol.gen.js, and every client frame is checked the same way.
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -21,6 +21,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_DIST = join(here, '../../web/dist');
 export const DEFAULT_ME = Object.freeze({ pid: '00000000-0000-4000-8000-000000000001', kind: 'user', name: 'Ada Fake' });
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
+const RECENT_HASHES = 256;
 
 const CONTENT_TYPES = {
   '.js': 'text/javascript; charset=utf-8',
@@ -39,6 +40,7 @@ export function newEpoch() {
 }
 
 const resolve = (value, ...args) => (typeof value === 'function' ? value(...args) : value);
+const payloadHash = ({ k, d }) => createHash('sha256').update(JSON.stringify([k, d])).digest('hex');
 
 class Room {
   constructor(key, { snapshot = {}, overlay, epoch = newEpoch(), seq = 0 } = {}) {
@@ -54,6 +56,7 @@ class Room {
     this.firstSeq = seq + 1;
     this.log = [];
     this.cursors = new Map();
+    this.recentHashes = new Map();
     this.subscribers = new Set();
     this.replay = null;
   }
@@ -62,6 +65,23 @@ class Room {
     this.epoch = newEpoch();
     this.firstSeq = this.seq + 1;
     this.log = [];
+    this.recentHashes.clear();
+  }
+
+  // The (cid, q) → payload hash LRU of DESIGN §c.6, insertion-ordered like the server's.
+  remember(cid, command) {
+    const key = `${cid}:${command.q}`;
+    this.recentHashes.delete(key);
+    this.recentHashes.set(key, payloadHash(command));
+    if (this.recentHashes.size > RECENT_HASHES) {
+      this.recentHashes.delete(this.recentHashes.keys().next().value);
+    }
+    this.cursors.set(cid, Math.max(this.cursors.get(cid) ?? 0, command.q));
+  }
+
+  isReuse(cid, command) {
+    const recorded = this.recentHashes.get(`${cid}:${command.q}`);
+    return recorded !== undefined && recorded !== payloadHash(command);
   }
 }
 
@@ -258,6 +278,16 @@ export class FakeServer extends EventEmitter {
   // The next hello is answered by closing with `code` (4409 cid_in_use, 4401, 4400…).
   rejectNextHello(code, reason = '') {
     this.helloRejections.push({ code, reason });
+  }
+
+  // Records `commands` ([{q, k, d}]) as if another tab with this cid had sent them and had them acked:
+  // the cid's cursor moves to the highest q, and a resend of one of those qs with a different payload
+  // is nacked cid_reuse (two tabs sharing a cid, DESIGN §c.6), while an identical one is acked dup.
+  seedCommands(roomKey, cid, commands) {
+    const room = this.requireRoom(roomKey);
+    for (const command of commands) {
+      room.remember(cid, command);
+    }
   }
 
   // Appends one tx to the room and fans it out. `events` is a list of {k, d}, or a function of the
@@ -504,7 +534,11 @@ export class FakeServer extends EventEmitter {
     }
     const cursor = room.cursors.get(conn.cid) ?? 0;
     if (frame.q <= cursor) {
-      conn.send({ t: 'ack', r: room.key, q: frame.q, s: room.seq, dup: true });
+      if (room.isReuse(conn.cid, frame)) {
+        this.nack(conn, frame, 'cid_reuse');
+      } else {
+        conn.send({ t: 'ack', r: room.key, q: frame.q, s: room.seq, dup: true });
+      }
       return;
     }
     let answered = false;
@@ -515,7 +549,7 @@ export class FakeServer extends EventEmitter {
       answered = true;
       return fn(...args);
     };
-    const advance = () => room.cursors.set(conn.cid, Math.max(room.cursors.get(conn.cid) ?? 0, frame.q));
+    const advance = () => room.remember(conn.cid, frame);
     const ctx = {
       frame,
       conn,
