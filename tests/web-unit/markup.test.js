@@ -240,12 +240,14 @@ function loadSharedFixtures() {
       const cases = Array.isArray(file) ? file : file.cases;
       assert.ok(Array.isArray(cases), `${name}: expected an array of cases or {cases: [...]}`);
       return cases.map((c, index) => {
-        const input = c.markup ?? c.input;
+        const input = c.input ?? c.markup;
+        // U4's files carry the raw text in `input` and the canonical written form in `markup`.
+        const written = c.written ?? c.canonical ?? (c.input === undefined ? undefined : c.markup);
         const dialect = DIALECT_NAMES.get(String(c.dialect ?? 'retro').toLowerCase().replace(/[^a-z]/g, ''));
         assert.equal(typeof input, 'string', `${name}#${index}: no markup`);
         assert.ok(dialect, `${name}#${index}: unknown dialect ${c.dialect}`);
         assert.ok(c.doc, `${name}#${index}: no doc`);
-        return { name: `${name}: ${c.name ?? index}`, input, dialect, doc: c.doc, written: c.written ?? c.canonical };
+        return { name: `${name}: ${c.name ?? index}`, input, dialect, doc: c.doc, written };
       });
     });
 }
