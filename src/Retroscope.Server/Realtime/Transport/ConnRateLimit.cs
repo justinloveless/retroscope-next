@@ -17,7 +17,7 @@ internal enum RateVerdict : byte {
 /// the abuse window, while a short burst is only nacked.
 /// </summary>
 /// <remarks>
-/// A frame that must not be refused (the <c>sub</c> that lifts a <c>rate_limited</c> refusal) borrows its token: the
+/// A frame that must get through (the <c>sub</c> that lifts a <c>rate_limited</c> refusal) borrows its token: the
 /// bucket may go up to one burst into debt, which later frames repay before any is allowed. So such frames still cost
 /// the rate, and over any interval the connection is let through at most the refill plus two bursts.
 /// </remarks>

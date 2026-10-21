@@ -183,12 +183,6 @@ public sealed class UsersRepo(NpgsqlDataSource dataSource) {
     }
 
     /// <summary>
-    /// Points the user's avatar at <paramref name="blob"/> (null removes it) and deletes the avatar it replaces; when the
-    /// user is gone the new blob is deleted instead. <c>returning old</c> names the value this update overwrote, so two
-    /// concurrent uploads each delete the one before theirs.
-    /// </summary>
-    /// <returns>False when the user does not exist.</returns>
-    /// <summary>
     /// Stores <paramref name="image"/> as the user's avatar and deletes the avatar it replaces, in one transaction. When
     /// no user matches, or <paramref name="onlyIfNone"/> is set and the user already has one, nothing is written.
     /// </summary>
