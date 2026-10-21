@@ -1,19 +1,19 @@
 extern alias server;
 
-using System.Text.Json;
+using System.Security.Cryptography;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using Retroscope.Core.Ids;
-using Retroscope.Core.Poker;
-using Retroscope.Core.Protocol;
-using Retroscope.Core.Retro;
-using Retroscope.Core.Team;
+using Retroscope.Core.Security;
 using Retroscope.Importer.Source;
 using Retroscope.Importer.Tests.Infrastructure;
 using server::Retroscope.Server.Data;
 using server::Retroscope.Server.Data.Repos;
+using server::Retroscope.Server.Hosting;
 using server::Retroscope.Server.Realtime.Stores;
 using static Retroscope.Importer.Tests.EndToEnd.EndToEndImport;
 
@@ -21,9 +21,9 @@ namespace Retroscope.Importer.Tests.EndToEnd;
 
 /// <summary>
 /// The spot check of DESIGN §h.5, in-proc against the importer's output: the target is migrated by the server
-/// itself (its leader runs the migrator, as in production), imported into, and then a fresh leader loads sampled
-/// rooms of every kind through the real <c>PokerStore</c>/<c>RetroStore</c>/<c>TeamStore</c> over the app role and
-/// projects each for an anonymous viewer.
+/// itself (its leader runs the migrator, as in production), imported into, and then the server's own
+/// <c>SpotLoadCommand</c> (what <c>retroscope spot-load</c> runs) loads sampled rooms of every kind through the real
+/// stores over the app role and checks the <c>snap</c> frame an anonymous viewer would get.
 /// </summary>
 [Trait("Category", "EndToEnd")]
 [Collection(ImporterPostgres.Name)]
@@ -51,45 +51,34 @@ public sealed class SpotLoadTests(ImporterDatabases databases) {
 
         await using var leader = await StartLeaderAsync(target);
         await using var dataSource = Db.CreateDataSource(target.App);
-        var cursors = new CursorRepo(dataSource);
-        var poker = new PokerStore(dataSource, leader, cursors);
-        var retro = new RetroStore(dataSource, leader, cursors, null, NullLogger<RetroStore>.Instance);
-        var teams = new TeamStore(dataSource, leader, cursors, new MembershipCache(dataSource));
-        var now = DateTimeOffset.UtcNow;
-        var anonymous = new PrincipalId(Guid.NewGuid());
-        var client = new ClientId(Guid.NewGuid());
+        await using var services = SpotLoadServices(dataSource, leader);
+        var output = new StringWriter();
 
-        var sessions = await SampleAsync(target.Owner, "poker_sessions");
-        foreach (var id in sessions) {
-            var state = await poker.LoadAsync(RoomKey.Poker(new SessionId(id)), now, Ct);
-            Assert.True(state is not null, $"poker session {id} does not load");
-            JsonSerializer.Serialize(PokerProjection.Snapshot(state, []), WireJsonContext.Default.PokerSnapshot);
-            JsonSerializer.Serialize(PokerProjection.Overlay(state, anonymous, client), WireJsonContext.Default.PokerOverlay);
-        }
+        var report = await SpotLoadCommand.RunAsync(services, Sample, output, Ct);
 
-        var boards = await SampleAsync(target.Owner, "retro_boards");
-        foreach (var id in boards) {
-            var state = await retro.LoadAsync(RoomKey.Board(new BoardId(id)), now, Ct);
-            Assert.True(state is not null, $"board {id} does not load");
-            JsonSerializer.Serialize(RetroProjection.Snapshot(state, [], forMembers: false), WireJsonContext.Default.RetroSnapshot);
-        }
-
-        var teamIds = await SampleAsync(target.Owner, "teams");
-        foreach (var id in teamIds) {
-            var state = await teams.LoadAsync(RoomKey.Team(new TeamId(id)), now, Ct);
-            Assert.True(state is not null, $"team {id} does not load");
-            JsonSerializer.Serialize(TeamProjection.Snapshot(state, now), WireJsonContext.Default.TeamSnapshot);
-        }
-
-        Assert.Equal([new Guid(TeamSession), new Guid(QuickSession)], sessions.Order());
-        Assert.Equal([new Guid(TeamBoard), new Guid(QuickBoard)], boards.Order());
-        Assert.Equal([new Guid(Alpha), new Guid(Beta)], teamIds.Order());
-
-        Assert.Equal(2, (await poker.LoadAsync(RoomKey.Poker(new SessionId(new Guid(TeamSession))), now, Ct))!.Rounds.Count);
+        Assert.True(report.Ok, output.ToString());
+        Assert.Equal(
+            new Dictionary<RoomKind, int> { [RoomKind.Poker] = 2, [RoomKind.Board] = 2, [RoomKind.Team] = 2 },
+            report.Loaded);
+        Assert.Equal("spot-load: poker 2, board 2, team 2 loaded; 0 failed", output.ToString().Trim());
+        var poker = services.GetRequiredService<PokerStore>();
+        Assert.Equal(2, (await poker.LoadAsync(RoomKey.Poker(new SessionId(new Guid(TeamSession))), DateTimeOffset.UtcNow, Ct))!.Rounds.Count);
     }
 
-    private static async Task<List<Guid>> SampleAsync(string connectionString, string table) =>
-        [.. (await RowsAsync(connectionString, $"select id from {table} order by random() limit {Sample}")).Select(x => (Guid)x[0]!)];
+    /// <summary>What the command resolves from the server's container, over the app role and the leader just started.</summary>
+    private static ServiceProvider SpotLoadServices(NpgsqlDataSource dataSource, Leader leader) {
+        var services = new ServiceCollection();
+        services.AddSingleton(dataSource);
+        services.AddSingleton(leader);
+        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton<IAnonTagger>(new AnonTagger(RandomNumberGenerator.GetBytes(AnonTagger.KeySize)));
+        services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
+        services.AddSingleton<CursorRepo>();
+        services.AddSingleton<MembershipCache>();
+        services.AddSingleton<PokerStore>();
+        services.AddSingleton<TeamStore>();
+        return services.BuildServiceProvider();
+    }
 
     private static async Task<(string Owner, string App)> CreateServerMigratedDatabaseAsync(string anyTarget) {
         var admin = new NpgsqlConnectionStringBuilder(anyTarget) { Database = "postgres" }.ConnectionString;
