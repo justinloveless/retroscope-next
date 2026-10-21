@@ -34,7 +34,9 @@ internal sealed record TabResult(string Room, string Label, Guid? Pid, bool Twin
 /// unless its answer was a nack that got lost with a socket), <c>nack</c>, <c>dropped</c> (ephemeral, queued over 10 s) or
 /// <c>pending</c> (never answered).
 /// </param>
-internal sealed record IntentResult(int Intent, string K, JsonElement D, string Via, string? Code = null, long? S = null) {
+/// <param name="Order">The tab's count of acks when this one arrived: acks come in commit order, across epochs too.</param>
+internal sealed record IntentResult(
+    int Intent, string K, JsonElement D, string Via, string? Code = null, long? S = null, long? Order = null) {
     public bool Certain => Via == "ack";
 
     public bool Uncertain => Via is "dup" or "cursor";

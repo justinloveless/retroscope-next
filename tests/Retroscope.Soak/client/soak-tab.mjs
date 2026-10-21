@@ -28,6 +28,7 @@ export class SoakTab extends Tab {
     this.snap = null;
     this.model = null;
     this.nextIntent = 0;
+    this.acks = 0;
     this.rejected = [];
     this.dropped = [];
     this.violations = [];
@@ -77,6 +78,7 @@ export class SoakTab extends Tab {
         const entry = this.outbox.get(f.q);
         if (entry) {
           entry.ackS = f.s;
+          entry.ackOrder = ++this.acks;
         }
         break;
       }
@@ -215,7 +217,7 @@ export class SoakTab extends Tab {
   outcomes() {
     const out = [];
     for (const entry of this.applied) {
-      out.push({ intent: entry.intent, k: entry.frame.k, d: entry.frame.d, via: entry.via, s: entry.ackS ?? null });
+      out.push({ intent: entry.intent, k: entry.frame.k, d: entry.frame.d, via: entry.via, s: entry.ackS ?? null, order: entry.ackOrder ?? null });
     }
     for (const entry of this.rejected) {
       out.push({ ...entry, via: 'nack' });

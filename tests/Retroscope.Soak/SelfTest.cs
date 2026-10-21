@@ -88,5 +88,5 @@ internal static class SelfTest {
     }
 
     private static IntentResult Intent(int id, string kind, string via, object data, long? s = null) =>
-        new(id, kind, JsonSerializer.SerializeToElement(data, ClientResults.Json), via, S: s);
+        new(id, kind, JsonSerializer.SerializeToElement(data, ClientResults.Json), via, S: s, Order: via == "ack" ? id : null);
 }

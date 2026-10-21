@@ -189,12 +189,12 @@ internal static class Oracle {
     }
 
     /// <summary>
-    /// The final states a sequence of set-semantics commands allows: the last certain one (by commit seq) or any dup-acked
+    /// The final states a sequence of set-semantics commands allows: the last certain one (in ack order) or any dup-acked
     /// one; with no certain one, also <paramref name="absent"/>.
     /// </summary>
     private static HashSet<string> Allowed(IReadOnlyList<IntentResult> ops, Func<IntentResult, string> outcome, string absent) {
         var allowed = ops.Where(o => o.Uncertain).Select(outcome).ToHashSet();
-        var last = ops.Where(o => o.Certain).OrderBy(o => o.S).ThenBy(o => o.Intent).LastOrDefault();
+        var last = ops.Where(o => o.Certain).MaxBy(o => o.Order);
         allowed.Add(last is null ? absent : outcome(last));
         return allowed;
     }
