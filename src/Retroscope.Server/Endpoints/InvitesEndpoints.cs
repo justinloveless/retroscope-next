@@ -212,7 +212,8 @@ public static class InvitesEndpoints {
     /// <summary>
     /// Joins the team through its actor (R24). An email invite binds to its address: the caller's email must be that
     /// address and verified, and the invite is used once. A link invite is reusable until it expires or is revoked.
-    /// Accepting while already a member changes nothing, so a member link never demotes an admin.
+    /// Accepting while already a member changes nothing, so a member link never demotes an admin. Replaying a used email
+    /// invite only answers its team to a caller who is still a member: it never re-admits someone since removed.
     /// </summary>
     private static async Task<IResult> AcceptAsync(
         InviteTokenRequest body,
@@ -221,6 +222,7 @@ public static class InvitesEndpoints {
         UsersRepo users,
         TeamsRepo teams,
         TeamActors actors,
+        MembershipCache memberships,
         TimeProvider time) {
         var cancellationToken = context.RequestAborted;
         if (await FindAsync(body.Token, invites, cancellationToken) is not { } found) {
@@ -230,18 +232,21 @@ public static class InvitesEndpoints {
         var user = caller.Principal.Id;
         var invite = found.Invite;
         var now = time.GetUtcNow();
-        var acceptedBefore = found.AcceptedBy == user;
-        if (!acceptedBefore) {
-            if (Dead(found) is { } dead) {
-                return dead;
-            }
-            if (invite.ExpiresAt <= now) {
-                return Problem.Result(StatusCodes.Status410Gone, "expired");
-            }
+        if (invite.Kind == InviteKind.Email && found.AcceptedBy == user && !found.TeamDeleted) {
+            await memberships.LoadAsync(invite.Team, cancellationToken);
+            return memberships.RoleIn(invite.Team, user) is null
+                ? TeamAccess.NotFound()
+                : Results.Json(new InviteAccepted(invite.Team), TeamHttpJsonContext.Default.InviteAccepted);
+        }
+        if (Dead(found) is { } dead) {
+            return dead;
+        }
+        if (invite.ExpiresAt <= now) {
+            return Problem.Result(StatusCodes.Status410Gone, "expired");
         }
 
         var claimed = false;
-        if (invite.Kind == InviteKind.Email && !acceptedBefore) {
+        if (invite.Kind == InviteKind.Email) {
             if (await users.GetProfileAsync(user, cancellationToken) is not { } profile) {
                 return Problem.Result(StatusCodes.Status401Unauthorized, "unauthenticated");
             }
