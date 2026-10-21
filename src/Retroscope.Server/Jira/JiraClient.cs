@@ -148,6 +148,7 @@ public sealed partial class JiraClient : IDisposable {
                 (delay, token) => Task.Delay(delay, time, token),
                 sp.GetRequiredService<ILogger<JiraClient>>());
         });
+        services.AddHostedService<CredentialRotation>();
     }
 
     public static void Map(IEndpointRouteBuilder app) {

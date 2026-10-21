@@ -1,0 +1,8 @@
+**/bin/
+**/obj/
+**/node_modules/
+web/
+src/
+docs/
+artifacts/
+.git/
