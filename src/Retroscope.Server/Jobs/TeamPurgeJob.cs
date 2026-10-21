@@ -36,9 +36,8 @@ public sealed partial class TeamPurgeJob(
         """;
 
     // The deleted_at test is repeated: an undelete would have to clear it, and nothing may purge a live team. The
-    // audit row is the statement's own result, one per team purged. Both
-    // lookups by room are index lookups: client_cursors by its key's leading column, recent_activity by
-    // recent_activity_entity_ix (0002).
+    // audit insert is the main statement, so its row count is the number of teams purged. Both lookups by room are
+    // index lookups: client_cursors by its key's leading column, recent_activity by recent_activity_entity_ix (0002).
     internal const string PurgeSql = """
         with doomed as (
           select id from teams where id = $1 and deleted_at < $2),
