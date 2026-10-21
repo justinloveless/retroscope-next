@@ -3,8 +3,6 @@
 // toWire(state) writes it back in the server's canonical order for the golden transcripts. States are
 // never mutated: every event copies what it changes.
 
-export const SORTS = ['votes-desc', 'votes-asc', 'time-asc', 'time-desc', 'author-asc', 'author-desc'];
-
 const compareIds = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const byCreated = (a, b) => a.createdAt - b.createdAt || compareIds(a.id, b.id);
 
