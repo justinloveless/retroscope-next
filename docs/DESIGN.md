@@ -10,9 +10,9 @@ Facts not checked against a primary source in this session are marked **(unverif
 
 **Revision 2.** This version applies the three critiques (`critique-feasibility.md` F1–F26, `critique-realtime-correctness.md` R1–R28 + coverage gaps, `critique-security-import.md` S1–S33). Every finding's disposition is in the **Critique resolution** table at the end. Facts re-verified in this revision: Coolify does not do rolling updates for compose apps (coolify.io/docs/knowledge-base/rolling-updates, fetched); ASP.NET Core `WebSocketOptions.KeepAliveTimeout` / `WebSocketAcceptContext.KeepAliveTimeout` provide server PING/PONG liveness (learn.microsoft.com websockets doc, fetched); the drawer accepts half points (`JiraIssueDrawer.tsx:1328,1968`) and never uses `splitFrom`.
 
-### Deployment precondition (must be confirmed by the user before U0)
+### Deployment precondition (confirmed by the user, 2026-10-20)
 
-The locked decision is "1 vCPU / 1 GB RAM total (app + Postgres)". Coolify's own control plane needs 2 CPU / 2 GB (coolify.io install docs, per critique F2). This design therefore assumes **the Coolify control plane runs on a different machine and this VPS is registered as a Coolify remote server** running only `coolify-proxy` (Traefik) plus our stack. If the control plane must live on this VPS, the honest options are a 2 GB VPS or dropping Coolify; no tuning makes it fit. The orchestrator must surface this to the user; it is not a RUNBOOK tip.
+Coolify's own control plane needs 2 CPU / 2 GB (coolify.io install docs, per critique F2), so it cannot share a 1 GB box. **Decision: the VPS is upsized to 2 vCPU / 2 GB minimum, and Coolify's control plane stays on it.** Our stack (app + Postgres) keeps the original budget as a hard slice: compose `mem_limit`/`cpus` cap app + db at 1 GB and 1 vCPU total, and every memory target in §i stays as written. U43 records measured Coolify + Traefik usage alongside ours, and the RUNBOOK documents the 2 GB host requirement.
 
 ---
 
@@ -1869,7 +1869,7 @@ graph LR
 
 | Assumption | Unit |
 |---|---|
-| **Coolify control plane runs on another machine; this VPS is a remote server** (deployment precondition; needs user confirmation, not a code check) | before U0 (user), U43 records |
+| Coolify control plane shares the 2 GB VPS; app + db fit a 1 GB / 1 vCPU slice (user confirmed host size) | U43 measures and records |
 | Npgsql publishes under Native AOT via `NpgsqlSlimDataSourceBuilder` with `EnableArrays`/`EnableJsonTypes`, batches and auto-prepare and no warnings | U0 |
 | BCrypt.Net-Next is AOT/trim clean (fallback: vendored EksBlowfish) | U0 |
 | `System.Net.Mail.SmtpClient` works under AOT with STARTTLS (fallback: in-house client) | U0, U17 |

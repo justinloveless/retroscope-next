@@ -644,7 +644,7 @@
   <nav class="sidebar" aria-label="Page outline">
     <div class="sidebar-title">On this page</div>
     <ul class="nav-list">
-      <li class="nav-h3"><a href="#deployment-precondition-must-be-confirmed-by-the-user-before-u0">Deployment precondition (must be confirmed by the user before U0)</a></li>
+      <li class="nav-h3"><a href="#deployment-precondition-confirmed-by-the-user-2026-10-20">Deployment precondition (confirmed by the user, 2026-10-20)</a></li>
       <li class="nav-h2"><a href="#0-how-the-three-designs-were-scored-and-merged">0. How the three designs were scored and merged</a></li>
       <li class="nav-h3"><a href="#0-1-decisions-on-open-questions">0.1 Decisions on open questions</a></li>
       <li class="nav-h2"><a href="#a-repository-layout-and-projects">(a) Repository layout and projects</a></li>
@@ -715,8 +715,8 @@ The locked decisions from the user are taken as given and are not re-argued here
 <p>The design rests on one rule: <strong>every piece of shared room state has exactly one writer, a single-threaded room actor, which commits to Postgres before anyone hears about the change.</strong> A process holds the global leader lease before it may run actors, and every actor write is fenced inside SQL by the leader epoch. Clients send intents, never rows, and every overwrite intent carries a precondition. Everything below follows from that rule. The one documented exception is spotlight <em>movement</em>, which is ephemeral-durable (§c.8).</p>
 <p>Facts not checked against a primary source in this session are marked <strong>(unverified)</strong>. Each has a named implementation unit that checks it before code depends on it (§12).</p>
 <p><strong>Revision 2.</strong> This version applies the three critiques (<code>critique-feasibility.md</code> F1–F26, <code>critique-realtime-correctness.md</code> R1–R28 + coverage gaps, <code>critique-security-import.md</code> S1–S33). Every finding&#39;s disposition is in the <strong>Critique resolution</strong> table at the end. Facts re-verified in this revision: Coolify does not do rolling updates for compose apps (coolify.io/docs/knowledge-base/rolling-updates, fetched); ASP.NET Core <code>WebSocketOptions.KeepAliveTimeout</code> / <code>WebSocketAcceptContext.KeepAliveTimeout</code> provide server PING/PONG liveness (learn.microsoft.com websockets doc, fetched); the drawer accepts half points (<code>JiraIssueDrawer.tsx:1328,1968</code>) and never uses <code>splitFrom</code>.</p>
-<h3 id="deployment-precondition-must-be-confirmed-by-the-user-before-u0">Deployment precondition (must be confirmed by the user before U0)</h3>
-<p>The locked decision is &quot;1 vCPU / 1 GB RAM total (app + Postgres)&quot;. Coolify&#39;s own control plane needs 2 CPU / 2 GB (coolify.io install docs, per critique F2). This design therefore assumes <strong>the Coolify control plane runs on a different machine and this VPS is registered as a Coolify remote server</strong> running only <code>coolify-proxy</code> (Traefik) plus our stack. If the control plane must live on this VPS, the honest options are a 2 GB VPS or dropping Coolify; no tuning makes it fit. The orchestrator must surface this to the user; it is not a RUNBOOK tip.</p>
+<h3 id="deployment-precondition-confirmed-by-the-user-2026-10-20">Deployment precondition (confirmed by the user, 2026-10-20)</h3>
+<p>Coolify&#39;s own control plane needs 2 CPU / 2 GB (coolify.io install docs, per critique F2), so it cannot share a 1 GB box. <strong>Decision: the VPS is upsized to 2 vCPU / 2 GB minimum, and Coolify&#39;s control plane stays on it.</strong> Our stack (app + Postgres) keeps the original budget as a hard slice: compose <code>mem_limit</code>/<code>cpus</code> cap app + db at 1 GB and 1 vCPU total, and every memory target in §i stays as written. U43 records measured Coolify + Traefik usage alongside ours, and the RUNBOOK documents the 2 GB host requirement.</p>
 <hr>
 <h2 id="0-how-the-three-designs-were-scored-and-merged">0. How the three designs were scored and merged</h2>
 <p>Scores run from 1 to 5 on Correctness, Simplicity, Performance and Security. &quot;Base&quot; is the design used as the skeleton for that section; &quot;Grafts&quot; are the ideas taken from the other two.</p>
@@ -3874,8 +3874,8 @@ volumes: { pgdata: {}, pgbackups: {} }</code></pre>
 </tr>
 </thead>
 <tbody><tr>
-<td><strong>Coolify control plane runs on another machine; this VPS is a remote server</strong> (deployment precondition; needs user confirmation, not a code check)</td>
-<td>before U0 (user), U43 records</td>
+<td>Coolify control plane shares the 2 GB VPS; app + db fit a 1 GB / 1 vCPU slice (user confirmed host size)</td>
+<td>U43 measures and records</td>
 </tr>
 <tr>
 <td>Npgsql publishes under Native AOT via <code>NpgsqlSlimDataSourceBuilder</code> with <code>EnableArrays</code>/<code>EnableJsonTypes</code>, batches and auto-prepare and no warnings</td>
