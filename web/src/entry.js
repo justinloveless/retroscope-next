@@ -1,24 +1,5 @@
+import { match } from './core/router.js';
 import { routes } from './routes.js';
-
-function match(pattern, path) {
-  const want = pattern.split('/');
-  const have = path.split('/');
-  const params = {};
-  for (let i = 0; i < want.length; i++) {
-    if (want[i] === '*') {
-      return params;
-    }
-    if (i >= have.length) {
-      return null;
-    }
-    if (want[i].startsWith(':')) {
-      params[want[i].slice(1)] = decodeURIComponent(have[i]);
-    } else if (want[i] !== have[i]) {
-      return null;
-    }
-  }
-  return want.length === have.length ? params : null;
-}
 
 async function start() {
   const bootEl = document.getElementById('boot');
