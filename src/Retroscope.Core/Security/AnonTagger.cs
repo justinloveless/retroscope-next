@@ -1,12 +1,13 @@
 using System.Security.Cryptography;
+using Retroscope.Core.Ids;
 
 namespace Retroscope.Core.Security;
 
 /// <summary>Proves ownership of anonymous cards and comments without storing the author (DESIGN §c.2, <c>anon_tag</c>).</summary>
 public interface IAnonTagger {
-    byte[] Tag(Guid boardId, Guid principalId);
+    byte[] Tag(BoardId boardId, PrincipalId principalId);
 
-    bool Owns(ReadOnlySpan<byte> tag, Guid boardId, Guid principalId);
+    bool Owns(ReadOnlySpan<byte> tag, BoardId boardId, PrincipalId principalId);
 }
 
 /// <summary>HMAC-SHA256(<c>ANON_TAG_KEY</c>, board ‖ principal), each id as its 16 RFC 4122 (big-endian) bytes.</summary>
@@ -39,13 +40,13 @@ public sealed class AnonTagger : IAnonTagger {
         }
     }
 
-    public byte[] Tag(Guid boardId, Guid principalId) {
+    public byte[] Tag(BoardId boardId, PrincipalId principalId) {
         Span<byte> message = stackalloc byte[32];
-        boardId.TryWriteBytes(message[..16], bigEndian: true, out _);
-        principalId.TryWriteBytes(message[16..], bigEndian: true, out _);
+        boardId.Value.TryWriteBytes(message[..16], bigEndian: true, out _);
+        principalId.Value.TryWriteBytes(message[16..], bigEndian: true, out _);
         return HMACSHA256.HashData(_key, message);
     }
 
-    public bool Owns(ReadOnlySpan<byte> tag, Guid boardId, Guid principalId) =>
+    public bool Owns(ReadOnlySpan<byte> tag, BoardId boardId, PrincipalId principalId) =>
         tag.Length == TagSize && CryptographicOperations.FixedTimeEquals(Tag(boardId, principalId), tag);
 }
