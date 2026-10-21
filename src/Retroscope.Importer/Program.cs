@@ -12,8 +12,10 @@ const string Usage = """
       verify          run the verification checks against the target
       cutover         record cutover_at; afterwards run needs --force-reimport
 
-    run options:
-      --force-reimport --i-have-a-dump=<path>   re-import after cutover (asks for the database name)
+    options:
+      --html-textonly <path>                    plan, run: also treat the tags in this file (same shape as
+                                                html-textonly.json) as text-only
+      --force-reimport --i-have-a-dump=<path>   run: re-import after cutover (asks for the database name)
 
     environment: IMPORT_SOURCE_PG, DATABASE_OWNER_URL, APP_KEYS, ANON_TAG_KEY, IMPORT_SEAL_PUBKEY,
                  IMPORT_ADMIN_EMAILS, IMPORT_STORAGE_URL, JIRA_HOST_ALLOWLIST
@@ -26,11 +28,15 @@ if (args.Length == 0 || args[0] is "-h" or "--help") {
 
 var force = false;
 string? dump = null;
-foreach (var option in args.Skip(1)) {
+string? textOnly = null;
+for (var i = 1; i < args.Length; i++) {
+    var option = args[i];
     if (option == "--force-reimport") {
         force = true;
     } else if (option.StartsWith("--i-have-a-dump=", StringComparison.Ordinal)) {
         dump = option["--i-have-a-dump=".Length..];
+    } else if (option == "--html-textonly" && i + 1 < args.Length) {
+        textOnly = args[++i];
     } else {
         Console.Error.WriteLine($"unknown option {option}");
         Console.Error.WriteLine(Usage);
@@ -45,6 +51,9 @@ Console.CancelKeyPress += (_, e) => {
 };
 
 try {
+    if (textOnly is not null) {
+        HtmlTagPolicy.AddTextOnly(textOnly);
+    }
     var runner = new ImportRunner(ImporterSettings.FromEnvironment(Environment.GetEnvironmentVariable), Console.Out, Console.In);
     switch (args[0]) {
         case "plan":
