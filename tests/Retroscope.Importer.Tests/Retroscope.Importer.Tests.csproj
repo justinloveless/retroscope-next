@@ -12,6 +12,9 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Retroscope.Importer/Retroscope.Importer.csproj" />
+    <!-- Only the spot-load test (DESIGN §h.5) loads rooms through the server's stores; the alias keeps the server's
+         Program and namespaces out of every other test file. -->
+    <ProjectReference Include="../../src/Retroscope.Server/Retroscope.Server.csproj" Aliases="server" />
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="Testcontainers.PostgreSql" />
   </ItemGroup>
