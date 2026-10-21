@@ -30,7 +30,7 @@ public sealed class ActorRegistry {
     public bool TryGet(RoomKey key, out IRoomActor actor) => _actors.TryGetValue(key, out actor!);
 
     /// <summary>The live actor for <paramref name="key"/>, started if needed; waits while the key is being purged.</summary>
-    /// <exception cref="TimeoutException">The purge of the key outlasted <see cref="ActorOptions.IncarnationWait"/>.</exception>
+    /// <exception cref="IncarnationTimeoutException">The purge of the key outlasted <see cref="ActorOptions.IncarnationWait"/>.</exception>
     public ValueTask<IRoomActor> GetOrStartAsync(RoomKey key, CancellationToken cancellationToken) {
         return _actors.TryGetValue(key, out var live) ? ValueTask.FromResult(live) : CurrentAsync(key, cancellationToken);
     }
@@ -45,7 +45,7 @@ public sealed class ActorRegistry {
         CancellationToken cancellationToken) {
         try {
             return await SendAsync(key, actor => actor.Subscribe(peer, viewer, epoch, seq), cancellationToken);
-        } catch (TimeoutException) {
+        } catch (IncarnationTimeoutException) {
             return PostResult.Busy;
         }
     }
@@ -59,7 +59,7 @@ public sealed class ActorRegistry {
         CancellationToken cancellationToken) {
         try {
             return await SendAsync(key, actor => actor.Command(peer, viewer, frame), cancellationToken);
-        } catch (TimeoutException) {
+        } catch (IncarnationTimeoutException) {
             peer.Send(FrameBytes.Frame(new NackFrame(key, frame.Q, NackCode.ServerBusy)));
             return PostResult.Busy;
         }
@@ -101,7 +101,7 @@ public sealed class ActorRegistry {
                     actor = await CurrentAsync(key, cancellationToken);
                 }
             }
-        } catch (TimeoutException) {
+        } catch (IncarnationTimeoutException) {
             return new AskResult(AskStatus.Unavailable, Code: NackCode.ServerBusy);
         }
     }
@@ -122,7 +122,7 @@ public sealed class ActorRegistry {
                     actor = await CurrentAsync(key, cancellationToken);
                 }
             }
-        } catch (TimeoutException e) {
+        } catch (IncarnationTimeoutException e) {
             throw new RoomUnavailableException(key, e);
         }
     }
@@ -211,7 +211,11 @@ public sealed class ActorRegistry {
                 }
                 closing = gate.Task;
             }
-            await closing.WaitAsync(_runtime.Options.IncarnationWait, _runtime.Time, cancellationToken);
+            try {
+                await closing.WaitAsync(_runtime.Options.IncarnationWait, _runtime.Time, cancellationToken);
+            } catch (TimeoutException e) {
+                throw new IncarnationTimeoutException(key, e);
+            }
         }
     }
 
@@ -243,6 +247,10 @@ public sealed class ActorRegistry {
             ?? throw new InvalidOperationException($"Room {actor.Key} does not take {typeof(TInput).Name}.");
     }
 }
+
+/// <summary>A room key stayed closed for a purge longer than <see cref="ActorOptions.IncarnationWait"/>; retry later.</summary>
+public sealed class IncarnationTimeoutException(RoomKey room, Exception innerException)
+    : TimeoutException($"Room {room} did not start again in time.", innerException);
 
 /// <summary>The registry's side of an actor: purge and shutdown.</summary>
 internal interface IClosable {
