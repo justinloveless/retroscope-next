@@ -72,6 +72,15 @@ test('sync renumbers unsent entries whose q the server already saw, and keeps se
   assert.equal(unsent.q, 6);
 });
 
+test('renumber moves the entry behind every other entry in q order', () => {
+  const { outbox } = outboxWith({ storage: memoryStorage() });
+  const a = outbox.add(ROOM, 'retro.vote.set', { cardId: 'a', on: true });
+  const b = outbox.add(ROOM, 'retro.vote.set', { cardId: 'b', on: true });
+  outbox.renumber(a);
+  assert.deepEqual(outbox.entries(ROOM), [b, a]);
+  assert.deepEqual(outbox.entries(ROOM).map((e) => e.q), [2, 3]);
+});
+
 test('a principal change clears the outbox and mints a new cid', () => {
   const storage = memoryStorage();
   const { outbox } = outboxWith({ storage, pid: PID });

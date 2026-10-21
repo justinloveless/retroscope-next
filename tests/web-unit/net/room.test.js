@@ -238,6 +238,19 @@ test('a retryable nack keeps the entry and resends it with a fresh q after backo
   assert.equal(room.pending().length, 0);
 });
 
+test('commands sent during a retry backoff queue behind the retried one', () => {
+  const { room, net, timers } = setup();
+  snap(room);
+  room.send('retro.card.add', add('a'));
+  room.handle({ t: 'nack', r: ROOM, q: 1, code: 'rate_limited', retry: true });
+  room.send('retro.card.add', add('b'));
+  assert.equal(net.cmds().length, 1, 'b waits for the retry');
+  timers.advance(250);
+  const wire = net.cmds().map((f) => [f.q, f.d.body]);
+  assert.deepEqual(wire, [[1, 'a'], [2, 'a'], [3, 'b']]);
+  assert.ok(wire.every(([q], i) => i === 0 || q > wire[i - 1][0]), 'q strictly increases on the wire');
+});
+
 test('a retryable nack resends at the next snap or replay without waiting', () => {
   const { room, net } = setup();
   snap(room);
