@@ -1,0 +1,75 @@
+## principals
+id=00000000-0000-0000-0000-0000000000a1 | kind=user | display_name=null | created_at=2025-01-01T00:00:00Z
+## users
+id=00000000-0000-0000-0000-0000000000a1 | email=alice@example.com | email_verified_at=null | password_hash=null | full_name= | nickname=null | avatar_blob_id=null | theme=system | is_admin=True | disabled_at=null | mentions_seen_at=<import> | created_at=2025-01-01T00:00:00Z | updated_at=2025-01-01T00:00:00Z
+## external_identities
+## teams
+id=00000000-0000-0000-0000-0000000000c1 | name=Alpha | description=null | created_by=00000000-0000-0000-0000-0000000000a1 | point_descriptions={} | max_endorsements_per_board=3 | deleted_at=null | created_at=2025-01-01T00:00:00Z | updated_at=2025-01-01T00:00:00Z
+## team_jira_config
+## team_members
+team_id=00000000-0000-0000-0000-0000000000c1 | user_id=00000000-0000-0000-0000-0000000000a1 | role=owner | joined_at=2025-01-01T00:00:00Z
+## team_favorites
+## team_invites
+id=00000000-0000-0000-0000-000000000501 | team_id=00000000-0000-0000-0000-0000000000c1 | kind=email | email=new.person@example.com | role=member | token_hash=ee5ed29275223683aff2863dc77cddedc93626e7f7952f5dac431f3f9bbc9c72 | token_box=null | created_by=00000000-0000-0000-0000-0000000000a1 | created_at=2025-01-01T00:00:00Z | expires_at=2099-01-01T00:00:00Z | revoked_at=null | accepted_at=null | accepted_by=null | use_count=0
+id=00000000-0000-0000-0000-000000000502 | team_id=00000000-0000-0000-0000-0000000000c1 | kind=link | email=null | role=member | token_hash=18db8a9b8108546b9f85155cb06e4523273151099e6b4db58c6ad164b51b67b2 | token_box=<box> | created_by=00000000-0000-0000-0000-0000000000a1 | created_at=2025-01-01T00:00:00Z | expires_at=<import+7d> | revoked_at=null | accepted_at=null | accepted_by=null | use_count=0
+id=00000000-0000-0000-0000-000000000506 | team_id=00000000-0000-0000-0000-0000000000c1 | kind=email | email=other@example.com | role=member | token_hash=c2431c8f237ebe1c04487d814d0a7af521c506354a1d58535be772c17234fcb0 | token_box=null | created_by=null | created_at=2025-01-01T00:00:00Z | expires_at=2099-01-01T00:00:00Z | revoked_at=null | accepted_at=null | accepted_by=null | use_count=0
+## board_templates
+## template_columns
+## endorsement_types
+id=4b937075-ded7-50b3-8472-235cef64dfd1 | team_id=00000000-0000-0000-0000-0000000000c1 | name=Innovator | description=Brings creative ideas and fresh perspectives | emoji=💡 | sort_key=3 | is_default=True | archived_at=null | created_at=<import>
+id=7b14c0fe-b7d9-5193-a5f1-24251d536907 | team_id=00000000-0000-0000-0000-0000000000c1 | name=Problem Solver | description=Tackles tough technical challenges head-on | emoji=🧩 | sort_key=1 | is_default=True | archived_at=null | created_at=<import>
+id=ea138b32-7621-525d-9ad6-9fa4b86262ed | team_id=00000000-0000-0000-0000-0000000000c1 | name=Team Player | description=Goes above and beyond to help teammates | emoji=🤝 | sort_key=2 | is_default=True | archived_at=null | created_at=<import>
+## endorsements
+## recent_activity
+## archive.rows
+source_table=auth.users#meta | source_pk=00000000-0000-0000-0000-0000000000a1 | row={"phone_change": {"stripped": true}, "phone_change_token": {"stripped": true}, "reauthentication_token": {"stripped": true}, "email_change_token_current": {"stripped": true}}
+source_table=public.team_invitations | source_pk=00000000-0000-0000-0000-000000000503 | row={"id": "00000000-0000-0000-0000-000000000503", "email": "old@example.com", "token": {"stripped": true}, "status": "pending", "team_id": "00000000-0000-0000-0000-0000000000c1", "is_active": true, "created_at": "1999-12-25T00:00:00.0000000Z", "expires_at": "2000-01-01T00:00:00.0000000Z", "invited_by": "00000000-0000-0000-0000-0000000000a1", "invite_type": "email"}
+source_table=public.team_invitations | source_pk=00000000-0000-0000-0000-000000000504 | row={"id": "00000000-0000-0000-0000-000000000504", "email": "joined@example.com", "token": {"stripped": true}, "status": "accepted", "team_id": "00000000-0000-0000-0000-0000000000c1", "is_active": true, "created_at": "2025-01-01T00:00:00.0000000Z", "expires_at": "2099-01-01T00:00:00.0000000Z", "invited_by": "00000000-0000-0000-0000-0000000000a1", "invite_type": "email"}
+source_table=public.team_invitations | source_pk=00000000-0000-0000-0000-000000000505 | row={"id": "00000000-0000-0000-0000-000000000505", "email": "link@invite", "token": {"stripped": true}, "status": "pending", "team_id": "00000000-0000-0000-0000-0000000000c1", "is_active": false, "created_at": "2025-01-01T00:00:00.0000000Z", "expires_at": "2099-01-01T00:00:00.0000000Z", "invited_by": "00000000-0000-0000-0000-0000000000a1", "invite_type": "link"}
+## report
+{
+  "tables": {
+    "auth.users": {
+      "source": 1,
+      "imported": 1,
+      "archived": 0,
+      "skipped": {}
+    },
+    "public.teams": {
+      "source": 1,
+      "imported": 1,
+      "archived": 0,
+      "skipped": {}
+    },
+    "public.team_members": {
+      "source": 1,
+      "imported": 1,
+      "archived": 0,
+      "skipped": {}
+    },
+    "public.team_invitations": {
+      "source": 6,
+      "imported": 3,
+      "archived": 3,
+      "skipped": {}
+    }
+  },
+  "counters": {
+    "nulledActorRefs.public.team_invitations.invited_by": 1,
+    "seededEndorsementTypes": 1
+  },
+  "findings": {
+    "admins": [
+      "alice@example.com"
+    ],
+    "cappedLinkInvites": [
+      {
+        "id": "00000000-0000-0000-0000-000000000502",
+        "team": "00000000-0000-0000-0000-0000000000c1"
+      }
+    ],
+    "preflightWarnings": [
+      "auth table auth.instances is not read (not in expected-columns.json)"
+    ]
+  }
+}
