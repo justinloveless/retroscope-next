@@ -7,6 +7,7 @@ using Retroscope.Core.Tests.Timing;
 namespace Retroscope.Core.Tests.Adf;
 
 [Trait("Category", "Adf")]
+[Collection(TimedAlone.Name)]
 public sealed class AdfCapsTests {
     [Fact]
     public void Rendering_stops_below_the_depth_cap() {
@@ -63,8 +64,9 @@ public sealed class AdfCapsTests {
         Assert.Equal(paragraphs[^1], reread.RootElement.GetProperty("content")[paragraphs.Length - 1].GetRawText());
     }
 
-    // Linear, not fast: a wall-clock budget fails on a loaded machine, so each shape is compared with itself at a
-    // quarter of the size (see Scaling). The wide shape stays past the node cap at both sizes.
+    // Linear, not fast: a wall-clock budget fails on a loaded machine, so the work for each shape is compared with the
+    // work at a quarter of the size (see Scaling). Each shape stays on one side of the node cap at both sizes: the
+    // wide one past it, the alternating marks (two nodes each) below it.
     [Theory]
     [InlineData("wide")]
     [InlineData("alternating marks")]
@@ -79,10 +81,10 @@ public sealed class AdfCapsTests {
 
     private static string Hostile(string shape, int divisor) {
         return shape switch {
-            "wide" => Doc(Enumerable.Range(0, 20_000 / divisor)
+            "wide" => Doc(Enumerable.Range(0, 40_000 / divisor)
                 .Select(_ => """{"type":"text","text":"x","marks":[{"type":"strong"},{"type":"em"},{"type":"strike"}]}""")
                 .ToArray()),
-            _ => Doc($$"""{"type":"paragraph","content":[{{string.Join(',', Enumerable.Range(0, 4000 / divisor)
+            _ => Doc($$"""{"type":"paragraph","content":[{{string.Join(',', Enumerable.Range(0, 2000 / divisor)
                 .Select(i => $$"""{"type":"text","text":" {{i}} ","marks":[{"type":"{{(i % 2 == 0 ? "strong" : "em")}}"}]}"""))}}]}"""),
         };
     }

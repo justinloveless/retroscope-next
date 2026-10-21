@@ -3,17 +3,11 @@ using Retroscope.Core.Tests.Timing;
 
 namespace Retroscope.Core.Tests.Markup;
 
-[CollectionDefinition(Name, DisableParallelization = true)]
-public sealed class MarkupTiming {
-    public const string Name = "Markup timing";
-}
-
 // Jira text is capped at 32,000 code points and is parsed on the request path (§f), so a hostile body must parse in
-// linear time. Each row compares the body at a quarter of the cap with the body at the cap in the same run (see
-// Scaling), so the test holds on a loaded machine and still fails when a scan turns quadratic. The collection runs
-// alone so that other tests do not disturb the comparison.
+// linear time. Each row compares the work of parsing the body at a quarter of the cap with the body at the cap (see
+// Scaling), so the test holds on a loaded machine and still fails when a scan turns quadratic.
 [Trait("Category", "Markup")]
-[Collection(MarkupTiming.Name)]
+[Collection(TimedAlone.Name)]
 public sealed class MarkupJiraLengthTimingTests {
     private const string Mention = "[[mention:00112233-4455-6677-8899-aabbccddeeff:Ada]]";
 
