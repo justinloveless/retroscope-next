@@ -105,12 +105,19 @@ public sealed record ImporterSettings {
         if (!keywords.Contains("ssl", StringComparison.OrdinalIgnoreCase)) {
             builder.SslMode = SslMode.VerifyFull;
         }
+        // Supabase has no GSSAPI, and Npgsql's default probe loads libgssapi_krb5, which the importer image lacks and
+        // reports as an error on every connection.
+        if (!keywords.Contains("gss", StringComparison.OrdinalIgnoreCase)) {
+            builder.GssEncryptionMode = GssEncryptionMode.Disable;
+        }
         return builder.ConnectionString;
     }
 
     private static Uri ParseStorageUrl(string value) {
-        if (!Uri.TryCreate(value.EndsWith('/') ? value : value + "/", UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps) {
-            throw new SettingsException("IMPORT_STORAGE_URL must be an https URL such as https://<project>.supabase.co.");
+        // Object paths are appended to it, so a bucket URL copied from the dashboard would double them and fetch nothing.
+        if (!Uri.TryCreate(value.EndsWith('/') ? value : value + "/", UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps
+            || uri.AbsolutePath != "/" || uri.Query.Length > 0 || uri.Fragment.Length > 0) {
+            throw new SettingsException("IMPORT_STORAGE_URL must be the project's https origin, such as https://<project>.supabase.co, without a path.");
         }
         return uri;
     }
