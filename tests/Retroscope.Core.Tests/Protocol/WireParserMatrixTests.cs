@@ -8,6 +8,9 @@ namespace Retroscope.Core.Tests.Protocol;
 public sealed class WireParserMatrixTests {
     private const string Room = "poker:0192f0c1-0000-7000-8000-0000000000aa";
     private const string Round = "0192f0c1-0000-7000-8000-0000000000bb";
+    private const string Board = "board:0192f0c1-0000-7000-8000-0000000000aa";
+    private const string BoardCmd = "{\"t\":\"cmd\",\"r\":\"" + Board + "\",\"q\":5,";
+    private const string Column = "0192f0c1-0000-7000-8000-0000000000cc";
 
     [Theory]
     [InlineData("", FrameError.Malformed)]
@@ -69,6 +72,102 @@ public sealed class WireParserMatrixTests {
         Assert.Equal(expected, result.Error);
         Assert.Equal(RoomKey.TryParse(Room, out var room) ? room : default, result.Room);
         Assert.Equal(5, result.Q);
+    }
+
+    [Theory]
+    [InlineData(BoardCmd + "\"k\":\"retro.stage.set\",\"d\":{\"from\":99,\"to\":\"voting\"}}")]
+    [InlineData(BoardCmd + "\"k\":\"retro.stage.set\",\"d\":{\"from\":0,\"to\":\"voting\"}}")]
+    [InlineData(BoardCmd + "\"k\":\"retro.stage.set\",\"d\":{\"from\":\"5\",\"to\":\"thinking\"}}")]
+    [InlineData(BoardCmd + "\"k\":\"retro.stage.set\",\"d\":{\"from\":\"0\",\"to\":\"thinking\"}}")]
+    [InlineData(BoardCmd + "\"k\":\"retro.stage.set\",\"d\":{\"from\":\"Thinking\",\"to\":\"voting\"}}")]
+    [InlineData(BoardCmd + "\"k\":\"retro.stage.set\",\"d\":{\"from\":\"THINKING\",\"to\":\"voting\"}}")]
+    [InlineData(BoardCmd + "\"k\":\"retro.stage.set\",\"d\":{\"from\":\"thinking, voting\",\"to\":\"voting\"}}")]
+    [InlineData(BoardCmd + "\"k\":\"retro.stage.set\",\"d\":{\"from\":null,\"to\":\"voting\"}}")]
+    [InlineData(BoardCmd + "\"k\":\"retro.stage.set\",\"d\":{\"from\":\"thinking\",\"from\":\"voting\",\"to\":\"discussing\"}}")]
+    [InlineData(BoardCmd + "\"k\":\"retro.ready.set\",\"d\":{\"stage\":1,\"ready\":true}}")]
+    [InlineData(BoardCmd + "\"k\":\"retro.timer.pause\",\"d\":{\"from\":\"Running\"}}")]
+    [InlineData(BoardCmd + "\"k\":\"retro.column.add\",\"d\":{\"columnId\":\"" + Column + "\",\"title\":\"x\",\"color\":12}}")]
+    [InlineData(BoardCmd + "\"k\":\"retro.column.add\",\"d\":{\"columnId\":\"" + Column + "\",\"title\":\"x\",\"color\":\"Green\"}}")]
+    [InlineData(BoardCmd + "\"k\":\"retro.column.add\",\"d\":{\"columnId\":\"" + Column + "\",\"title\":\"x\",\"color\":\"teal\"}}")]
+    [InlineData(BoardCmd + "\"k\":\"retro.card.delete\",\"d\":{\"cardId\":\"" + Round + "\",\"cardId\":\"" + Column + "\"}}")]
+    public void Enum_values_other_than_their_exact_names_and_duplicate_members_are_invalid_data(string json) {
+        var result = WireParser.ParseClient(Encoding.UTF8.GetBytes(json));
+
+        Assert.Equal(FrameError.InvalidData, result.Error);
+        Assert.Equal(RoomKey.TryParse(Board, out var room) ? room : default, result.Room);
+        Assert.Equal(5, result.Q);
+    }
+
+    [Fact]
+    public void Exact_enum_names_parse() {
+        var json = BoardCmd + "\"k\":\"retro.stage.set\",\"d\":{\"from\":\"thinking\",\"to\":\"voting\"}}";
+
+        var frame = Assert.IsType<CmdFrame>(WireParser.ParseClient(Encoding.UTF8.GetBytes(json)).Frame);
+
+        Assert.Equal(new RetroStageSet(RetroStage.Thinking, RetroStage.Voting), frame.D);
+    }
+
+    [Theory]
+    [InlineData("{\"t\":\"cmd\",\"r\":\"" + Board + "\",\"q\":\"5\",\"k\":\"retro.card.delete\",\"d\":{}}", true, false)]
+    [InlineData("{\"t\":\"cmd\",\"r\":\"" + Board + "\",\"q\":5,\"k\":7,\"d\":{}}", true, true)]
+    [InlineData("{\"t\":\"cmd\",\"r\":\"" + Board + "\",\"q\":5,\"k\":\"retro.card.delete\",\"d\":{},\"zz\":1}", true, true)]
+    [InlineData("{\"t\":\"cmd\",\"r\":\"" + Board + "\",\"q\":5,\"d\":{}}", true, true)]
+    [InlineData("{\"t\":\"cmd\",\"r\":\"board:nope\",\"q\":5,\"k\":\"retro.card.delete\",\"d\":{}}", false, true)]
+    [InlineData("{\"t\":\"cmd\",\"q\":5,\"k\":\"retro.card.delete\",\"d\":{}}", false, true)]
+    public void Malformed_commands_keep_whatever_of_room_and_q_parsed(string json, bool hasRoom, bool hasQ) {
+        var result = WireParser.ParseClient(Encoding.UTF8.GetBytes(json));
+
+        Assert.Equal(FrameError.Malformed, result.Error);
+        Assert.Equal(hasRoom, result.Room.HasValue);
+        Assert.Equal(hasQ, result.Q.HasValue);
+    }
+
+    public static TheoryData<string, FrameError> InvalidUtf8ClientFrames => new() {
+        { "{\"t\":\"\uFFFF\",\"c\":1}", FrameError.Malformed },
+        { "{\"t\":\"ping\uFFFF\",\"c\":1}", FrameError.Malformed },
+        { "{\"t\":\"cmd\",\"r\":\"\uFFFF\",\"q\":5,\"k\":\"retro.card.delete\",\"d\":{}}", FrameError.Malformed },
+        { BoardCmd + "\"k\":\"retro.\uFFFF\",\"d\":{}}", FrameError.Malformed },
+        { BoardCmd + "\"k\":\"retro.card.add\",\"d\":{\"cardId\":\"" + Round + "\",\"columnId\":\"" + Column + "\",\"body\":\"\uFFFF\",\"anonymous\":false}}", FrameError.InvalidData },
+        { BoardCmd + "\"k\":\"retro.card.add\",\"d\":{\"\uFFFF\":1}}", FrameError.InvalidData },
+        { "{\"t\":\"sub\",\"r\":\"" + Board + "\uFFFF\"}", FrameError.Malformed },
+    };
+
+    public static TheoryData<string, FrameError> InvalidUtf8ServerFrames => new() {
+        { "{\"t\":\"\uFFFF\"}", FrameError.Malformed },
+        { "{\"t\":\"tx\",\"r\":\"" + Board + "\",\"s\":1,\"ev\":[{\"k\":\"retro.\uFFFF\",\"d\":{}}]}", FrameError.Malformed },
+        { "{\"t\":\"x\",\"r\":\"" + Board + "\",\"k\":\"\uFFFF\",\"d\":{}}", FrameError.Malformed },
+        { "{\"t\":\"nack\",\"r\":\"" + Board + "\",\"q\":1,\"code\":\"invalid\",\"retry\":false,\"msg\":\"\uFFFF\"}", FrameError.Malformed },
+    };
+
+    /// <summary>Each <c>U+FFFF</c> in the template becomes the bytes <c>FF FE</c>, which are never valid UTF-8.</summary>
+    [Theory]
+    [MemberData(nameof(InvalidUtf8ClientFrames))]
+    public void Invalid_utf8_in_a_client_frame_is_rejected_without_throwing(string template, FrameError expected) {
+        var result = WireParser.ParseClient(WithInvalidUtf8(template));
+
+        Assert.Equal(expected, result.Error);
+        Assert.Null(result.Frame);
+    }
+
+    [Theory]
+    [MemberData(nameof(InvalidUtf8ServerFrames))]
+    public void Invalid_utf8_in_a_server_frame_is_rejected_without_throwing(string template, FrameError expected) {
+        var result = WireParser.ParseServer(WithInvalidUtf8(template));
+
+        Assert.Equal(expected, result.Error);
+        Assert.Null(result.Frame);
+    }
+
+    private static byte[] WithInvalidUtf8(string template) {
+        var parts = template.Split('\uFFFF');
+        var bytes = new List<byte>();
+        for (var i = 0; i < parts.Length; i++) {
+            if (i > 0) {
+                bytes.AddRange([0xFF, 0xFE]);
+            }
+            bytes.AddRange(Encoding.UTF8.GetBytes(parts[i]));
+        }
+        return [.. bytes];
     }
 
     [Fact]

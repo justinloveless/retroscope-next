@@ -38,6 +38,18 @@ public sealed class IdsTests {
         Assert.Equal(text.ToUpperInvariant(), code.LookupKey);
     }
 
+    [Fact]
+    public void Room_codes_differing_only_in_case_are_equal() {
+        Assert.True(RoomCode.TryParse("k3j9x0q1z7w2m", out var lower));
+        Assert.True(RoomCode.TryParse("K3J9X0Q1Z7W2M", out var upper));
+        Assert.True(RoomCode.TryParse("K3J9X0Q1Z7W2N", out var other));
+
+        Assert.Equal(lower, upper);
+        Assert.Equal(lower.GetHashCode(), upper.GetHashCode());
+        Assert.NotEqual(lower, other);
+        Assert.Equal("k3j9x0q1z7w2m", lower.Value);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
