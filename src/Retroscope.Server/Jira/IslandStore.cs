@@ -1,4 +1,3 @@
-using System.Globalization;
 using Retroscope.Core.Adf;
 using Retroscope.Core.Ids;
 using Retroscope.Core.Markup;
@@ -22,9 +21,10 @@ public sealed record IssueDetail(
 public sealed record IslandSet(IReadOnlyDictionary<string, string> Islands, bool Editable);
 
 /// <summary>
-/// The 60 s issue detail cache (DESIGN §f "Editing with opaque islands"). A description's islands are kept per
-/// <c>(team, key, updated)</c>, so a save can splice the original ADF subtrees back in; when that version is no
-/// longer cached the issue is fetched again, and a save against a version Jira has moved past is refused as stale.
+/// The 60 s issue detail cache (DESIGN §f "Editing with opaque islands"): each entry keeps the description's islands
+/// (their original ADF) with the <c>updated</c> they belong to. A description save reads the issue from Jira again
+/// first, so an edit made in Jira during those 60 s is never overwritten: the save is refused as stale unless Jira's
+/// <c>updated</c> is still the one the edit started from, and the islands it splices back are that version's.
 /// </summary>
 public sealed class IslandStore(JiraClient client, Credentials credentials, JiraCache cache) {
     public static readonly TimeSpan Ttl = TimeSpan.FromSeconds(60);
@@ -42,12 +42,9 @@ public sealed class IslandStore(JiraClient client, Credentials credentials, Jira
             },
             cancellationToken);
 
-    /// <summary>The islands of the description as it was at <paramref name="updated"/>; null when Jira's issue has
-    /// moved on since (the write is stale).</summary>
+    /// <summary>The islands of the description as Jira has it now, when that is still the version at
+    /// <paramref name="updated"/>; null when the issue has moved on since (the write is stale).</summary>
     public async Task<IslandSet?> IslandsAsync(TeamId team, string issueKey, string updated, CancellationToken cancellationToken) {
-        if (cache.TryGet<IslandSet>(IslandsKey(team, issueKey, updated), out var cached)) {
-            return cached;
-        }
         cache.Remove(DetailKey(team, issueKey));
         var detail = await GetAsync(team, issueKey, cancellationToken);
         return detail.Updated == updated ? new IslandSet(detail.Description.Islands, detail.Description.Editable) : null;
@@ -101,28 +98,17 @@ public sealed class IslandStore(JiraClient client, Credentials credentials, Jira
             .Take(FirstComments)
             .Select(comment => Render(comment, attachments))
             .ToList();
-        var updated = fields?.Updated ?? "";
-        var detail = new IssueDetail(
+        return new IssueDetail(
             issue,
             config,
-            updated,
+            fields?.Updated ?? "",
             description,
             attachments,
             comments,
             Math.Max(fields?.Comment?.Total ?? 0, comments.Count));
-        cache.Set(
-            IslandsKey(team, issueKey, updated),
-            new IslandSet(description.Islands, description.Editable),
-            64L + description.Islands.Sum(island => 2L * (island.Key.Length + island.Value.Length)),
-            Ttl,
-            [JiraCache.TeamTag(team)]);
-        return detail;
     }
 
     private static string DetailKey(TeamId team, string issueKey) => JiraCache.Key(team, "detail", issueKey);
-
-    private static string IslandsKey(TeamId team, string issueKey, string updated) =>
-        JiraCache.Key(team, "islands", string.Create(CultureInfo.InvariantCulture, $"{issueKey}@{updated}"));
 
     private static IReadOnlyCollection<string> Tags(TeamId team, string issueKey) =>
         [JiraCache.TeamTag(team), JiraCache.IssueTag(team, issueKey), DetailsTag(team)];
