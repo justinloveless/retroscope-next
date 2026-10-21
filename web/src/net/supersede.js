@@ -40,7 +40,8 @@ export const SUPERSEDE = Object.freeze({
   'poker.spotlight.release': null,
   'poker.jira.submitPoints': on('roundId'),
   'retro.card.add': null,
-  'retro.card.edit': on('cardId'),
+  // As setTicket: the card's version on screen already counts a pending edit.
+  'retro.card.edit': null,
   'retro.card.delete': null,
   'retro.vote.set': on('cardId'),
   'retro.comment.add': null,
