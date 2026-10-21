@@ -1,0 +1,323 @@
+{
+  "config": {
+    "configured": true,
+    "siteHost": "demo-retail.atlassian.net",
+    "projectKey": "DEMO",
+    "boardId": 12,
+    "ticketPrefix": "DEMO-",
+    "status": "ok",
+    "membersCanEdit": true,
+    "lastCheckedAt": 1792454400000
+  },
+  "sprints": [
+    { "id": 141, "name": "Sprint 41 · Checkout polish", "state": "active", "startDate": "2026-10-13T08:00:00.000Z", "endDate": "2026-10-27T08:00:00.000Z" },
+    { "id": 142, "name": "Sprint 42 · Onboarding", "state": "future", "startDate": "2026-10-27T08:00:00.000Z", "endDate": "2026-11-10T08:00:00.000Z" }
+  ],
+  "users": [
+    { "accountId": "demo-acc-1", "displayName": "Demo User" },
+    { "accountId": "demo-acc-2", "displayName": "Priya Raman" },
+    { "accountId": "demo-acc-3", "displayName": "Marcus Chen" },
+    { "accountId": "demo-acc-4", "displayName": "Sofia Alvarez" },
+    { "accountId": "demo-acc-5", "displayName": "Jonas Weber" },
+    { "accountId": "demo-acc-6", "displayName": "Aisha Okafor" }
+  ],
+  "issueTypes": [
+    { "id": "10001", "name": "Story" },
+    { "id": "10002", "name": "Bug" },
+    { "id": "10003", "name": "Task" },
+    { "id": "10000", "name": "Epic" }
+  ],
+  "priorities": [
+    { "id": "1", "name": "Highest" },
+    { "id": "2", "name": "High" },
+    { "id": "3", "name": "Medium" },
+    { "id": "4", "name": "Low" }
+  ],
+  "linkTypes": [
+    { "id": "10000", "name": "Blocks", "inward": "is blocked by", "outward": "blocks" },
+    { "id": "10001", "name": "Relates", "inward": "relates to", "outward": "relates to" }
+  ],
+  "transitions": [
+    { "id": "11", "name": "To Do", "to": "To Do", "statusCategory": "new" },
+    { "id": "21", "name": "In Progress", "to": "In Progress", "statusCategory": "indeterminate" },
+    { "id": "41", "name": "In Review", "to": "In Review", "statusCategory": "indeterminate" },
+    { "id": "31", "name": "Done", "to": "Done", "statusCategory": "done" }
+  ],
+  "issues": [
+    {
+      "key": "DEMO-100",
+      "summary": "Checkout revamp",
+      "issueType": "Epic",
+      "status": "In Progress",
+      "statusCategory": "indeterminate",
+      "priority": "High",
+      "points": null,
+      "sprintId": null,
+      "description": "Cut checkout abandonment from 31 % to under 20 % by Black Friday.",
+      "updated": "2026-10-02T09:00:00.000Z"
+    },
+    {
+      "key": "DEMO-110",
+      "summary": "Mobile onboarding",
+      "issueType": "Epic",
+      "status": "To Do",
+      "statusCategory": "new",
+      "priority": "Medium",
+      "points": null,
+      "sprintId": null,
+      "description": "First-run experience for the iOS and Android apps.",
+      "updated": "2026-10-05T09:00:00.000Z"
+    },
+    {
+      "key": "DEMO-140",
+      "summary": "Search relevance",
+      "issueType": "Epic",
+      "status": "To Do",
+      "statusCategory": "new",
+      "priority": "Medium",
+      "points": null,
+      "sprintId": null,
+      "description": "Make the first page of results worth reading.",
+      "updated": "2026-10-06T09:00:00.000Z"
+    },
+    {
+      "key": "DEMO-118",
+      "summary": "Show saved cards at checkout",
+      "issueType": "Story",
+      "status": "Done",
+      "statusCategory": "done",
+      "priority": "High",
+      "points": 5,
+      "parentKey": "DEMO-100",
+      "sprintId": 141,
+      "assignee": "demo-acc-3",
+      "labels": ["payments"],
+      "description": "As a returning customer I want to **see my saved cards** so that I can pay in one tap.",
+      "updated": "2026-10-16T14:10:00.000Z"
+    },
+    {
+      "key": "DEMO-119",
+      "summary": "Apple Pay button on the cart page",
+      "issueType": "Story",
+      "status": "In Progress",
+      "statusCategory": "indeterminate",
+      "priority": "High",
+      "points": 8,
+      "parentKey": "DEMO-100",
+      "sprintId": 141,
+      "assignee": "demo-acc-4",
+      "labels": ["payments", "ios"],
+      "description": "Show the Apple Pay button above the fold on the cart page when the device supports it.\n\n- hide it for gift cards\n- log a `checkout_wallet_shown` event",
+      "updated": "2026-10-18T10:30:00.000Z"
+    },
+    {
+      "key": "DEMO-121",
+      "summary": "Validate the postcode before payment",
+      "issueType": "Story",
+      "status": "In Review",
+      "statusCategory": "indeterminate",
+      "priority": "Medium",
+      "points": 3,
+      "parentKey": "DEMO-100",
+      "sprintId": 141,
+      "assignee": "demo-acc-5",
+      "labels": ["checkout"],
+      "description": "Check the postcode against the country's format as the user types, not after they press Pay.",
+      "updated": "2026-10-19T16:45:00.000Z"
+    },
+    {
+      "key": "DEMO-123",
+      "summary": "Retry failed payments with exponential backoff",
+      "issueType": "Story",
+      "status": "To Do",
+      "statusCategory": "new",
+      "priority": "High",
+      "points": null,
+      "parentKey": "DEMO-100",
+      "sprintId": 141,
+      "assignee": "demo-acc-2",
+      "labels": ["payments", "reliability"],
+      "description": "When the payment provider answers **503** or times out, retry the charge instead of showing an error.\n\n[[island:d3e0b1a7c0de]]\n\nAcceptance criteria:\n\n- at most 3 retries, with jitter\n- the same idempotency key on every retry\n- a declined card is **never** retried",
+      "islands": {
+        "d3e0b1a7c0de": {
+          "t": "table",
+          "c": [
+            { "t": "tr", "c": [
+              { "t": "th", "c": [{ "t": "p", "c": [{ "t": "text", "v": "Attempt" }] }] },
+              { "t": "th", "c": [{ "t": "p", "c": [{ "t": "text", "v": "Wait" }] }] }
+            ] },
+            { "t": "tr", "c": [
+              { "t": "td", "c": [{ "t": "p", "c": [{ "t": "text", "v": "1" }] }] },
+              { "t": "td", "c": [{ "t": "p", "c": [{ "t": "text", "v": "200 ms" }] }] }
+            ] },
+            { "t": "tr", "c": [
+              { "t": "td", "c": [{ "t": "p", "c": [{ "t": "text", "v": "2" }] }] },
+              { "t": "td", "c": [{ "t": "p", "c": [{ "t": "text", "v": "800 ms" }] }] }
+            ] },
+            { "t": "tr", "c": [
+              { "t": "td", "c": [{ "t": "p", "c": [{ "t": "text", "v": "3" }] }] },
+              { "t": "td", "c": [{ "t": "p", "c": [{ "t": "text", "v": "3.2 s" }] }] }
+            ] }
+          ]
+        }
+      },
+      "attachments": [
+        { "id": "20001", "filename": "provider-error-rates.png", "mimeType": "image/png", "size": 48213 },
+        { "id": "20002", "filename": "retry-sequence.png", "mimeType": "image/png", "size": 31877 }
+      ],
+      "links": [
+        { "id": "40001", "type": "Blocks", "direction": "outward", "key": "DEMO-125", "summary": "Split payment between two cards" },
+        { "id": "40002", "type": "Relates", "direction": "outward", "key": "DEMO-150", "summary": "Discount code applied twice" }
+      ],
+      "comments": [
+        { "id": "30001", "author": "Marcus Chen", "created": "2026-10-14T09:12:00.000Z", "body": "The provider's docs say **429** should be retried too. Should we?" },
+        { "id": "30002", "author": "Priya Raman", "created": "2026-10-14T10:03:00.000Z", "body": "Yes, but honour their Retry-After header first." },
+        { "id": "30003", "author": "Aisha Okafor", "created": "2026-10-15T08:40:00.000Z", "body": "I added the error-rate chart from last week's incident." }
+      ],
+      "updated": "2026-10-15T08:40:00.000Z"
+    },
+    {
+      "key": "DEMO-124",
+      "summary": "Remember the last shipping address",
+      "issueType": "Story",
+      "status": "To Do",
+      "statusCategory": "new",
+      "priority": "Medium",
+      "points": null,
+      "parentKey": "DEMO-100",
+      "sprintId": 141,
+      "labels": ["checkout"],
+      "description": "Prefill the shipping form with the address used for the last order.",
+      "updated": "2026-10-16T11:00:00.000Z"
+    },
+    {
+      "key": "DEMO-125",
+      "summary": "Split payment between two cards",
+      "issueType": "Story",
+      "status": "To Do",
+      "statusCategory": "new",
+      "priority": "Low",
+      "points": null,
+      "parentKey": "DEMO-100",
+      "sprintId": 142,
+      "description": "Let a customer put part of a large order on a second card.",
+      "updated": "2026-10-16T11:30:00.000Z"
+    },
+    {
+      "key": "DEMO-126",
+      "summary": "Email receipt with an order summary",
+      "issueType": "Story",
+      "status": "To Do",
+      "statusCategory": "new",
+      "priority": "Medium",
+      "points": null,
+      "parentKey": "DEMO-100",
+      "sprintId": 142,
+      "description": "Send the receipt as soon as the payment settles, with items, totals and the delivery estimate.",
+      "updated": "2026-10-17T09:00:00.000Z"
+    },
+    {
+      "key": "DEMO-131",
+      "summary": "Welcome carousel on first launch",
+      "issueType": "Story",
+      "status": "To Do",
+      "statusCategory": "new",
+      "priority": "Medium",
+      "points": null,
+      "parentKey": "DEMO-110",
+      "sprintId": 142,
+      "description": "Three slides, skippable, shown once per install.",
+      "updated": "2026-10-17T10:00:00.000Z"
+    },
+    {
+      "key": "DEMO-132",
+      "summary": "Ask for push permission after the first order",
+      "issueType": "Story",
+      "status": "To Do",
+      "statusCategory": "new",
+      "priority": "Low",
+      "points": null,
+      "parentKey": "DEMO-110",
+      "sprintId": null,
+      "description": "Not on first launch: after the first order, when the user has a reason to say yes.",
+      "updated": "2026-10-17T10:20:00.000Z"
+    },
+    {
+      "key": "DEMO-133",
+      "summary": "Skip onboarding for returning users",
+      "issueType": "Story",
+      "status": "To Do",
+      "statusCategory": "new",
+      "priority": "Medium",
+      "points": 2,
+      "parentKey": "DEMO-110",
+      "sprintId": null,
+      "description": "",
+      "updated": "2026-10-17T10:40:00.000Z"
+    },
+    {
+      "key": "DEMO-141",
+      "summary": "Tolerate typos in product search",
+      "issueType": "Story",
+      "status": "To Do",
+      "statusCategory": "new",
+      "priority": "Medium",
+      "points": null,
+      "parentKey": "DEMO-140",
+      "sprintId": null,
+      "description": "\"snekers\" should find sneakers.",
+      "updated": "2026-10-18T09:00:00.000Z"
+    },
+    {
+      "key": "DEMO-142",
+      "summary": "Search results flicker on slow connections",
+      "issueType": "Bug",
+      "status": "To Do",
+      "statusCategory": "new",
+      "priority": "High",
+      "points": null,
+      "parentKey": "DEMO-140",
+      "sprintId": null,
+      "description": "On throttled 3G the list renders twice: once from cache, once from the network.",
+      "updated": "2026-10-18T09:30:00.000Z"
+    },
+    {
+      "key": "DEMO-143",
+      "summary": "Rank in-stock items first",
+      "issueType": "Story",
+      "status": "To Do",
+      "statusCategory": "new",
+      "priority": "Low",
+      "points": null,
+      "parentKey": "DEMO-140",
+      "sprintId": null,
+      "description": "",
+      "updated": "2026-10-18T10:00:00.000Z"
+    },
+    {
+      "key": "DEMO-150",
+      "summary": "Discount code applied twice",
+      "issueType": "Bug",
+      "status": "Done",
+      "statusCategory": "done",
+      "priority": "Highest",
+      "points": 2,
+      "sprintId": 141,
+      "assignee": "demo-acc-6",
+      "description": "Double-clicking **Apply** adds the discount twice.",
+      "updated": "2026-10-15T17:00:00.000Z"
+    },
+    {
+      "key": "DEMO-151",
+      "summary": "Spike: wallet payments on Android",
+      "issueType": "Task",
+      "status": "To Do",
+      "statusCategory": "new",
+      "priority": "Medium",
+      "points": null,
+      "sprintId": null,
+      "description": "Find out what Google Pay needs from the backend.",
+      "updated": "2026-10-19T08:00:00.000Z"
+    }
+  ]
+}
