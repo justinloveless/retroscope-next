@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 
 namespace Retroscope.Core.Ids;
 
-[JsonConverter(typeof(JsonStringEnumConverter<RoomKind>))]
+[JsonConverter(typeof(StrictEnumConverter<RoomKind>))]
 public enum RoomKind : byte {
     [JsonStringEnumMemberName("poker")] Poker,
     [JsonStringEnumMemberName("board")] Board,

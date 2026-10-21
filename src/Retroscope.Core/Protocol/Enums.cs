@@ -1,22 +1,23 @@
 using System.Text.Json.Serialization;
+using Retroscope.Core.Ids;
 
 namespace Retroscope.Core.Protocol;
 
-[JsonConverter(typeof(JsonStringEnumConverter<RoundState>))]
+[JsonConverter(typeof(StrictEnumConverter<RoundState>))]
 public enum RoundState : byte {
     [JsonStringEnumMemberName("voting")] Voting,
     [JsonStringEnumMemberName("revealed")] Revealed,
 }
 
 /// <summary>What other principals see of a vote while its round is voting; abstain shows as locked.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<VoteStatus>))]
+[JsonConverter(typeof(StrictEnumConverter<VoteStatus>))]
 public enum VoteStatus : byte {
     [JsonStringEnumMemberName("empty")] Empty,
     [JsonStringEnumMemberName("selected")] Selected,
     [JsonStringEnumMemberName("locked")] Locked,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<PointerCause>))]
+[JsonConverter(typeof(StrictEnumConverter<PointerCause>))]
 public enum PointerCause : byte {
     [JsonStringEnumMemberName("next")] Next,
     [JsonStringEnumMemberName("create")] Create,
@@ -26,14 +27,14 @@ public enum PointerCause : byte {
     [JsonStringEnumMemberName("repair")] Repair,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<JiraSubmitStatus>))]
+[JsonConverter(typeof(StrictEnumConverter<JiraSubmitStatus>))]
 public enum JiraSubmitStatus : byte {
     [JsonStringEnumMemberName("pending")] Pending,
     [JsonStringEnumMemberName("ok")] Ok,
     [JsonStringEnumMemberName("failed")] Failed,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<RetroStage>))]
+[JsonConverter(typeof(StrictEnumConverter<RetroStage>))]
 public enum RetroStage : byte {
     [JsonStringEnumMemberName("thinking")] Thinking,
     [JsonStringEnumMemberName("voting")] Voting,
@@ -41,21 +42,21 @@ public enum RetroStage : byte {
     [JsonStringEnumMemberName("closed")] Closed,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<TimerState>))]
+[JsonConverter(typeof(StrictEnumConverter<TimerState>))]
 public enum TimerState : byte {
     [JsonStringEnumMemberName("idle")] Idle,
     [JsonStringEnumMemberName("running")] Running,
     [JsonStringEnumMemberName("paused")] Paused,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<BoardVisibility>))]
+[JsonConverter(typeof(StrictEnumConverter<BoardVisibility>))]
 public enum BoardVisibility : byte {
     [JsonStringEnumMemberName("link")] Link,
     [JsonStringEnumMemberName("team")] Team,
     [JsonStringEnumMemberName("password")] Password,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<ColumnColor>))]
+[JsonConverter(typeof(StrictEnumConverter<ColumnColor>))]
 public enum ColumnColor : byte {
     [JsonStringEnumMemberName("green")] Green,
     [JsonStringEnumMemberName("red")] Red,
@@ -68,7 +69,7 @@ public enum ColumnColor : byte {
     [JsonStringEnumMemberName("gray")] Gray,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<KickCode>))]
+[JsonConverter(typeof(StrictEnumConverter<KickCode>))]
 public enum KickCode : byte {
     [JsonStringEnumMemberName("access_revoked")] AccessRevoked,
     [JsonStringEnumMemberName("deleted")] Deleted,
@@ -77,7 +78,7 @@ public enum KickCode : byte {
     [JsonStringEnumMemberName("too_many_rooms")] TooManyRooms,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<ByeCode>))]
+[JsonConverter(typeof(StrictEnumConverter<ByeCode>))]
 public enum ByeCode : byte {
     [JsonStringEnumMemberName("restart")] Restart,
 }

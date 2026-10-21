@@ -3,14 +3,14 @@ using Retroscope.Core.Ids;
 
 namespace Retroscope.Core.Room;
 
-[JsonConverter(typeof(JsonStringEnumConverter<PrincipalKind>))]
+[JsonConverter(typeof(StrictEnumConverter<PrincipalKind>))]
 public enum PrincipalKind : byte {
     [JsonStringEnumMemberName("user")] User,
     [JsonStringEnumMemberName("guest")] Guest,
     [JsonStringEnumMemberName("external")] External,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<TeamRole>))]
+[JsonConverter(typeof(StrictEnumConverter<TeamRole>))]
 public enum TeamRole : byte {
     [JsonStringEnumMemberName("member")] Member,
     [JsonStringEnumMemberName("admin")] Admin,

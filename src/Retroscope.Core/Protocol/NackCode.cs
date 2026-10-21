@@ -1,9 +1,10 @@
 using System.Text.Json.Serialization;
+using Retroscope.Core.Ids;
 
 namespace Retroscope.Core.Protocol;
 
 /// <summary>Stable nack codes (DESIGN §c.6). Wire names never change once shipped.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<NackCode>))]
+[JsonConverter(typeof(StrictEnumConverter<NackCode>))]
 public enum NackCode : byte {
     [JsonStringEnumMemberName("forbidden")] Forbidden,
     [JsonStringEnumMemberName("not_subscribed")] NotSubscribed,
