@@ -100,7 +100,7 @@ public sealed partial class DeployGuardTests {
     [GeneratedRegex(@"^    image: (\S+)\s*$", RegexOptions.Multiline)]
     private static partial Regex Image();
 
-    [GeneratedRegex(@"^[a-zA-Z0-9./:${}_-]+@sha256:(\$\{[A-Z_]+\}|[0-9a-f]{64})$")]
+    [GeneratedRegex(@"^[a-zA-Z0-9./:${}?_-]+@sha256:(\$\{[A-Z_]+(:\?)?\}|[0-9a-f]{64})$")]
     private static partial Regex PinnedImage();
 
     [GeneratedRegex(@"^x-postgres-image: &postgres-image (\S+)\s*$", RegexOptions.Multiline)]
