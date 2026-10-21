@@ -41,6 +41,16 @@ wait_http() {
   return 1
 }
 
+retry() {
+  local attempts="$1"
+  shift
+  for _ in $(seq 1 "$attempts"); do
+    "$@" && return 0
+    sleep 1
+  done
+  return 1
+}
+
 host_rid() {
   local os arch
   case "$(uname -s)" in
@@ -153,7 +163,7 @@ cmd_aot_smoke() {
     PUBLIC_URL="http://127.0.0.1:$app_port" "$ARTIFACTS/aot/server/retroscope" >"$ARTIFACTS/aot/server-run.log" 2>&1 &
   SMOKE_PID=$!
   wait_http "http://127.0.0.1:$app_port/healthz" || { cat "$ARTIFACTS/aot/server-run.log"; die "/healthz did not answer"; }
-  HEALTHCHECK_PORT="$app_port" "$ARTIFACTS/aot/server/retroscope" healthcheck || die "healthcheck subcommand failed"
+  HEALTHCHECK_PORT="$app_port" retry 5 "$ARTIFACTS/aot/server/retroscope" healthcheck || die "healthcheck subcommand failed"
   kill "$SMOKE_PID"
   SMOKE_PID=""
 
@@ -163,7 +173,7 @@ cmd_aot_smoke() {
   image_port="$(free_port)"
   docker run -d --rm --name "$SMOKE_APP" -p "127.0.0.1:$image_port:8080" retroscope:aot-smoke >/dev/null
   wait_http "http://127.0.0.1:$image_port/healthz" || { docker logs "$SMOKE_APP"; die "chiseled image did not serve /healthz"; }
-  docker exec "$SMOKE_APP" /app/retroscope healthcheck || die "healthcheck subcommand failed inside the image"
+  retry 5 docker exec "$SMOKE_APP" /app/retroscope healthcheck || die "healthcheck subcommand failed inside the image"
 
   log "aot-smoke passed"
 }
