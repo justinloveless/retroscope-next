@@ -44,8 +44,10 @@ public sealed partial class ProtocolCatalogTests {
 
     [Fact]
     public void Every_concrete_payload_type_has_exactly_one_kind() {
+        // Wire types live in Core/Protocol; a domain may keep its own internal subtypes elsewhere.
         var payloadBases = new[] { typeof(Command), typeof(WireEvent), typeof(Unsequenced) };
         var concrete = typeof(Catalog).Assembly.GetTypes()
+            .Where(x => x.Namespace == typeof(Catalog).Namespace)
             .Where(x => !x.IsAbstract && payloadBases.Any(b => b.IsAssignableFrom(x)))
             .ToHashSet();
 
