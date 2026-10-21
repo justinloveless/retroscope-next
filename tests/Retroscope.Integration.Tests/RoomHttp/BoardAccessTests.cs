@@ -210,6 +210,25 @@ public sealed class BoardAccessTests(PostgresFixture postgres) {
         Assert.False(found);
     }
 
+    [Fact]
+    public async Task Deleting_a_board_kicks_its_subscribers_and_a_later_subscribe_finds_nothing() {
+        await using var app = await RoomHttpApp.StartAsync(postgres);
+        var creator = RoomHttpApp.User(await app.UserAsync());
+        var visitor = RoomHttpApp.Guest(await app.GuestAsync());
+        var created = await RoomHttpApp.JsonAsync(await app.PostAsync("/api/retro", creator, new { title = "Doomed" }), HttpStatusCode.Created);
+        var room = RoomKey.Board(new BoardId(created.GetProperty("id").GetGuid()));
+        var subscriber = await app.SubscribeAsync(room, visitor);
+        await subscriber.UntilAsync<SnapFrame>();
+
+        using var deleted = await app.SendAsync(HttpMethod.Delete, $"/api/retro/{room.Id}", creator, new { confirmTitle = "Doomed" });
+        var kick = await subscriber.UntilAsync<KickFrame>();
+        var late = await app.SubscribeAsync(room, visitor);
+
+        Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);
+        Assert.Equal(KickCode.Deleted, kick.Code);
+        Assert.Equal(KickCode.NotFound, (await late.UntilAsync<KickFrame>()).Code);
+    }
+
     private static async Task<RetroBoardMeta> MetaAsync(Actors.TestPeer peer) {
         while (true) {
             if ((await peer.UntilAsync<TxFrame>()).Ev.OfType<RetroBoardMeta>().FirstOrDefault() is { } meta) {
