@@ -237,13 +237,12 @@ public sealed class OidcFlowTests(PostgresFixture postgres) {
     }
 
     [Fact]
-    public async Task Id_token_signature_is_not_what_is_checked() {
+    public void Id_token_payload_is_decoded_without_checking_the_signature() {
         Assert.Null(IdTokenValidator.DecodePayload("only.two"));
         Assert.Null(IdTokenValidator.DecodePayload("a.!!!.c"));
         Assert.Null(IdTokenValidator.DecodePayload("a." + Base64Url.EncodeToString("[1]"u8) + ".c"));
         var decoded = IdTokenValidator.DecodePayload(FakeOidcServer.Mint(new JsonObject { ["sub"] = "x", ["extra"] = 1 }));
         Assert.Equal("x", decoded!.Sub);
-        await Task.CompletedTask;
     }
 
     public static TheoryData<string> HostileReturns() => [
