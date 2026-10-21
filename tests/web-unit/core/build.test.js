@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import * as esbuild from 'esbuild';
-import { bannedSinksPlugin, budgetName, buildWeb, checkBudgets, findBannedSinks } from '../../../web/build.mjs';
+import { bannedSinksPlugin, budgetName, buildWeb, checkBudgets, findBannedSinks, measureChunks } from '../../../web/build.mjs';
 
 const web = fileURLToPath(new URL('../../../web', import.meta.url));
 const repo = fileURLToPath(new URL('../../..', import.meta.url));
@@ -118,6 +118,67 @@ test('a chunk over budget warns; more than 10 % over fails the build', async () 
     buildWeb({ dist: join(work, 'dist-fail'), budgetsFile: failFile, log: () => {} }),
     /more than 10 % over the budgets\.json baseline:\n {2}entry: /,
   );
+});
+
+test('the root files are copied to dist and listed under public, the web manifest naming hashed icons', async () => {
+  const dist = join(work, 'dist');
+  const listed = built.manifest.public;
+  assert.deepEqual(Object.keys(listed).sort(), ['/favicon.ico', '/manifest.webmanifest', '/robots.txt']);
+  for (const [path, info] of Object.entries(listed)) {
+    const raw = await readFile(join(dist, path));
+    assert.equal(info.size, raw.length, path);
+    assert.match(info.etag, /^"[\w-]{10}"$/);
+  }
+  assert.equal(listed['/favicon.ico'].br, null, 'an .ico is not precompressed');
+  const webManifest = JSON.parse(await readFile(join(dist, 'manifest.webmanifest'), 'utf8'));
+  assert.ok(webManifest.icons.length > 0);
+  for (const icon of webManifest.icons) {
+    assert.match(icon.src, /^\/assets\/static\//);
+    assert.ok(built.manifest.files[icon.src], `${icon.src} is served`);
+  }
+  assert.ok(built.manifest.assets['logo.svg']);
+  assert.ok(!Object.keys(built.manifest.assets).some((name) => name.startsWith('public/')), 'root files are not hashed assets');
+});
+
+test('measureChunks charges a lazy chunk only for what loading it adds', () => {
+  const out = (entryPoint, statics = [], lazies = [], inputs = {}) => ({
+    entryPoint,
+    inputs,
+    imports: [
+      ...statics.map((path) => ({ path, kind: 'import-statement' })),
+      ...lazies.map((path) => ({ path, kind: 'dynamic-import' })),
+    ],
+  });
+  const outputs = {
+    'entry.js': out('src/entry.js', ['core.js'], ['retro.js', 'team.js', 'mentions.js', 'admin.js', 'a.js', 'b.js']),
+    'core.js': out(undefined),
+    'retro.js': out('src/retro/index.js', ['parse.js', 'core.js'], ['editor.js']),
+    'editor.js': out('src/markup/editor.js', ['parse.js']),
+    'team.js': out('src/team/index.js', ['parse.js']),
+    'parse.js': out(undefined, [], [], { 'src/markup/render.js': { bytesInOutput: 10 }, 'src/markup/parse.js': { bytesInOutput: 90 } }),
+    'mentions.js': out('src/screens/mentions.js', ['frame.js']),
+    'admin.js': out('src/screens/admin.js', ['frame.js']),
+    'frame.js': out(undefined, [], [], { 'src/screens/frame.js': { bytesInOutput: 50 } }),
+    'a.js': out('src/a.js', ['a-code.js']),
+    'b.js': out('src/b.js', ['a-code.js']),
+    'a-code.js': out(undefined, [], [], { 'src/a.js': { bytesInOutput: 40 } }),
+  };
+  const bytes = { 'entry.js': 1000, 'core.js': 500, 'retro.js': 300, 'editor.js': 200, 'team.js': 100, 'parse.js': 400, 'mentions.js': 60, 'admin.js': 70, 'frame.js': 80, 'a.js': 1, 'b.js': 2, 'a-code.js': 30 };
+
+  const sizes = Object.fromEntries(measureChunks(outputs, 'entry.js', (f) => bytes[f]).map((s) => [s.name, s.bytes]));
+
+  assert.deepEqual(sizes, {
+    entry: 1500,
+    retro: 300,
+    editor: 200,
+    team: 100,
+    mentions: 60,
+    admin: 70,
+    a: 31,
+    b: 2,
+    'shared:parse': 400,
+    'shared:frame': 80,
+  });
 });
 
 test('checkBudgets thresholds', () => {
