@@ -7,6 +7,7 @@ using Retroscope.Integration.Tests.Blobs;
 using Retroscope.Integration.Tests.Schema;
 using Retroscope.Server.Auth;
 using Retroscope.Server.Data.Repos;
+using Retroscope.Server.Endpoints;
 
 namespace Retroscope.Integration.Tests.AuthCore;
 
@@ -101,6 +102,56 @@ public sealed class AvatarTests(PostgresFixture postgres) {
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Equal(0L, await host.ScalarAsync<long>("select count(*) from blobs"));
+    }
+
+    // The blob and the pointer to it commit together: a failure after the insert leaves no blob nobody points at.
+    [Fact]
+    public async Task An_upload_that_fails_to_set_the_avatar_leaves_no_blob() {
+        await using var host = await AuthHost.StartAsync(postgres);
+        var (user, cookie) = await SignInAsync(host);
+        await host.ExecuteAsync("""
+            create function refuse_avatar() returns trigger language plpgsql as $$
+            begin raise exception 'avatar refused'; end $$;
+            create trigger refuse_avatar before update of avatar_blob_id on users for each row execute function refuse_avatar();
+            """);
+
+        using var response = await PutAsync(host, cookie, ImageFixtures.Png);
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Equal(0L, await host.ScalarAsync<long>("select count(*) from blobs"));
+        Assert.True(await host.ScalarAsync<bool>("select avatar_blob_id is null from users where id = $1", user.Value));
+    }
+
+    [Fact]
+    public async Task An_avatar_for_a_principal_without_a_user_row_stores_nothing() {
+        await using var host = await AuthHost.StartAsync(postgres);
+        var guest = Guid.NewGuid();
+        await host.ExecuteAsync("insert into principals (id, kind, display_name) values ($1, 'guest', 'Gus')", guest);
+
+        var stored = await host.Service<UsersRepo>().SetAvatarAsync(
+            new PrincipalId(guest), Image(ImageFixtures.Png), onlyIfNone: false, DateTimeOffset.UtcNow, AuthHost.Token);
+
+        Assert.False(stored);
+        Assert.Equal(0L, await host.ScalarAsync<long>("select count(*) from blobs"));
+    }
+
+    [Fact]
+    public async Task A_profile_picture_never_replaces_an_avatar_and_leaves_no_blob() {
+        await using var host = await AuthHost.StartAsync(postgres);
+        var (user, cookie) = await SignInAsync(host);
+        await PutAsync(host, cookie, ImageFixtures.Png);
+        var avatar = await host.ScalarAsync<Guid>("select avatar_blob_id from users where id = $1", user.Value);
+
+        var stored = await host.Service<UsersRepo>().SetAvatarAsync(user, Image(ImageFixtures.WebpLossless), onlyIfNone: true, DateTimeOffset.UtcNow, AuthHost.Token);
+
+        Assert.False(stored);
+        Assert.Equal(avatar, await host.ScalarAsync<Guid>("select avatar_blob_id from users where id = $1", user.Value));
+        Assert.Equal(1L, await host.ScalarAsync<long>("select count(*) from blobs"));
+    }
+
+    private static SniffedImage Image(byte[] bytes) {
+        Assert.True(SniffedImage.TryCreate(bytes, out var image));
+        return image;
     }
 
     private static async Task<(PrincipalId User, string Cookie)> SignInAsync(AuthHost host) {
