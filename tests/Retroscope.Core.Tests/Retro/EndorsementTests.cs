@@ -62,4 +62,16 @@ public sealed class EndorsementTests {
         Assert.Equal(new EndorsementRemoved(id), Assert.Single(fx.Do(Alice, new RetroEndorseRevoke(id))));
         fx.Rejects(Alice, new RetroEndorseRevoke(id), NackCode.NotFound);
     }
+
+    [Fact]
+    public void A_giver_who_left_the_team_cannot_revoke() {
+        var fx = new RetroFixture(team: true);
+        var id = fx.NewEndorsementId();
+        fx.Do(Bob, new RetroEndorseGive(id, Alice.Id, Helper));
+
+        fx.Access.Roles.Remove((RetroFixture.Team, Bob.Id));
+
+        fx.Rejects(Bob, new RetroEndorseRevoke(id), NackCode.Forbidden);
+        Assert.True(fx.State.Endorsements.ContainsKey(id));
+    }
 }
