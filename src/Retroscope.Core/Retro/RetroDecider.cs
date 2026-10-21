@@ -30,6 +30,7 @@ public sealed partial class RetroDecider(IAnonTagger tagger) : IRoomDomain<Retro
                 ? NoOp
                 : Accept(new MaxEndorsementsChanged(settings.MaxEndorsements)),
             RetroInput.MembersChanged members => Accept(new MembersReplaced(members.Members)),
+            RetroInput.ActionItemCommentAdd comment => AddActionItemComment(state, comment, context),
             RetroInput.ArchiveSet archive => archive.Archived == state.Archived
                 ? NoOp
                 : Accept(new ArchivedChanged(archive.Archived, archive.By, context.Now)),

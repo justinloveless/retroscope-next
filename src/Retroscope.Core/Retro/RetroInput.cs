@@ -26,6 +26,13 @@ public abstract record RetroInput {
 
     public sealed record ArchiveSet(bool Archived, PrincipalId? By) : RetroInput;
 
+    /// <summary>
+    /// A comment posted from the team page on an action item's source card (<c>POST
+    /// /api/teams/{id}/action-items/{itemId}/comments</c>, routed here by Ask). <see cref="Room.CommandContext.Viewer"/>
+    /// is the HTTP caller.
+    /// </summary>
+    public sealed record ActionItemCommentAdd(CommentId CommentId, CardId CardId, string Body) : RetroInput;
+
     /// <summary>Visibility or password changed; <paramref name="PasswordSetAt"/> is null without a password.</summary>
     public sealed record AccessSet(BoardVisibility Visibility, DateTimeOffset? PasswordSetAt) : RetroInput;
 }
