@@ -105,6 +105,33 @@ test('the holder is not moved by their own spotlight', () => {
   assert.equal(poker.navTarget(unfollowed, [{ k: 'poker.spotlight', d: { holder: DAVE, roundId: R2 } }], { viewed: R1 }), null);
 });
 
+test("this tab is bound to the spotlight when its own take or move comes back, not someone else's", () => {
+  let pending = [];
+  const model = poker.pokerModel(ME, { pending: () => pending });
+  const start = snapshot({ rounds: [round(R1, 1), round(R2, 2)] });
+  const fold = (state, d) => model.apply(state, { k: 'poker.spotlight', d });
+
+  pending = [{ k: 'poker.spotlight.take', d: { roundId: R1, force: false } }];
+  const taken = fold(start, { holder: ME, roundId: R1 });
+  assert.equal(taken.heldByThisTab, true);
+
+  pending = [];
+  assert.equal(fold(taken, { holder: ME, roundId: R2 }).heldByThisTab, true, 'a repair keeps the binding');
+  pending = [{ k: 'poker.spotlight.move', d: { roundId: R2 } }];
+  assert.equal(fold(taken, { holder: ME, roundId: R2 }).heldByThisTab, true);
+  assert.equal(fold(taken, { holder: DAVE, roundId: R2 }).heldByThisTab, false);
+  assert.equal(fold(taken, {}).heldByThisTab, false);
+
+  pending = [{ k: 'poker.spotlight.move', d: { roundId: R1 } }];
+  assert.equal(fold(start, { holder: ME, roundId: R2 }).heldByThisTab, false, 'a give or another tab binds nobody here');
+  pending = [];
+  const given = fold(fold(start, { holder: DAVE, roundId: R1 }), { holder: ME, roundId: R1 });
+  assert.equal(given.heldByThisTab, false);
+
+  assert.equal(poker.apply(start, { k: 'poker.spotlight', d: { holder: ME, roundId: R1 } }).heldByThisTab, false);
+  assert.equal(poker.toWire(taken).o.heldByThisTab, true);
+});
+
 test('a deep link to ?round=N wins over the spotlight and the pointer', () => {
   const start = snapshot({ rounds: [round(R1, 1), round(R2, 2)], spotlight: { holder: DAVE, roundId: R2 } });
   assert.equal(poker.initialRound(start), R2);
