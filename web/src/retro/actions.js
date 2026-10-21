@@ -7,7 +7,6 @@ import { h, replaceContent } from '../core/h.js';
 import { http } from '../core/http.js';
 import { parse } from '../markup/parse.js';
 import { walk } from '../markup/doc.js';
-import { getSocket } from '../screens/app.js';
 import { model as teamModel, optimistic as teamIntent } from '../team/model.js';
 import { createMenu } from '../ui/menu.js';
 import { icon } from '../ui/icons.js';
@@ -66,7 +65,7 @@ function createTeamLink(ctx) {
     stop?.();
     stop = null;
     if (room) {
-      getSocket().leave(room);
+      ctx.socket.leave(room);
       room = null;
     }
   }
@@ -88,9 +87,7 @@ function createTeamLink(ctx) {
       jira = null;
       jiraLoading = false;
       if (teamId) {
-        const socket = getSocket();
-        socket.start();
-        room = socket.room(`team:${teamId}`, teamModel, {
+        room = ctx.socket.room(`team:${teamId}`, teamModel, {
           onNack: (nack) => toast(TEAM_NACKS[nack.code] ?? 'That change to the action item was not saved.', { variant: 'error' }),
         });
         stop = room.select((state) => state, Object.is, notify);

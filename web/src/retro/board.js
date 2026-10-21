@@ -94,6 +94,8 @@ export function createBoard({ room, socket, me, boardId, features = [] }) {
     boardId,
     features,
     me,
+    // The tab's socket, so features that join another room (the team link) share its cid.
+    socket,
     view: () => room.view,
     now: () => socket.clock.serverNow(),
     send(k, d, options = {}) {
