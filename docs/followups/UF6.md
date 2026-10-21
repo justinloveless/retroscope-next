@@ -1,0 +1,10 @@
+# UF6: client network correctness (from wave 3 verification)
+
+UF6 owns: `web/src/net/**`, `tests/web-unit/net/**`, `tests/web-unit/markup.test.js` (timing rows only), `docs/decisions/U28.md` (append-only), and, for item 2 only, `src/Retroscope.Core/{Poker,Retro}/**` plus their tests.
+
+1. **A retry must never reverse a newer intent.** Today: vote 3 goes out as q1, vote 5 as q2; q1 is nacked retryable (`rate_limited`/`server_busy`), q2 commits, the retry resends vote 3 and the user ends at 3. Fix: every outbox entry carries a **supersede key** derived from the protocol catalog (kind + target, e.g. `poker.vote.set:<roundId>`, `retro.card.edit:<cardId>`, `retro.vote.set:<cardId>`). Before resending a retryable-nacked entry, drop it if any later entry with the same supersede key exists (pending, in flight, or acked). Creates (client-generated ids) have no supersede key and always retry. The table of supersede keys lives next to the catalog-generated kinds and is tested for completeness (every overwrite kind has one). Add tests for the vote 3 → 5 sequence and for edit → edit on a card.
+2. **cid_reuse renumbering must not double-apply.** When a `cid_reuse` nack forces a new cid, entries sent under the old cid whose acks were lost may already be committed. Make this harmless at the source: every create command whose id already exists **with the same payload** acks as `dup` instead of nacking or re-applying (poker round create, retro card/comment/column create, action items). Overwrite commands are already guarded by preconditions. Add Core tests for the idempotent-create rule and a web test for the renumber path.
+3. Add JS timing rows to `tests/web-unit/markup.test.js` at Jira length (32,000 chars of `[`, nested emphasis, unclosed links), each under 200 ms.
+4. Record both rules in `docs/decisions/U28.md`.
+
+**Check:** `node --test` over `tests/web-unit/net/*.test.js` and `tests/web-unit/markup.test.js`, `dotnet test tests/Retroscope.Core.Tests --filter "Category=Poker|Category=Retro"`, and `./build.sh test` green.
