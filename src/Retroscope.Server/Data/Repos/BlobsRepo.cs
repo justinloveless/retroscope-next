@@ -41,6 +41,15 @@ public sealed class BlobsRepo(NpgsqlDataSource dataSource) {
 
     public static readonly TimeSpan UnattachedTtl = TimeSpan.FromHours(24);
 
+    /// <summary>The GC statement: <c>$1</c> uploaded before, <c>$2</c> the batch size.</summary>
+    internal const string DeleteUnattachedSql = """
+        delete from blobs where id in (
+          select id from blobs
+          where purpose = 'board_image' and attached_at is null and created_at < $1
+          order by created_at
+          limit $2)
+        """;
+
     // Columns 0-11 of every board read; the caller's principal is $2 (null for anonymous callers).
     private const string BoardColumns = """
         r.id, r.team_id, r.created_by, r.visibility, r.password_set_at, r.archived_at is not null,
@@ -151,13 +160,7 @@ public sealed class BlobsRepo(NpgsqlDataSource dataSource) {
     /// </summary>
     public async Task<int> DeleteUnattachedAsync(DateTimeOffset createdBefore, int limit, CancellationToken cancellationToken) {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
-        await using var command = dataSource.CreateCommand("""
-            delete from blobs where id in (
-              select id from blobs
-              where purpose = 'board_image' and attached_at is null and created_at < $1
-              order by created_at
-              limit $2)
-            """);
+        await using var command = dataSource.CreateCommand(DeleteUnattachedSql);
         command.Parameters.Add(new NpgsqlParameter<DateTimeOffset> { TypedValue = createdBefore });
         command.Parameters.Add(new NpgsqlParameter<int> { TypedValue = limit });
         return await command.ExecuteNonQueryAsync(cancellationToken);

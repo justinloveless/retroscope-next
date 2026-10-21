@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using Retroscope.Core.Authz;
 using Retroscope.Core.Ids;
 using Retroscope.Core.Protocol;
+using Retroscope.Core.Retro;
 using Retroscope.Server.Data.Repos;
 using Retroscope.Server.Hosting;
 using Retroscope.Server.Json;
@@ -45,8 +46,8 @@ public static class BlobEndpoints {
         var blob = await blobs.GetAsync(new BlobId(id), caller?.Principal.Id, context.RequestAborted);
         // A board image the caller may not see answers exactly like a missing blob.
         if (blob is null
-            || blob.Purpose == BlobPurpose.BoardImage
-            && (blob.Board is null || !Policy.Can(caller?.Principal, Capability.Subscribe, blob.Board.Facts, blob.Board.Access))) {
+            || (blob.Purpose == BlobPurpose.BoardImage
+                && (blob.Board is null || !Policy.Can(caller?.Principal, Capability.Subscribe, blob.Board.Facts, blob.Board.Access)))) {
             return Problem.Result(StatusCodes.Status404NotFound, "not_found");
         }
         var headers = context.Response.Headers;
@@ -111,13 +112,13 @@ public static class BlobEndpoints {
     }
 
     /// <summary>
-    /// Whether some column of the board accepts new content now: the gate of
-    /// <see cref="Core.Retro.StageRules.AllowsContent"/> for any column, the action-items column included.
+    /// Whether some column of the board accepts new content now: the stage gate for its most permissive column, which
+    /// is the action-items column when the board has one. Only <c>StagesEnabled</c> of the config matters to the gate.
     /// </summary>
-    private static bool StageAllowsAdding(BoardView board) =>
-        !board.StagesEnabled
-        || board.Stage == RetroStage.Thinking
-        || board.Stage == RetroStage.Discussing && board.HasActionItemsColumn;
+    private static bool StageAllowsAdding(BoardView board) {
+        var config = RetroDefaults.Config with { StagesEnabled = board.StagesEnabled };
+        return StageRules.AllowsContent(config, board.Stage, actionItemsColumn: board.HasActionItemsColumn);
+    }
 
     /// <returns>Null when the body is longer than <paramref name="max"/>.</returns>
     private static async Task<byte[]?> ReadBodyAsync(HttpRequest request, int max, CancellationToken cancellationToken) {
