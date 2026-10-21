@@ -1,6 +1,7 @@
 # Production stack for Coolify on the VPS (DESIGN §i.1; operator steps in deploy/RUNBOOK.md).
 # The VPS never compiles: images come from GHCR by digest only. .github/workflows/images.yml prints both digests in
 # its run summary, and the release step sets APP_DIGEST and IMPORTER_DIGEST (the hex after "sha256:") in Coolify.
+# ${VAR:?} marks a required variable: Coolify blocks the deploy until it has a value.
 # deploy/compose.build.yml adds image builds for local use; tests/Retroscope.Integration.Tests/Deploy guards this file.
 #
 # Our slice of the 2 vCPU / 2 GB host (deployment precondition): app + db + backup are capped at
@@ -8,14 +9,14 @@
 # "import") runs only while the app is stopped and takes its place in that budget. Coolify and Traefik use the rest.
 services:
   app:
-    image: ghcr.io/${GHCR_OWNER}/retroscope@sha256:${APP_DIGEST}
+    image: ghcr.io/${GHCR_OWNER:?}/retroscope@sha256:${APP_DIGEST:?}
     environment:
       ASPNETCORE_URLS: http://0.0.0.0:8080
-      PUBLIC_URL: ${PUBLIC_URL}
-      DATABASE_URL: "Host=db;Database=retroscope;Username=retroscope_app;Password=${DB_APP_PASSWORD};Maximum Pool Size=8;Minimum Pool Size=1;Connection Idle Lifetime=60;Max Auto Prepare=50;Timeout=5;Command Timeout=10;Keepalive=10"
-      DATABASE_OWNER_URL: "Host=db;Database=retroscope;Username=retroscope_owner;Password=${DB_OWNER_PASSWORD}"
-      APP_KEYS: ${APP_KEYS}
-      ANON_TAG_KEY: ${ANON_TAG_KEY}
+      PUBLIC_URL: ${PUBLIC_URL:?}
+      DATABASE_URL: "Host=db;Database=retroscope;Username=retroscope_app;Password=${DB_APP_PASSWORD:?};Maximum Pool Size=8;Minimum Pool Size=1;Connection Idle Lifetime=60;Max Auto Prepare=50;Timeout=5;Command Timeout=10;Keepalive=10"
+      DATABASE_OWNER_URL: "Host=db;Database=retroscope;Username=retroscope_owner;Password=${DB_OWNER_PASSWORD:?}"
+      APP_KEYS: ${APP_KEYS:?}
+      ANON_TAG_KEY: ${ANON_TAG_KEY:?}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       ENTRA_CLIENT_ID: ${ENTRA_CLIENT_ID:-}
@@ -23,14 +24,14 @@ services:
       ENTRA_TENANT: ${ENTRA_TENANT:-organizations}
       ENTRA_ALLOWED_TENANTS: ${ENTRA_ALLOWED_TENANTS:-}
       ENTRA_TENANT_DOMAINS: ${ENTRA_TENANT_DOMAINS:-}
-      SMTP_HOST: ${SMTP_HOST}
+      SMTP_HOST: ${SMTP_HOST:?}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_SECURITY: ${SMTP_SECURITY:-}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_FROM: ${SMTP_FROM}
+      SMTP_FROM: ${SMTP_FROM:?}
       JIRA_HOST_ALLOWLIST: ${JIRA_HOST_ALLOWLIST:-}
-      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS}
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:?}
       CLIENT_IP_HEADER: ${CLIENT_IP_HEADER:-}
       BLOB_BYTES_MAX: ${BLOB_BYTES_MAX:-2147483648}
       DOTNET_GCHeapHardLimit: "0x8000000"
@@ -60,7 +61,7 @@ services:
     environment:
       POSTGRES_DB: retroscope
       POSTGRES_USER: retroscope_owner
-      POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD}
+      POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD:?}
       POSTGRES_INITDB_ARGS: "--data-checksums"
     command: >
       postgres
@@ -91,7 +92,7 @@ services:
   backup:
     image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     entrypoint: ["/bin/sh", "-c", "while true; do pg_dump -Fc -h db -U retroscope_owner retroscope > /backups/rs-$$(date +%u).dump; sleep 86400; done"]
-    environment: { PGPASSWORD: "${DB_OWNER_PASSWORD}" }
+    environment: { PGPASSWORD: "${DB_OWNER_PASSWORD:?}" }
     volumes: ["pgbackups:/backups"]
     mem_limit: 48m
     cpus: 0.05
@@ -101,16 +102,16 @@ services:
 
   importer:
     profiles: ["import"]
-    image: ghcr.io/${GHCR_OWNER}/retroscope-import@sha256:${IMPORTER_DIGEST}
+    image: ghcr.io/${GHCR_OWNER:?}/retroscope-import@sha256:${IMPORTER_DIGEST}
     environment:
-      DATABASE_OWNER_URL: "Host=db;Database=retroscope;Username=retroscope_owner;Password=${DB_OWNER_PASSWORD}"
+      DATABASE_OWNER_URL: "Host=db;Database=retroscope;Username=retroscope_owner;Password=${DB_OWNER_PASSWORD:?}"
       IMPORT_SOURCE_PG: ${IMPORT_SOURCE_PG:-}
       IMPORT_SEAL_PUBKEY: ${IMPORT_SEAL_PUBKEY:-}
       IMPORT_ADMIN_EMAILS: ${IMPORT_ADMIN_EMAILS:-}
       IMPORT_STORAGE_URL: ${IMPORT_STORAGE_URL:-}
       JIRA_HOST_ALLOWLIST: ${JIRA_HOST_ALLOWLIST:-}
-      APP_KEYS: ${APP_KEYS}
-      ANON_TAG_KEY: ${ANON_TAG_KEY}
+      APP_KEYS: ${APP_KEYS:?}
+      ANON_TAG_KEY: ${ANON_TAG_KEY:?}
     mem_limit: 256m
     cpus: 0.6
     depends_on: { db: { condition: service_healthy } }
