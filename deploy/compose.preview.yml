@@ -1,0 +1,35 @@
+# `./build.sh preview real`: Postgres 18 and Mailpit for the real server, which build.sh runs on the host
+# with `dotnet run`. Ports bind to 127.0.0.1 only; `down -v` on Ctrl-C removes the containers and the volume.
+# Images are pinned by digest (checked against the registries on 2026-10-21, docs/decisions/UP1.md).
+name: retroscope-preview
+
+services:
+  postgres:
+    image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+    environment:
+      POSTGRES_DB: retroscope
+      POSTGRES_USER: retroscope_owner
+      POSTGRES_PASSWORD: preview-owner
+    ports:
+      - "127.0.0.1:${PREVIEW_PG_PORT:-55432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U retroscope_owner -d retroscope"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+
+  mailpit:
+    image: axllent/mailpit:v1.31.6@sha256:23fe39e81bde596a918000b3135c0f85dc8bb4c9ea6be274b051143f3e300387
+    ports:
+      - "127.0.0.1:${PREVIEW_SMTP_PORT:-1025}:1025"
+      - "127.0.0.1:${PREVIEW_MAILPIT_PORT:-8025}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pgdata:
