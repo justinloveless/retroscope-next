@@ -44,7 +44,9 @@ public sealed class ActionItemSyncTests {
         var synced = TeamFixture.Single<TeamEvent.ActionItemTextSynced>(
             _team.Run(new TeamInput.SyncActionText(card, "Fix it today", _team.Item.SourceVersion + 1)));
 
-        Assert.Equal(new TeamEvent.ActionItemTextSynced(_team.Item.Id, "Fix it today", _team.Item.SourceVersion + 1), synced);
+        Assert.Equal(
+            new TeamEvent.ActionItemTextSynced(_team.Item.Id, "Fix it today", _team.Item.SourceVersion + 1) { At = TeamFixture.Now },
+            synced);
         Assert.Equal("Fix it today", _team.State.ActionItems[_team.Item.Id].Text);
         Assert.Equal(_team.Item.SourceVersion + 1, _team.State.ActionItems[_team.Item.Id].SourceVersion);
     }
@@ -113,7 +115,7 @@ public sealed class ActionItemSyncTests {
 
         Assert.Equal(board, TeamFixture.Single<TeamEvent.BoardsChanged>(_team.Decide(new TeamInput.BoardsChanged(board))).BoardId);
         Assert.Equal(
-            new TeamEvent.PokerChanged(session, 3, 5),
+            new TeamEvent.PokerChanged(session, 3, 5) { At = TeamFixture.Now },
             TeamFixture.Single<TeamEvent.PokerChanged>(_team.Decide(new TeamInput.PokerChanged(session, 3, 5))));
     }
 }
