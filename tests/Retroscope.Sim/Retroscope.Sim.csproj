@@ -3,10 +3,15 @@
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
     <RootNamespace>Retroscope.Sim</RootNamespace>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="../../src/Retroscope.Server/Retroscope.Server.csproj" />
-    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The reference client fold of a poker room (U7), shared with the property tests and the golden transcripts. -->
+    <Compile Include="../Retroscope.Core.Tests/Poker/ViewerModel.cs" Link="Linked/ViewerModel.cs" />
   </ItemGroup>
 </Project>
