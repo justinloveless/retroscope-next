@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 using Retroscope.Core.Ids;
 using Retroscope.Integration.Tests.Schema;
 using Retroscope.Server.Data.Repos;
@@ -127,6 +128,40 @@ public sealed class BlobEndpointTests(PostgresFixture postgres) {
         await app.Repo.InsertAvatarAsync(new BlobId(Guid.NewGuid()), new PrincipalId(user), avatar, TestContext.Current.CancellationToken);
 
         await app.UploadedIdAsync(board, Png, $"user:{user}");
+    }
+
+    [Fact]
+    public async Task Reads_are_limited_to_600_per_minute_per_ip() {
+        await using var app = await BlobApp.StartAsync(postgres, time: new FakeTimeProvider(DateTimeOffset.UtcNow));
+        var avatar = await InsertAvatarAsync(app);
+        for (var i = 0; i < 600; i++) {
+            using var allowed = await app.GetAsync(avatar, null, peer: "198.51.100.40");
+            Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+        }
+
+        using var limited = await app.GetAsync(avatar, null, peer: "198.51.100.40");
+        using var elsewhere = await app.GetAsync(avatar, null, peer: "198.51.100.41");
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+        Assert.True(limited.Headers.RetryAfter?.Delta > TimeSpan.Zero);
+        Assert.Equal(HttpStatusCode.OK, elsewhere.StatusCode);
+    }
+
+    [Fact]
+    public async Task Reads_are_limited_to_600_per_minute_per_principal_from_any_address() {
+        await using var app = await BlobApp.StartAsync(postgres, time: new FakeTimeProvider(DateTimeOffset.UtcNow));
+        var avatar = await InsertAvatarAsync(app);
+        var guest = await app.InsertGuestAsync();
+        for (var i = 0; i < 600; i++) {
+            using var allowed = await app.GetAsync(avatar, $"guest:{guest}", peer: $"198.51.{100 + (i / 250)}.{i % 250}");
+            Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+        }
+
+        using var limited = await app.GetAsync(avatar, $"guest:{guest}", peer: "203.0.113.77");
+        using var anonymous = await app.GetAsync(avatar, null, peer: "203.0.113.77");
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, anonymous.StatusCode);
     }
 
     [Fact]
@@ -281,6 +316,14 @@ public sealed class BlobEndpointTests(PostgresFixture postgres) {
         }
         using var document = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         return $"{(int)response.StatusCode} {document.RootElement.GetProperty("code").GetString()}";
+    }
+
+    private static async Task<Guid> InsertAvatarAsync(BlobApp app) {
+        var user = await app.InsertUserAsync();
+        var id = new BlobId(Guid.NewGuid());
+        Assert.True(SniffedImage.TryCreate(Png, out var avatar));
+        await app.Repo.InsertAvatarAsync(id, new PrincipalId(user), avatar, TestContext.Current.CancellationToken);
+        return id.Value;
     }
 
     private static async Task<HttpStatusCode> StatusAsync(BlobApp app, Guid blob, string? caller) {

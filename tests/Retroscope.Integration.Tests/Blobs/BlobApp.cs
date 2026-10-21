@@ -33,7 +33,8 @@ internal sealed class BlobApp : IAsyncDisposable {
 
     public BlobsRepo Repo => _app.Services.GetRequiredService<BlobsRepo>();
 
-    public static async Task<BlobApp> StartAsync(PostgresFixture postgres, long? bytesMax = null) {
+    /// <param name="time">A frozen clock keeps the rate limiters from refilling while a test runs.</param>
+    public static async Task<BlobApp> StartAsync(PostgresFixture postgres, long? bytesMax = null, TimeProvider? time = null) {
         var database = await postgres.CreateDatabaseAsync();
         var settings = new Dictionary<string, string?> { ["BLOB_BYTES_MAX"] = bytesMax?.ToString(System.Globalization.CultureInfo.InvariantCulture) };
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
@@ -43,6 +44,9 @@ internal sealed class BlobApp : IAsyncDisposable {
             services => {
                 services.AddSingleton(_ => Db.CreateDataSource(database.AppConnectionString));
                 services.AddSingleton<ILoggerProvider>(logs);
+                if (time is not null) {
+                    services.AddSingleton(time);
+                }
                 BlobEndpoints.AddServices(services, configuration);
             },
             BlobEndpoints.Map);
@@ -68,8 +72,8 @@ internal sealed class BlobApp : IAsyncDisposable {
         return await _app.Client.SendAsync(request, TestContext.Current.CancellationToken);
     }
 
-    public async Task<HttpResponseMessage> GetAsync(Guid blob, string? caller) {
-        using var request = TestApp.Get($"/blob/{blob}");
+    public async Task<HttpResponseMessage> GetAsync(Guid blob, string? caller, string? peer = null) {
+        using var request = TestApp.Get($"/blob/{blob}", peer);
         if (caller is not null) {
             request.Headers.Add(TestApp.CallerHeader, caller);
         }

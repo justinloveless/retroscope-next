@@ -67,9 +67,12 @@ public sealed class BlobsRepoTests(PostgresFixture postgres) {
         await using (var off = new NpgsqlCommand("set enable_seqscan = off", connection)) {
             await off.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
         }
-        await using var explain = new NpgsqlCommand(
-            "explain select id from blobs where purpose = 'board_image' and attached_at is null and created_at < now() order by created_at limit 100",
-            connection);
+        await using var explain = new NpgsqlCommand("explain " + BlobsRepo.DeleteUnattachedSql, connection) {
+            Parameters = {
+                new NpgsqlParameter<DateTimeOffset> { TypedValue = DateTimeOffset.UtcNow - BlobsRepo.UnattachedTtl },
+                new NpgsqlParameter<int> { TypedValue = 100 },
+            },
+        };
         var plan = string.Join('\n', await ReadAllAsync(explain));
 
         Assert.Contains("blobs_unattached_ix", plan, StringComparison.Ordinal);
