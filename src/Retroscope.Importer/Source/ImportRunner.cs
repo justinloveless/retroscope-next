@@ -129,7 +129,7 @@ public sealed class ImportRunner(ImporterSettings settings, TextWriter output, T
         await using var target = await TargetDatabase.OpenAsync(settings.RequireTarget(), cancellationToken);
         await using var transaction = await target.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead, cancellationToken);
         await TargetDatabase.ExecuteAsync(target, "set transaction read only", cancellationToken);
-        var failures = await CheckAsync(new VerifyContext(target, null), cancellationToken);
+        var failures = await CheckAsync(new VerifyContext(target, null) { Keys = settings.RequireKeys() }, cancellationToken);
         output.WriteLine($"verify: {Checks.Count} checks, {failures.Count} failures");
         foreach (var failure in failures) {
             output.WriteLine("  - " + failure);
@@ -155,7 +155,7 @@ public sealed class ImportRunner(ImporterSettings settings, TextWriter output, T
         }
         await context.Archive.FlushAsync(target, cancellationToken);
 
-        var failures = await CheckAsync(new VerifyContext(target, context.Report), cancellationToken);
+        var failures = await CheckAsync(new VerifyContext(target, context.Report) { Keys = context.Keys, Run = context }, cancellationToken);
         if (failures.Count > 0) {
             throw new VerifyFailedException(failures);
         }

@@ -7,35 +7,9 @@ using Retroscope.Importer.Tests.Infrastructure;
 namespace Retroscope.Importer.Tests.Poker;
 
 /// <summary>
-/// Stands in for the identity and team stages (U39): every kept user becomes a principal and a user, and every source
-/// team a bare team, so the poker stage has its FK targets.
+/// A fake source with users and a team, plus the runner that imports it through the identity and team stages (U39)
+/// and the poker stage.
 /// </summary>
-public sealed class MinimalIdentityStage : IImportStage {
-    public int Order => 100;
-
-    public string Name => "poker-test-identity";
-
-    public async Task RunAsync(ImportContext context, CancellationToken cancellationToken) {
-        foreach (var (id, email) in context.Principals.Emails) {
-            await ExecuteAsync(context.Target, "insert into principals (id, kind) values (@id, 'user'); insert into users (id, email) values (@id, @email)",
-                cancellationToken, ("id", id), ("email", email));
-        }
-        foreach (var team in await context.Source.ReadAsync("public.teams", cancellationToken)) {
-            await ExecuteAsync(context.Target, "insert into teams (id, name) values (@id, @name)",
-                cancellationToken, ("id", team.Uuid("id")!.Value), ("name", team.Text("name")!));
-        }
-    }
-
-    private static async Task ExecuteAsync(NpgsqlConnection target, string sql, CancellationToken cancellationToken, params (string Name, object Value)[] parameters) {
-        await using var command = new NpgsqlCommand(sql, target);
-        foreach (var (name, value) in parameters) {
-            command.Parameters.AddWithValue(name, value);
-        }
-        await command.ExecuteNonQueryAsync(cancellationToken);
-    }
-}
-
-/// <summary>A fake source with users and a team, plus the runner that imports it through the poker stage.</summary>
 public sealed class PokerFixture {
     public static readonly Guid TeamId = new("7e000000-0000-0000-0000-000000000001");
     public static readonly Guid UserA = new("a0000000-0000-0000-0000-00000000000a");
@@ -68,7 +42,9 @@ public sealed class PokerFixture {
 
     public Task SourceSqlAsync(string sql) => Harness.SourceSqlAsync("set session_replication_role = replica;\n" + sql);
 
-    public ImportRunner Runner() => Harness.Runner(stages: [new MinimalIdentityStage(), new PokerMap(), new ArchiveStage()]);
+    public static IReadOnlyList<IImportStage> IdentityStages => [new UsersMap(), new TeamsMap(), new TeamMembersMap()];
+
+    public ImportRunner Runner() => Harness.Runner(stages: [.. IdentityStages, new PokerMap(), new ArchiveStage()]);
 
     public async Task<ImportReport> RunAsync() => await Runner().RunAsync(new RunOptions(), TestContext.Current.CancellationToken);
 

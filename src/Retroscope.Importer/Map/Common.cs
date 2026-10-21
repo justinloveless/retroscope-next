@@ -32,7 +32,13 @@ public interface IVerifyCheck {
     Task<IReadOnlyList<string>> RunAsync(VerifyContext context, CancellationToken cancellationToken);
 }
 
-public sealed record VerifyContext(NpgsqlConnection Target, ImportReport? Report);
+public sealed record VerifyContext(NpgsqlConnection Target, ImportReport? Report) {
+    /// <summary>The production keys the imported boxes must open with.</summary>
+    public ImportKeys? Keys { get; init; }
+
+    /// <summary>The run being verified before its COMMIT (source snapshot included); null in the <c>verify</c> verb.</summary>
+    public ImportContext? Run { get; init; }
+}
 
 public static class ImportStages {
     public static IReadOnlyList<IImportStage> Discover() =>
