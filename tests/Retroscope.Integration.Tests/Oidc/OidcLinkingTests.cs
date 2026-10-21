@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Retroscope.Integration.Tests.Auth;
 using Retroscope.Integration.Tests.Schema;
 using Retroscope.Server.Auth;
@@ -115,6 +116,73 @@ public sealed class OidcLinkingTests(PostgresFixture postgres) {
         var stale = host.Browser();
         stale.SetCookie(Sessions.CookieName, squatterSession);
         Assert.Equal(HttpStatusCode.Unauthorized, (await stale.GetAsync("/api/me")).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_claim_unlinks_the_identity_an_untrusted_sign_in_created_the_account_with() {
+        await using var host = await OidcHost.StartAsync(postgres);
+        var attacker = host.Browser();
+        await attacker.SignInAsync("entra", OidcHost.Entra(OidcHost.TenantB, "oid-x", "victim@example.com"));
+        var squatted = await host.LinkedUserAsync("entra", $"{OidcHost.TenantB}:oid-x");
+        Assert.NotNull(squatted);
+
+        var owner = host.Browser();
+        OidcAssert.RedirectsTo(await owner.SignInAsync("google", OidcHost.Google("g-1", "victim@example.com")), "/dashboard");
+
+        Assert.Equal(squatted, await host.LinkedUserAsync("google", "g-1"));
+        Assert.Null(await host.LinkedUserAsync("entra", $"{OidcHost.TenantB}:oid-x"));
+        Assert.Equal(1L, await host.ScalarAsync<long>(
+            "select count(*) from audit_log where action = 'auth.unlink' and meta->>'provider' = 'entra' and meta->>'reason' = 'claim'"));
+        var again = host.Browser();
+        var response = await again.SignInAsync("entra", OidcHost.Entra(OidcHost.TenantB, "oid-x", "victim@example.com"));
+        OidcAssert.RedirectsTo(response, "/login?error=account_exists");
+        Assert.Null(again.Cookie(Sessions.CookieName));
+    }
+
+    [Fact]
+    public async Task A_claim_unlinks_the_identity_a_squatter_linked_explicitly() {
+        await using var host = await OidcHost.StartAsync(postgres);
+        var squatter = await host.CreateUserAsync("victim@example.com", verified: false);
+        var attacker = host.Browser();
+        attacker.SetCookie(Sessions.CookieName, await host.CreateSessionAsync(squatter));
+        host.Provider.Claims = OidcHost.Google("g-attacker", "attacker@gmail.com");
+        var start = await attacker.PostAsync("/api/me/identities/google/link");
+        var url = new Uri((await start.JsonAsync()).GetProperty("url").GetString()!);
+        OidcAssert.RedirectsTo(await attacker.GetAsync(await OidcBrowser.FollowProviderAsync(url)), "/account");
+        Assert.Equal(squatter.Value, await host.LinkedUserAsync("google", "g-attacker"));
+
+        var owner = host.Browser();
+        OidcAssert.RedirectsTo(
+            await owner.SignInAsync("entra", OidcHost.Entra(OidcHost.TenantB, "oid-1", "victim@example.com", edov: true)), "/dashboard");
+
+        Assert.Equal(squatter.Value, await host.LinkedUserAsync("entra", $"{OidcHost.TenantB}:oid-1"));
+        Assert.Null(await host.LinkedUserAsync("google", "g-attacker"));
+        var again = host.Browser();
+        var response = await again.SignInAsync("google", OidcHost.Google("g-attacker", "attacker@gmail.com"));
+        OidcAssert.RedirectsTo(response, "/dashboard");
+        var me = await (await again.GetAsync("/api/me")).JsonAsync();
+        Assert.NotEqual(squatter.Value, new Guid(me.GetProperty("principal").GetProperty("id").GetString()!));
+        Assert.Equal("attacker@gmail.com", me.GetProperty("user").GetProperty("email").GetString());
+    }
+
+    [Fact]
+    public async Task Linking_at_sign_in_evicts_the_cached_principals_of_live_sessions() {
+        await using var host = await OidcHost.StartAsync(postgres);
+        var sessions = host.App.Services.GetRequiredService<Sessions>();
+        var owner = await host.CreateUserAsync("grace@example.com", verified: true);
+        var other = host.Browser();
+        other.SetCookie(Sessions.CookieName, await host.CreateSessionAsync(owner));
+        var before = await (await other.GetAsync("/api/me")).JsonAsync();
+        Assert.False(before.GetProperty("principal").TryGetProperty("avatar", out _));
+        Assert.Equal(1, sessions.CachedCount);
+        var claims = OidcHost.Google("g-1", "grace@example.com");
+        claims["picture"] = OidcHost.PictureUrl;
+
+        await host.Browser().SignInAsync("google", claims);
+
+        Assert.Equal(0, sessions.CachedCount);
+        var after = await (await other.GetAsync("/api/me")).JsonAsync();
+        Assert.Equal(JsonValueKind.String, after.GetProperty("principal").GetProperty("avatar").ValueKind);
     }
 
     [Theory]
