@@ -237,6 +237,7 @@ function browseUrl(siteHost, key) {
 
 function createJiraAction(link, created) {
   let card = null;
+  let config = null;
   let busy = false;
   const host = h('span', { class: 'retro-jira' });
   const button = h('button', {
@@ -266,8 +267,6 @@ function createJiraAction(link, created) {
       paint();
     }
   }
-
-  let config = null;
 
   function paint() {
     const key = card ? created.get(card.id) : null;
@@ -334,12 +333,12 @@ export const actionItems = {
       const column = view?.columns.find((c) => c.id === card.columnId);
       const item = column?.actionItems ? itemOfCard(link.view(), card.id) : null;
       el.hidden = item === null;
+      el.closest('.retro-card')?.classList.toggle('retro-card-done', item?.doneAt != null);
       if (!item) {
         return;
       }
       assignee.update(item, view.members ?? []);
       done.update(item);
-      el.closest('.retro-card')?.classList.toggle('retro-card-done', item.doneAt != null);
       const config = link.jira();
       jira.el.hidden = !canWriteJira(config, view, ctx.me());
       jira.update(card, config);
