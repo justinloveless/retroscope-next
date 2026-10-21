@@ -57,6 +57,9 @@ public sealed class LoginTests(PostgresFixture postgres) {
         Assert.DoesNotContain("@", meta, StringComparison.Ordinal);
     }
 
+    // Compared within one run, not against a budget: the two kinds of login alternate, and the fastest of each counts,
+    // so load slows both alike. Without the dummy verify an unknown email answers in a few milliseconds, against the
+    // tens of milliseconds of a bcrypt verify.
     [Fact]
     public async Task Unknown_email_costs_as_much_as_a_wrong_password() {
         await using var host = await AuthHost.StartAsync(postgres);
@@ -64,16 +67,15 @@ public sealed class LoginTests(PostgresFixture postgres) {
 
         var known = new List<double>();
         var unknown = new List<double>();
-        for (var i = 0; i < 5; i++) {
-            known.Add(await TimeLoginAsync(host, "ada@example.com", $"198.51.100.{i}"));
-            unknown.Add(await TimeLoginAsync(host, $"ghost{i}@example.com", $"198.51.101.{i}"));
+        for (var i = 0; i < 9; i++) {
+            // A network of its own per attempt, so the per-account backoff never answers 429 instead of verifying.
+            known.Add(await TimeLoginAsync(host, "ada@example.com", $"198.51.{100 + i}.7"));
+            unknown.Add(await TimeLoginAsync(host, $"ghost{i}@example.com", $"203.0.{113 + i}.7"));
         }
 
-        var knownMedian = known.Order().ElementAt(2);
-        var unknownMedian = unknown.Order().ElementAt(2);
         Assert.True(
-            unknownMedian > knownMedian * 0.6,
-            $"Unknown email took {unknownMedian:F1} ms, wrong password {knownMedian:F1} ms: timing reveals the account.");
+            unknown.Min() > known.Min() * 0.6,
+            $"Unknown email took {unknown.Min():F1} ms at best, wrong password {known.Min():F1} ms: timing reveals the account.");
     }
 
     [Fact]
