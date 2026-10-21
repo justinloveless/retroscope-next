@@ -37,21 +37,30 @@ public sealed class JiraThrottle : IDisposable {
 
     public void Dispose() => _global.Dispose();
 
-    /// <summary>Waits for a rate token, then a team slot, then a global slot. Dispose the lease when the request ends.</summary>
+    /// <summary>
+    /// Waits for a rate token, then a team slot, then a global slot. Dispose the lease when the request ends. A caller
+    /// that gives up while waiting sent nothing to Jira, so its token goes back to the bucket.
+    /// </summary>
     /// <exception cref="JiraException"><see cref="JiraErrorCode.Unavailable"/> while the team's circuit is open.</exception>
     public async ValueTask<IDisposable> AcquireAsync(TeamId team, CancellationToken cancellationToken) {
         ThrowIfOpen(team);
         var state = State(team);
         var wait = state.ReserveToken(_time.GetTimestamp(), _time, _options);
-        if (wait > TimeSpan.Zero) {
-            await _delay(wait, cancellationToken);
+        try {
+            if (wait > TimeSpan.Zero) {
+                await _delay(wait, cancellationToken);
+            }
+            await state.Slots.WaitAsync(cancellationToken);
+        } catch {
+            state.ReturnToken(_options);
+            throw;
         }
 
-        await state.Slots.WaitAsync(cancellationToken);
         try {
             await _global.WaitAsync(cancellationToken);
         } catch {
             state.Slots.Release();
+            state.ReturnToken(_options);
             throw;
         }
 
@@ -106,6 +115,12 @@ public sealed class JiraThrottle : IDisposable {
                 _refilledAt = now;
                 _tokens -= 1;
                 return _tokens >= 0 ? TimeSpan.Zero : TimeSpan.FromSeconds(-_tokens / options.RequestsPerSecond);
+            }
+        }
+
+        public void ReturnToken(JiraThrottleOptions options) {
+            lock (_gate) {
+                _tokens = Math.Min(options.Burst, _tokens + 1);
             }
         }
 

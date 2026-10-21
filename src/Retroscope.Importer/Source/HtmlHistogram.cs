@@ -7,7 +7,7 @@ namespace Retroscope.Importer.Source;
 public sealed class UnknownHtmlTagsException(IReadOnlyList<string> errors)
     : Exception("HTML histogram found tags the converter does not handle:" + Environment.NewLine
         + string.Join(Environment.NewLine, errors.Select(x => "  - " + x))
-        + Environment.NewLine + "Add each tag to Source/html-textonly.json if its text is all that matters.") {
+        + Environment.NewLine + "Add each tag to Source/html-textonly.json, or to a file passed with --html-textonly <path>, if its text is all that matters.") {
     public IReadOnlyList<string> Errors { get; } = errors;
 }
 

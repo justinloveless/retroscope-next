@@ -71,7 +71,10 @@ public sealed class PostgresFixture : IAsyncLifetime {
         try {
             await using var connection = new NpgsqlConnection(database.OwnerConnectionString);
             await connection.OpenAsync();
-            return await migrator.RunAsync(connection, AppPassword);
+            var applied = await migrator.RunAsync(connection, AppPassword);
+            // Every database has its own pool; an idle owner connection left in each would use up max_connections.
+            NpgsqlConnection.ClearPool(connection);
+            return applied;
         } finally {
             _migrating.Release();
         }

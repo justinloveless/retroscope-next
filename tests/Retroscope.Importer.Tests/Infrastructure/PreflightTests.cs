@@ -16,7 +16,6 @@ public sealed class PreflightTests(ImporterDatabases databases) {
         var (result, report) = await PreflightAsync(source, ExpectedSchema.Embedded);
 
         Assert.Equal(ExpectedSchema.Embedded.Tables.Keys.Order(), result.Tables.Keys.Order());
-        Assert.Contains("auth table auth.instances is not read (not in expected-columns.json)", result.Warnings);
         Assert.Equal(0L, report.Fact("autoconfirmProbe")!.GetValue<long>());
         Assert.Single(report.Fact("cronJobs")!.AsArray());
         Assert.NotEmpty(report.Fact("policies")!.AsArray());
@@ -64,6 +63,17 @@ public sealed class PreflightTests(ImporterDatabases databases) {
         var failure = await Assert.ThrowsAsync<PreflightFailedException>(() => PreflightAsync(source, expected));
 
         Assert.Equal(["unlisted auth column auth.users.backup_codes: add it to the mapped or sealed lists"], failure.Errors);
+    }
+
+    [Fact]
+    public async Task An_unlisted_auth_table_fails_even_when_allow_listed() {
+        var source = await databases.CreateSourceAsync();
+        await ImporterDatabases.ExecuteAsync(source, "create table auth.webauthn_credentials (id uuid primary key, public_key bytea)");
+        var expected = ExpectedSchema.Embedded with { AllowArchiveOnly = ["auth.webauthn_credentials"] };
+
+        var failure = await Assert.ThrowsAsync<PreflightFailedException>(() => PreflightAsync(source, expected));
+
+        Assert.Equal(["unlisted auth table auth.webauthn_credentials: add it to expected-columns.json (exclude, or map with its sealed columns)"], failure.Errors);
     }
 
     [Fact]

@@ -19,7 +19,6 @@ public sealed record TablePlan(SourceTable Source, ExpectedTable Expected) {
 public sealed class PreflightResult {
     public required SourceCatalog Catalog { get; init; }
     public required IReadOnlyDictionary<string, TablePlan> Tables { get; init; }
-    public required IReadOnlyList<string> Warnings { get; init; }
 
     public TablePlan Plan(string table) =>
         Tables.GetValueOrDefault(table) ?? throw new InvalidOperationException($"{table} is not part of the import plan.");
@@ -31,7 +30,8 @@ public sealed class PreflightResult {
 /// <summary>
 /// Phase 1 (DESIGN §h.1): compare the live source with <c>expected-columns.json</c>. A missing expected table or
 /// column, a changed type or primary key, an unknown public table or column that is not allow-listed as archive-only,
-/// and any unlisted <c>auth.*</c> column of a table we read all fail the run (S25: sealing must be explicit).
+/// and any unlisted <c>auth.*</c> table, or column of a table we read, all fail the run (S25: sealing must be
+/// explicit). The allow-list never covers <c>auth.*</c>, because archiving would copy its secrets unsealed.
 /// </summary>
 public static class Preflight {
     public static async Task<PreflightResult> RunAsync(
@@ -42,15 +42,11 @@ public static class Preflight {
         var catalog = await SourceCatalog.ReadAsync(source, cancellationToken);
         var result = Compare(catalog, expected);
         await RecordFactsAsync(source, report, cancellationToken);
-        foreach (var warning in result.Warnings) {
-            report.Note("preflightWarnings", warning);
-        }
         return result;
     }
 
     public static PreflightResult Compare(SourceCatalog catalog, ExpectedSchema expected) {
         var errors = new List<string>();
-        var warnings = new List<string>();
         var plans = new Dictionary<string, TablePlan>(StringComparer.Ordinal);
         var allowed = expected.AllowArchiveOnly.ToHashSet(StringComparer.Ordinal);
 
@@ -105,7 +101,7 @@ public static class Preflight {
                     errors.Add($"unknown table {actual.Name}");
                     break;
                 case "auth":
-                    warnings.Add($"auth table {actual.Name} is not read (not in expected-columns.json)");
+                    errors.Add($"unlisted auth table {actual.Name}: add it to expected-columns.json (exclude, or map with its sealed columns)");
                     break;
                 default:
                     break;
@@ -115,7 +111,7 @@ public static class Preflight {
         if (errors.Count > 0) {
             throw new PreflightFailedException(errors);
         }
-        return new PreflightResult { Catalog = catalog, Tables = plans, Warnings = warnings };
+        return new PreflightResult { Catalog = catalog, Tables = plans };
     }
 
     private static ExpectedTable WithArchivedColumns(ExpectedTable table, SourceTable actual, List<string> extra) => table with {

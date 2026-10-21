@@ -7,6 +7,7 @@ namespace Retroscope.Integration.Tests.Jira.Client;
 [Trait("Category", "JiraClient")]
 public sealed class JiraCacheTests {
     private static readonly TimeSpan Minute = TimeSpan.FromMinutes(1);
+    private static readonly int[] Numbers = [1];
 
     private readonly FakeTimeProvider _time = new();
 
@@ -82,6 +83,33 @@ public sealed class JiraCacheTests {
         Assert.All(await Task.WhenAll(readers), v => Assert.Equal("value", v));
         Assert.Equal(1, calls);
         Assert.True(cache.TryGet<string>("k", out _));
+    }
+
+    [Fact]
+    public async Task Callers_of_one_key_with_different_types_do_not_disturb_each_others_flights() {
+        var cache = new JiraCache(_time);
+        var releaseText = new TaskCompletionSource();
+        var releaseNumbers = new TaskCompletionSource();
+        var numberCalls = 0;
+        Task<(int[] Value, long SizeBytes, IReadOnlyCollection<string>? Tags)> FetchNumbers() {
+            Interlocked.Increment(ref numberCalls);
+            return releaseNumbers.Task.ContinueWith(_ => (Numbers, 4L, (IReadOnlyCollection<string>?)null), TaskScheduler.Default);
+        }
+
+        var text = cache.GetOrCreateAsync("k", Minute, async () => {
+            await releaseText.Task;
+            return ("value", 5L, (IReadOnlyCollection<string>?)null);
+        }, Ct);
+        var first = cache.GetOrCreateAsync("k", Minute, FetchNumbers, Ct);
+        releaseText.SetResult();
+        Assert.Equal("value", await text);
+        var second = cache.GetOrCreateAsync("k", Minute, FetchNumbers, Ct);
+
+        Assert.True(cache.TryGet<string>("k", out _));
+        releaseNumbers.SetResult();
+        Assert.Same(Numbers, await first);
+        Assert.Same(Numbers, await second);
+        Assert.Equal(1, numberCalls);
     }
 
     [Fact]

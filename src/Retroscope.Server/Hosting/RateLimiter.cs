@@ -30,7 +30,8 @@ public sealed class RateLimiter {
 
     /// <summary>
     /// Takes one token from every bucket the limit's rules name, or from none: a request refused by one rule is not
-    /// charged to the others.
+    /// charged to the others, and a refused request neither creates nor refreshes any bucket, so a caller over one
+    /// budget cannot grow the table with fresh keys for another rule.
     /// </summary>
     /// <param name="retryAfter">When refused, how long until every refusing bucket holds a token again.</param>
     public bool TryAcquire(RateLimit limit, RateKeys keys, out TimeSpan retryAfter) {
@@ -40,31 +41,32 @@ public sealed class RateLimiter {
         }
         var now = _time.GetTimestamp();
         lock (_lock) {
-            var buckets = new Bucket?[limit.Rules.Count];
-            var allowed = true;
+            var keyed = new string?[limit.Rules.Count];
+            var refused = false;
             for (var i = 0; i < limit.Rules.Count; i++) {
                 var rule = limit.Rules[i];
-                var key = Key(limit, rule, keys);
-                if (key is null) {
+                var key = keyed[i] = Key(limit, rule, keys);
+                if (key is null || !_buckets.TryGetValue(key, out var node)) {
                     continue;
                 }
-                var bucket = Touch(key, rule);
-                bucket.Refill(rule, now, _time);
-                buckets[i] = bucket;
-                if (bucket.Tokens < 1) {
-                    allowed = false;
-                    var wait = TimeSpan.FromTicks((long)((1 - bucket.Tokens) * rule.Window.Ticks / rule.Limit));
+                var tokens = node.Value.TokensAt(rule, now, _time);
+                if (tokens < 1) {
+                    refused = true;
+                    var wait = TimeSpan.FromTicks((long)((1 - tokens) * rule.Window.Ticks / rule.Limit));
                     retryAfter = wait > retryAfter ? wait : retryAfter;
                 }
             }
-            if (allowed) {
-                foreach (var bucket in buckets) {
-                    if (bucket is not null) {
-                        bucket.Tokens -= 1;
-                    }
+            if (refused) {
+                return false;
+            }
+            for (var i = 0; i < limit.Rules.Count; i++) {
+                if (keyed[i] is { } key) {
+                    var bucket = Touch(key, limit.Rules[i]);
+                    bucket.Refill(limit.Rules[i], now, _time);
+                    bucket.Tokens -= 1;
                 }
             }
-            return allowed;
+            return true;
         }
     }
 
@@ -101,12 +103,16 @@ public sealed class RateLimiter {
 
         private long UpdatedAt { get; set; } = updatedAt;
 
-        public void Refill(RateRule rule, long now, TimeProvider time) {
+        public double TokensAt(RateRule rule, long now, TimeProvider time) {
             var elapsed = time.GetElapsedTime(UpdatedAt, now);
+            return elapsed > TimeSpan.Zero
+                ? Math.Min(rule.Limit, Tokens + (elapsed.Ticks * (double)rule.Limit / rule.Window.Ticks))
+                : Tokens;
+        }
+
+        public void Refill(RateRule rule, long now, TimeProvider time) {
+            Tokens = TokensAt(rule, now, time);
             UpdatedAt = now;
-            if (elapsed > TimeSpan.Zero) {
-                Tokens = Math.Min(rule.Limit, Tokens + (elapsed.Ticks * (double)rule.Limit / rule.Window.Ticks));
-            }
         }
     }
 }
