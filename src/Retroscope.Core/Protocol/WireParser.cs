@@ -49,6 +49,8 @@ public static class WireParser {
 
     private const int FieldCount = 24;
 
+    private const string InvalidUtf8 = "a string is not valid UTF-8";
+
     private static readonly WireJsonContext Json = WireJsonContext.Default;
 
     public static ParseResult<ClientFrame> ParseClient(ReadOnlySpan<byte> utf8) {
@@ -62,6 +64,8 @@ public static class WireParser {
             return ParseClient(utf8, env);
         } catch (JsonException) {
             return new(null, FrameError.Malformed, "an envelope member has the wrong shape");
+        } catch (InvalidOperationException) {
+            return new(null, FrameError.Malformed, InvalidUtf8);
         } catch (FrameException e) {
             return new(null, e.Error, e.Message);
         }
@@ -75,6 +79,8 @@ public static class WireParser {
             return ParseServer(utf8, env);
         } catch (JsonException) {
             return new(null, FrameError.Malformed, "a member has the wrong shape");
+        } catch (InvalidOperationException) {
+            return new(null, FrameError.Malformed, InvalidUtf8);
         } catch (FrameException e) {
             return new(null, e.Error, e.Message);
         }
@@ -109,31 +115,38 @@ public static class WireParser {
         }
     }
 
+    /// <summary>Every rejection carries whatever of <c>r</c> and <c>q</c> parsed, so the caller can nack it.</summary>
     private static ParseResult<ClientFrame> ParseCommand(ReadOnlySpan<byte> utf8, in Envelope env) {
+        var room = env.TryOptional(utf8, Field.R, Json.RoomKey);
+        var q = env.TryOptional(utf8, Field.Q, Json.Int64);
         var problem = env.Check(utf8, Field.R | Field.Q | Field.K | Field.D);
         if (problem != null) {
-            return new(null, FrameError.Malformed, problem);
+            return new(null, FrameError.Malformed, problem, room, q);
         }
-        var room = env.Required(utf8, Field.R, Json.RoomKey);
-        var q = env.Required(utf8, Field.Q, Json.Int64);
-        var kind = env.RequiredRef(utf8, Field.K, Json.String);
+        if (room is null || q is null) {
+            return new(null, FrameError.Malformed, room is null ? "r is not a room key" : "q is not an integer", room, q);
+        }
+        var kind = env.TryOptionalRef(utf8, Field.K, Json.String);
+        if (kind is null) {
+            return new(null, FrameError.Malformed, "k is not a valid string", room, q);
+        }
         if (!Catalog.TryGetCommand(kind, out var entry)) {
             return new(null, FrameError.UnknownKind, "k names no command", room, q);
         }
-        if (!entry.AllowedIn(room.Kind)) {
-            return new(null, FrameError.WrongRoom, $"{entry.Kind} is not a {RoomKey.Prefix(room.Kind)} command", room, q);
+        if (!entry.AllowedIn(room.Value.Kind)) {
+            return new(null, FrameError.WrongRoom, $"{entry.Kind} is not a {RoomKey.Prefix(room.Value.Kind)} command", room, q);
         }
         var data = env.Slice(utf8, Field.D);
         Command? command;
         try {
             command = JsonSerializer.Deserialize(data, entry.TypeInfo) as Command;
-        } catch (JsonException) {
+        } catch (Exception e) when (e is JsonException or InvalidOperationException) {
             command = null;
         }
         if (command is null) {
             return new(null, FrameError.InvalidData, $"d does not match {entry.Kind}", room, q);
         }
-        return new(new CmdFrame(room, q, command) { DataHash = Fnv1a(data) });
+        return new(new CmdFrame(room.Value, q.Value, command) { DataHash = Fnv1a(data) });
     }
 
     private static ParseResult<ServerFrame> ParseServer(ReadOnlySpan<byte> utf8, in Envelope env) {
@@ -368,10 +381,15 @@ public static class WireParser {
         private (int Start, int End) _element;
     }
 
-    /// <summary>Phase one: the raw slice of every top-level member, keyed by its envelope field.</summary>
+    /// <summary>
+    /// Phase one: the raw slice of every top-level member, keyed by its envelope field. An unknown or duplicate
+    /// member is reported by <see cref="Check"/> rather than here, so a rejected <c>cmd</c> still yields its
+    /// <c>r</c> and <c>q</c>.
+    /// </summary>
     private struct Envelope {
         private Slots _slots;
         private Field _present;
+        private string? _memberProblem;
 
         public static bool TryRead(ReadOnlySpan<byte> utf8, out Envelope env, out string? problem) {
             env = default;
@@ -384,19 +402,17 @@ public static class WireParser {
                 }
                 while (reader.Read() && reader.TokenType != JsonTokenType.EndObject) {
                     var field = FieldOf(ref reader);
-                    if (field == Field.None) {
-                        problem = "unknown envelope member";
-                        return false;
-                    }
-                    if ((env._present & field) != 0) {
-                        problem = "duplicate envelope member";
-                        return false;
-                    }
                     reader.Read();
                     var start = (int)reader.TokenStartIndex;
                     reader.Skip();
-                    env._present |= field;
-                    env._slots[IndexOf(field)] = (start, (int)reader.BytesConsumed);
+                    if (field == Field.None) {
+                        env._memberProblem ??= "unknown envelope member";
+                    } else if ((env._present & field) != 0) {
+                        env._memberProblem ??= "duplicate envelope member";
+                    } else {
+                        env._present |= field;
+                        env._slots[IndexOf(field)] = (start, (int)reader.BytesConsumed);
+                    }
                 }
                 if (reader.Read()) {
                     problem = "trailing content after the frame";
@@ -425,8 +441,14 @@ public static class WireParser {
             return reader.TokenType == JsonTokenType.String ? reader.GetString() : null;
         }
 
-        /// <summary>Returns a problem when a required field is missing or a field outside both sets is present.</summary>
+        /// <summary>
+        /// Returns a problem when a member is unknown or duplicated, a required field is missing, or a field
+        /// outside both sets is present.
+        /// </summary>
         public readonly string? Check(ReadOnlySpan<byte> utf8, Field required, Field optional = Field.None) {
+            if (_memberProblem != null) {
+                return _memberProblem;
+            }
             required |= Field.T;
             if ((_present & required) != required) {
                 return $"{Type(utf8)} is missing {Describe(required & ~_present)}";
@@ -446,6 +468,23 @@ public static class WireParser {
 
         public readonly T? Optional<T>(ReadOnlySpan<byte> utf8, Field field, JsonTypeInfo<T> typeInfo) where T : struct {
             return Has(field) ? JsonSerializer.Deserialize(Slice(utf8, field), typeInfo) : null;
+        }
+
+        /// <summary>The member's value, or null when it is absent or does not parse.</summary>
+        public readonly T? TryOptional<T>(ReadOnlySpan<byte> utf8, Field field, JsonTypeInfo<T> typeInfo) where T : struct {
+            try {
+                return Optional(utf8, field, typeInfo);
+            } catch (Exception e) when (e is JsonException or InvalidOperationException) {
+                return null;
+            }
+        }
+
+        public readonly T? TryOptionalRef<T>(ReadOnlySpan<byte> utf8, Field field, JsonTypeInfo<T> typeInfo) where T : class {
+            try {
+                return OptionalRef(utf8, field, typeInfo);
+            } catch (Exception e) when (e is JsonException or InvalidOperationException) {
+                return null;
+            }
         }
 
         public readonly T? OptionalRef<T>(ReadOnlySpan<byte> utf8, Field field, JsonTypeInfo<T> typeInfo) where T : class {

@@ -5,8 +5,9 @@ using Retroscope.Core.Ids;
 namespace Retroscope.Core.Protocol;
 
 /// <summary>
-/// Every wire payload. Strict on read: unknown members, missing required members, nulls in non-nullable
-/// members and numbers in strings are all refused, so a malformed frame never reaches a decider.
+/// Every wire payload. Strict on read: unknown or duplicate members, missing required members, nulls in
+/// non-nullable members, numbers in strings and enum values other than their exact names are all refused, so
+/// a malformed frame never reaches a decider.
 /// </summary>
 [JsonSourceGenerationOptions(
     JsonSerializerDefaults.Web,
@@ -16,6 +17,7 @@ namespace Retroscope.Core.Protocol;
     PropertyNameCaseInsensitive = false,
     RespectNullableAnnotations = true,
     RespectRequiredConstructorParameters = true,
+    AllowDuplicateProperties = false,
     MaxDepth = 16)]
 [JsonSerializable(typeof(PokerVoteSet))]
 [JsonSerializable(typeof(PokerLockSet))]
