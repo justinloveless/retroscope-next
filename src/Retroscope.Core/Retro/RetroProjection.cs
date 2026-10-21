@@ -135,7 +135,7 @@ public sealed class RetroProjection(IAnonTagger tagger) {
             case MembersReplaced when roster:
                 wire.Add(new RetroMembers(state.Members.ToList()));
                 break;
-            case EndorsementAdded or EndorsementRemoved or MaxEndorsementsChanged or MembersReplaced:
+            case EndorsementAdded or EndorsementRemoved or MaxEndorsementsChanged or MembersReplaced or BoardDeleted:
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(evt), evt.GetType().Name, "Unknown retro event.");

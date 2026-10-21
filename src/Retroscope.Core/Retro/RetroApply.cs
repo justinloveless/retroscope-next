@@ -113,6 +113,9 @@ public static class RetroApply {
                 state.Visibility = e.Visibility;
                 state.PasswordSetAt = e.PasswordSetAt;
                 break;
+            case BoardDeleted:
+                state.Deleted = true;
+                break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(evt), evt.GetType().Name, "Unknown retro event.");
         }

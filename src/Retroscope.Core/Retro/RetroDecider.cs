@@ -39,6 +39,7 @@ public sealed partial class RetroDecider(IAnonTagger tagger) : IRoomDomain<Retro
             RetroInput.AccessSet access => access.Visibility == state.Visibility && access.PasswordSetAt == state.PasswordSetAt
                 ? NoOp
                 : Accept(new AccessChanged(access.Visibility, access.PasswordSetAt)),
+            RetroInput.Delete => state.Deleted ? NoOp : Accept(new BoardDeleted()),
             _ => throw new ArgumentOutOfRangeException(nameof(input), input.GetType().Name, "Unknown retro input."),
         };
     }
