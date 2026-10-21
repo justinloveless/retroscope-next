@@ -354,7 +354,7 @@ public sealed class PokerMapTests(ImporterDatabases databases) {
             insert into public.retro_items (id, board_id, column_id, text, author, session_id, created_at, updated_at) values
               ('{S(11)}', '{S(9)}', '{S(10)}', '<p>hi</p>', 'Gwen', '{browser.ToString().ToUpperInvariant()}', '{At(1)}', '{At(1)}');
             """);
-        var runner = fixture.Harness.Runner(stages: [new MinimalIdentityStage(), new PokerMap(), new RetroMap(), new ArchiveStage()]);
+        var runner = fixture.Harness.Runner(stages: [.. IdentityStages, new PokerMap(), new RetroMap(), new ArchiveStage()]);
 
         await runner.RunAsync(new RunOptions(), TestContext.Current.CancellationToken);
 
