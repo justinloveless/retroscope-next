@@ -144,6 +144,8 @@ async function holdExclusive(releaseShared) {
 }
 
 export const test = stack.extend({
+  // Waiting for the lock is not the test's time: while the restart spec waits for the running tests to finish,
+  // tests starting meanwhile wait here, under the fixture's own timeout.
   stackLock: [async ({}, use) => {
     let release = await holdShared();
     await use({
@@ -152,7 +154,7 @@ export const test = stack.extend({
       },
     });
     await release();
-  }, { auto: true }],
+  }, { auto: true, timeout: 600_000 }],
 
   /**
    * open(user?, options?) → {context, page, user}: a new context (the project's device, a fresh client address),

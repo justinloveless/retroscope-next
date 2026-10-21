@@ -30,7 +30,7 @@ test('a vote cast offline is sent when the context comes back, and everyone conv
 });
 
 test('a server restart mid-session keeps every acknowledged vote and the pages carry on', async ({ open, stackLock }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(480_000);
   const { players } = await table(open, ['Ann Restart', 'Bob Restart']);
   const [ann, bob] = players;
   await handCard(ann.page, 3).click();

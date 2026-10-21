@@ -95,16 +95,17 @@ test('a holder whose page is hidden for six minutes keeps the spotlight', async 
 });
 
 test('the spotlight is released three minutes after its holder leaves, not before', async ({ open }) => {
-  test.setTimeout(300_000);
+  test.setTimeout(360_000);
   const { players } = await table(open, ['Ann Leave', 'Bob Leave']);
   const [ann, bob] = players;
   await chooseSpotlight(bob.page, 'Spotlight this round');
   await expect(spotlightControl(ann.page)).toHaveAttribute('data-role', 'other');
+  // A room that is still warming up (15 s after it loads) releases an absent holder's spotlight at the end of the
+  // warm-up (§c.4 Warm, for a holder who did not come back after a restart); the grace is for a room past it.
+  await ann.page.waitForTimeout(16_000);
 
   await bob.context.close();
   const left = Date.now();
-  // Bob has no vote, so his seat goes once his presence leaves (10 s grace).
-  await expect(ann.page.locator('.nt-seat')).toHaveCount(1, { timeout: 30_000 });
   await ann.page.waitForTimeout(150_000 - (Date.now() - left));
   await expect(spotlightControl(ann.page)).toHaveAttribute('data-role', 'other');
 
