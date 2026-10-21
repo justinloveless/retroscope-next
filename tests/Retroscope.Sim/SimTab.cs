@@ -20,6 +20,13 @@ internal sealed class Entry(Intent intent, RoomKey room, long q) {
     /// <summary>The connection it last went out on; a new connection resends it.</summary>
     public ConnectionId? SentOn { get; set; }
 
+    /// <summary>
+    /// Created by this page load before its room first synced (memory only), so its q may come from a <c>cseq</c> that
+    /// storage had let fall behind the cursor. Only such entries are renumbered at sync: any other entry the cursor has
+    /// passed was sent, by this tab, by an earlier load whose storage went back, or by a duplicate of this tab.
+    /// </summary>
+    public bool Early { get; init; }
+
     public Entry Copy() => new(Intent, Room, Q) { Sent = Sent };
 }
 
@@ -53,6 +60,9 @@ internal sealed class RoomClient(RoomKey key) {
 
     public bool Synced { get; set; }
 
+    /// <summary>Synced at least once since the page loaded.</summary>
+    public bool EverSynced { get; set; }
+
     public bool Resyncing { get; set; }
 
     public KickCode? Kicked { get; set; }
@@ -84,6 +94,7 @@ internal sealed class SimTab {
     private long _cseq;
     private int _reconnectAttempt;
     private ITimer? _reconnect;
+    private bool _restoredCid;
 
     public SimTab(World world, string name, Principal who, ClientId cid, IEnumerable<RoomKey> rooms) {
         _world = world;
@@ -125,10 +136,22 @@ internal sealed class SimTab {
             return;
         }
         CancelReconnect();
+        if (_restoredCid) {
+            // U28 decision 7: a tab that restored its cid asks BroadcastChannel and waits 100 ms; a throttled
+            // original may miss that window, and then only the server's 4409 tells them apart.
+            _restoredCid = false;
+            if (_world.TwinAnswers(this) && _world.Rng.Next(2) == 0) {
+                Yield("a duplicated tab yields its cid and outbox to the tab it copied (boot check)");
+            }
+        }
         if (_world.CidHeldElsewhere(this)) {
-            // 4409 cid_in_use (U28 decision 4): a new cid, the outbox kept as it is, the normal backoff.
-            Cid = new ClientId(_world.NewGuid());
-            _world.Trace($"{Name}: 4409, re-minted cid");
+            // 4409 cid_in_use: a twin that answers the check owns the cid and the outbox. Otherwise the holder is this
+            // tab's own dead socket, which keep-alive reaps; the cid and every q are kept, so the cursor still dedupes.
+            if (_world.TwinAnswers(this)) {
+                Yield("a duplicated tab yields its cid and outbox to the tab it copied (4409)");
+            } else {
+                _world.Trace($"{Name}: 4409, keeping cid {Cid}");
+            }
             ScheduleReconnect(Backoff());
             return;
         }
@@ -144,17 +167,7 @@ internal sealed class SimTab {
             return;
         }
         connection.Rooms.Add(room.Key);
-        var viewer = Viewer;
-        var result = await _world.SendAsync(() => connection.Process.Registry.SubscribeAsync(
-            room.Key, connection, viewer, room.Epoch, room.Seq, CancellationToken.None));
-        if (result == PostResult.Busy) {
-            // U13 follow-up for U14: a new subscription refused by a full queue is retried shortly.
-            _world.Clock.Schedule(_world.Clock.Now + TimeSpan.FromMilliseconds(300), async () => {
-                if (Connection == connection && connection.Open && !room.Synced) {
-                    await SubscribeAsync(room);
-                }
-            });
-        }
+        await _world.SendAsync(() => connection.Process.Gateway.Subscribe(connection, room.Key, room.Epoch, room.Seq));
     }
 
     /// <summary>A kicked room is joined again with a fresh subscription (the user reopened the page).</summary>
@@ -171,7 +184,7 @@ internal sealed class SimTab {
             return;
         }
         var intent = _world.NewIntent(key, command);
-        var entry = new Entry(intent, key, ++_cseq);
+        var entry = new Entry(intent, key, ++_cseq) { Early = !room.EverSynced };
         _entries.Add(entry);
         _world.Trace($"{Name}: issue {intent} q={entry.Q}");
         if (CanSend(room)) {
@@ -262,20 +275,24 @@ internal sealed class SimTab {
                 }
                 _entries.Clear();
                 _entries.AddRange(older.Entries.Select(x => x.Copy()));
+                foreach (var entry in _entries.Where(x => x.Intent.Outcome != IntentOutcome.Pending)) {
+                    entry.Intent.Resurrected = true;
+                }
                 _cseq = older.Cseq;
                 Cid = older.Cid;
                 break;
         }
-        foreach (var entry in _entries) {
-            entry.SentOn = null;
+        for (var i = 0; i < _entries.Count; i++) {
+            _entries[i] = _entries[i].Copy();
         }
+        _restoredCid = kind != Reload.LostStorage;
         _world.Trace($"{Name}: reload ({kind}), cid {Cid}, cseq {_cseq}, {_entries.Count} entries");
         await ConnectAsync();
     }
 
     /// <summary>A duplicated tab takes over this tab's storage; when it is not a twin this tab closes for good.</summary>
     public SimTab Duplicate(string name) {
-        var copy = new SimTab(_world, name, Who, Cid, _rooms.Keys) { _cseq = _cseq };
+        var copy = new SimTab(_world, name, Who, Cid, _rooms.Keys) { _cseq = _cseq, _restoredCid = true };
         copy._entries.AddRange(_entries.Select(x => x.Copy()));
         return copy;
     }
@@ -374,7 +391,7 @@ internal sealed class SimTab {
 
     private async Task SettleAsync(RoomClient room, long lastQ) {
         _cseq = Math.Max(_cseq, lastQ);
-        foreach (var entry in _entries.Where(x => x.Room == room.Key && !x.Sent && x.Q <= lastQ)) {
+        foreach (var entry in _entries.Where(x => x.Room == room.Key && x.Early && !x.Sent && x.Q <= lastQ)) {
             entry.Q = ++_cseq;
         }
         SortEntries();
@@ -391,6 +408,7 @@ internal sealed class SimTab {
         }
         room.DeferredAcks.Clear();
         room.Synced = true;
+        room.EverSynced = true;
         room.Resyncing = false;
         StopRetry(room);
         _reconnectAttempt = 0;
@@ -422,26 +440,26 @@ internal sealed class SimTab {
         }
         _world.Trace($"{Name}: nack q={nack.Q} {nack.Code} {entry.Intent}");
         if (nack.Code == NackCode.CidReuse) {
-            // U28 decision 3: re-mint, renumber every entry, reconnect at once.
-            _world.Trace($"{Name}: cid_reuse on q={nack.Q}, re-minting");
-            Cid = new ClientId(_world.NewGuid());
-            foreach (var each in _entries) {
-                each.Q = ++_cseq;
-                each.Sent = false;
-                each.SentOn = null;
+            if (_world.TwinAnswers(this)) {
+                Yield("a duplicated tab yields its cid and outbox to the tab it copied (cid_reuse)");
+                await CloseConnectionAsync();
+                await ConnectAsync();
+                return;
             }
-            SortEntries();
-            await CloseConnectionAsync();
-            await ConnectAsync();
-            return;
-        }
-        if (nack.Retry) {
-            _world.Oracle.RetryableNackRead(entry.Intent);
-            // U28 decision 1: the server did not apply it, so a fresh q keeps a later commit from turning it into a dup.
+            // Another intent of this cid holds that q (storage went back to an older copy); this one was not applied,
+            // so it goes out again under a fresh q. Entries in flight behind it keep theirs: they may have committed.
+            _world.Trace($"{Name}: cid_reuse on q={nack.Q}, renumbering it");
             entry.Q = ++_cseq;
             entry.Sent = false;
             entry.SentOn = null;
             SortEntries();
+            ScheduleRetry(room);
+            return;
+        }
+        if (nack.Retry) {
+            // The server refuses every later command of the room on this connection until it is subscribed again, so
+            // the entry keeps its q: nothing behind it can commit first and turn the resend into a dup.
+            entry.SentOn = null;
             ScheduleRetry(room);
             return;
         }
@@ -488,16 +506,16 @@ internal sealed class SimTab {
             return;
         }
         var frame = new CmdFrame(entry.Room, entry.Q, entry.Intent.Command) { DataHash = entry.Intent.DataHash };
-        var viewer = Viewer;
-        await _world.SendAsync(() => connection.Process.Registry.CommandAsync(entry.Room, connection, viewer, frame, CancellationToken.None));
+        await _world.SendAsync(() => connection.Process.Gateway.Command(connection, frame));
     }
 
     private void ScheduleRetry(RoomClient room) {
         StopRetry(room);
         var delay = TimeSpan.FromMilliseconds(Math.Min(5000, 250 * Math.Pow(2, room.RetryAttempt++)));
+        // The retry goes out after a fresh sub, which lifts the server's refusal of the room's later commands.
         room.Retry = _world.Clock.Schedule(_world.Clock.Now + delay, async () => {
             room.Retry = null;
-            await FlushAsync(room);
+            await ResubscribeAsync(room);
         });
     }
 
@@ -531,6 +549,13 @@ internal sealed class SimTab {
     private void CancelReconnect() {
         _reconnect?.Dispose();
         _reconnect = null;
+    }
+
+    /// <summary>A live twin answered with this cid: like a duplicate at boot, mint a new cid and start empty (§g.4).</summary>
+    private void Yield(string why) {
+        _world.Trace($"{Name}: {why}");
+        LoseAll(why);
+        Cid = new ClientId(_world.NewGuid());
     }
 
     private void LoseAll(string why) {

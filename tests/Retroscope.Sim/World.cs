@@ -155,11 +155,10 @@ internal sealed class World {
         }
     }
 
-    /// <summary>Hands one message to an actor and waits until every actor is quiet again.</summary>
-    public async Task<PostResult> SendAsync(Func<ValueTask<PostResult>> send) {
-        var result = await send();
+    /// <summary>Hands one frame to the gateway and waits until every actor is quiet again.</summary>
+    public async Task SendAsync(Action send) {
+        send();
         await SettleAsync();
-        return result;
     }
 
     public SimConnection Open(SimTab tab, ConnectionId id, ClientId cid) {
@@ -173,6 +172,9 @@ internal sealed class World {
         return _serverLive.Any(x => x.Cid == tab.Cid && x != tab.Connection && !x.Process.Dead);
     }
 
+    /// <summary>Another open tab answers BroadcastChannel with the same cid (U28 decision 7).</summary>
+    public bool TwinAnswers(SimTab tab) => _tabs.Any(x => x != tab && !x.Closed && x.Cid == tab.Cid);
+
     /// <summary>The transport tells every room the socket was in that it closed.</summary>
     public async Task ServerNoticesCloseAsync(SimConnection connection) {
         if (!_serverLive.Remove(connection) || connection.Process.Dead) {
@@ -180,7 +182,7 @@ internal sealed class World {
         }
         foreach (var room in connection.Rooms.ToList()) {
             Oracle.Disconnected(room, connection.Id);
-            connection.Process.Registry.ConnectionClosed(room, connection.Id);
+            connection.Process.Gateway.Disconnected(connection, [room]);
             await SettleAsync();
         }
     }
@@ -214,9 +216,6 @@ internal sealed class World {
                 break;
             case KickFrame kick:
                 Oracle.Disconnected(kick.R, connection.Id);
-                break;
-            case NackFrame { Retry: true } nack:
-                Oracle.RetryableNackSent(nack.R, connection.Cid, nack.Q);
                 break;
             case NackFrame { Code: NackCode.CidReuse }:
                 lock (_lock) {

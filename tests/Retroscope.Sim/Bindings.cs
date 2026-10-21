@@ -67,54 +67,16 @@ internal sealed class WatchedDomain<TState, TInput, TEvent>(
     public IReadOnlyList<TEvent> OnWarm(TState s, PresenceView p, DateTimeOffset now) => inner.OnWarm(s, p, now);
 }
 
-/// <summary>The poker binding as U21 sketches it (U13 decision follow-ups), over the real <see cref="PokerDomain"/>.</summary>
-internal sealed class PokerBinding(Oracle oracle, InjectedBug bug, Func<bool> live) : IRoomBinding<PokerState, PokerInput, PokerEvent> {
-    public RoomKind Kind => RoomKind.Poker;
-
-    public IRoomDomain<PokerState, PokerInput, PokerEvent> Domain { get; } = new WatchedDomain<PokerState, PokerInput, PokerEvent>(
-        new PokerDomain(),
-        oracle,
-        x => (x as ClientCommand)?.Command,
-        x => x.Durability,
-        live,
-        bug == InjectedBug.Precondition ? DropPreconditions : null);
-
-    public PokerInput? FromClient(Command command) => command is PokerCommand poker ? (PokerInput)poker : null;
-
-    public EventDurability DurabilityOf(PokerEvent evt) => evt.Durability;
-
-    public bool CanSubscribe(PokerState state, Viewer viewer, IAccessView access) {
-        return Policy.Can(viewer, Capability.Subscribe, Facts(state, viewer), access);
-    }
-
-    public RoomSnapshot Snapshot(PokerState state, IReadOnlyList<PrincipalInfo> presence, bool forMembers) {
-        return PokerProjection.Snapshot(state, presence);
-    }
-
-    public RoomOverlay? Overlay(PokerState state, Viewer viewer) => PokerProjection.Overlay(state, viewer.Who.Id, viewer.Client);
-
-    public IReadOnlyList<WireEvent> Project(PokerState state, IReadOnlyList<PokerEvent> events, PrincipalId viewer, bool viewerIsMember) {
-        return PokerProjection.Events(events, viewer);
-    }
-
-    public bool Supersedes(IReadOnlyList<PokerEvent> latest, IReadOnlyList<PokerEvent> previous) {
-        return latest.All(x => x is SpotlightMoved) && previous.All(x => x is SpotlightMoved);
-    }
-
-    public DateTimeOffset? WarmUntil(PokerState state) => state.WarmUntil;
-
-    public bool IsDeleted(PokerState state) => state.Deleted;
-
-    public PokerInput? OnShutdown(PokerState state) => state.Spotlight is { Dirty: true } ? new SpotlightSettleDue() : null;
-
-    private static ResourceFacts Facts(PokerState state, Viewer viewer) {
-        return new ResourceFacts(
-            RoomKey.Poker(state.SessionId),
-            Team: state.TeamId,
-            CreatedBy: state.CreatedBy,
-            IsObserver: state.Observers.Contains(viewer.Who.Id),
-            JiraConfigured: state.Jira.Configured,
-            MembersCanEditJira: state.Jira.MembersCanEdit);
+/// <summary>The real poker binding (U21) over the real <see cref="PokerDomain"/>, watched by the oracle.</summary>
+internal static class SimPokerBinding {
+    public static Server.Realtime.Rooms.PokerBinding Create(Oracle oracle, InjectedBug bug, Func<bool> live) {
+        return new Server.Realtime.Rooms.PokerBinding(new WatchedDomain<PokerState, PokerInput, PokerEvent>(
+            new PokerDomain(),
+            oracle,
+            x => (x as ClientCommand)?.Command,
+            x => x.Durability,
+            live,
+            bug == InjectedBug.Precondition ? DropPreconditions : null));
     }
 
     /// <summary>The planted bug: overwrite commands always carry the values the server holds now.</summary>

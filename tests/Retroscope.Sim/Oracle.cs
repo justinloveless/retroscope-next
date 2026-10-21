@@ -26,15 +26,6 @@ internal enum DecisionSeen : byte {
     Committed,
 }
 
-/// <summary>Open issues the simulation found in other units; see <c>docs/decisions/U15.md</c>.</summary>
-internal static class KnownIssues {
-    /// <summary>
-    /// A command refused with a retryable nack (server_busy) whose nack is lost with the socket, while a later
-    /// command of the same cid committed: the resend is acked <c>dup</c> and the intent is silently lost.
-    /// </summary>
-    public const string LostRetryableNack = "lost-retryable-nack";
-}
-
 /// <summary>One thing a user did. Every resend, renumbering and copy of the outbox entry is the same intent.</summary>
 internal sealed class Intent(int id, RoomKey room, Command command, DateTimeOffset issuedAt, bool ephemeral) {
     public int Id { get; } = id;
@@ -56,8 +47,11 @@ internal sealed class Intent(int id, RoomKey room, Command command, DateTimeOffs
 
     public IntentOutcome Outcome { get; set; }
 
-    /// <summary>The server refused it with a retryable nack that the client has not read yet.</summary>
-    public bool UnreadRetryableNack { get; set; }
+    /// <summary>
+    /// Storage went back to a copy that still held it after it was answered: the tab sends it again, and its new
+    /// answer is not judged against the old one (a second commit still is).
+    /// </summary>
+    public bool Resurrected { get; set; }
 
     public string? Detail { get; set; }
 
@@ -141,20 +135,6 @@ internal sealed class Oracle(SimClock clock) {
         }
     }
 
-    public void RetryableNackSent(RoomKey room, ClientId client, long q) {
-        lock (_lock) {
-            if (_bySend.TryGetValue((room, client, q), out var intent)) {
-                intent.UnreadRetryableNack = true;
-            }
-        }
-    }
-
-    public void RetryableNackRead(Intent intent) {
-        lock (_lock) {
-            intent.UnreadRetryableNack = false;
-        }
-    }
-
     public void Register(Intent intent) {
         lock (_lock) {
             _intents.Add(intent);
@@ -217,18 +197,14 @@ internal sealed class Oracle(SimClock clock) {
 
     public void Acked(Intent intent, bool dup) {
         lock (_lock) {
-            if (intent.Outcome is IntentOutcome.Nacked && !dup) {
+            if (intent.Outcome is IntentOutcome.Nacked && !dup && !intent.Resurrected) {
                 Fail($"{intent} applied after a final nack ({intent.Detail})");
             }
             if (dup) {
                 // dup means "this q was processed": a resend whose nack was lost is acked dup too. Only an intent
                 // the server never decided at all has been skipped.
                 if (intent.Commits == 0 && intent.LastDecision == DecisionSeen.None) {
-                    if (intent.UnreadRetryableNack) {
-                        FailKnown(KnownIssues.LostRetryableNack);
-                    } else {
-                        Fail($"{intent} acked dup but the server never decided it: the intent is lost");
-                    }
+                    Fail($"{intent} acked dup but the server never decided it: the intent is lost");
                 }
             } else if (intent.LastDecision == DecisionSeen.Committed && intent.Commits == 0) {
                 Fail($"{intent} acked but its transaction never committed");
