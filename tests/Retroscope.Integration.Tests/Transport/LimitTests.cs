@@ -94,6 +94,39 @@ public sealed class LimitTests {
     }
 
     [Fact]
+    public async Task After_a_rate_limited_nack_later_commands_of_the_room_are_refused_until_it_is_subscribed_again() {
+        await using var app = await TransportApp.StartAsync(new TransportOptions { FramesPerSecond = 1, FrameBurst = 3 });
+        var room = TransportApp.NewRoom();
+        var other = TransportApp.NewRoom();
+        app.Gateway.OnCommand = (connection, command) => connection.Send(new AckFrame(command.R, command.Q, 0));
+        await using var client = await app.HelloAsync("user", null, new SubCursor(room), new SubCursor(other));
+        await app.Gateway.WaitForAsync("sub", x => x.Room == other);
+        Command Reveal() => new PokerRoundReveal(new RoundId(Guid.CreateVersion7()));
+
+        for (var q = 1; q <= 4; q++) {
+            await client.SendAsync(new CmdFrame(room, q, Reveal()));
+        }
+        var answers = new List<ServerFrame>();
+        for (var i = 0; i < 4; i++) {
+            answers.Add(await client.ReceiveAsync());
+        }
+        Assert.Equal((4L, NackCode.RateLimited), answers.OfType<NackFrame>().Select(x => (x.Q, x.Code)).Single());
+        await Task.Delay(TimeSpan.FromSeconds(1.2), TestContext.Current.CancellationToken);
+
+        await client.SendAsync(new CmdFrame(room, 5, Reveal()));
+        var refused = Assert.IsType<NackFrame>(await client.ReceiveAsync());
+        Assert.Equal((5L, NackCode.RateLimited, true), (refused.Q, refused.Code, refused.Retry));
+        Assert.DoesNotContain(app.Gateway.Of("cmd"), x => ((CmdFrame)x.Detail!).Q >= 4);
+
+        await client.SendAsync(new SubFrame(room, null, null));
+        await Wait.UntilAsync(() => app.Gateway.Of("sub").Count(x => x.Room == room) == 2);
+        await Task.Delay(TimeSpan.FromSeconds(1.2), TestContext.Current.CancellationToken);
+        await client.SendAsync(new CmdFrame(room, 4, Reveal()));
+
+        Assert.Equal(4L, Assert.IsType<AckFrame>(await client.ReceiveAsync()).Q);
+    }
+
+    [Fact]
     public async Task Sustained_abuse_closes_with_4429() {
         var options = new TransportOptions { FramesPerSecond = 5, FrameBurst = 5, AbuseWindow = TimeSpan.FromMilliseconds(800) };
         await using var app = await TransportApp.StartAsync(options);
