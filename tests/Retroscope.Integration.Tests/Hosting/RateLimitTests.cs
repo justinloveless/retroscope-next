@@ -88,19 +88,69 @@ public sealed class RateLimitTests {
     [Fact]
     public void The_limiter_lru_is_bounded_and_evicts_the_least_recently_used_key() {
         var limiter = new RateLimiter(_time, capacity: 3);
-        var once = RateLimit.Define("test.once", RateRule.PerIp(1, TimeSpan.FromDays(1)));
-        foreach (var ip in new[] { "a", "b", "c" }) {
-            Assert.True(limiter.TryAcquire(once, new RateKeys(ip, null), out _));
+        var twice = RateLimit.Define("test.twice", RateRule.PerIp(2, TimeSpan.FromDays(1)));
+        foreach (var ip in new[] { "a", "b", "c", "a" }) {
+            Assert.True(limiter.TryAcquire(twice, new RateKeys(ip, null), out _));
         }
-        Assert.False(limiter.TryAcquire(once, new RateKeys("a", null), out _));
 
-        Assert.True(limiter.TryAcquire(once, new RateKeys("d", null), out _));
+        Assert.True(limiter.TryAcquire(twice, new RateKeys("d", null), out _));
 
         Assert.Equal(3, limiter.Count);
+        Assert.False(limiter.TryAcquire(twice, new RateKeys("a", null), out _));
+        Assert.True(limiter.TryAcquire(twice, new RateKeys("b", null), out _));
+        Assert.Equal(3, limiter.Count);
+        Assert.True(limiter.TryAcquire(twice, new RateKeys("d", null), out _));
+        Assert.False(limiter.TryAcquire(twice, new RateKeys("d", null), out _));
+    }
+
+    [Fact]
+    public void A_refused_request_does_not_refresh_its_bucket_in_the_lru() {
+        var limiter = new RateLimiter(_time, capacity: 2);
+        var once = RateLimit.Define("test.once", RateRule.PerIp(1, TimeSpan.FromDays(1)));
+        Assert.True(limiter.TryAcquire(once, new RateKeys("a", null), out _));
         Assert.True(limiter.TryAcquire(once, new RateKeys("b", null), out _));
-        Assert.Equal(3, limiter.Count);
+
         Assert.False(limiter.TryAcquire(once, new RateKeys("a", null), out _));
-        Assert.False(limiter.TryAcquire(once, new RateKeys("d", null), out _));
+        Assert.True(limiter.TryAcquire(once, new RateKeys("c", null), out _));
+
+        Assert.False(limiter.TryAcquire(once, new RateKeys("b", null), out _));
+        Assert.True(limiter.TryAcquire(once, new RateKeys("a", null), out _));
+    }
+
+    [Fact]
+    public void A_caller_over_the_ip_budget_cannot_grow_the_bucket_table() {
+        var limiter = new RateLimiter(_time);
+        var mail = RateLimit.Define(
+            "test.mail",
+            RateRule.PerIp(2, TimeSpan.FromHours(1)),
+            RateRule.PerSubject(3, TimeSpan.FromHours(1)),
+            RateRule.Global(1000, TimeSpan.FromHours(1)));
+        Assert.True(limiter.TryAcquire(mail, new RateKeys("198.51.100.1", null, "r0@example.test"), out _));
+        Assert.True(limiter.TryAcquire(mail, new RateKeys("198.51.100.1", null, "r1@example.test"), out _));
+        var count = limiter.Count;
+
+        for (var i = 2; i < 1000; i++) {
+            Assert.False(limiter.TryAcquire(mail, new RateKeys("198.51.100.1", null, $"r{i}@example.test"), out var retryAfter));
+            Assert.True(retryAfter > TimeSpan.Zero);
+        }
+
+        Assert.Equal(count, limiter.Count);
+    }
+
+    [Fact]
+    public void Retry_after_covers_every_refusing_bucket() {
+        var limiter = new RateLimiter(_time);
+        var keys = new RateKeys("198.51.100.1", "p1");
+        Assert.True(limiter.TryAcquire(GuestRoute, keys, out _));
+        Assert.True(limiter.TryAcquire(GuestRoute, keys, out _));
+        Assert.True(limiter.TryAcquire(GuestRoute, new RateKeys("198.51.100.1", "p2"), out _));
+        Assert.True(limiter.TryAcquire(GuestRoute, new RateKeys("198.51.100.1", "p2"), out _));
+        Assert.True(limiter.TryAcquire(GuestRoute, new RateKeys("198.51.100.1", "p3"), out _));
+        _time.Advance(TimeSpan.FromSeconds(10));
+
+        Assert.False(limiter.TryAcquire(GuestRoute, keys, out var retryAfter));
+
+        Assert.InRange(retryAfter.TotalSeconds, 19.999, 20.001);
     }
 
     [Fact]
