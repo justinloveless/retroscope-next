@@ -123,8 +123,11 @@ export function createRouter({ routes, root, boot, loadBoot, notFound, onError }
   }
 
   function go(url, firstBoot) {
-    return show(url, firstBoot).catch((error) => {
-      if (error?.name === 'AbortError') {
+    const shown = show(url, firstBoot);
+    const run = token;
+    return shown.catch((error) => {
+      // A newer navigation owns the screen; reporting or reloading this URL would undo it.
+      if (error?.name === 'AbortError' || run !== token) {
         return;
       }
       if (onError) {
