@@ -102,6 +102,7 @@ namespace Retroscope.Core.Protocol;
 [JsonSerializable(typeof(RetroTimer))]
 [JsonSerializable(typeof(RetroEndorsementAdded))]
 [JsonSerializable(typeof(RetroEndorsementRemoved))]
+[JsonSerializable(typeof(RetroMembers))]
 [JsonSerializable(typeof(TeamActionAdded))]
 [JsonSerializable(typeof(TeamActionUpdated))]
 [JsonSerializable(typeof(TeamActionText))]
