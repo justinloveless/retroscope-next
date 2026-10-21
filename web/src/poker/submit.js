@@ -7,11 +7,12 @@
 import { h, replaceContent } from '../core/h.js';
 import { http } from '../core/http.js';
 import { createButton } from '../ui/button.js';
+import { createResizable } from '../ui/resizable.js';
 import { toast } from '../ui/toast.js';
+import { readPanels, writePanel } from './history.js';
 import { roundById, uuidv7 } from './model.js';
 
 export const SUBMIT_CHIPS = [1, 2, 3, 5, 8, 13, 21];
-export const PANELS_KEY = 'rs.panels';
 const MOBILE = '(max-width: 767px)';
 const IDLE_PREFETCH_MS = 1500;
 
@@ -46,23 +47,6 @@ export function defaultChip(winner) {
     return null;
   }
   return SUBMIT_CHIPS.reduce((best, chip) => (Math.abs(chip - winner) <= Math.abs(best - winner) ? chip : best));
-}
-
-function readPanels() {
-  try {
-    const value = JSON.parse(localStorage.getItem(PANELS_KEY) ?? '{}');
-    return value && typeof value === 'object' ? value : {};
-  } catch {
-    return {};
-  }
-}
-
-function writePanel(name, open) {
-  try {
-    localStorage.setItem(PANELS_KEY, JSON.stringify({ ...readPanels(), [name]: open }));
-  } catch {
-    // Private mode or a full quota: the panel keeps its state for this page view only.
-  }
 }
 
 function personName(view, pid) {
@@ -239,6 +223,7 @@ export function jiraFeature(ctx) {
   let drawer = null;
   let drawerLoad = null;
   let sheet = null;
+  let resizer = null;
   let panelOpen = false;
   let preview = null;
   let currentKey = null;
@@ -282,7 +267,7 @@ export function jiraFeature(ctx) {
       loadBrowse();
       loadDrawer();
     }, IDLE_PREFETCH_MS);
-    if (!mobile() && readPanels().jira !== false) {
+    if (!mobile() && readPanels().left?.open !== false) {
       setPanel(true, false);
     }
     render();
@@ -315,7 +300,7 @@ export function jiraFeature(ctx) {
     panelOpen = open;
     toggle.update({ pressed: open });
     if (remember && !mobile()) {
-      writePanel('jira', open);
+      writePanel('left', { open });
     }
     if (!open) {
       slots.left.hidden = true;
@@ -331,7 +316,16 @@ export function jiraFeature(ctx) {
       sheet.body.append(panel.el);
       sheet.open();
     } else {
-      slots.left.replaceChildren(panel.el);
+      // Resizable 240–480 px like the Round panel (§g.8); the width is kept in rs.panels.left.
+      resizer ??= createResizable({
+        panel: slots.left,
+        side: 'right',
+        width: readPanels().left?.width ?? 320,
+        label: 'Resize Jira panel',
+        onCommit: (width) => writePanel('left', { width }),
+      });
+      slots.left.classList.add('jira-panel');
+      slots.left.replaceChildren(panel.el, resizer.el);
       slots.left.hidden = false;
     }
   }
@@ -398,7 +392,7 @@ export function jiraFeature(ctx) {
   }
 
   function placeSubmit() {
-    const table = slots.left.parentElement?.querySelector(':scope > .nt-center > .nt-table');
+    const table = slots.center.querySelector(':scope > .nt-table');
     if (table && table.nextElementSibling !== submit.el) {
       table.after(submit.el);
     }
@@ -442,7 +436,10 @@ export function jiraFeature(ctx) {
       submit.el.remove();
       toggle.el.remove();
       details.el.remove();
+      resizer?.destroy();
       slots.left.hidden = true;
+      slots.left.classList.remove('jira-panel');
+      slots.left.style.removeProperty('width');
       replaceContent(slots.left);
     },
   };

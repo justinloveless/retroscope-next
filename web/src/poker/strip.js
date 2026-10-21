@@ -7,6 +7,7 @@ import { reconcile } from '../core/list.js';
 import { currentMe } from '../screens/app.js';
 import { createAvatar } from '../ui/avatar.js';
 import { createButton } from '../ui/button.js';
+import { issueTypeGlyph } from '../ui/glyphs.js';
 import { confirmDialog } from '../ui/confirm.js';
 import { icon } from '../ui/icons.js';
 import { createMenu } from '../ui/menu.js';
@@ -163,11 +164,11 @@ export function createStrip(ctx) {
     const pending = h('span', { class: 'nt-chip-pending', text: 'Pending' });
     const points = h('span', { class: 'nt-chip-points' });
     const holder = h('span', { class: 'nt-chip-holder' });
+    const type = h('span', { class: 'nt-chip-icon', 'aria-hidden': 'true' });
     const main = h('button', { type: 'button', class: 'nt-chip-main' },
-      h('span', { class: 'nt-chip-cone', 'aria-hidden': 'true' }),
-      icon('tag', { className: 'nt-chip-icon' }), key, pending, points, holder);
+      h('span', { class: 'nt-chip-cone', 'aria-hidden': 'true' }), type, key, pending, points, holder);
     const node = h('li', { class: 'nt-chip', dataset: { id: round.id } }, grip, main);
-    node.parts = { grip, main, key, pending, points, holder, avatar: null };
+    node.parts = { grip, main, type, key, pending, points, holder, avatar: null, issueType: undefined };
     patchChip(node, round);
     return node;
   }
@@ -190,6 +191,12 @@ export function createStrip(ctx) {
     key.textContent = chipLabel(round);
     key.classList.toggle('is-placeholder', !round.ticketKey);
     pending.hidden = !round.pending;
+    // The issue type arrives with the room's jira.meta fill; until then (and without a key) the glyph is neutral.
+    const issueType = round.ticketKey ? ctx.room.extras['jira.meta']?.[round.ticketKey]?.issueType ?? null : null;
+    if (issueType !== node.parts.issueType) {
+      node.parts.issueType = issueType;
+      node.parts.type.replaceChildren(issueTypeGlyph(issueType));
+    }
     points.textContent = value == null ? '' : String(value);
     points.hidden = value == null;
     const person = spot ? personOf(view, spot.holder) ?? { pid: spot.holder, name: 'Spotlight holder' } : null;

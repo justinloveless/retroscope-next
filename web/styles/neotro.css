@@ -848,9 +848,7 @@
 }
 
 .nt-chip-icon {
-  width: 0.875rem;
-  height: 0.875rem;
-  color: hsl(var(--muted-foreground));
+  display: inline-flex;
 }
 
 .nt-chip-key {
@@ -1006,6 +1004,21 @@
   margin: 0 0 0.25rem;
   font-size: 0.875rem;
   color: var(--red);
+}
+
+/* Jira browse panel (left), resizable like the Round panel */
+.jira-panel {
+  position: relative;
+  min-width: 240px;
+  max-width: 480px;
+  overflow: hidden;
+}
+
+.jira-panel > .resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
 }
 
 /* Round panel (History tab) */
