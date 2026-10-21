@@ -1,0 +1,190 @@
+{
+"cases": [
+  {
+    "name": "mention",
+    "dialect": "retro",
+    "input": "hi [[mention:0B0E7D4E-5A7C-4F5E-9A51-3A0D9C1E2F01:Ann Lee]]!",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"hi "},{"t":"mention","id":"0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01","name":"Ann Lee"},{"t":"text","v":"!"}]}]},
+    "markup": "hi [[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:Ann Lee]]!",
+    "mentions": ["0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01"]
+  },
+  {
+    "name": "duplicate mentions are extracted once",
+    "dialect": "retro",
+    "input": "[[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:A]] and [[mention:1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b:B]] and [[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:A]]",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"mention","id":"0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01","name":"A"},{"t":"text","v":" and "},{"t":"mention","id":"1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b","name":"B"},{"t":"text","v":" and "},{"t":"mention","id":"0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01","name":"A"}]}]},
+    "markup": "[[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:A]] and [[mention:1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b:B]] and [[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:A]]",
+    "mentions": ["0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01", "1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b"]
+  },
+  {
+    "name": "mention inside bold",
+    "dialect": "retro",
+    "input": "**[[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:Ann]]**",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"b","c":[{"t":"mention","id":"0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01","name":"Ann"}]}]}]},
+    "markup": "**[[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:Ann]]**",
+    "mentions": ["0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01"]
+  },
+  {
+    "name": "mention is text in Jira",
+    "dialect": "jira",
+    "input": "[[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:Ann]]",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"[[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:Ann]]"}]}]},
+    "markup": "\\[\\[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:Ann\\]\\]"
+  },
+  {
+    "name": "mention needs a canonical uuid",
+    "dialect": "retro",
+    "input": "[[mention:0b0e7d4e5a7c4f5e9a513a0d9c1e2f01:Ann]] [[mention:not-a-uuid:Ann]]",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"[[mention:0b0e7d4e5a7c4f5e9a513a0d9c1e2f01:Ann]] [[mention:not-a-uuid:Ann]]"}]}]},
+    "markup": "\\[\\[mention:0b0e7d4e5a7c4f5e9a513a0d9c1e2f01:Ann\\]\\] \\[\\[mention:not-a-uuid:Ann\\]\\]"
+  },
+  {
+    "name": "mention needs a name",
+    "dialect": "retro",
+    "input": "[[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:]]",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"[[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:]]"}]}]},
+    "markup": "\\[\\[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:\\]\\]"
+  },
+  {
+    "name": "mention name stops at a bracket",
+    "dialect": "retro",
+    "input": "[[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:a]b]]",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"[[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:a]b]]"}]}]},
+    "markup": "\\[\\[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:a\\]b\\]\\]"
+  },
+  {
+    "name": "mention name of 100 characters",
+    "dialect": "retro",
+    "input": "[[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn]]",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"mention","id":"0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01","name":"nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"}]}]},
+    "markup": "[[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn]]",
+    "mentions": ["0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01"]
+  },
+  {
+    "name": "mention name of 101 characters is text",
+    "dialect": "retro",
+    "input": "[[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn]]",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"[[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn]]"}]}]},
+    "markup": "\\[\\[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn\\]\\]"
+  },
+  {
+    "name": "image",
+    "dialect": "retro",
+    "input": "![image](blob:6F1C2D3E-4B5A-4C6D-8E7F-901A2B3C4D5E)",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"img","blob":"6f1c2d3e-4b5a-4c6d-8e7f-901a2b3c4d5e","alt":"image"}]}]},
+    "markup": "![image](blob:6f1c2d3e-4b5a-4c6d-8e7f-901a2b3c4d5e)"
+  },
+  {
+    "name": "image with empty alt",
+    "dialect": "retro",
+    "input": "![](blob:6f1c2d3e-4b5a-4c6d-8e7f-901a2b3c4d5e)",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"img","blob":"6f1c2d3e-4b5a-4c6d-8e7f-901a2b3c4d5e","alt":""}]}]},
+    "markup": "![](blob:6f1c2d3e-4b5a-4c6d-8e7f-901a2b3c4d5e)"
+  },
+  {
+    "name": "non-blob image is a bang and a link",
+    "dialect": "retro",
+    "input": "![x](https://evil.example/a.png)",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"!"},{"t":"a","href":"https://evil.example/a.png","c":[{"t":"text","v":"x"}]}]}]},
+    "markup": "\\![x](https://evil.example/a.png)"
+  },
+  {
+    "name": "image is text in Jira",
+    "dialect": "jira",
+    "input": "![image](blob:6f1c2d3e-4b5a-4c6d-8e7f-901a2b3c4d5e)",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"![image](blob:6f1c2d3e-4b5a-4c6d-8e7f-901a2b3c4d5e)"}]}]},
+    "markup": "!\\[image\\](blob:6f1c2d3e-4b5a-4c6d-8e7f-901a2b3c4d5e)"
+  },
+  {
+    "name": "headings in Jira",
+    "dialect": "jira",
+    "input": "# Title\n## Sub *it*\n###### six",
+    "doc": {"t":"doc","c":[{"t":"h","level":1,"c":[{"t":"text","v":"Title"}]},{"t":"h","level":2,"c":[{"t":"text","v":"Sub "},{"t":"i","c":[{"t":"text","v":"it"}]}]},{"t":"h","level":6,"c":[{"t":"text","v":"six"}]}]},
+    "markup": "# Title\n\n## Sub _it_\n\n###### six"
+  },
+  {
+    "name": "seven hashes is not a heading",
+    "dialect": "jira",
+    "input": "####### no",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"####### no"}]}]},
+    "markup": "####### no"
+  },
+  {
+    "name": "heading needs a space and content",
+    "dialect": "jira",
+    "input": "#nospace\n\n# ",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"#nospace"}]},{"t":"p","c":[{"t":"text","v":"#"}]}]},
+    "markup": "#nospace\n\n#"
+  },
+  {
+    "name": "heading is text in Retro",
+    "dialect": "retro",
+    "input": "# Title",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"# Title"}]}]},
+    "markup": "\\# Title"
+  },
+  {
+    "name": "rule interrupts a paragraph in Jira",
+    "dialect": "jira",
+    "input": "a\n---\nb\n-----",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"a"}]},{"t":"hr"},{"t":"p","c":[{"t":"text","v":"b"}]},{"t":"hr"}]},
+    "markup": "a\n\n---\n\nb\n\n---"
+  },
+  {
+    "name": "rule is text in Retro",
+    "dialect": "retro",
+    "input": "---",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"---"}]}]},
+    "markup": "\\---"
+  },
+  {
+    "name": "island in a Jira description",
+    "dialect": "jiraDescription",
+    "input": "before\n[[island:abc123def456]]\nafter",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"before"}]},{"t":"island","id":"abc123def456","c":[]},{"t":"p","c":[{"t":"text","v":"after"}]}]},
+    "markup": "before\n\n[[island:abc123def456]]\n\nafter"
+  },
+  {
+    "name": "island ids allow dashes and underscores",
+    "dialect": "jiraDescription",
+    "input": "[[island:A-b_9]]  ",
+    "doc": {"t":"doc","c":[{"t":"island","id":"A-b_9","c":[]}]},
+    "markup": "[[island:A-b_9]]"
+  },
+  {
+    "name": "island is text in Jira comments",
+    "dialect": "jira",
+    "input": "[[island:abc123def456]]",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"[[island:abc123def456]]"}]}]},
+    "markup": "\\[\\[island:abc123def456\\]\\]"
+  },
+  {
+    "name": "island is text in Retro",
+    "dialect": "retro",
+    "input": "[[island:abc123def456]]",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"[[island:abc123def456]]"}]}]},
+    "markup": "\\[\\[island:abc123def456\\]\\]"
+  },
+  {
+    "name": "island only at top level",
+    "dialect": "jiraDescription",
+    "input": "- [[island:abc123def456]]\n\n> [[island:abc123def456]]",
+    "doc": {"t":"doc","c":[{"t":"ul","c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"[[island:abc123def456]]"}]}]}]},{"t":"quote","c":[{"t":"p","c":[{"t":"text","v":"[[island:abc123def456]]"}]}]}]},
+    "markup": "- \\[\\[island:abc123def456\\]\\]\n\n> \\[\\[island:abc123def456\\]\\]"
+  },
+  {
+    "name": "island must fill its line",
+    "dialect": "jiraDescription",
+    "input": "see [[island:abc123def456]] here",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"see [[island:abc123def456]] here"}]}]},
+    "markup": "see \\[\\[island:abc123def456\\]\\] here"
+  },
+  {
+    "name": "island id must be valid",
+    "dialect": "jiraDescription",
+    "input": "[[island:a b]]\n\n[[island:]]",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"[[island:a b]]"}]},{"t":"p","c":[{"t":"text","v":"[[island:]]"}]}]},
+    "markup": "\\[\\[island:a b\\]\\]\n\n\\[\\[island:\\]\\]"
+  }
+]
+}

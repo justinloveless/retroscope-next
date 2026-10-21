@@ -1,0 +1,89 @@
+{
+"cases": [
+  {
+    "name": "img onerror is text",
+    "dialect": "retro",
+    "input": "<img src=x onerror=alert(1)>",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"<img src=x onerror=alert(1)>"}]}]},
+    "markup": "<img src=x onerror=alert(1)>"
+  },
+  {
+    "name": "javascript link is text",
+    "dialect": "retro",
+    "input": "[click](javascript:alert(1))",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"[click](javascript:alert(1))"}]}]},
+    "markup": "\\[click\\](javascript:alert(1))"
+  },
+  {
+    "name": "mixed-case javascript link is text",
+    "dialect": "retro",
+    "input": "[click](JaVaScRiPt:alert(1))",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"[click](JaVaScRiPt:alert(1))"}]}]},
+    "markup": "\\[click\\](JaVaScRiPt:alert(1))"
+  },
+  {
+    "name": "space before scheme is text",
+    "dialect": "retro",
+    "input": "[click]( javascript:alert(1))",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"[click]( javascript:alert(1))"}]}]},
+    "markup": "\\[click\\]( javascript:alert(1))"
+  },
+  {
+    "name": "vbscript link is text",
+    "dialect": "retro",
+    "input": "[click](vbscript:msgbox)",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"[click](vbscript:msgbox)"}]}]},
+    "markup": "\\[click\\](vbscript:msgbox)"
+  },
+  {
+    "name": "data link is text",
+    "dialect": "retro",
+    "input": "[x](data:text/html,<script>alert(1)</script>)",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"[x](data:text/html,<script>alert(1)</script>)"}]}]},
+    "markup": "\\[x\\](data:text/html,<script>alert(1)</script>)"
+  },
+  {
+    "name": "protocol-relative link is text",
+    "dialect": "retro",
+    "input": "[x](//evil.example)",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"[x](//evil.example)"}]}]},
+    "markup": "\\[x\\](//evil.example)"
+  },
+  {
+    "name": "quotes in an href are just characters",
+    "dialect": "retro",
+    "input": "[x](https://ok.io\"onclick=\"x)",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"a","href":"https://ok.io\"onclick=\"x","c":[{"t":"text","v":"x"}]}]}]},
+    "markup": "[x](https://ok.io\"onclick=\"x)"
+  },
+  {
+    "name": "mention name is never markup",
+    "dialect": "retro",
+    "input": "[[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:<img src=x onerror=alert(1)>]]",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"mention","id":"0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01","name":"<img src=x onerror=alert(1)>"}]}]},
+    "markup": "[[mention:0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01:<img src=x onerror=alert(1)>]]",
+    "mentions": ["0b0e7d4e-5a7c-4f5e-9a51-3a0d9c1e2f01"]
+  },
+  {
+    "name": "text after an image",
+    "dialect": "retro",
+    "input": "![x](blob:6f1c2d3e-4b5a-4c6d-8e7f-901a2b3c4d5e)\" onerror=\"alert(1)",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"img","blob":"6f1c2d3e-4b5a-4c6d-8e7f-901a2b3c4d5e","alt":"x"},{"t":"text","v":"\" onerror=\"alert(1)"}]}]},
+    "markup": "![x](blob:6f1c2d3e-4b5a-4c6d-8e7f-901a2b3c4d5e)\" onerror=\"alert(1)"
+  },
+  {
+    "name": "pasted entity text is literal",
+    "dialect": "retro",
+    "input": "&lt;div&gt;hello&lt;/div&gt;",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"&lt;div&gt;hello&lt;/div&gt;"}]}]},
+    "markup": "&lt;div&gt;hello&lt;/div&gt;"
+  },
+  {
+    "name": "control characters pass through the parser",
+    "dialect": "retro",
+    "input": "a\u0000b\u0007c",
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"a\u0000b\u0007c"}]}]},
+    "markup": "a\u0000b\u0007c"
+  }
+]
+}
