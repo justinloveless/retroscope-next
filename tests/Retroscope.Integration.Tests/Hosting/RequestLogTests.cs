@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Console;
+using Microsoft.Extensions.Options;
 using Retroscope.Integration.Tests.Blobs;
 using Retroscope.Server.Hosting;
 
@@ -67,6 +69,18 @@ public sealed class RequestLogTests {
 
         Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
         Assert.Contains(logs.Entries, x => x.Message.StartsWith("GET /test/throws 500 in ", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(null, "json")]
+    [InlineData("simple", "simple")]
+    public async Task Console_logs_are_json_unless_configured_otherwise(string? configured, string expected) {
+        await using var app = await TestApp.StartAsync(new() { ["Logging:Console:FormatterName"] = configured });
+
+        Assert.Equal(expected, app.Services.GetRequiredService<IOptions<ConsoleLoggerOptions>>().Value.FormatterName);
+        var json = app.Services.GetRequiredService<IOptionsMonitor<JsonConsoleFormatterOptions>>().CurrentValue;
+        Assert.Equal("yyyy-MM-ddTHH:mm:ss.fffZ", json.TimestampFormat);
+        Assert.True(json.UseUtcTimestamp);
     }
 
     private static Task<TestApp> StartAsync(CapturingLoggerProvider logs, Action<WebApplication>? map = null) =>
