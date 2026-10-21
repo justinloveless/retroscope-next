@@ -10,6 +10,7 @@ public sealed class IdentityTextTests {
     [InlineData("bg-teal-100 border-teal-300", "gray")]
     [InlineData("border-red-300 bg-red-100", "red")]
     [InlineData("blue", "blue")]
+    [InlineData("bg-yellow-100 border-yellow-400 text-yellow-800", "yellow")]
     [InlineData("#ff0000", "gray")]
     [InlineData(null, "gray")]
     public void Tailwind_colours_map_to_the_palette(string? classes, string expected) =>

@@ -81,7 +81,7 @@ public sealed class UsersMap : IImportStage {
     /// </summary>
     public static IReadOnlySet<Guid> GoogleVerified(IEnumerable<SourceRow> identities, PrincipalDirectory principals) {
         var verified = new HashSet<Guid>();
-        foreach (var identity in identities.Where(x => x.Text("provider") == ExternalIdentitiesMap.Google)) {
+        foreach (var identity in identities.Where(x => x.Text("provider") == ExternalIdentitiesMap.Google && !HasMalformedData(x))) {
             if (principals.User(identity.Uuid("user_id")) is { } user
                 && PrincipalDirectory.NormalizeEmail(IdentityEmail(identity)) == principals.Emails[user]) {
                 verified.Add(user);
@@ -141,14 +141,17 @@ public sealed class UsersMap : IImportStage {
     }
 
     // auth.identities.email is generated from identity_data (and never read), so the address comes from the JSON itself.
-    internal static string? IdentityEmail(SourceRow identity) {
-        if (identity.Text("identity_data") is not { } json) {
-            return null;
-        }
-        return JsonNode.Parse(json) is JsonObject data && data["email"] is JsonValue value && value.TryGetValue<string>(out var email)
+    internal static string? IdentityEmail(SourceRow identity) =>
+        TargetRows.ParseObject(identity.Text("identity_data"))?["email"] is JsonValue value && value.TryGetValue<string>(out var email)
             ? email
             : null;
-    }
+
+    /// <summary>
+    /// <c>identity_data</c> that is not a JSON object the parser accepts (jsonb can nest deeper than it allows). Such
+    /// an identity proves nothing and is skipped.
+    /// </summary>
+    internal static bool HasMalformedData(SourceRow identity) =>
+        identity.Text("identity_data") is { } json && TargetRows.ParseObject(json) is null;
 }
 
 /// <summary>
@@ -171,6 +174,8 @@ public sealed class ExternalIdentitiesMap : IImportStage {
             var subject = identity.Text("provider_id") ?? "";
             if (provider != Google) {
                 tally.Skip(provider == "email" ? "email_provider" : "unsupported_provider");
+            } else if (UsersMap.HasMalformedData(identity)) {
+                tally.Skip("malformed_identity_data");
             } else if (context.Principals.User(identity.Uuid("user_id")) is not { } user) {
                 tally.Skip("no_account");
             } else if (subject.Length is 0 or > MaxSubject) {

@@ -164,7 +164,7 @@ internal sealed partial class DocBuilder(HtmlContext context) {
             flow.Add(text[position..match.Index], marks);
             if (match.Groups["name"].Success) {
                 AddMention(match.Groups["id"].Value, match.Groups["name"].Value, marks, flow);
-            } else if (marks.Any(x => x.Href is not null)) {
+            } else if (marks.Any(x => x.Href is not null) || !IsLinkable(match.Groups["href"].Value)) {
                 flow.Add(match.Value, marks);
             } else {
                 flow.Add(match.Groups["label"].Value, With(marks, Mark.Link(match.Groups["href"].Value)));
@@ -310,7 +310,7 @@ internal sealed partial class DocBuilder(HtmlContext context) {
     [GeneratedRegex(@"\s+", RegexOptions.CultureInvariant)]
     private static partial Regex Base64Whitespace();
 
-    [GeneratedRegex(@"\[\[mention:(?<id>[^:\]]+):(?<name>[^\]]+)\]\]|\[(?<label>[^\]]+)\]\((?<href>https?://[^)\s]+)\)", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\[\[mention:(?<id>[^:\]]+):(?<name>[^\]]+)\]\]|\[(?<label>[^\]]+)\]\((?<href>(?:https?://|mailto:)[^)\s]+)\)", RegexOptions.CultureInvariant)]
     private static partial Regex TextToken();
 
     private enum MarkKind {

@@ -176,6 +176,12 @@ public static class SyntheticIds {
     /// <summary><c>v5(guest:&lt;session_id or localStorage id&gt;)</c>.</summary>
     public static Guid Guest(string key) => UuidV5.Create(GuestNamespace, "guest:" + key);
 
+    /// <summary>
+    /// A UUID-shaped browser id, in its lower-case form, so the poker key and the retro <c>session_id</c> a browser
+    /// stored for itself name one guest whichever case either kept.
+    /// </summary>
+    public static Guid Guest(Guid key) => Guest(key.ToString("D"));
+
     /// <summary><c>v5(slack:&lt;key&gt;)</c>.</summary>
     public static Guid Slack(string key) => UuidV5.Create(SlackNamespace, "slack:" + key);
 }
@@ -209,4 +215,30 @@ public static partial class DisplayNames {
 /// <summary>Anonymity (S6): content extracted from an anonymous card or comment never records who made it.</summary>
 public static class Anonymity {
     public static Guid? CreatedBy(bool anonymousSource, Guid? author) => anonymousSource ? null : author;
+}
+
+/// <summary>
+/// The original stored a column colour as Tailwind classes (<c>bg-green-100 border-green-300</c>). The target keeps a
+/// palette name: a bare palette name stays, else the first <c>bg-</c>/<c>border-</c>/<c>text-</c> class decides, and
+/// anything outside the palette (the original's <c>teal</c> preset included) is gray. Used for board and template
+/// columns alike.
+/// </summary>
+public static partial class ColumnPalette {
+    public const string Fallback = "gray";
+
+    public static readonly IReadOnlySet<string> Colors = new HashSet<string>(StringComparer.Ordinal) {
+        "green", "red", "blue", "yellow", "purple", "pink", "indigo", "orange", "gray",
+    };
+
+    public static string FromTailwind(string? classes) {
+        var value = classes?.Trim().ToLowerInvariant() ?? "";
+        if (Colors.Contains(value)) {
+            return value;
+        }
+        var match = TailwindColor().Match(value);
+        return match.Success && Colors.Contains(match.Groups["color"].Value) ? match.Groups["color"].Value : Fallback;
+    }
+
+    [GeneratedRegex(@"(?:^|\s)(?:bg|border|text)-(?<color>[a-z]+)-[0-9]{2,3}(?:\s|$)", RegexOptions.CultureInvariant)]
+    private static partial Regex TailwindColor();
 }
