@@ -76,9 +76,11 @@ function isPlainNavigation(event, anchor) {
 
 /**
  * options: routes, root, boot (the first page's boot JSON), loadBoot(path, signal) for in-app
- * navigation, notFound(root) → view, onError(error, url).
+ * navigation, notFound(root) → view, onError(error, url), context(route) → the third argument of
+ * mount() (or a promise of it, awaited with the chunk), onShow(route | null, params) after each screen
+ * change or update.
  */
-export function createRouter({ routes, root, boot, loadBoot, notFound, onError }) {
+export function createRouter({ routes, root, boot, loadBoot, notFound, onError, context, onShow }) {
   let current = null;
   let token = 0;
   let pending = null;
@@ -91,19 +93,22 @@ export function createRouter({ routes, root, boot, loadBoot, notFound, onError }
 
     if (found && current && current.module === found.route.module) {
       current.view.update(found.params);
+      onShow?.(found.route, found.params);
       return;
     }
 
     let nextBoot = firstBoot;
     let screen = null;
+    let app = {};
     if (found) {
       const controller = new AbortController();
       pending = controller;
       const path = url.pathname + url.search;
-      [screen, nextBoot] = await Promise.all([
+      [screen, nextBoot, , app = {}] = await Promise.all([
         found.route.load(),
         nextBoot ?? loadBoot(path, controller.signal),
         loadStyles(ROUTE_STYLES[found.route.module]),
+        context?.(found.route),
       ]);
       if (run !== token) {
         return;
@@ -114,11 +119,13 @@ export function createRouter({ routes, root, boot, loadBoot, notFound, onError }
     current?.view.unmount();
     current = null;
     if (found) {
-      const view = screen.mount(root, nextBoot);
+      const view = screen.mount(root, nextBoot, app);
       current = { module: found.route.module, view };
       view.update(found.params);
+      onShow?.(found.route, found.params);
     } else {
       notFound?.(root);
+      onShow?.(null, {});
     }
   }
 
