@@ -159,6 +159,27 @@ public sealed class SmtpSenderTests {
         Assert.Equal("The SMTP server did not answer in time.", error.Message);
     }
 
+    // Shutdown cancels the caller's token: that must surface as cancellation, not as a send failure that would count
+    // an attempt against the mail and schedule a retry.
+    [Fact]
+    public async Task Cancelling_the_caller_is_not_a_send_failure() {
+        using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var options = new SmtpOptions {
+            Host = "127.0.0.1",
+            Port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port,
+            Security = SmtpSecurity.None,
+            FromAddress = "no-reply@retro.test",
+            Timeout = TimeSpan.FromMinutes(1),
+        };
+        using var shutdown = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        shutdown.CancelAfter(TimeSpan.FromMilliseconds(200));
+
+        var error = await Record.ExceptionAsync(() => new SmtpSender(options, TimeProvider.System).SendAsync(Mail, shutdown.Token));
+
+        Assert.IsAssignableFrom<OperationCanceledException>(error);
+    }
+
     [Theory]
     [InlineData("587", null, SmtpSecurity.StartTls)]
     [InlineData("465", null, SmtpSecurity.ImplicitTls)]
