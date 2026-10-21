@@ -440,7 +440,7 @@ export function createBoard({ room, socket, me, boardId, features = [] }) {
       }
     }
     for (const id of slow) {
-      for (const node of el.querySelectorAll(`li[data-id="${id}"], section[data-id="${id}"]`)) {
+      for (const node of el.querySelectorAll(`li[data-id="${CSS.escape(id)}"], section[data-id="${CSS.escape(id)}"]`)) {
         node.classList.add('retro-pending');
         node.setAttribute('aria-busy', 'true');
       }

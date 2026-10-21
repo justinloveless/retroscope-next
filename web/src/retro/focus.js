@@ -46,7 +46,7 @@ export const focusFeature = {
 
     // The viewer's own column sort lives in the column's DOM order; the banner steps through the same order.
     function order(view, columnId) {
-      const column = el.closest('.retro-board')?.querySelector(`.retro-column[data-id="${columnId}"]`);
+      const column = el.closest('.retro-board')?.querySelector(`.retro-column[data-id="${CSS.escape(columnId)}"]`);
       const ids = column ? [...column.querySelectorAll('.retro-cards > .retro-card')].map((node) => node.dataset.id) : [];
       return ids.length > 0 ? ids : sortedCards(view, columnId, defaultSort(view.config)).map((c) => c.id);
     }
@@ -98,7 +98,7 @@ export const focusFeature = {
         next.update({ disabled: index < 0 || index >= ids.length - 1 });
         if (shownFor !== card.id) {
           shownFor = card.id;
-          const node = el.closest('.retro-board')?.querySelector(`.retro-card[data-id="${card.id}"]`);
+          const node = el.closest('.retro-board')?.querySelector(`.retro-card[data-id="${CSS.escape(card.id)}"]`);
           node?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
         }
       },
