@@ -8,6 +8,7 @@ import { supersedeKey } from './supersede.js';
 export const OUTBOX_CAP = 200;
 export const EPHEMERAL_MAX_AGE_MS = 10_000;
 export const CID_CHECK_MS = 100;
+export const TWIN_RECHECK_MS = 1000;
 
 const CID_KEY = 'rs.cid';
 const OUTBOX_KEY = 'rs.outbox';
@@ -34,6 +35,11 @@ export function isEphemeral(kind) {
  * `sent` whether the entry ever went out under its current `q`, `key` its supersede key, `superseded`
  * whether a later entry of the room has the same key, and `retry` whether it awaits a resend after a
  * retryable nack. Rooms keep references to entry objects, so a renumbered entry stays the same object.
+ *
+ * Entries restored from sessionStorage may have been sent and committed since that copy was written (by
+ * this tab before a reload, or by a duplicate of it), so they keep their q: the server's cursor answers
+ * a committed one `dup`. Only entries this page created before their room first synced, whose q may come
+ * from a cseq that storage let fall behind the cursor, are renumbered at sync.
  */
 export function createOutbox({
   storage = defaultStorage(),
@@ -49,6 +55,7 @@ export function createOutbox({
   let cseq = 0;
   let entries = [];
   let checking = false;
+  const early = new WeakSet();
   const listeners = new Set();
 
   function changed() {
@@ -128,22 +135,29 @@ export function createOutbox({
     if (msg.t === 'cid?' && !checking) {
       channel.postMessage({ t: 'cid!', cid });
     } else if (msg.t === 'cid!' && checking) {
-      // A duplicated tab copied sessionStorage: the cid and the outbox belong to the original.
+      // A live twin holds this cid: a duplicated tab copied sessionStorage, and the cid and the outbox
+      // belong to the tab it copied.
       mint({ clear: true });
       save();
       changed();
     }
   });
 
-  let ready = Promise.resolve();
-  if (restored && channel) {
+  /** Asks other tabs for this cid and waits `ms`; resolves true when a twin answered and this tab yielded. */
+  function checkTwin(ms) {
+    if (!channel || checking) {
+      return Promise.resolve(false);
+    }
+    const before = cid;
     checking = true;
     channel.postMessage({ t: 'cid?', cid });
-    ready = new Promise((done) => setTimer(() => {
+    return new Promise((done) => setTimer(() => {
       checking = false;
-      done();
-    }, CID_CHECK_MS));
+      done(cid !== before);
+    }, ms));
   }
+
+  const ready = restored ? checkTwin(CID_CHECK_MS).then(() => {}) : Promise.resolve();
 
   return {
     get cid() {
@@ -162,14 +176,18 @@ export function createOutbox({
       return entries.length;
     },
     ready,
+    checkTwin,
 
     onChange(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
 
-    /** Returns the new entry, or null when the outbox is full ("offline too long"). */
-    add(r, k, d) {
+    /**
+     * Returns the new entry, or null when the outbox is full ("offline too long"). `beforeSync`: the room
+     * has not synced since the page loaded, so cseq may still be behind its cursor.
+     */
+    add(r, k, d, { beforeSync = false } = {}) {
       if (entries.length >= OUTBOX_CAP) {
         return null;
       }
@@ -182,6 +200,9 @@ export function createOutbox({
         }
       }
       const entry = { r, q: ++cseq, k, d, pid: owner, sentAt: now(), sent: false, key, superseded: false, retry: false };
+      if (beforeSync) {
+        early.add(entry);
+      }
       entries.push(entry);
       save();
       return entry;
@@ -219,8 +240,14 @@ export function createOutbox({
       }
     },
 
-    // A retryable nack: the server did not apply the entry. A fresh q keeps later commands from
-    // overtaking it into a dup.
+    // A retryable nack keeps the q: the server refuses every later command of the room on that
+    // connection until the room is subscribed again, so nothing behind it commits first.
+    markRetry(entry) {
+      entry.retry = true;
+      save();
+    },
+
+    // cid_reuse: another intent of this cid holds the entry's q, and this one was not applied.
     renumber(entry) {
       entry.q = ++cseq;
       entry.sent = false;
@@ -230,13 +257,14 @@ export function createOutbox({
     },
 
     /**
-     * snap/replay carry the persisted cursor. cseq never falls behind it (R4), and an entry that never
-     * went out but whose q the server has already seen (storage regressed) gets a fresh q.
+     * snap/replay carry the persisted cursor. cseq never falls behind it (R4), and an entry created
+     * before the room first synced that never went out but whose q the server has already seen (storage
+     * regressed) gets a fresh q.
      */
     sync(r, lastQ) {
       cseq = Math.max(cseq, lastQ);
       for (const entry of entries) {
-        if (entry.r === r && !entry.sent && entry.q <= lastQ) {
+        if (entry.r === r && early.has(entry) && !entry.sent && entry.q <= lastQ) {
           entry.q = ++cseq;
         }
       }
@@ -273,22 +301,6 @@ export function createOutbox({
         changed();
       }
       return switched;
-    },
-
-    /**
-     * A new cid after 4409 (keep: entries resend as they are) or cid_reuse (renumber: the server
-     * already holds another tab's commands under the old (cid, q) pairs).
-     */
-    remint({ renumber = false } = {}) {
-      mint({ clear: false });
-      if (renumber) {
-        for (const entry of entries) {
-          entry.q = ++cseq;
-          entry.sent = false;
-        }
-        entries.sort((a, b) => a.q - b.q);
-      }
-      save();
     },
   };
 }

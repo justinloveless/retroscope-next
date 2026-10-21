@@ -33,6 +33,10 @@ export function retryDelay(attempt) {
  * `net` is the socket's port: `{send(frame) → bool, online() → bool, conn() → id,
  * setTimer(fn, ms) → cancel, cidReuse(), drained(room)}`.
  *
+ * A retryable nack keeps the entry's q. The server refuses every later command of the room on that
+ * connection until the room is subscribed again, so the retry resubscribes first and resends after the
+ * replay: no later command can commit ahead of it and turn the resend into a dup.
+ *
  * `onNack(nack)` receives final nacks no per-send handler took (screens toast them), plus the
  * synthetic `{code: 'outbox_full'}` when a command is refused.
  */
@@ -41,6 +45,7 @@ export function createRoom(key, model, { outbox, net, onNack = () => {}, schedul
   let epoch = null;
   let seq = null;
   let synced = false;
+  let everSynced = false;
   let resyncing = false;
   let kicked = null;
   let extras = {};
@@ -121,7 +126,7 @@ export function createRoom(key, model, { outbox, net, onNack = () => {}, schedul
     const delay = retryDelay(retryAttempt++);
     cancelRetry = net.setTimer(() => {
       cancelRetry = null;
-      flush();
+      resubscribe();
     }, delay);
   }
 
@@ -138,6 +143,7 @@ export function createRoom(key, model, { outbox, net, onNack = () => {}, schedul
     }
     deferredAcks.clear();
     synced = true;
+    everSynced = true;
     resyncing = false;
     stopRetry();
     changed();
@@ -218,6 +224,12 @@ export function createRoom(key, model, { outbox, net, onNack = () => {}, schedul
       return;
     }
     if (frame.code === 'cid_reuse') {
+      // Another intent of this cid holds that q and this one was not applied: it goes out again under a
+      // fresh q. Entries in flight behind it keep theirs, since they may have committed.
+      outbox.renumber(entry);
+      intents.set(entry, { ...intents.get(entry), conn: null });
+      changed();
+      scheduleRetry();
       net.cidReuse();
       return;
     }
@@ -226,8 +238,7 @@ export function createRoom(key, model, { outbox, net, onNack = () => {}, schedul
         drop(entry);
         return;
       }
-      // The server did not apply it. A fresh q keeps a later command from turning the resend into a dup.
-      outbox.renumber(entry);
+      outbox.markRetry(entry);
       intents.set(entry, { ...intents.get(entry), conn: null });
       changed();
       scheduleRetry();
@@ -279,7 +290,7 @@ export function createRoom(key, model, { outbox, net, onNack = () => {}, schedul
     if (kicked !== null) {
       return null;
     }
-    const entry = outbox.add(key, k, d);
+    const entry = outbox.add(key, k, d, { beforeSync: !everSynced });
     if (entry === null) {
       onNack({ code: 'outbox_full', k, sent: d });
       return null;
@@ -368,8 +379,10 @@ export function createRoom(key, model, { outbox, net, onNack = () => {}, schedul
     },
 
     retryNow() {
-      stopRetry();
-      flush();
+      if (cancelRetry !== null) {
+        stopRetry();
+        resubscribe();
+      }
     },
 
     dispose() {

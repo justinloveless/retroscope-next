@@ -2,7 +2,7 @@
 // a last-resort silence watchdog, and routing of room frames to their RoomStores.
 
 import { CLOSE, PROTOCOL_VERSION } from './protocol.gen.js';
-import { createOutbox } from './outbox.js';
+import { createOutbox, TWIN_RECHECK_MS } from './outbox.js';
 import { createRoom } from './room.js';
 import { createClock } from '../core/clock.js';
 import { createStore } from '../core/store.js';
@@ -192,9 +192,24 @@ export function createSocket({
       return;
     }
     if (code === CLOSE.CID_IN_USE) {
-      outbox.remint();
+      cidInUse();
+      return;
     }
     lost();
+  }
+
+  // 4409: a live socket holds this cid. A twin that answers owns the cid and the outbox, and this tab
+  // starts empty under a new cid. Otherwise the holder is this tab's own dead socket, which the server's
+  // keep-alive reaps: the cid and every q are kept, so commands that committed come back dup.
+  function cidInUse() {
+    detach();
+    setStatus('waiting');
+    const socket = connId;
+    outbox.checkTwin(TWIN_RECHECK_MS).then(() => {
+      if (!stopped && ws === null && cancelReconnect === null && connId === socket) {
+        lost();
+      }
+    });
   }
 
   function onWelcome(frame) {
@@ -278,8 +293,11 @@ export function createSocket({
     conn: () => connId,
     setTimer,
     cidReuse() {
-      outbox.remint({ renumber: true });
-      connect();
+      outbox.checkTwin(TWIN_RECHECK_MS).then((yielded) => {
+        if (yielded && !stopped) {
+          connect();
+        }
+      });
     },
     drained(room) {
       if (leaving.has(room)) {
