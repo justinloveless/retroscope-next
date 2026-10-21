@@ -63,6 +63,23 @@ public sealed class ConnRateLimitTests {
         Assert.DoesNotContain(RateVerdict.Abusive, verdicts);
     }
 
+    [Fact]
+    public void A_borrowed_frame_goes_at_most_one_burst_into_debt_and_the_debt_is_repaid_first() {
+        var limit = new ConnRateLimit(_time, 20, 40, TimeSpan.FromSeconds(10));
+        Drain(limit);
+
+        var borrowed = Enumerable.Range(0, 41).Select(_ => limit.Take(borrow: true)).ToList();
+        _time.Advance(TimeSpan.FromSeconds(2));
+        var repaid = limit.Take();
+        _time.Advance(TimeSpan.FromMilliseconds(100));
+        var after = limit.Take();
+
+        Assert.All(borrowed.Take(40), x => Assert.Equal(RateVerdict.Allowed, x));
+        Assert.Equal(RateVerdict.Limited, borrowed[40]);
+        Assert.Equal(RateVerdict.Limited, repaid);
+        Assert.Equal(RateVerdict.Allowed, after);
+    }
+
     // Two frames every 40 ms: twice the 20/s refill, so some frames are refused in every second.
     private List<RateVerdict> Hammer(ConnRateLimit limit, TimeSpan duration) {
         var verdicts = new List<RateVerdict>();
