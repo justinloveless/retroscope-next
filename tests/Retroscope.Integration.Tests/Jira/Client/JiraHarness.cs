@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
@@ -99,11 +100,18 @@ internal sealed class JiraHarness : IAsyncDisposable {
     public static string NewKeys(params string[] ids) =>
         string.Join(',', ids.Select(id => $"{id}:{Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))}"));
 
+    // Every harness configures its own team, so tests share one database instead of exhausting the container's
+    // connection slots with a database (and an idle owner pool) each.
+    private static readonly ConditionalWeakTable<PostgresFixture, Task<TestDatabase>> SharedDatabases = new();
+
     public static async Task<JiraHarness> StartAsync(
         PostgresFixture postgres,
         Func<JiraClientOptions, JiraClientOptions>? configure = null,
-        string? appKeys = null) {
-        var database = await postgres.CreateDatabaseAsync();
+        string? appKeys = null,
+        bool ownDatabase = false) {
+        var database = ownDatabase
+            ? await postgres.CreateDatabaseAsync()
+            : await SharedDatabases.GetValue(postgres, p => p.CreateDatabaseAsync());
         var dataSource = Db.CreateDataSource(database.AppConnectionString);
         var jira = await FakeJiraServer.StartAsync();
         var time = new FakeTimeProvider(new DateTimeOffset(2026, 10, 20, 12, 0, 0, TimeSpan.Zero));

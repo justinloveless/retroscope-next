@@ -670,7 +670,7 @@ public sealed class JiraClientTests(PostgresFixture postgres) {
     [Fact]
     public async Task Credentials_rotate_to_the_active_key_and_keep_working() {
         var oldKeys = JiraHarness.NewKeys("k1");
-        await using var h = await JiraHarness.StartAsync(postgres, appKeys: oldKeys);
+        await using var h = await JiraHarness.StartAsync(postgres, appKeys: oldKeys, ownDatabase: true);
         var team = h.Team;
         var rotated = Retroscope.Core.Security.Keyring.Parse($"{JiraHarness.NewKeys("k2")},{oldKeys}");
         var credentials = new Credentials(rotated, h.DataSource, h.Time);
