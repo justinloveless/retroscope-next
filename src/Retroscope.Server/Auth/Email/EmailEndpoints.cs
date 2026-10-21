@@ -115,13 +115,8 @@ public static class EmailEndpoints {
         }
 
         if (await context.GetCallerAsync() is { IsUser: true } caller && caller.Principal.Id == id) {
-            if (!caller.EmailVerified) {
-                await users.WriteAsync(
-                    [
-                        UsersRepo.MarkVerified(id, now),
-                        UsersRepo.Audit("auth.verify", id, id.ToString(), new Dictionary<string, string> { ["proof"] = "magic_link" }, now),
-                    ],
-                    cancellationToken);
+            // The caller's EmailVerified comes from the session cache, which can be stale; the row decides.
+            if (await users.VerifyAsync(id, "magic_link", now, cancellationToken)) {
                 sessions.EvictUser(id);
             }
         } else {

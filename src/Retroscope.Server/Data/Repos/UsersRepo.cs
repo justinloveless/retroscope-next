@@ -213,6 +213,26 @@ public sealed class UsersRepo(NpgsqlDataSource dataSource) {
         return true;
     }
 
+    /// <summary>
+    /// Verifies the email of an unverified account and audits <c>auth.verify</c> with <paramref name="proof"/>, in one
+    /// statement that reads the row itself. False, and nothing written, when the account was already verified.
+    /// </summary>
+    public async Task<bool> VerifyAsync(PrincipalId id, string proof, DateTimeOffset now, CancellationToken cancellationToken) {
+        await using var command = dataSource.CreateCommand("""
+            with verified as (
+              update users set email_verified_at = $2, updated_at = $2
+              where id = $1 and email_verified_at is null
+              returning id
+            )
+            insert into audit_log (at, actor_id, action, target, meta)
+            select $2, id, 'auth.verify', id::text, jsonb_build_object('proof', $3::text) from verified
+            """);
+        command.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = id.Value });
+        command.Parameters.Add(new NpgsqlParameter<DateTimeOffset> { TypedValue = now });
+        command.Parameters.Add(new NpgsqlParameter<string> { TypedValue = proof });
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+    }
+
     /// <summary>Removes the user's avatar and deletes its blob; false when no user matches.</summary>
     public async Task<bool> ClearAvatarAsync(PrincipalId id, DateTimeOffset now, CancellationToken cancellationToken) {
         await using var batch = dataSource.CreateBatch();
