@@ -37,6 +37,21 @@ public sealed class MembershipCacheTests(PostgresFixture postgres) {
     }
 
     [Fact]
+    public async Task A_soft_deleted_team_reads_back_with_no_members() {
+        await using var scope = await StartAsync(postgres);
+        await scope.AddUserAsync(Alice, TeamRole.Owner);
+        await scope.AddUserAsync(Bob, TeamRole.Member);
+        Assert.Equal(TeamRole.Member, scope.Cache.RoleIn(Team, Bob.Who.Id));
+
+        await scope.ExecAsync("update teams set deleted_at = now() where id = $1", Team.Value);
+        scope.Cache.Forget(Team);
+
+        Assert.Null(scope.Cache.RoleIn(Team, Bob.Who.Id));
+        scope.Cache.Forget(Team);
+        Assert.Empty((await scope.Cache.LoadAsync(Team, Token)).Roles);
+    }
+
+    [Fact]
     public async Task A_slow_load_never_replaces_a_published_version() {
         await using var scope = await StartAsync(postgres);
         var published = scope.Cache.Publish(Team, new Dictionary<PrincipalId, TeamRole> { [Alice.Who.Id] = TeamRole.Owner });

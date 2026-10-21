@@ -332,7 +332,7 @@ public static partial class JiraEndpoints {
         jira.MapGet("/issues/{key}/options", OptionsAsync).RequireRoutePolicy(RoutePolicy.TeamMember).RequireRateLimit(Read);
         jira.MapGet("/issues/{key}/assignable", AssignableAsync).RequireRoutePolicy(RoutePolicy.TeamMember).RequireRateLimit(Read);
         jira.MapPost("/issues/{key}/links", CreateLinkAsync).RequireRoutePolicy(RoutePolicy.TeamMember).RequireRateLimit(Write);
-        jira.MapDelete("/links/{linkId}", DeleteLinkAsync).RequireRoutePolicy(RoutePolicy.TeamMember).RequireRateLimit(Write);
+        jira.MapDelete("/issues/{key}/links/{linkId}", DeleteLinkAsync).RequireRoutePolicy(RoutePolicy.TeamMember).RequireRateLimit(Write);
         jira.MapGet("/issues/{key}/attachments/{attachmentId}", AttachmentAsync)
             .RequireRoutePolicy(RoutePolicy.TeamMember)
             .RequireRateLimit(Attachment);
@@ -982,12 +982,15 @@ public static partial class JiraEndpoints {
     private static async Task<IResult> DeleteLinkAsync(
         HttpContext context,
         Guid teamId,
+        string key,
         string linkId,
         JiraGate gate,
         JiraClient client,
         JiraCache cache,
+        IslandStore islands,
+        JiraWrites writes,
         JiraAudit audit) {
-        var (call, refusal) = await gate.CheckAsync(context, teamId, Capability.JiraEditIssues, needsConfig: true);
+        var (call, refusal) = await GateIssueAsync(context, teamId, key, Capability.JiraEditIssues, gate);
         if (refusal is not null) {
             return refusal;
         }
@@ -995,10 +998,19 @@ public static partial class JiraEndpoints {
             return JiraProblem(JiraError.NotFound);
         }
         return await GuardAsync(async () => {
-            await client.DeleteLinkAsync(call!.Team, linkId, context.RequestAborted);
-            // The link's issues are not named in the request, so every cached drawer of the team is dropped.
-            cache.InvalidateTag(IslandStore.DetailsTag(call.Team));
-            await audit.WriteAsync(call.Team, call.Who.Id, JiraAudit.LinkDelete, linkId, CancellationToken.None);
+            var team = call!.Team;
+            // Only a link of this issue, as Jira lists it now, may be deleted; a cached list could miss a newer link.
+            cache.InvalidateTag(JiraCache.IssueTag(team, key));
+            var detail = await islands.GetAsync(team, key, context.RequestAborted);
+            if ((detail.Issue.Fields?.Issuelinks ?? []).FirstOrDefault(l => l.Id == linkId) is not { } link) {
+                return JiraProblem(JiraError.NotFound);
+            }
+            await client.DeleteLinkAsync(team, linkId, context.RequestAborted);
+            writes.Touched(team, key);
+            if ((link.InwardIssue ?? link.OutwardIssue)?.Key is { } other) {
+                writes.Touched(team, other);
+            }
+            await audit.WriteAsync(team, call.Who.Id, JiraAudit.LinkDelete, linkId, CancellationToken.None);
             return Results.NoContent();
         });
     }

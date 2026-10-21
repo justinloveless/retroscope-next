@@ -93,20 +93,20 @@ public sealed class BrowseTests(PostgresFixture postgres) {
         host.Jira.AddIssue("RS-1", "Pay", sprintId: 203);
         host.Jira.AddIssue("RS-2", "Refund");
 
-        var first = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, "/browse?status=not_done&points=unpointed"));
+        var first = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, "/browse?status=not_done"));
         var before = host.Jira.Requests.Count;
-        var second = await host.JsonAsync(HttpMethod.Get, grace, JiraHttpHost.Url(team, "/browse?status=not_done&points=unpointed"));
+        var second = await host.JsonAsync(HttpMethod.Get, grace, JiraHttpHost.Url(team, "/browse?status=not_done"));
 
         Assert.Equal(before, host.Jira.Requests.Count);
         Assert.Equal(first.ToJsonString(), second.ToJsonString());
 
         host.Time.Advance(TimeSpan.FromSeconds(31));
-        await host.JsonAsync(HttpMethod.Get, grace, JiraHttpHost.Url(team, "/browse?status=not_done&points=unpointed"));
+        await host.JsonAsync(HttpMethod.Get, grace, JiraHttpHost.Url(team, "/browse?status=not_done"));
         Assert.True(host.Jira.Requests.Count > before);
 
         await host.JsonAsync(HttpMethod.Put, ada, JiraHttpHost.Url(team, "/issues/RS-2/points"), new { points = 5 });
         before = host.Jira.Requests.Count;
-        var after = await host.JsonAsync(HttpMethod.Get, grace, JiraHttpHost.Url(team, "/browse?status=not_done&points=unpointed"));
+        var after = await host.JsonAsync(HttpMethod.Get, grace, JiraHttpHost.Url(team, "/browse?status=not_done"));
         Assert.True(host.Jira.Requests.Count > before);
         Assert.Equal(5m, (decimal)Rows(after).Single(r => (string)r["key"]! == "RS-2")["points"]!);
     }
@@ -129,6 +129,44 @@ public sealed class BrowseTests(PostgresFixture postgres) {
 
         var (status, problem) = await host.ProblemAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, "/browse?status=sideways"));
         Assert.Equal((400, "invalid", "invalid"), (status, (string)problem["code"]!, (string)problem["fields"]!["status"]!));
+    }
+
+    [Fact]
+    public async Task Browse_filters_select_the_issues_Jira_would_return_in_rank_order() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (ada, team) = await TeamAsync(host);
+        host.Jira.AddSprint(203, "Sprint 11", "active", "2026-10-12T09:00:00.000+0000");
+        host.Jira.AddSprint(204, "Sprint 12", "future", "2026-10-26T09:00:00.000+0000");
+        host.Jira.AddSprint(205, "Sprint 10", "closed", "2026-09-28T09:00:00.000+0000");
+        host.Jira.AddIssue("RS-1", "Pay invoices", sprintId: 203, points: 3, status: "In Progress");
+        host.Jira.AddIssue("RS-2", "Pay refunds", sprintId: 204);
+        host.Jira.AddIssue("RS-3", "Ship docs", points: 5, status: "Done");
+        host.Jira.AddIssue("RS-4", "Pay old debts", sprintId: 205, points: 8);
+        host.Jira.AddIssue("RS-5", "Payments epic", issueType: "Epic");
+        host.Jira.AddIssue("RS-6", "Pay sub-task", issueType: "Sub-task");
+        host.Jira.AddIssue("RS-7", "Pay later");
+        host.Jira.AddIssue("RS-8", "Pay now");
+        host.Jira.AddIssue("OT-1", "Pay elsewhere");
+        host.Jira.RankFirst("RS-8");
+
+        async Task<List<string>> BrowseAsync(string query) {
+            var browse = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, "/browse?" + query));
+            return [.. Rows(browse).Select(r => (string)r["key"]!).Order(StringComparer.Ordinal)];
+        }
+
+        Assert.Equal(["RS-1", "RS-2", "RS-3", "RS-7", "RS-8"], await BrowseAsync("scope=open"));
+        Assert.Equal(["RS-1", "RS-2", "RS-4", "RS-7", "RS-8"], await BrowseAsync("scope=all&status=not_done"));
+        Assert.Equal(["RS-1"], await BrowseAsync("scope=open&status=indeterminate"));
+        Assert.Equal(["RS-3"], await BrowseAsync("scope=all&status=done"));
+        Assert.Equal(["RS-2", "RS-7", "RS-8"], await BrowseAsync("scope=open&points=unpointed"));
+        Assert.Equal(["RS-4"], await BrowseAsync("scope=all&points=8"));
+        Assert.Equal(["RS-1", "RS-2", "RS-7", "RS-8"], await BrowseAsync("scope=open&q=pay"));
+        Assert.Equal(["RS-1", "RS-4"], await BrowseAsync("scope=all&q=pay&points=pointed"));
+
+        var ranked = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, "/browse?status=not_done"));
+        var buckets = ranked["buckets"]!.AsArray();
+        Assert.Equal(["RS-1", "RS-2", "RS-4", "RS-7", "RS-8"], Rows(ranked).Select(r => (string)r["key"]!).Order(StringComparer.Ordinal));
+        Assert.Equal(["RS-8", "RS-7"], Keys(buckets[^1]!));
     }
 
     [Fact]

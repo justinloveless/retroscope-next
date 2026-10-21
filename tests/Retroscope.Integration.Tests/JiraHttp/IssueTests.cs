@@ -223,15 +223,45 @@ public sealed class IssueTests(PostgresFixture postgres) {
         var linked = Assert.Single(host.JiraRequestsSince(from), r => r.Path == "/rest/api/3/issueLink");
         Assert.Contains("\"outwardIssue\":{\"key\":\"RS-12\"}", linked.Body, StringComparison.Ordinal);
         Assert.Equal(["Blocks", "blocks", "RS-13"], [(string)link["type"]!, (string)link["label"]!, (string)link["key"]!]);
-        await host.JsonAsync(HttpMethod.Delete, ada, JiraHttpHost.Url(team, "/links/40001"), expected: 204);
+        var linkId = (string)link["id"]!;
+        Assert.Equal([linkId], host.Jira.LinkIds);
+        await host.JsonAsync(HttpMethod.Delete, ada, JiraHttpHost.Url(team, $"/issues/RS-12/links/{linkId}"), expected: 204);
+        Assert.Empty(host.Jira.LinkIds);
 
         var options = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, "/issues/RS-12/options"));
         Assert.Equal(["21", "31"], options["transitions"]!.AsArray().Select(t => (string)t!["id"]!));
         Assert.Equal("Blocks", (string)options["linkTypes"]![0]!["name"]!);
 
         Assert.Equal(
-            ["jira.comment RS-12", "jira.transition RS-12", "jira.sprint RS-12", "jira.sprint RS-12", "jira.link.create RS-12", "jira.link.delete 40001"],
+            ["jira.comment RS-12", "jira.transition RS-12", "jira.sprint RS-12", "jira.sprint RS-12", "jira.link.create RS-12", $"jira.link.delete {linkId}"],
             await host.AuditAsync(team));
+    }
+
+    [Fact]
+    public async Task A_link_is_deleted_only_through_an_issue_it_belongs_to() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (ada, team) = await BrowseTests.TeamAsync(host);
+        host.Jira.AddIssue("RS-12", "Saved card");
+        host.Jira.AddIssue("RS-13", "Other");
+        host.Jira.AddIssue("RS-14", "Unrelated");
+        var link = await host.JsonAsync(HttpMethod.Post, ada, JiraHttpHost.Url(team, "/issues/RS-12/links"),
+            new { typeId = "10000", targetKey = "RS-13" }, expected: 201);
+        var linkId = (string)link["id"]!;
+        var from = host.Jira.Requests.Count;
+
+        var (status, problem) = await host.ProblemAsync(HttpMethod.Delete, ada, JiraHttpHost.Url(team, $"/issues/RS-14/links/{linkId}"));
+        Assert.Equal((404, "jira_not_found"), (status, (string)problem["code"]!));
+        using (var unscoped = await host.SendAsync(HttpMethod.Delete, ada, JiraHttpHost.Url(team, $"/links/{linkId}"), null)) {
+            Assert.Equal(404, (int)unscoped.StatusCode);
+        }
+        Assert.DoesNotContain(host.JiraRequestsSince(from), r => r.Method == "DELETE");
+        Assert.Equal([linkId], host.Jira.LinkIds);
+
+        await host.JsonAsync(HttpMethod.Delete, ada, JiraHttpHost.Url(team, $"/issues/RS-13/links/{linkId}"), expected: 204);
+
+        Assert.Empty(host.Jira.LinkIds);
+        var drawer = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, "/issues/RS-12"));
+        Assert.Empty(drawer["links"]!.AsArray());
     }
 
     [Fact]

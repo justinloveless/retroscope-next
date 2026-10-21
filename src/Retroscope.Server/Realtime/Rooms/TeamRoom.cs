@@ -209,6 +209,7 @@ public sealed partial class TeamFanOut(
         TeamEvent.MemberAdded e => e.Members,
         TeamEvent.MemberRoleSet e => e.Members,
         TeamEvent.MemberRemoved e => e.Members,
+        TeamEvent.OwnershipTransferred e => e.Members,
         _ => null,
     };
 

@@ -83,6 +83,30 @@ public sealed class MembershipAndProjectionTests {
     }
 
     [Fact]
+    public void Transferring_ownership_demotes_and_promotes_in_one_event() {
+        var transferred = TeamFixture.Single<TeamEvent.OwnershipTransferred>(
+            _team.Run(new TeamInput.TransferOwnership(_team.Owner.Id, _team.Member.Id)));
+
+        Assert.Equal((_team.Owner.Id, _team.Member.Id), (transferred.From, transferred.To));
+        Assert.Equal(["Mo", "Ada", "Olga"], transferred.Members.Select(x => x.Name));
+        Assert.Equal(TeamRole.Owner, _team.State.Members[_team.Member.Id].Role);
+        Assert.Equal(TeamRole.Admin, _team.State.Members[_team.Owner.Id].Role);
+        Assert.Single(_team.State.Members.Values, x => x.Role == TeamRole.Owner);
+    }
+
+    [Fact]
+    public void A_transfer_needs_the_owner_and_a_member_and_a_retry_is_a_no_op() {
+        TeamFixture.Rejected(_team.Decide(new TeamInput.TransferOwnership(_team.Owner.Id, _team.Owner.Id)), NackCode.Invalid);
+        TeamFixture.Rejected(_team.Decide(new TeamInput.TransferOwnership(_team.Owner.Id, _team.Outsider.Id)), NackCode.NotFound);
+        TeamFixture.Rejected(_team.Decide(new TeamInput.TransferOwnership(_team.Admin.Id, _team.Member.Id)), NackCode.Forbidden);
+
+        _team.Run(new TeamInput.TransferOwnership(_team.Owner.Id, _team.Member.Id));
+
+        Assert.IsType<Decision<TeamEvent>.NoOp>(_team.Decide(new TeamInput.TransferOwnership(_team.Owner.Id, _team.Member.Id)));
+        TeamFixture.Rejected(_team.Decide(new TeamInput.TransferOwnership(_team.Owner.Id, _team.Admin.Id)), NackCode.Forbidden);
+    }
+
+    [Fact]
     public void Every_event_projects_to_its_wire_kind() {
         var item = _team.Item;
         var board = new BoardId(Guid.CreateVersion7());
@@ -99,6 +123,7 @@ public sealed class MembershipAndProjectionTests {
             (new TeamEvent.MemberAdded(roster[0], roster), new TeamMembers(roster)),
             (new TeamEvent.MemberRoleSet(roster[0].Pid, TeamRole.Owner, roster), new TeamMembers(roster)),
             (new TeamEvent.MemberRemoved(_team.Outsider.Id, roster), new TeamMembers(roster)),
+            (new TeamEvent.OwnershipTransferred(roster[0].Pid, roster[1].Pid, roster), new TeamMembers(roster)),
             (new TeamEvent.BoardsChanged(board), new TeamBoardsChanged(board)),
             (new TeamEvent.PokerChanged(session, 1, 2), new TeamPokerChanged(session, 1, 2)),
             (new TeamEvent.SettingsChanged(null, 4), new TeamSettingsChanged(null, 4)),

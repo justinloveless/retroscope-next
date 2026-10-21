@@ -42,6 +42,9 @@ public abstract record TeamEvent {
 
     public sealed record MemberRemoved(PrincipalId Member, IReadOnlyList<MemberInfo> Members) : TeamEvent;
 
+    /// <summary>Demotes <paramref name="From"/> to admin, then promotes <paramref name="To"/> to owner.</summary>
+    public sealed record OwnershipTransferred(PrincipalId From, PrincipalId To, IReadOnlyList<MemberInfo> Members) : TeamEvent;
+
     /// <summary>Not persisted: a list page refetches.</summary>
     public sealed record BoardsChanged(BoardId BoardId) : TeamEvent;
 

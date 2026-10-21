@@ -43,6 +43,12 @@ public abstract record TeamInput {
 
     public sealed record MemberRemoved(PrincipalId Member) : TeamInput;
 
+    /// <summary>
+    /// <paramref name="Owner"/> becomes an admin and <paramref name="NewOwner"/>, a member, becomes the owner, in one
+    /// transaction: no crash can leave the team without an owner.
+    /// </summary>
+    public sealed record TransferOwnership(PrincipalId Owner, PrincipalId NewOwner) : TeamInput;
+
     /// <summary>Only the settings present changed.</summary>
     public sealed record SettingsChanged(
         IReadOnlyDictionary<string, string>? PointDescriptions = null,

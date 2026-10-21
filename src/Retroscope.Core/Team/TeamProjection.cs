@@ -42,6 +42,7 @@ public static class TeamProjection {
             TeamEvent.MemberAdded e => new TeamMembers(e.Members),
             TeamEvent.MemberRoleSet e => new TeamMembers(e.Members),
             TeamEvent.MemberRemoved e => new TeamMembers(e.Members),
+            TeamEvent.OwnershipTransferred e => new TeamMembers(e.Members),
             TeamEvent.BoardsChanged e => new TeamBoardsChanged(e.BoardId),
             TeamEvent.PokerChanged e => new TeamPokerChanged(e.SessionId, e.Pointed, e.Total),
             TeamEvent.SettingsChanged e => new TeamSettingsChanged(e.PointDescriptions, e.MaxEndorsements),

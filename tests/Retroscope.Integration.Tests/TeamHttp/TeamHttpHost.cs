@@ -56,8 +56,10 @@ internal sealed class TeamHttpHost : IAsyncDisposable {
 
     public T Service<T>() where T : notnull => _factory.Services.GetRequiredService<T>();
 
-    public static async Task<TeamHttpHost> StartAsync(PostgresFixture postgres) {
-        var database = await postgres.CreateDatabaseAsync();
+    public static async Task<TeamHttpHost> StartAsync(PostgresFixture postgres) => Start(await postgres.CreateDatabaseAsync());
+
+    /// <summary>A host on an existing database, as a restarted server finds it.</summary>
+    public static TeamHttpHost Start(TestDatabase database) {
         var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder => {
             builder.UseSetting("PUBLIC_URL", TestApp.PublicUrl);
             builder.UseSetting("DATABASE_URL", database.AppConnectionString);

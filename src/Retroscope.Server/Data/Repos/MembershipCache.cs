@@ -15,7 +15,11 @@ namespace Retroscope.Server.Data.Repos;
 public sealed class MembershipCache(NpgsqlDataSource dataSource) : IMembershipLookup, IAccessView {
     private const int MaxGrants = 16_384;
 
-    private const string MembersSql = "select user_id, role from team_members where team_id = $1";
+    // A soft-deleted team has no members: its rooms stay closed to the old roster after a restart or a Forget.
+    private const string MembersSql = """
+        select m.user_id, m.role from team_members m join teams t on t.id = m.team_id
+        where m.team_id = $1 and t.deleted_at is null
+        """;
 
     private const string GrantSql = "select password_epoch from board_access_grants where board_id = $1 and principal_id = $2";
 

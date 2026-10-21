@@ -25,6 +25,7 @@ public sealed class TeamDecider : IRoomDomain<TeamState, TeamInput, TeamEvent> {
             TeamInput.MemberAdded added => MemberAdded(state, added.Member),
             TeamInput.MemberRoleSet roleSet => MemberRoleSet(state, roleSet),
             TeamInput.MemberRemoved removed => MemberRemoved(state, removed.Member),
+            TeamInput.TransferOwnership transfer => TransferOwnership(state, transfer),
             TeamInput.SettingsChanged settings => SettingsChanged(state, settings),
             TeamInput.TeamDeleted => state.Deleted ? NoOp() : Accept(new TeamEvent.TeamDeleted()),
             _ => Reject(NackCode.Invalid),
@@ -142,6 +143,23 @@ public sealed class TeamDecider : IRoomDomain<TeamState, TeamInput, TeamEvent> {
         }
         var roster = state.Members.Values.Where(x => x.Pid != removed);
         return Accept(new TeamEvent.MemberRemoved(removed, TeamProjection.Roster(roster)));
+    }
+
+    private static Decision<TeamEvent> TransferOwnership(TeamState state, TeamInput.TransferOwnership transfer) {
+        if (transfer.Owner == transfer.NewOwner) {
+            return Reject(NackCode.Invalid);
+        }
+        if (!state.Members.TryGetValue(transfer.NewOwner, out var to)) {
+            return Reject(NackCode.NotFound);
+        }
+        var from = state.Members.GetValueOrDefault(transfer.Owner);
+        if (from?.Role != TeamRole.Owner) {
+            // A retry after a commit whose outcome was unknown finds the transfer already made.
+            return to.Role == TeamRole.Owner && from is not null ? NoOp() : Reject(NackCode.Forbidden);
+        }
+        var roster = state.Members.Values.Select(x => x.Pid == from.Pid ? x with { Role = TeamRole.Admin } : x)
+            .Select(x => x.Pid == to.Pid ? x with { Role = TeamRole.Owner } : x);
+        return Accept(new TeamEvent.OwnershipTransferred(from.Pid, to.Pid, TeamProjection.Roster(roster)));
     }
 
     private static Decision<TeamEvent> SettingsChanged(TeamState state, TeamInput.SettingsChanged settings) {

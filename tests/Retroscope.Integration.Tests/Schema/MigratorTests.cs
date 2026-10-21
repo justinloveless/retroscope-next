@@ -49,8 +49,9 @@ public sealed class MigratorTests(PostgresFixture postgres) {
 
     [Fact]
     public async Task A_changed_applied_file_is_refused_and_nothing_commits() {
-        var database = await postgres.CreateDatabaseAsync();
+        var database = await postgres.CreateEmptyDatabaseAsync();
         var init = Migrator.FromEmbeddedScripts().Scripts[0];
+        await postgres.MigrateAsync(database, new Migrator([init]));
         var edited = init with { Bytes = [.. init.Bytes, .. "\n-- edited\n"u8] };
         var next = Script(2, "create table sha_guard_probe (id int);");
 
@@ -64,8 +65,9 @@ public sealed class MigratorTests(PostgresFixture postgres) {
 
     [Fact]
     public async Task A_later_migration_applies_alone_and_its_tables_are_granted_to_the_app() {
-        var database = await postgres.CreateDatabaseAsync();
+        var database = await postgres.CreateEmptyDatabaseAsync();
         var init = Migrator.FromEmbeddedScripts().Scripts[0];
+        await postgres.MigrateAsync(database, new Migrator([init]));
         var next = Script(2, "create table later_probe (id int primary key);");
 
         var applied = await postgres.MigrateAsync(database, new Migrator([init, next]));
