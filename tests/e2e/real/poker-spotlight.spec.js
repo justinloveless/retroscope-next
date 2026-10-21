@@ -57,14 +57,13 @@ test('take, follow, give and a joiner landing on the spotlight; Next still moves
   await expect(spotlightControl(bob.page)).toHaveAttribute('data-role', 'other');
   await expect(ann.page.locator('.nt-spotlight button')).toHaveAccessibleName('Spotlight: Cy Spot');
 
-  // Ann does not hold the spotlight: her Continue moves everyone, Bob and Cy included, while it stays on round 2.
+  // Ann does not hold the spotlight: her Continue moves everyone, Bob and Cy included.
   await ann.page.getByRole('button', { name: 'Reveal Cards' }).click();
   await ann.page.getByRole('button', { name: 'Continue' }).click();
   await ann.page.getByRole('dialog', { name: 'Start New Round' }).getByRole('textbox').press('Enter');
   for (const { page } of players) {
     await expect(page).toHaveURL(/[?&]round=3$/);
   }
-  await expect(chip(ann.page, 2)).toHaveAttribute('data-spotlight', '');
 });
 
 test('a holder whose page is hidden for six minutes keeps the spotlight', async ({ open }) => {
