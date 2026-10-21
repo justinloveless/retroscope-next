@@ -1,5 +1,4 @@
 using System.Buffers.Text;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
 using Npgsql;
@@ -450,9 +449,8 @@ public sealed class RetroListsRepo(NpgsqlDataSource dataSource) {
         return Page.Of(rows, limit);
     }
 
-    public static bool IsCodeCollision(Exception exception, [NotNullWhen(true)] out PostgresException? postgres) {
-        postgres = exception as PostgresException;
-        return postgres is { SqlState: UniqueViolation, ConstraintName: "retro_boards_code_uq" or "poker_sessions_code_uq" };
+    public static bool IsCodeCollision(PostgresException exception) {
+        return exception is { SqlState: UniqueViolation, ConstraintName: "retro_boards_code_uq" or "poker_sessions_code_uq" };
     }
 
     public static string VisibilityText(BoardVisibility visibility) => visibility switch {

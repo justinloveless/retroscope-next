@@ -96,7 +96,7 @@ public static class RoomCodes {
                 if (await insert(code)) {
                     return code;
                 }
-            } catch (PostgresException e) when (RetroListsRepo.IsCodeCollision(e, out _)) {
+            } catch (PostgresException e) when (RetroListsRepo.IsCodeCollision(e)) {
                 // A concurrent insert took the same code between the check and the insert.
             }
         }
