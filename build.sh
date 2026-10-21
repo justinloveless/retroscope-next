@@ -8,6 +8,11 @@
 #                                  protocol PING/PONG), chiseled image serves /healthz (needs Docker)
 #   ./build.sh fake-e2e <glob>     Playwright specs under tests/e2e/fake/ against tests/web-fake-server
 #   ./build.sh e2e <glob>          Playwright specs under tests/e2e/ against deploy/compose.test.yml
+#   ./build.sh preview [fake|real] fake (default): the web build on the demo fake server with simulated teammates,
+#                                  http://localhost:5173. real: the server (dotnet run) with Postgres 18 and Mailpit
+#                                  from deploy/compose.preview.yml on http://localhost:8080 (needs Docker)
+#   ./build.sh screenshots         smoke-checks the demo, then captures every route and key state, light and dark,
+#                                  desktop and iPhone, into artifacts/screenshots (index.html is the contact sheet)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -39,6 +44,10 @@ need_docker() {
 
 free_port() {
   node -e 'const s=require("net").createServer().listen(0,()=>{console.log(s.address().port);s.close()})'
+}
+
+port_in_use() {
+  node -e 'const s=require("net").connect(Number(process.argv[1]),"127.0.0.1");s.on("connect",()=>process.exit(0));s.on("error",()=>process.exit(1))' "$1"
 }
 
 wait_http() {
@@ -357,6 +366,165 @@ cmd_e2e() {
     "tests/e2e/$(glob_to_regex "$glob")$"
 }
 
+cmd_preview() {
+  case "${1:-fake}" in
+    fake) preview_fake ;;
+    real) preview_real ;;
+    *) die "unknown preview mode '$1' (fake | real)" ;;
+  esac
+}
+
+preview_fake() {
+  if port_in_use "${PREVIEW_PORT:-5173}"; then
+    die "port ${PREVIEW_PORT:-5173} is in use; pick another with PREVIEW_PORT=<port>"
+  fi
+  cmd_web
+  log "demo preview"
+  exec node tests/web-fake-server/demo/main.js --port "${PREVIEW_PORT:-5173}"
+}
+
+PREVIEW_COMPOSE=(docker compose -f deploy/compose.preview.yml)
+
+preview_cleanup() {
+  if [[ -n "${PREVIEW_PID:-}" ]]; then
+    kill "$PREVIEW_PID" 2>/dev/null || true
+    wait "$PREVIEW_PID" 2>/dev/null || true
+  fi
+  log "removing the preview containers and volume"
+  "${PREVIEW_COMPOSE[@]}" down -v >/dev/null 2>&1 || true
+}
+
+# Signs demo@example.test up through the real route, reads the verification mail from Mailpit's API and
+# consumes its token with a session of that account, so the account starts verified.
+preview_seed() {
+  SEED_URL="$1" MAILPIT_URL="$2" SEED_PASSWORD="$3" node - <<'JS'
+const base = process.env.SEED_URL;
+const mailpit = process.env.MAILPIT_URL;
+const email = 'demo@example.test';
+const password = process.env.SEED_PASSWORD;
+const fail = (message) => { console.error(`seed: ${message}`); process.exit(1); };
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+const post = (path, body, cookie) => fetch(new URL(path, base), {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'X-RS': '1', Origin: new URL(base).origin, ...(cookie ? { Cookie: cookie } : {}) },
+  body: JSON.stringify(body),
+});
+
+(async () => {
+  const signup = await post('/api/auth/signup', { email, password, fullName: 'Demo User' });
+  if (signup.status !== 202) fail(`signup answered ${signup.status}`);
+  let token = null;
+  for (let i = 0; i < 60 && !token; i++) {
+    const list = await (await fetch(`${mailpit}/api/v1/search?query=${encodeURIComponent(`to:${email}`)}`)).json();
+    for (const summary of list.messages ?? []) {
+      const message = await (await fetch(`${mailpit}/api/v1/message/${summary.ID}`)).json();
+      token = /\/auth\/verify#t=([A-Za-z0-9_-]+)/.exec(`${message.Text ?? ''} ${message.HTML ?? ''}`)?.[1] ?? token;
+    }
+    if (!token) await sleep(500);
+  }
+  if (!token) fail('the verification mail did not reach Mailpit');
+  console.log('verification mail landed in Mailpit');
+  const login = await post('/api/auth/login', { email, password });
+  if (login.status !== 200) fail(`login answered ${login.status}`);
+  const session = login.headers.getSetCookie().map((c) => c.split(';')[0]).find((c) => c.startsWith('__Host-rs_sid='));
+  if (!session) fail('login set no session cookie');
+  const verify = await post('/api/auth/verify/consume', { token }, session);
+  if (!verify.ok) fail(`verify answered ${verify.status}`);
+  console.log(`signed up, logged in and verified ${email}`);
+})().catch((error) => fail(error.message));
+JS
+}
+
+random_key() {
+  node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("base64"))'
+}
+
+preview_real() {
+  need_docker
+  local port="${PREVIEW_PORT:-8080}"
+  local url="http://localhost:$port" mailpit="http://localhost:${PREVIEW_MAILPIT_PORT:-8025}"
+  local password log_file="$ARTIFACTS/preview/server.log"
+  password="preview-$(node -e 'process.stdout.write(require("crypto").randomBytes(6).toString("hex"))')"
+  export PREVIEW_PG_PORT="${PREVIEW_PG_PORT:-55432}" PREVIEW_SMTP_PORT="${PREVIEW_SMTP_PORT:-1025}" PREVIEW_MAILPIT_PORT="${PREVIEW_MAILPIT_PORT:-8025}"
+  local name
+  for name in PREVIEW_PORT:$port PREVIEW_PG_PORT:$PREVIEW_PG_PORT PREVIEW_SMTP_PORT:$PREVIEW_SMTP_PORT PREVIEW_MAILPIT_PORT:$PREVIEW_MAILPIT_PORT; do
+    if port_in_use "${name#*:}"; then
+      die "port ${name#*:} is in use; pick another with ${name%%:*}=<port>"
+    fi
+  done
+  cmd_web
+
+  PREVIEW_PID=""
+  trap preview_cleanup EXIT
+  trap 'exit 130' INT TERM
+  log "compose.preview.yml up (Postgres 18, Mailpit)"
+  "${PREVIEW_COMPOSE[@]}" up -d --wait
+
+  log "dotnet run (the real server, JIT)"
+  mkdir -p "$ARTIFACTS/preview"
+  PUBLIC_URL="$url" ASPNETCORE_URLS="http://127.0.0.1:$port" WEB_ROOT="$ROOT/web/dist" \
+    DATABASE_URL="Host=127.0.0.1;Port=$PREVIEW_PG_PORT;Database=retroscope;Username=retroscope_app;Password=preview-app" \
+    DATABASE_OWNER_URL="Host=127.0.0.1;Port=$PREVIEW_PG_PORT;Database=retroscope;Username=retroscope_owner;Password=preview-owner" \
+    APP_KEYS="k1:$(random_key)" ANON_TAG_KEY="$(random_key)" \
+    SMTP_HOST=127.0.0.1 SMTP_PORT="$PREVIEW_SMTP_PORT" SMTP_SECURITY=none SMTP_FROM="Retroscope <noreply@example.test>" \
+    dotnet run --project src/Retroscope.Server >"$log_file" 2>&1 &
+  PREVIEW_PID=$!
+  for _ in $(seq 1 240); do
+    curl -fsS "$url/healthz" >/dev/null 2>&1 && break
+    kill -0 "$PREVIEW_PID" 2>/dev/null || { tail -40 "$log_file"; die "the server exited"; }
+    sleep 0.5
+  done
+  curl -fsS "$url/healthz" >/dev/null 2>&1 || { tail -40 "$log_file"; die "/healthz did not answer"; }
+
+  log "seeding demo@example.test"
+  preview_seed "$url" "$mailpit" "$password" || { tail -40 "$log_file"; die "seeding failed"; }
+
+  cat <<TEXT
+
+Retroscope (real server) is running on $url
+  Sign in:  demo@example.test / $password
+  Mailpit:  $mailpit (sign-in links, password resets and verification mails land here)
+  Log:      $log_file
+
+Works at this stage: sign-up, sign-in and sign-out, magic links, password reset, email verification
+(all through Mailpit), account settings and sessions, and the shell pages.
+Arrives in wave 5:
+  - realtime rooms: an UnavailableRoomGateway stub is still registered, so the WebSocket does not reach
+    poker or retro rooms yet;
+  - teams, the dashboard and team lists, and creating poker sessions and boards over HTTP (U24, U25);
+  - the Jira proxy (U26).
+For the whole UI with data, use ./build.sh preview (fake mode).
+Ctrl-C stops the server and removes the containers and the volume.
+TEXT
+  wait "$PREVIEW_PID"
+}
+
+cmd_screenshots() {
+  cmd_web
+  local mode port url log_file="$ARTIFACTS/screenshots-server.log"
+  rm -rf "$ARTIFACTS/screenshots"
+  mkdir -p "$ARTIFACTS/screenshots"
+  SHOTS_PID=""
+  trap 'if [[ -n "$SHOTS_PID" ]]; then kill "$SHOTS_PID" 2>/dev/null || true; fi' EXIT
+
+  for mode in smoke capture; do
+    port="$(free_port)"
+    url="http://localhost:$port"
+    # The smoke wants the simulated teammates; the capture wants the seeded state to hold still.
+    local flags=()
+    [[ "$mode" == capture ]] && flags=(--quiet-peers)
+    node tests/web-fake-server/demo/main.js --port "$port" ${flags[@]+"${flags[@]}"} >"$log_file" 2>&1 &
+    SHOTS_PID=$!
+    wait_http "$url/__demo/state" || { cat "$log_file"; die "the demo server did not start"; }
+    log "Playwright: $mode ($url)"
+    RS_PREVIEW_URL="$url" npx playwright test --config tests/e2e/screenshots/playwright.config.js "$mode.spec.js"
+    kill "$SHOTS_PID"
+    wait "$SHOTS_PID" 2>/dev/null || true
+    SHOTS_PID=""
+  done
+  node tests/e2e/screenshots/contact-sheet.mjs "$ARTIFACTS/screenshots"
+}
+
 case "${1:-all}" in
   all) cmd_test; cmd_web ;;
   test) cmd_test ;;
@@ -364,5 +532,7 @@ case "${1:-all}" in
   aot-smoke) cmd_aot_smoke ;;
   fake-e2e) shift; cmd_fake_e2e "$@" ;;
   e2e) shift; cmd_e2e "$@" ;;
-  *) die "unknown verb '$1' (all | test | web | aot-smoke | fake-e2e <glob> | e2e <glob>)" ;;
+  preview) shift; cmd_preview "$@" ;;
+  screenshots) cmd_screenshots ;;
+  *) die "unknown verb '$1' (all | test | web | aot-smoke | fake-e2e <glob> | e2e <glob> | preview [fake|real] | screenshots)" ;;
 esac
