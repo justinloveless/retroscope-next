@@ -81,8 +81,14 @@ export function createRoom(key, model, { outbox, net, onNack = () => {}, schedul
     }
   }
 
+  // While a retry is pending new commands queue behind it, so q values reach the server in order (§c.3).
   function canSend() {
-    return synced && !resyncing && kicked === null && net.online();
+    return synced && !resyncing && kicked === null && cancelRetry === null && net.online();
+  }
+
+  function stopRetry() {
+    cancelRetry?.();
+    cancelRetry = null;
   }
 
   // Everything not yet on the wire of this connection, in q order (R3, R4).
@@ -99,7 +105,7 @@ export function createRoom(key, model, { outbox, net, onNack = () => {}, schedul
   }
 
   function scheduleRetry() {
-    cancelRetry?.();
+    stopRetry();
     const delay = retryDelay(retryAttempt++);
     cancelRetry = net.setTimer(() => {
       cancelRetry = null;
@@ -121,6 +127,7 @@ export function createRoom(key, model, { outbox, net, onNack = () => {}, schedul
     deferredAcks.clear();
     synced = true;
     resyncing = false;
+    stopRetry();
     changed();
     flush();
     if (entries().length === 0) {
@@ -240,7 +247,7 @@ export function createRoom(key, model, { outbox, net, onNack = () => {}, schedul
   function onKick(frame) {
     kicked = frame.code;
     synced = false;
-    cancelRetry?.();
+    stopRetry();
     outbox.removeRoom(key);
     changed();
   }
@@ -320,8 +327,7 @@ export function createRoom(key, model, { outbox, net, onNack = () => {}, schedul
     disconnected() {
       synced = false;
       resyncing = false;
-      cancelRetry?.();
-      cancelRetry = null;
+      stopRetry();
     },
 
     handle(frame) {
@@ -351,11 +357,12 @@ export function createRoom(key, model, { outbox, net, onNack = () => {}, schedul
     },
 
     retryNow() {
+      stopRetry();
       flush();
     },
 
     dispose() {
-      cancelRetry?.();
+      stopRetry();
       stopWatching();
     },
   };

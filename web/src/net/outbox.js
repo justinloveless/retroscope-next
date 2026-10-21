@@ -213,6 +213,7 @@ export function createOutbox({
     renumber(entry) {
       entry.q = ++cseq;
       entry.sent = false;
+      entries.sort((a, b) => a.q - b.q);
       save();
     },
 
@@ -273,6 +274,7 @@ export function createOutbox({
           entry.q = ++cseq;
           entry.sent = false;
         }
+        entries.sort((a, b) => a.q - b.q);
       }
       save();
     },
