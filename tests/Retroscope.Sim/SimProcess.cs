@@ -191,6 +191,15 @@ internal sealed class SimConnection(World world, SimTab tab, SimProcess process,
         Send(new KickFrame(room, code));
     }
 
+    public bool Holds(RoomKey room) {
+        lock (_lock) {
+            if (ServerClosing || Process.Dead) {
+                return false;
+            }
+        }
+        return Rooms.Contains(room);
+    }
+
     public void Restart() {
         if (world.Draining) {
             return;

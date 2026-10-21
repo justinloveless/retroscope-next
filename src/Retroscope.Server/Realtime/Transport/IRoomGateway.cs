@@ -42,6 +42,12 @@ public interface IClientConnection {
     /// <summary>Drops the room from this connection and tells the client why.</summary>
     void Kick(RoomKey room, KickCode code);
 
+    /// <summary>
+    /// Whether the connection still holds <paramref name="room"/>: open, subscribed, and not kicked or unsubscribed
+    /// since. A subscription the connection does not hold must not be started.
+    /// </summary>
+    bool Holds(RoomKey room);
+
     /// <summary>Sends <c>bye{restart, retryMs}</c> and closes with 1012 (fencing loss, outcome-unknown commit, shutdown).</summary>
     void Restart();
 }

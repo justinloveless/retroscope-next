@@ -55,6 +55,10 @@ public sealed class RoomGateway : IRoomGateway {
             (Gateway: this, Connection: connection, Room: room));
         peer.Then(() => {
             peer.Refusal = null;
+            if (!peer.Wanted) {
+                Forget(peer);
+                return Task.CompletedTask;
+            }
             return SubscribeAsync(peer, epoch, seq);
         });
     }
@@ -130,6 +134,20 @@ public sealed class RoomGateway : IRoomGateway {
         }
     }
 
+    /// <summary>Forgets <paramref name="peer"/> only, never a newer peer of the same connection.</summary>
+    private void Forget(Peer peer) {
+        if (_rooms.TryGetValue(peer.Room, out var peers)) {
+            peers.TryRemove(new KeyValuePair<ConnectionId, Peer>(peer.Id, peer));
+            if (peers.IsEmpty) {
+                _rooms.TryRemove(new KeyValuePair<RoomKey, ConcurrentDictionary<ConnectionId, Peer>>(peer.Room, peers));
+            }
+        }
+    }
+
+    private bool Maps(Peer peer) {
+        return _rooms.TryGetValue(peer.Room, out var peers) && peers.TryGetValue(peer.Id, out var mapped) && mapped == peer;
+    }
+
     private IReadOnlyList<ServerFrame> FillsAfterResume(RoomKey room) {
         return _fills.TryGetValue(room.Kind, out var fills) ? [.. fills.SelectMany(x => x.AfterResume(room))] : [];
     }
@@ -147,6 +165,10 @@ public sealed class RoomGateway : IRoomGateway {
 
         /// <summary>The peer has its snapshot or replay, so unsequenced fills may reach it.</summary>
         public bool Live => _live;
+
+        // A kick forgets the peer, so a peer the gateway no longer maps is stale even when a later sub of the same
+        // connection holds the room again under a new peer.
+        public bool Wanted => gateway.Maps(this) && Connection.Holds(Room);
 
         /// <summary>The retryable code every command is refused with until the next <c>sub</c>; touched only by steps.</summary>
         public NackCode? Refusal { get; set; }

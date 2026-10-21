@@ -332,6 +332,11 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
 
     private async Task SubscribeAsync(SubscribeMessage message) {
         var (peer, viewer, epoch, seq) = message;
+        // Kicks, unsubscribes and closes reach the connection at once but this queue later: a subscribe queued before
+        // one of them would otherwise start a subscription the connection no longer holds.
+        if (!peer.Wanted) {
+            return;
+        }
         if (_status == Status.Missing || _binding.IsDeleted(_state!)) {
             peer.Kick(Key, KickCode.NotFound);
             return;

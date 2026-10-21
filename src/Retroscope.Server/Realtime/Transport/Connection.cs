@@ -94,6 +94,15 @@ public sealed class Connection : IClientConnection {
         Send(new KickFrame(room, code));
     }
 
+    public bool Holds(RoomKey room) {
+        if (!IsOpen) {
+            return false;
+        }
+        lock (_rooms) {
+            return _rooms.Contains(room);
+        }
+    }
+
     public void Restart() {
         if (Send(new ByeFrame(ByeCode.Restart, _registry.DrawRetryMs()))) {
             Close(CloseCodes.Restart, "restart", urgent: false);

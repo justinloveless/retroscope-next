@@ -19,6 +19,12 @@ public interface IRoomPeer {
     /// <summary>Sends the <c>snap</c> or <c>replay</c> that starts (or resumes) the subscription's seq.</summary>
     bool SendSync(byte[] frame) => Send(frame);
 
+    /// <summary>
+    /// False once the connection has dropped this subscription (kicked, unsubscribed or closed) after it was queued;
+    /// the actor then does not start it, so no subscription outlives the connection's own record of it.
+    /// </summary>
+    bool Wanted => true;
+
     /// <summary>Sends <c>bye{restart}</c> and closes with 1012 so the client reconnects and resends (R2, R3).</summary>
     void Restart();
 }
