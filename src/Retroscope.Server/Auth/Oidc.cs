@@ -1,4 +1,5 @@
 using System.Buffers.Text;
+using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text;
@@ -326,6 +327,7 @@ public sealed class Oidc : IDisposable {
     private readonly Keyring _keyring;
     private readonly TimeProvider _time;
     private readonly HttpClient _http;
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _consumed = new(StringComparer.Ordinal);
 
     public Oidc(OidcOptions options, HostingOptions hosting, Keyring keyring, TimeProvider time) {
         Options = options;
@@ -402,9 +404,23 @@ public sealed class Oidc : IDisposable {
         return live ? flow : null;
     }
 
-    public static bool StateMatches(OidcFlow flow, string? state) =>
-        state is not null
-        && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(state), Encoding.UTF8.GetBytes(flow.State));
+    /// <summary>
+    /// True once per flow, when <paramref name="state"/> matches. Deleting the cookie makes the flow single use in an
+    /// honest browser; remembering consumed states until they expire makes it single use for a replayed cookie too.
+    /// </summary>
+    public bool TryConsume(OidcFlow flow, string? state) {
+        if (state is null
+            || !CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(state), Encoding.UTF8.GetBytes(flow.State))) {
+            return false;
+        }
+        var now = _time.GetUtcNow();
+        foreach (var (key, expires) in _consumed) {
+            if (expires <= now) {
+                _consumed.TryRemove(key, out _);
+            }
+        }
+        return _consumed.TryAdd(flow.State, DateTimeOffset.FromUnixTimeSeconds(flow.ExpiresAt));
+    }
 
     /// <summary>Exchanges the code at the token endpoint; null on any failure.</summary>
     public async Task<IdTokenClaims?> ExchangeAsync(OidcProvider provider, string code, string verifier, CancellationToken cancellationToken) {

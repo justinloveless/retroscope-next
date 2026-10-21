@@ -100,7 +100,7 @@ public static class OidcEndpoints {
             return Results.Redirect($"{(flow?.LinkUser is null ? "/login" : "/account")}?error={code}");
         }
 
-        if (flow is null || !Oidc.StateMatches(flow, Single(query["state"]))) {
+        if (flow is null || !oidc.TryConsume(flow, Single(query["state"]))) {
             return Fail("oidc_state");
         }
         if (query.ContainsKey("error") || Single(query["code"]) is not { Length: > 0 } code) {
