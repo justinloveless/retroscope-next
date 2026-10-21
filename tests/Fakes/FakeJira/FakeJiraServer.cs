@@ -44,6 +44,7 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
     private readonly List<(string Method, string PathPrefix, Queue<FakeJiraResponse> Replies)> _scripts = [];
     private readonly ConcurrentDictionary<string, long> _ranks = new(StringComparer.Ordinal);
     private int _nextId = 20000;
+    private int _nextLinkId = 10000;
     private long _nextRank;
 
     private FakeJiraServer(WebApplication app) {
@@ -515,7 +516,7 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
         if (LinkTypes.FirstOrDefault(t => (string?)t["name"] == name) is not { } type) {
             return (400, new JsonObject { ["errorMessages"] = new JsonArray($"No issue link type with name '{name}' found."), ["errors"] = new JsonObject() });
         }
-        var id = NextId();
+        var id = Interlocked.Increment(ref _nextLinkId).ToString(CultureInfo.InvariantCulture);
         AddLink(outward, id, type, "outwardIssue", inward);
         AddLink(inward, id, type, "inwardIssue", outward);
         return (201, null);
