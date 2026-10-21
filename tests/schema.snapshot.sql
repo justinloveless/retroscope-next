@@ -1390,6 +1390,13 @@ CREATE INDEX poker_sessions_team_ix ON public.poker_sessions USING btree (team_i
 
 
 --
+-- Name: recent_activity_entity_ix; Type: INDEX; Schema: public; Owner: retroscope_owner
+--
+
+CREATE INDEX recent_activity_entity_ix ON public.recent_activity USING btree (entity_kind, entity_id);
+
+
+--
 -- Name: recent_activity_user_ix; Type: INDEX; Schema: public; Owner: retroscope_owner
 --
 
