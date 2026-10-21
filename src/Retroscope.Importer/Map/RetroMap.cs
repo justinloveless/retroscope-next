@@ -321,7 +321,7 @@ public sealed class RetroMap : IImportStage {
                         id,
                         board.Key,
                         RetroText.Cap(row.Text("title"), 100, "Untitled"),
-                        RetroText.Color(row.Text("color")),
+                        ColumnPalette.FromTailwind(row.Text("color")),
                         sortKey,
                         actionItems,
                         row.Timestamp("created_at") ?? _boards[board.Key].CreatedAt);
@@ -486,7 +486,10 @@ internal static class RetroAuthorship {
     /// <summary>The old client wrote <c>author = 'Anonymous'</c> (also the column default) for anonymous posts.</summary>
     public static bool IsAnonymous(SourceRow row) => string.Equals(row.Text("author")?.Trim(), "Anonymous", StringComparison.Ordinal);
 
-    public static Guid? Guest(string? sessionId) => string.IsNullOrWhiteSpace(sessionId) ? null : SyntheticIds.Guest(sessionId);
+    public static Guid? Guest(string? sessionId) =>
+        string.IsNullOrWhiteSpace(sessionId) ? null
+        : Guid.TryParseExact(sessionId, "D", out var id) ? SyntheticIds.Guest(id)
+        : SyntheticIds.Guest(sessionId);
 }
 
 internal static partial class RetroText {
@@ -499,10 +502,6 @@ internal static partial class RetroText {
 
     public static readonly HashSet<string> Stages = new(StringComparer.Ordinal) { "thinking", "voting", "discussing", "closed" };
 
-    private static readonly HashSet<string> Palette = new(StringComparer.Ordinal) {
-        "green", "red", "blue", "yellow", "purple", "pink", "indigo", "orange", "gray",
-    };
-
     /// <summary>Trimmed and capped at <paramref name="maxCodePoints"/> code points (the §b <c>char_length</c> checks).</summary>
     public static string Cap(string? text, int maxCodePoints, string fallback) {
         var trimmed = text?.Trim() ?? "";
@@ -513,16 +512,6 @@ internal static partial class RetroText {
         return runes.Count <= maxCodePoints ? trimmed : string.Concat(runes.Take(maxCodePoints).Select(x => x.ToString())).TrimEnd();
     }
 
-    /// <summary>A Tailwind class string such as <c>bg-green-100 border-green-300</c> → its palette colour; unknown → gray.</summary>
-    public static string Color(string? classes) {
-        var value = classes?.Trim().ToLowerInvariant() ?? "";
-        if (Palette.Contains(value)) {
-            return value;
-        }
-        var match = TailwindColor().Match(value);
-        return match.Success && Palette.Contains(match.Groups["color"].Value) ? match.Groups["color"].Value : "gray";
-    }
-
     /// <summary>Seconds → milliseconds within the §b range; 0 or null (never set) keeps the default.</summary>
     public static int TimerDuration(int? seconds) =>
         seconds is > 0 ? (int)Math.Clamp(seconds.Value * 1000L, 1000, 7_200_000) : DefaultTimerMs;
@@ -530,9 +519,6 @@ internal static partial class RetroText {
     public static bool IsBoardCode(string code) => BoardCode().IsMatch(code);
 
     public static bool IsSha256Hex(string value) => Sha256Hex().IsMatch(value);
-
-    [GeneratedRegex(@"(?:^|\s)(?:bg|border|text)-(?<color>[a-z]+)-[0-9]{2,3}(?:\s|$)", RegexOptions.CultureInvariant)]
-    private static partial Regex TailwindColor();
 
     [GeneratedRegex(@"^[A-Za-z0-9-]{3,64}\z", RegexOptions.CultureInvariant)]
     private static partial Regex BoardCode();

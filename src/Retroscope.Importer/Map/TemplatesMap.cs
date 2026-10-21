@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using NpgsqlTypes;
 using Retroscope.Importer.Source;
 
@@ -131,33 +130,4 @@ public sealed class TemplatesMap : IImportStage {
             ("sort_key", NpgsqlDbType.Integer), ("is_action_items", NpgsqlDbType.Boolean),
         ], rows, cancellationToken);
     }
-}
-
-/// <summary>
-/// The original stored a column colour as Tailwind classes (<c>bg-green-100 border-green-300</c>). The target keeps
-/// a palette name; the first <c>bg-*</c> hue in the palette wins and anything else is gray. Shared with the retro
-/// column mapping.
-/// </summary>
-public static partial class ColumnPalette {
-    public static readonly IReadOnlySet<string> Colors = new HashSet<string>(StringComparer.Ordinal) {
-        "green", "red", "blue", "yellow", "purple", "pink", "indigo", "orange", "gray",
-    };
-
-    public const string Fallback = "gray";
-
-    public static string FromTailwind(string? classes) {
-        if (classes is null) {
-            return Fallback;
-        }
-        foreach (Match match in Background().Matches(classes)) {
-            var hue = match.Groups[1].Value.ToLowerInvariant();
-            if (Colors.Contains(hue)) {
-                return hue;
-            }
-        }
-        return Colors.Contains(classes.Trim().ToLowerInvariant()) ? classes.Trim().ToLowerInvariant() : Fallback;
-    }
-
-    [GeneratedRegex(@"(?:^|\s)(?:dark:)?bg-([a-z]+)-\d{2,3}\b", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
-    private static partial Regex Background();
 }

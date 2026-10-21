@@ -329,14 +329,14 @@ public sealed partial class PokerMap : IImportStage {
 
         public Guid Resolve(string key, string? name, DateTime seenAt) {
             if (Guid.TryParseExact(key, "D", out var id)) {
-                return principals.User(id) ?? Synthetic(SyntheticIds.Guest(id.ToString()), "guest", name, seenAt);
+                return principals.User(id) ?? Synthetic(SyntheticIds.Guest(id), "guest", name, seenAt);
             }
             return key.StartsWith("slack_", StringComparison.Ordinal)
                 ? Synthetic(SyntheticIds.Slack(key), "external", SlackDisplayName, seenAt)
                 : Synthetic(SyntheticIds.Guest(key), "guest", name, seenAt);
         }
 
-        public Guid Observer(Guid id) => principals.User(id) ?? Synthetic(SyntheticIds.Guest(id.ToString()), "guest", null, DateTime.MinValue);
+        public Guid Observer(Guid id) => principals.User(id) ?? Synthetic(SyntheticIds.Guest(id), "guest", null, DateTime.MinValue);
 
         public IEnumerable<PrincipalRow> Synthetic(IEnumerable<Guid> referenced) =>
             referenced.Distinct().Where(_synthetic.ContainsKey).Order()
