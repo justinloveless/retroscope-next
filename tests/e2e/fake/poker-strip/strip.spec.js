@@ -133,3 +133,13 @@ test('rounds added by others appear in the strip; a deleted viewed round sends t
   fake.tx(ROOM, [{ k: 'poker.round.deleted', d: { roundId: roundId(2) } }]);
   await expect(shownRound(page)).toHaveText('Round 6 · ABC-6');
 });
+
+test('chips show the issue-type glyph once the room knows the issue', async ({ page, fake }) => {
+  setupStrip(fake);
+  await openStrip(page);
+  await expect(chip(page, 2).locator('.nt-chip-icon svg[aria-label="Issue"]')).toHaveCount(1);
+
+  fake.x(ROOM, 'jira.meta', { key: 'ABC-2', summary: 'Crash on save', issueType: 'Bug' });
+  await expect(chip(page, 2).locator('.nt-chip-icon svg[aria-label="Bug"]')).toHaveCount(1);
+  await expect(chip(page, 3).locator('.nt-chip-icon svg[aria-label="Issue"]')).toHaveCount(1);
+});
