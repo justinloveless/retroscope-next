@@ -3,12 +3,18 @@ namespace Retroscope.Server.Hosting;
 /// <summary>
 /// The §e header set. It is written before the request runs, so an endpoint with stricter needs (blobs use
 /// <c>default-src 'none'; sandbox</c>) overwrites it, and every response, errors included, carries it.
+/// <c>Strict-Transport-Security</c> is sent only when <c>PUBLIC_URL</c> is https: over plain http browsers ignore it,
+/// and a local http deployment must not tell a browser to insist on https for its host.
 /// </summary>
 public sealed class SecurityHeaders {
+    private const string StrictTransportSecurity = "max-age=63072000; includeSubDomains";
+
     private readonly string _csp;
+    private readonly bool _https;
 
     public SecurityHeaders(HostingOptions options, WebBuild build) {
         _csp = Csp.Build(options.PublicUrl, build.ScriptHashes);
+        _https = options.PublicUrl.Scheme == Uri.UriSchemeHttps;
     }
 
     public string ContentSecurityPolicy => _csp;
@@ -16,7 +22,9 @@ public sealed class SecurityHeaders {
     public void Apply(HttpResponse response) {
         var headers = response.Headers;
         headers.ContentSecurityPolicy = _csp;
-        headers.StrictTransportSecurity = "max-age=63072000; includeSubDomains";
+        if (_https) {
+            headers.StrictTransportSecurity = StrictTransportSecurity;
+        }
         headers.XContentTypeOptions = "nosniff";
         headers["Referrer-Policy"] = "same-origin";
         headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";
