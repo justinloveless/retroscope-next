@@ -121,7 +121,9 @@ public sealed class ImporterDatabases : IAsyncLifetime {
 
     private string Admin() => _container.GetConnectionString();
 
-    private string WithDatabase(string name) => new NpgsqlConnectionStringBuilder(Admin()) { Database = name }.ConnectionString;
+    // Every test gets its own databases, so a pool per connection string would only park idle connections until the
+    // container runs out of max_connections.
+    private string WithDatabase(string name) => new NpgsqlConnectionStringBuilder(Admin()) { Database = name, Pooling = false }.ConnectionString;
 
     private static async Task ExecuteFileAsync(string connectionString, string path) {
         try {
