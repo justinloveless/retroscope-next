@@ -181,14 +181,18 @@ public sealed class PokerJiraLoop(
     /// key, a reload). Actor thread only.
     /// </summary>
     public void Track(PokerState state) {
-        if (port is null || state.TeamId is not { } team || !state.Jira.Configured) {
+        if (port is null || state.TeamId is not { } team || !state.Jira.Configured || state.Deleted) {
             return;
         }
         var room = RoomKey.Poker(state.SessionId);
         var meta = _rooms.GetOrAdd(room, static (_, team) => new RoomMeta(team), team);
-        meta.State.SetTarget(state);
         List<JiraMeta>? refill = null;
+        HashSet<string>? stale = null;
         lock (meta) {
+            if (!meta.State.TryGetTarget(out var known) || known != state) {
+                meta.State.SetTarget(state);
+                meta.Refilled.Clear();
+            }
             foreach (var id in state.Order) {
                 var round = state.Rounds[id];
                 if (round.TicketKey is not { } key) {
@@ -196,11 +200,18 @@ public sealed class PokerJiraLoop(
                 }
                 if (meta.Requested.Add(key)) {
                     meta.Batch.Add(key);
-                } else if (meta.Issues.TryGetValue(key, out var issue)
-                    && ParentOf(issue) != round.ParentKey
-                    && !(refill?.Contains(issue) ?? false)) {
-                    (refill ??= []).Add(issue);
+                } else if (meta.Issues.TryGetValue(key, out var issue) && ParentOf(issue) != round.ParentKey) {
+                    (stale ??= new(StringComparer.Ordinal)).Add(key);
+                    // Posted once per cached issue: until the actor applies it, every message it handles would see
+                    // the same mismatch again.
+                    if (!meta.Refilled.TryGetValue(key, out var posted) || !ReferenceEquals(posted, issue)) {
+                        meta.Refilled[key] = issue;
+                        (refill ??= []).Add(issue);
+                    }
                 }
+            }
+            foreach (var key in meta.Refilled.Keys.Where(x => stale?.Contains(x) != true).ToList()) {
+                meta.Refilled.Remove(key);
             }
             ScheduleLocked(room, meta);
         }
@@ -329,6 +340,9 @@ public sealed class PokerJiraLoop(
         public HashSet<string> Batch { get; } = new(StringComparer.Ordinal);
 
         public Dictionary<string, JiraMeta> Issues { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>The cached issue last posted back to the actor per key, for the state <see cref="State"/> holds.</summary>
+        public Dictionary<string, JiraMeta> Refilled { get; } = new(StringComparer.Ordinal);
 
         public bool Scheduled { get; set; }
     }
