@@ -9,8 +9,16 @@ namespace Retroscope.Server.Jira;
 /// The poker room's way to Jira (<see cref="IPokerJiraPort"/>, DESIGN §f): submits write points through the team's
 /// configured field, and metadata comes from the shared 5 minute cache, so a room's chips cost at most one search.
 /// </summary>
-public sealed partial class PokerJiraPort(JiraClient client, BrowseService browse, JiraCache cache, JiraAudit audit, ILogger<PokerJiraPort> logger)
-    : IPokerJiraPort {
+/// <remarks>
+/// The client and the browse service are resolved on first use: the poker room builds its port at startup, and the
+/// client needs <c>APP_KEYS</c>, which a host without Jira traffic (tests, tools) may not set (U19 decision 17).
+/// </remarks>
+public sealed partial class PokerJiraPort(
+    Func<JiraClient> client,
+    Func<BrowseService> browse,
+    JiraCache cache,
+    JiraAudit audit,
+    ILogger<PokerJiraPort> logger) : IPokerJiraPort {
     public async Task<JiraSubmitResult> SubmitPointsAsync(
         TeamId team,
         string issueKey,
@@ -21,7 +29,7 @@ public sealed partial class PokerJiraPort(JiraClient client, BrowseService brows
             return new JiraSubmitResult(false, JiraErrorCode.NotFound);
         }
         try {
-            await client.SetPointsAsync(team, issueKey, points, cancellationToken);
+            await client().SetPointsAsync(team, issueKey, points, cancellationToken);
         } catch (JiraException e) {
             return new JiraSubmitResult(false, e.Error.Code);
         } catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
@@ -38,7 +46,7 @@ public sealed partial class PokerJiraPort(JiraClient client, BrowseService brows
         TeamId team,
         IReadOnlyCollection<string> issueKeys,
         CancellationToken cancellationToken) {
-        var rows = await browse.RowsAsync(team, issueKeys, cancellationToken);
+        var rows = await browse().RowsAsync(team, issueKeys, cancellationToken);
         return [.. rows.Select(row => new JiraMeta(row.Key, row.Summary, row.IssueType, row.Status, row.ParentKey, row.ParentSummary))];
     }
 

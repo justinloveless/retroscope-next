@@ -302,7 +302,12 @@ public static partial class JiraEndpoints {
         services.AddSingleton<JiraAudit>();
         services.AddSingleton<JiraGate>();
         services.AddSingleton<JiraWrites>();
-        services.AddSingleton<PokerJiraPort>();
+        services.AddSingleton(sp => new PokerJiraPort(
+            sp.GetRequiredService<JiraClient>,
+            sp.GetRequiredService<BrowseService>,
+            sp.GetRequiredService<JiraCache>(),
+            sp.GetRequiredService<JiraAudit>(),
+            sp.GetRequiredService<ILogger<PokerJiraPort>>()));
         services.AddSingleton<IPokerJiraPort>(sp => sp.GetRequiredService<PokerJiraPort>());
     }
 
