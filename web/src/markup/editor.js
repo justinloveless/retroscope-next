@@ -325,7 +325,8 @@ function linearText(items) {
  * @param {(markup: string) => void} [options.onSubmit] Enter submits when set; Shift+Enter adds a line
  * @param {(markup: string) => void} [options.onChange]
  * @param {(file: File) => Promise<string>} [options.uploadImage] uploads a pasted or dropped image,
- *   resolving to its blob id
+ *   resolving to its blob id; a rejection removes the upload placeholder and calls onError
+ * @param {(error: unknown, file: File) => void} [options.onError] an image upload failed; the caller shows a toast
  * @param {(node: object) => string | null} [options.imageSrc] passed to render()
  * @param {string} [options.placeholder]
  * @param {string} [options.label] accessible name
@@ -802,8 +803,28 @@ export function createEditor(options = {}) {
     if (dialect !== DIALECT_RETRO || !props.uploadImage) {
       return;
     }
-    for (const file of files) {
-      const blob = await props.uploadImage(file);
+    // The placeholders sit outside the contenteditable region: anything inside it would be
+    // serialised, and a re-render on the next keystroke would drop it.
+    const pending = files.map(() => {
+      const placeholder = doc.createElement('p');
+      placeholder.setAttribute('class', 'rs-editor-upload');
+      placeholder.setAttribute('role', 'status');
+      placeholder.textContent = 'Uploading image…';
+      linkForm.before(placeholder);
+      return placeholder;
+    });
+    for (const [i, file] of files.entries()) {
+      let blob;
+      try {
+        blob = await props.uploadImage(file);
+      } catch (error) {
+        pending[i].remove();
+        if (el.isConnected) {
+          props.onError?.(error, file);
+        }
+        continue;
+      }
+      pending[i].remove();
       if (isUuid(blob) && el.isConnected) {
         if (doc.activeElement !== input) {
           input.focus();
