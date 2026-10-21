@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Npgsql;
 using NpgsqlTypes;
+using Retroscope.Core.Ids;
 using Retroscope.Core.Markup;
 using Retroscope.Core.Security;
 using Retroscope.Importer.Archive;
@@ -448,7 +449,7 @@ public sealed class RetroMap : IImportStage {
         private Authorship Author(SourceRow row, string table, Guid boardId) {
             var principal = Principal(row, table, "author_id");
             if (RetroAuthorship.IsAnonymous(row)) {
-                return new Authorship(null, principal is { } poster ? context.Keys.AnonTagger.Tag(boardId, poster) : null, null, Anonymous: true);
+                return new Authorship(null, principal is { } poster ? context.Keys.AnonTagger.Tag(new BoardId(boardId), new PrincipalId(poster)) : null, null, Anonymous: true);
             }
             if (principal is { } author) {
                 UseGuest(author);

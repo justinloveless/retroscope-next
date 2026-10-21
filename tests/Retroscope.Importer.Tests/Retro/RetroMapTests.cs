@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Npgsql;
+using Retroscope.Core.Ids;
 using Retroscope.Core.Markup;
 using Retroscope.Core.Security;
 using Retroscope.Importer.Html;
@@ -97,9 +98,9 @@ public sealed class RetroMapTests(ImporterDatabases databases) {
         var tagger = fixture.Context!.Keys.AnonTagger;
         var guest = SyntheticIds.Guest(GuestSession);
 
-        Assert.Equal(tagger.Tag(Guid.Parse(TeamBoard), Guid.Parse(Alice)), await AnonTag(fixture, "retro_cards", AnonCard));
-        Assert.Equal(tagger.Tag(Guid.Parse(TeamBoard), guest), await AnonTag(fixture, "retro_cards", AnonGuestCard));
-        Assert.Equal(tagger.Tag(Guid.Parse(TeamBoard), Guid.Parse(Bob)), await AnonTag(fixture, "retro_comments", AnonComment));
+        Assert.Equal(tagger.Tag(new BoardId(Guid.Parse(TeamBoard)), new PrincipalId(Guid.Parse(Alice))), await AnonTag(fixture, "retro_cards", AnonCard));
+        Assert.Equal(tagger.Tag(new BoardId(Guid.Parse(TeamBoard)), new PrincipalId(guest)), await AnonTag(fixture, "retro_cards", AnonGuestCard));
+        Assert.Equal(tagger.Tag(new BoardId(Guid.Parse(TeamBoard)), new PrincipalId(Guid.Parse(Bob))), await AnonTag(fixture, "retro_comments", AnonComment));
         Assert.Equal(0L, await fixture.ScalarAsync<long>(
             "select count(*) from (select author_id, legacy_author from retro_cards where anon_tag is not null union all select author_id, legacy_author from retro_comments where anon_tag is not null) x where author_id is not null or legacy_author is not null"));
 
