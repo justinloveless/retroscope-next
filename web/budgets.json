@@ -1,0 +1,21 @@
+{
+  "unit": "brotli bytes",
+  "chunks": {
+    "entry": 12288,
+    "poker": 40960,
+    "jira-browse": 14336,
+    "jira-drawer": 22528,
+    "editor": 8192,
+    "retro": 32768,
+    "team": 10240,
+    "landing": 10240,
+    "auth": 10240,
+    "dashboard": 10240,
+    "account": 10240,
+    "mentions": 10240,
+    "invite": 10240,
+    "admin": 10240,
+    "teams": 10240,
+    "css": 10240
+  }
+}

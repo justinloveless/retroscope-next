@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Retroscope.Core/Retroscope.Core.csproj" />
+    <Project Path="src/Retroscope.Server/Retroscope.Server.csproj" />
+    <Project Path="src/Retroscope.Importer/Retroscope.Importer.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Retroscope.Core.Tests/Retroscope.Core.Tests.csproj" />
+    <Project Path="tests/Retroscope.Integration.Tests/Retroscope.Integration.Tests.csproj" />
+    <Project Path="tests/Retroscope.Importer.Tests/Retroscope.Importer.Tests.csproj" />
+    <Project Path="tests/Retroscope.Sim/Retroscope.Sim.csproj" />
+    <Project Path="tests/Retroscope.Soak/Retroscope.Soak.csproj" />
+    <Project Path="tests/Retroscope.AotSmoke/Retroscope.AotSmoke.csproj" />
+    <Project Path="tests/Fakes/Retroscope.Fakes.csproj" />
+  </Folder>
+</Solution>

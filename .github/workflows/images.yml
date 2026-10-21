@@ -1,0 +1,76 @@
+name: images
+
+# Builds the app and importer images on GitHub-hosted runners and pushes them to GHCR; the Coolify
+# compose file references them by digest only (DESIGN §i.1, F1).
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  images:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Native AOT toolchain
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang zlib1g-dev
+
+      - name: AOT smoke
+        run: ./build.sh aot-smoke
+
+      - name: Image names
+        id: names
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "app=ghcr.io/$owner/retroscope" >> "$GITHUB_OUTPUT"
+          echo "importer=ghcr.io/$owner/retroscope-import" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push app
+        id: app
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.names.outputs.app }}:${{ github.sha }}
+
+      - name: Build and push importer
+        id: importer
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/Dockerfile.importer
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.names.outputs.importer }}:${{ github.sha }}
+
+      - name: Digests
+        run: |
+          {
+            echo "app: ${{ steps.names.outputs.app }}@${{ steps.app.outputs.digest }}"
+            echo "importer: ${{ steps.names.outputs.importer }}@${{ steps.importer.outputs.digest }}"
+          } | tee -a "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,36 @@
+# Local and CI override that builds the images instead of pulling them by digest (DESIGN §i.1).
+#   docker compose -f deploy/docker-compose.yml -f deploy/compose.build.yml build
+# The import-local profile is the off-box import target (DESIGN §h.1):
+#   docker compose -f deploy/compose.build.yml --profile import-local up -d import-db
+services:
+  app:
+    image: retroscope:local
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+
+  importer:
+    image: retroscope-import:local
+    profiles: ["import", "import-local"]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.importer
+
+  import-db:
+    profiles: ["import-local"]
+    image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+    environment:
+      POSTGRES_DB: retroscope
+      POSTGRES_USER: retroscope_owner
+      POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD:-import-local}
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    ports: ["127.0.0.1:55432:5432"]
+    volumes: ["import-pgdata:/var/lib/postgresql"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U retroscope_owner -d retroscope"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  import-pgdata: {}
