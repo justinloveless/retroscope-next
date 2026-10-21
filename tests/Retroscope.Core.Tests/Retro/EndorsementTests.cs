@@ -16,7 +16,7 @@ public sealed class EndorsementTests {
         Assert.Equal(new EndorsementInfo(id, Helper, Alice.Id, Bob.Id, Start.ToUnixTimeMilliseconds()), added.Endorsement);
 
         fx.NoOp(Alice, new RetroEndorseGive(fx.NewEndorsementId(), Bob.Id, Helper));
-        fx.Rejects(Alice, new RetroEndorseGive(id, Bob.Id, Helper), NackCode.Invalid);
+        fx.Rejects(Alice, new RetroEndorseGive(id, Bob.Id, Retired), NackCode.Invalid);
     }
 
     [Fact]
