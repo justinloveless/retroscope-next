@@ -309,6 +309,36 @@ describe('WebSocket protocol', () => {
     assert.deepEqual(await client.next(), { t: 'ack', r: POKER, q: 2, s: 1, dup: true });
   });
 
+  test('a dup whose payload differs from the recorded one is nacked cid_reuse', async () => {
+    fake.room(POKER, { snapshot: pokerSnapshot });
+    const client = await hello([{ r: POKER }]);
+    await client.next();
+    client.send(voteCmd(1, 3));
+    assert.deepEqual(await client.next(), { t: 'ack', r: POKER, q: 1, s: 0 });
+    client.send(voteCmd(1, 3));
+    assert.deepEqual(await client.next(), { t: 'ack', r: POKER, q: 1, s: 0, dup: true });
+    client.send(voteCmd(1, 8));
+    assert.deepEqual(await client.next(), { t: 'nack', r: POKER, q: 1, code: 'cid_reuse', retry: false });
+  });
+
+  test('seedCommands scripts another tab on the same cid; a restart forgets the hashes', async () => {
+    fake.room(POKER, { snapshot: pokerSnapshot });
+    fake.seedCommands(POKER, CID, [{ q: 4, k: 'poker.vote.set', d: { roundId: ROUND, points: 13 } }]);
+    const client = await hello([{ r: POKER }]);
+    assert.equal((await client.next()).lastQ, 4);
+    client.send(voteCmd(4, 5));
+    assert.deepEqual(await client.next(), { t: 'nack', r: POKER, q: 4, code: 'cid_reuse', retry: false });
+    client.send(voteCmd(4, 13));
+    assert.deepEqual(await client.next(), { t: 'ack', r: POKER, q: 4, s: 0, dup: true });
+    await client.close();
+
+    fake.bye({ newEpoch: true });
+    const again = await hello([{ r: POKER }]);
+    assert.equal((await again.next()).lastQ, 4);
+    again.send(voteCmd(4, 5));
+    assert.deepEqual(await again.next(), { t: 'ack', r: POKER, q: 4, s: 0, dup: true });
+  });
+
   test('a handler that answers nothing leaves the command pending; lastQ comes back on the next snap', async () => {
     fake.room(POKER, { snapshot: pokerSnapshot });
     let held;

@@ -5,18 +5,24 @@
 import { test as base, expect } from '@playwright/test';
 import { startFakeServer } from '../../../web-fake-server/server.js';
 
+// The checks every test ends with; teeth.spec.js runs them on purpose-made violations.
+export const expectNoScriptErrors = (fake) => expect(fake.scriptErrors, 'errors thrown by fake server scripts').toEqual([]);
+export const expectNoProtocolViolations = (fake) =>
+  expect(fake.violations.map((v) => v.errors), 'client frames refused by the protocol').toEqual([]);
+export const expectNoCspViolations = (page) => expect(page.cspViolations, 'CSP violations').toEqual([]);
+
 export const test = base.extend({
   allowProtocolViolations: [false, { option: true }],
 
   fake: async ({ allowProtocolViolations }, use) => {
     const fake = await startFakeServer();
-    const errors = [];
-    fake.on('error', (error) => errors.push(error));
+    fake.scriptErrors = [];
+    fake.on('error', (error) => fake.scriptErrors.push(error));
     await use(fake);
     await fake.close();
-    expect(errors, 'errors thrown by fake server scripts').toEqual([]);
+    expectNoScriptErrors(fake);
     if (!allowProtocolViolations) {
-      expect(fake.violations.map((v) => v.errors), 'client frames refused by the protocol').toEqual([]);
+      expectNoProtocolViolations(fake);
     }
   },
 
@@ -25,15 +31,15 @@ export const test = base.extend({
   },
 
   page: async ({ page }, use) => {
-    const violations = [];
-    await page.exposeFunction('__rsCspViolation', (v) => violations.push(v));
+    page.cspViolations = [];
+    await page.exposeFunction('__rsCspViolation', (v) => page.cspViolations.push(v));
     await page.addInitScript(() => {
       document.addEventListener('securitypolicyviolation', (e) => {
-        window.__rsCspViolation({ directive: e.violatedDirective, blocked: e.blockedURI, sample: e.sample });
+        window.__rsCspViolation({ directive: e.effectiveDirective, blocked: e.blockedURI, sample: e.sample });
       });
     });
     await use(page);
-    expect(violations, 'CSP violations').toEqual([]);
+    expectNoCspViolations(page);
   },
 });
 
