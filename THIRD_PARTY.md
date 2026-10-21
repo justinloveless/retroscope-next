@@ -65,8 +65,9 @@ SOFTWARE.
 ## Card art (`web/assets/cards/*.png`, `web/assets/cards.png`)
 
 The nine 71×95 pixel-art cards come from the original Retroscope repository (`src/assets/Card_*.png`, added in
-commit `100cb90` "Integrate Neotro"). That repository records no outside author or licence for them, so they are
-treated as the project's own art. If they turn out to come from somewhere else, record the source and terms here.
+commit `100cb90` "Integrate Neotro"). That repository records no outside author or licence for them. Their origin
+is **unconfirmed**: until the project owner confirms the art is the project's own, treat it as unverified and do not
+release. If it comes from somewhere else, record the source and terms here.
 
 ## Retro timer music
 
