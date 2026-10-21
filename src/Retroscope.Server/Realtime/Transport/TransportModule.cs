@@ -7,7 +7,6 @@ namespace Retroscope.Server.Realtime.Transport;
 public static class TransportModule {
     public static void AddServices(IServiceCollection services, IConfiguration configuration) {
         services.TryAddSingleton(new TransportOptions());
-        services.TryAddSingleton<IRoomGateway, UnavailableRoomGateway>();
         services.AddSingleton<ConnectionRegistry>();
         services.AddSingleton<IConnectionRevoker>(sp => sp.GetRequiredService<ConnectionRegistry>());
     }

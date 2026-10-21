@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Npgsql;
 using NpgsqlTypes;
 using Retroscope.Core.Ids;
@@ -71,7 +72,13 @@ public sealed class RetroStore(
         join users u on u.id = m.user_id
         where b.id = $1
         """,
+        "select a.source_card_id, a.id from team_action_items a join retro_cards c on c.id = a.source_card_id where c.board_id = $1",
     ];
+
+    // Which action item each source card of a loaded board feeds, so comment counts reach the team actor without a
+    // query after the commit. Items are created in place by the board (CardAdded) or imported, so the load and the
+    // board's own events keep it complete.
+    private readonly ConditionalWeakTable<RetroState, Dictionary<CardId, ActionItemId>> _itemsBySource = [];
 
     public override async Task<RetroState?> LoadAsync(RoomKey room, DateTimeOffset now, CancellationToken cancellationToken) {
         await using var connection = await DataSource.OpenConnectionAsync(cancellationToken);
@@ -155,6 +162,12 @@ public sealed class RetroStore(
                 reader.IsDBNull(3) ? null : new BlobId(reader.GetGuid(3))));
         }
         state.Members.AddRange(TeamProjection.Roster(members));
+        await reader.NextResultAsync(cancellationToken);
+        var items = new Dictionary<CardId, ActionItemId>();
+        while (await reader.ReadAsync(cancellationToken)) {
+            items[new CardId(reader.GetGuid(0))] = new ActionItemId(reader.GetGuid(1));
+        }
+        _itemsBySource.AddOrUpdate(state, items);
         return state;
     }
 
@@ -528,13 +541,14 @@ public sealed class RetroStore(
             return;
         }
         try {
-            await NotifyTeamAsync(notices, team, state, events);
+            NotifyTeam(notices, team, state, events);
         } catch (Exception e) {
             RetroStoreLog.NoticeFailed(logger, e, room);
         }
     }
 
-    private async Task NotifyTeamAsync(ITeamNotices notices, TeamId team, RetroState before, IReadOnlyList<RetroEvent> events) {
+    private void NotifyTeam(ITeamNotices notices, TeamId team, RetroState before, IReadOnlyList<RetroEvent> events) {
+        var items = _itemsBySource.GetValue(before, static _ => []);
         var commentCounts = new Dictionary<CardId, int>();
         void CountComment(CardId card, int delta) {
             if (!commentCounts.TryGetValue(card, out var count)) {
@@ -544,7 +558,8 @@ public sealed class RetroStore(
         }
         foreach (var evt in events) {
             switch (evt) {
-                case CardAdded { ActionItem: { } item }:
+                case CardAdded { ActionItem: { } item } e:
+                    items[e.CardId] = item.Id;
                     notices.ActionItemCreated(team, item);
                     break;
                 case CardEdited e:
@@ -553,11 +568,13 @@ public sealed class RetroStore(
                 case CardDeleted e:
                     notices.SourceCardDeleted(team, e.CardId);
                     commentCounts.Remove(e.CardId);
+                    items.Remove(e.CardId);
                     break;
                 case ColumnDeleted e:
                     foreach (var card in e.Cards) {
                         notices.SourceCardDeleted(team, card);
                         commentCounts.Remove(card);
+                        items.Remove(card);
                     }
                     break;
                 case CommentAdded e:
@@ -571,17 +588,10 @@ public sealed class RetroStore(
                     break;
             }
         }
-        if (commentCounts.Count == 0) {
-            return;
-        }
-        await using var command = DataSource.CreateCommand(
-            "select source_card_id, id from team_action_items where team_id = $1 and source_card_id = any($2)");
-        command.Parameters.Add(Id(team.Value));
-        command.Parameters.Add(Ids(commentCounts.Keys.Select(x => x.Value)));
-        await using var reader = await command.ExecuteReaderAsync(CancellationToken.None);
-        while (await reader.ReadAsync(CancellationToken.None)) {
-            var card = new CardId(reader.GetGuid(0));
-            notices.ActionItemCommentsChanged(team, new ActionItemId(reader.GetGuid(1)), commentCounts[card]);
+        foreach (var (card, count) in commentCounts) {
+            if (items.TryGetValue(card, out var item)) {
+                notices.ActionItemCommentsChanged(team, item, count);
+            }
         }
     }
 

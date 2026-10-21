@@ -99,7 +99,7 @@ Console.WriteLine(
     $"sim: {seeds - failures.Count}/{seeds} seeds passed in {watch.Elapsed.TotalSeconds:0.0} s (faults: {faults}{(bug == InjectedBug.None ? "" : $", injected: {bug}")}); " +
     $"{stats.Commands} commands, {stats.Commits} commits, {stats.CommitFaults} commit faults, {stats.Crashes} crashes, {stats.Redeploys} redeploys, " +
     $"{stats.Drops} drops, {stats.StorageFaults} storage faults, {stats.FullQueueEpisodes} full-queue episodes, " +
-    $"{stats.SpotlightLost} unsettled spotlight positions lost, {stats.AutoReveals} auto-reveals, {stats.CidReuseNacks} cid_reuse nacks; " +
+    $"{stats.SpotlightLost} unsettled spotlight positions lost, {stats.AutoReveals} auto-reveals, {stats.TimerExpiries} board timer expiries, {stats.CidReuseNacks} cid_reuse nacks; " +
     $"intents: {stats.Acked} acked, {stats.Nacked} nacked, {stats.Dropped} dropped by rule, {stats.Lost} lost to storage faults");
 foreach (var issue in hit.SelectMany(x => x.Known.Keys).Distinct().Order(StringComparer.Ordinal)) {
     var hits = hit.Where(x => x.Known.ContainsKey(issue)).ToList();

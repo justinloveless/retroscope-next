@@ -17,12 +17,7 @@ namespace Retroscope.Server.Realtime.Rooms;
 public static class RetroRoom {
     public static void AddServices(IServiceCollection services, IConfiguration configuration) {
         services.TryAddSingleton<IAnonTagger>(_ => new ConfiguredAnonTagger(configuration));
-        // The membership cache and the team notices come from the team room (U23). Resolved with GetService so the
-        // board room still starts without them; until then every role and grant reads as absent.
-        services.AddSingleton(sp => RoomType.Of(
-            new RetroBinding(sp.GetRequiredService<IAnonTagger>()),
-            Store(sp),
-            sp.GetService<IAccessView>() ?? NoAccess.Instance));
+        services.AddRoom(sp => new RetroBinding(sp.GetRequiredService<IAnonTagger>()), Store);
     }
 
     public static void Map(IEndpointRouteBuilder app) {
@@ -70,14 +65,6 @@ public static class RetroRoom {
             services.GetService<ITeamNotices>(),
             services.GetRequiredService<ILogger<RetroStore>>());
     }
-
-    private sealed class NoAccess : IAccessView {
-        public static readonly NoAccess Instance = new();
-
-        public TeamRole? RoleIn(TeamId team, PrincipalId principal) => null;
-
-        public bool HasCurrentGrant(BoardId board, PrincipalId principal, DateTimeOffset? passwordSetAt) => false;
-    }
 }
 
 /// <summary>The board room kind (§c.4 Retro) on the actor runtime.</summary>
@@ -99,6 +86,8 @@ public sealed class RetroBinding(IAnonTagger tagger) : IRoomBinding<RetroState, 
     }
 
     public RetroInput? FromClient(Command command) => command is RetroCommand retro ? new RetroInput.Client(retro) : null;
+
+    public bool IsCreate(Command command) => command is RetroCardAdd or RetroCommentAdd or RetroColumnAdd or RetroEndorseGive;
 
     /// <summary>
     /// Team membership and settings are written by the team actor, and visibility and password by their HTTP route

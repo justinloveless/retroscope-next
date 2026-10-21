@@ -31,13 +31,30 @@ internal sealed class PokerSocket : IAsyncDisposable {
 
     public int? CloseStatus { get; private set; }
 
-    public static async Task<PokerSocket> ConnectAsync(PokerHost host, Principal who, ClientId? client = null) {
+    public static Task<PokerSocket> ConnectAsync(PokerHost host, Principal who, ClientId? client = null) {
+        var kind = who.Kind == PrincipalKind.Guest ? "guest" : "user";
+        return ConnectAsync(
+            host.SocketUri,
+            new Dictionary<string, string> {
+                [PokerHost.CallerHeader] = $"{kind}:{who.Id}:{who.DisplayName}",
+                ["Origin"] = PokerHost.Origin,
+            },
+            who,
+            client);
+    }
+
+    /// <summary>Opens a socket with <paramref name="headers"/> on the upgrade (a cookie, an Origin) and says hello.</summary>
+    public static async Task<PokerSocket> ConnectAsync(
+        Uri socketUri,
+        IReadOnlyDictionary<string, string> headers,
+        Principal who,
+        ClientId? client = null) {
         var socket = new ClientWebSocket();
         socket.Options.KeepAliveInterval = TimeSpan.Zero;
-        var kind = who.Kind == PrincipalKind.Guest ? "guest" : "user";
-        socket.Options.SetRequestHeader(PokerHost.CallerHeader, $"{kind}:{who.Id}:{who.DisplayName}");
-        socket.Options.SetRequestHeader("Origin", PokerHost.Origin);
-        await socket.ConnectAsync(host.SocketUri, PokerHost.Token);
+        foreach (var (name, value) in headers) {
+            socket.Options.SetRequestHeader(name, value);
+        }
+        await socket.ConnectAsync(socketUri, PokerHost.Token);
         var tab = new PokerSocket(socket, who, client ?? new ClientId(Guid.CreateVersion7()));
         await tab.SendAsync(new HelloFrame(1, tab.Client, []));
         await tab.WaitForAsync<WelcomeFrame>();

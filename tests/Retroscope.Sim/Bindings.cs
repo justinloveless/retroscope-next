@@ -3,9 +3,12 @@ using Retroscope.Core.Authz;
 using Retroscope.Core.Ids;
 using Retroscope.Core.Poker;
 using Retroscope.Core.Protocol;
+using Retroscope.Core.Retro;
 using Retroscope.Core.Room;
+using Retroscope.Core.Security;
 using Retroscope.Core.Team;
 using Retroscope.Server.Realtime.Actors;
+using Retroscope.Server.Realtime.Rooms;
 
 namespace Retroscope.Sim;
 
@@ -22,6 +25,8 @@ internal enum InjectedBug : byte {
 
 /// <summary>The team membership cache (U23's <c>IAccessView</c>): replaced as a whole after every member commit.</summary>
 internal sealed class SimAccess(TeamId team) : IAccessView {
+    public static readonly IAnonTagger Tagger = AnonTagger.Parse(Convert.ToBase64String(new byte[AnonTagger.KeySize]));
+
     private volatile FrozenDictionary<PrincipalId, TeamRole> _roles = FrozenDictionary<PrincipalId, TeamRole>.Empty;
 
     public void Set(IEnumerable<MemberInfo> members) => _roles = members.ToFrozenDictionary(x => x.Pid, x => x.Role);
@@ -67,54 +72,16 @@ internal sealed class WatchedDomain<TState, TInput, TEvent>(
     public IReadOnlyList<TEvent> OnWarm(TState s, PresenceView p, DateTimeOffset now) => inner.OnWarm(s, p, now);
 }
 
-/// <summary>The poker binding as U21 sketches it (U13 decision follow-ups), over the real <see cref="PokerDomain"/>.</summary>
-internal sealed class PokerBinding(Oracle oracle, InjectedBug bug, Func<bool> live) : IRoomBinding<PokerState, PokerInput, PokerEvent> {
-    public RoomKind Kind => RoomKind.Poker;
-
-    public IRoomDomain<PokerState, PokerInput, PokerEvent> Domain { get; } = new WatchedDomain<PokerState, PokerInput, PokerEvent>(
-        new PokerDomain(),
-        oracle,
-        x => (x as ClientCommand)?.Command,
-        x => x.Durability,
-        live,
-        bug == InjectedBug.Precondition ? DropPreconditions : null);
-
-    public PokerInput? FromClient(Command command) => command is PokerCommand poker ? (PokerInput)poker : null;
-
-    public EventDurability DurabilityOf(PokerEvent evt) => evt.Durability;
-
-    public bool CanSubscribe(PokerState state, Viewer viewer, IAccessView access) {
-        return Policy.Can(viewer, Capability.Subscribe, Facts(state, viewer), access);
-    }
-
-    public RoomSnapshot Snapshot(PokerState state, IReadOnlyList<PrincipalInfo> presence, bool forMembers) {
-        return PokerProjection.Snapshot(state, presence);
-    }
-
-    public RoomOverlay? Overlay(PokerState state, Viewer viewer) => PokerProjection.Overlay(state, viewer.Who.Id, viewer.Client);
-
-    public IReadOnlyList<WireEvent> Project(PokerState state, IReadOnlyList<PokerEvent> events, PrincipalId viewer, bool viewerIsMember) {
-        return PokerProjection.Events(events, viewer);
-    }
-
-    public bool Supersedes(IReadOnlyList<PokerEvent> latest, IReadOnlyList<PokerEvent> previous) {
-        return latest.All(x => x is SpotlightMoved) && previous.All(x => x is SpotlightMoved);
-    }
-
-    public DateTimeOffset? WarmUntil(PokerState state) => state.WarmUntil;
-
-    public bool IsDeleted(PokerState state) => state.Deleted;
-
-    public PokerInput? OnShutdown(PokerState state) => state.Spotlight is { Dirty: true } ? new SpotlightSettleDue() : null;
-
-    private static ResourceFacts Facts(PokerState state, Viewer viewer) {
-        return new ResourceFacts(
-            RoomKey.Poker(state.SessionId),
-            Team: state.TeamId,
-            CreatedBy: state.CreatedBy,
-            IsObserver: state.Observers.Contains(viewer.Who.Id),
-            JiraConfigured: state.Jira.Configured,
-            MembersCanEditJira: state.Jira.MembersCanEdit);
+/// <summary>The real poker binding (U21) over the real <see cref="PokerDomain"/>, watched by the oracle.</summary>
+internal static class SimPokerBinding {
+    public static Server.Realtime.Rooms.PokerBinding Create(Oracle oracle, InjectedBug bug, Func<bool> live) {
+        return new Server.Realtime.Rooms.PokerBinding(new WatchedDomain<PokerState, PokerInput, PokerEvent>(
+            new PokerDomain(),
+            oracle,
+            x => (x as ClientCommand)?.Command,
+            x => x.Durability,
+            live,
+            bug == InjectedBug.Precondition ? DropPreconditions : null));
     }
 
     /// <summary>The planted bug: overwrite commands always carry the values the server holds now.</summary>
@@ -158,4 +125,40 @@ internal sealed class TeamBinding(Oracle oracle, TimeProvider time, Func<bool> l
     }
 
     public bool IsDeleted(TeamState state) => state.Deleted;
+}
+
+/// <summary>
+/// The real board binding (U22) with its decider watched by the oracle; everything else is the real binding's.
+/// </summary>
+internal sealed class SimRetroBinding(Oracle oracle, Func<bool> live) : IRoomBinding<RetroState, RetroInput, RetroEvent> {
+    private static readonly IRoomBinding<RetroState, RetroInput, RetroEvent> Real = new RetroBinding(SimAccess.Tagger);
+
+    public RoomKind Kind => Real.Kind;
+
+    public IRoomDomain<RetroState, RetroInput, RetroEvent> Domain { get; } = new WatchedDomain<RetroState, RetroInput, RetroEvent>(
+        new RetroDecider(SimAccess.Tagger),
+        oracle,
+        x => (x as RetroInput.Client)?.Command,
+        Real.DurabilityOf,
+        live);
+
+    public RetroInput? FromClient(Command command) => Real.FromClient(command);
+
+    public bool IsCreate(Command command) => Real.IsCreate(command);
+
+    public EventDurability DurabilityOf(RetroEvent evt) => Real.DurabilityOf(evt);
+
+    public bool CanSubscribe(RetroState state, Viewer viewer, IAccessView access) => Real.CanSubscribe(state, viewer, access);
+
+    public bool IsMember(RetroState state, Viewer viewer, IAccessView access) => Real.IsMember(state, viewer, access);
+
+    public RoomSnapshot Snapshot(RetroState state, IReadOnlyList<PrincipalInfo> presence, bool forMembers) {
+        return Real.Snapshot(state, presence, forMembers);
+    }
+
+    public RoomOverlay? Overlay(RetroState state, Viewer viewer) => Real.Overlay(state, viewer);
+
+    public IReadOnlyList<WireEvent> Project(RetroState state, IReadOnlyList<RetroEvent> events, PrincipalId viewer, bool viewerIsMember) {
+        return Real.Project(state, events, viewer, viewerIsMember);
+    }
 }

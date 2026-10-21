@@ -1,4 +1,5 @@
 using Retroscope.Core.Ids;
+using Retroscope.Core.Poker;
 using Retroscope.Core.Protocol;
 using Retroscope.Core.Room;
 using Retroscope.Core.Team;
@@ -303,6 +304,43 @@ public sealed class TeamRoomTests(PostgresFixture postgres) {
 
         Assert.False(scope.Registry.TryGet(RoomKey.Poker(Session), out _));
         Assert.False(scope.Registry.TryGet(RoomKey.Board(Board), out _));
+    }
+
+    [Fact]
+    public async Task Loading_the_team_room_hands_the_roster_it_read_to_live_sessions() {
+        await using var scope = await StartAsync(postgres);
+        await scope.AddUserAsync(Alice, TeamRole.Owner);
+        await scope.AddUserAsync(Bob);
+        var poker = await scope.SubscribeAsync(Alice, RoomKey.Poker(Session));
+        await poker.NextAsync<SnapFrame>();
+        await scope.Registry.QueryAsync<PokerState, PokerInput, int>(RoomKey.Poker(Session), _ => ValueTask.FromResult(0), Token);
+        await poker.DrainAsync();
+        Assert.False(scope.Registry.TryGet(TeamKey, out _));
+        // A member change whose commit landed although its outcome was unknown: the rows moved, nothing fanned out.
+        await scope.ExecAsync("insert into team_members (team_id, user_id, role) values ($1, $2, 'member')", Team.Value, Bob.Who.Id.Value);
+
+        await scope.SettleAsync();
+
+        var roster = await UntilEventAsync<PokerRoster>(poker);
+        Assert.Contains(roster.Seats, x => x.Pid == Bob.Who.Id);
+        Assert.Equal(TeamRole.Member, scope.Cache.RoleIn(Team, Bob.Who.Id));
+    }
+
+    [Fact]
+    public async Task Deleting_the_team_drops_every_role_and_rechecks_its_live_boards() {
+        await using var scope = await StartAsync(postgres);
+        await scope.AddUserAsync(Alice, TeamRole.Owner);
+        var board = await scope.SubscribeAsync(Alice, RoomKey.Board(Board));
+        Assert.NotNull(Assert.IsType<RetroSnapshot>((await board.NextAsync<SnapFrame>()).D).Members);
+        await scope.SettleAsync();
+        await board.DrainAsync();
+
+        // The member variant of a board's snapshot ends with the roles: Alice is sent the outsiders' snapshot.
+        await scope.AskAsync(new TeamInput.TeamDeleted());
+        await scope.SettleAsync();
+
+        Assert.Null(scope.Cache.RoleIn(Team, Alice.Who.Id));
+        await board.UntilAsync<SnapFrame>();
     }
 
     private static async Task<T> UntilEventAsync<T>(TestPeer peer) where T : WireEvent {

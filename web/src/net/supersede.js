@@ -24,7 +24,9 @@ export const SUPERSEDE = Object.freeze({
   // Ending and reactivating set the same flag.
   'poker.round.end': as('poker.round.activate', 'roundId'),
   'poker.round.activate': on('roundId'),
-  'poker.round.setTicket': on('roundId'),
+  // The screens take baseVersion and expected from the view, which already folds pending entries in: a newer edit
+  // can name a version only the older one produces, so dropping the older one would lose both.
+  'poker.round.setTicket': null,
   'poker.round.commitPending': null,
   'poker.round.discardPending': null,
   'poker.round.delete': null,
@@ -38,7 +40,8 @@ export const SUPERSEDE = Object.freeze({
   'poker.spotlight.release': null,
   'poker.jira.submitPoints': on('roundId'),
   'retro.card.add': null,
-  'retro.card.edit': on('cardId'),
+  // As setTicket: the card's version on screen already counts a pending edit.
+  'retro.card.edit': null,
   'retro.card.delete': null,
   'retro.vote.set': on('cardId'),
   'retro.comment.add': null,
@@ -48,7 +51,7 @@ export const SUPERSEDE = Object.freeze({
   'retro.column.delete': null,
   'retro.column.reorder': on(),
   'retro.column.setActionItems': on(),
-  'retro.board.rename': on(),
+  'retro.board.rename': null,
   'retro.config.update': null,
   'retro.stage.set': null,
   'retro.ready.set': on('stage'),

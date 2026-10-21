@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Retroscope.Core.Authz;
 using Retroscope.Core.Ids;
 using Retroscope.Core.Poker;
@@ -8,7 +7,6 @@ using Retroscope.Core.Protocol;
 using Retroscope.Core.Room;
 using Retroscope.Server.Realtime.Actors;
 using Retroscope.Server.Realtime.Stores;
-using Retroscope.Server.Realtime.Transport;
 
 namespace Retroscope.Server.Realtime.Rooms;
 
@@ -18,10 +16,6 @@ namespace Retroscope.Server.Realtime.Rooms;
 /// </summary>
 public static class PokerRoom {
     public static void AddServices(IServiceCollection services, IConfiguration configuration) {
-        // Deny-all until the team room registers the membership-backed view (U23); a later registration wins.
-        services.TryAddSingleton<IAccessView, NoTeamAccess>();
-        services.AddSingleton<RoomGateway>();
-        services.Replace(ServiceDescriptor.Singleton<IRoomGateway>(sp => sp.GetRequiredService<RoomGateway>()));
         services.AddSingleton(sp => new PokerJiraLoop(
             sp.GetService<IPokerJiraPort>(),
             sp.GetRequiredService<TimeProvider>(),
@@ -50,6 +44,10 @@ public sealed class PokerBinding(IRoomDomain<PokerState, PokerInput, PokerEvent>
     public IRoomDomain<PokerState, PokerInput, PokerEvent> Domain { get; } = domain;
 
     public PokerInput? FromClient(Command command) => command is PokerCommand poker ? (PokerInput)poker : null;
+
+    public bool IsCreate(Command command) {
+        return command is PokerRoundCreate or PokerRoundCreateMany or PokerRoundNext or PokerRoundsClearAll;
+    }
 
     public EventDurability DurabilityOf(PokerEvent evt) => evt.Durability;
 
@@ -156,13 +154,6 @@ public sealed class PokerRoomDomain(
     }
 }
 
-/// <summary>Unsequenced frames a room hands a subscriber right after its snapshot or replay (cache fills).</summary>
-public interface IResumeFill {
-    RoomKind Kind { get; }
-
-    IReadOnlyList<ServerFrame> AfterResume(RoomKey room);
-}
-
 /// <summary>
 /// The poker room's Jira traffic (§f). The <c>JiraMetaLoop</c>: when a room's set of ticket keys grows, the new keys
 /// are fetched off-actor in one call (coalesced for 250 ms), every subscriber gets <c>x jira.meta</c>, and the
@@ -190,14 +181,18 @@ public sealed class PokerJiraLoop(
     /// key, a reload). Actor thread only.
     /// </summary>
     public void Track(PokerState state) {
-        if (port is null || state.TeamId is not { } team || !state.Jira.Configured) {
+        if (port is null || state.TeamId is not { } team || !state.Jira.Configured || state.Deleted) {
             return;
         }
         var room = RoomKey.Poker(state.SessionId);
         var meta = _rooms.GetOrAdd(room, static (_, team) => new RoomMeta(team), team);
-        meta.State.SetTarget(state);
         List<JiraMeta>? refill = null;
+        HashSet<string>? stale = null;
         lock (meta) {
+            if (!meta.State.TryGetTarget(out var known) || known != state) {
+                meta.State.SetTarget(state);
+                meta.Refilled.Clear();
+            }
             foreach (var id in state.Order) {
                 var round = state.Rounds[id];
                 if (round.TicketKey is not { } key) {
@@ -205,11 +200,18 @@ public sealed class PokerJiraLoop(
                 }
                 if (meta.Requested.Add(key)) {
                     meta.Batch.Add(key);
-                } else if (meta.Issues.TryGetValue(key, out var issue)
-                    && ParentOf(issue) != round.ParentKey
-                    && !(refill?.Contains(issue) ?? false)) {
-                    (refill ??= []).Add(issue);
+                } else if (meta.Issues.TryGetValue(key, out var issue) && ParentOf(issue) != round.ParentKey) {
+                    (stale ??= new(StringComparer.Ordinal)).Add(key);
+                    // Posted once per cached issue: until the actor applies it, every message it handles would see
+                    // the same mismatch again.
+                    if (!meta.Refilled.TryGetValue(key, out var posted) || !ReferenceEquals(posted, issue)) {
+                        meta.Refilled[key] = issue;
+                        (refill ??= []).Add(issue);
+                    }
                 }
+            }
+            foreach (var key in meta.Refilled.Keys.Where(x => stale?.Contains(x) != true).ToList()) {
+                meta.Refilled.Remove(key);
             }
             ScheduleLocked(room, meta);
         }
@@ -339,163 +341,14 @@ public sealed class PokerJiraLoop(
 
         public Dictionary<string, JiraMeta> Issues { get; } = new(StringComparer.Ordinal);
 
+        /// <summary>The cached issue last posted back to the actor per key, for the state <see cref="State"/> holds.</summary>
+        public Dictionary<string, JiraMeta> Refilled { get; } = new(StringComparer.Ordinal);
+
         public bool Scheduled { get; set; }
     }
-}
-
-/// <summary>
-/// Hands transport traffic to the actor runtime (U14's <see cref="IRoomGateway"/>, for every room kind). Each
-/// subscription is an <see cref="IRoomPeer"/> over the connection; a kick the actor sends goes through
-/// <see cref="IClientConnection.Kick"/> so the connection forgets the room too.
-/// </summary>
-public sealed class RoomGateway : IRoomGateway {
-    private readonly ActorRegistry _registry;
-    private readonly HashSet<RoomKind> _kinds;
-    private readonly Dictionary<RoomKind, IResumeFill[]> _fills;
-    private readonly ILogger<RoomGateway> _logger;
-    private readonly ConcurrentDictionary<RoomKey, ConcurrentDictionary<ConnectionId, Peer>> _rooms = new();
-
-    public RoomGateway(
-        ActorRegistry registry,
-        IEnumerable<RoomType> types,
-        IEnumerable<IResumeFill> fills,
-        ILogger<RoomGateway> logger) {
-        _registry = registry;
-        _kinds = [.. types.Select(x => x.Kind)];
-        _fills = fills.GroupBy(x => x.Kind).ToDictionary(x => x.Key, x => x.ToArray());
-        _logger = logger;
-    }
-
-    public void Subscribe(IClientConnection connection, RoomKey room, Epoch? epoch, long? seq) {
-        if (!_kinds.Contains(room.Kind)) {
-            connection.Kick(room, KickCode.NotFound);
-            return;
-        }
-        var peers = _rooms.GetOrAdd(room, static _ => new());
-        var peer = peers.GetOrAdd(connection.Viewer.Conn, static (_, x) => new Peer(x.Gateway, x.Connection, x.Room), (Gateway: this, Connection: connection, Room: room));
-        _ = SubscribeAsync(peer, epoch, seq);
-    }
-
-    public void Unsubscribe(IClientConnection connection, RoomKey room) {
-        Forget(room, connection.Viewer.Conn);
-        _registry.Unsubscribe(room, connection.Viewer.Conn);
-    }
-
-    public void Command(IClientConnection connection, CmdFrame command) {
-        if (!_rooms.TryGetValue(command.R, out var peers) || !peers.TryGetValue(connection.Viewer.Conn, out var peer)) {
-            connection.Send(new NackFrame(command.R, command.Q, NackCode.NotSubscribed));
-            return;
-        }
-        _ = CommandAsync(peer, command);
-    }
-
-    public void Disconnected(IClientConnection connection, IReadOnlyCollection<RoomKey> rooms) {
-        foreach (var room in rooms) {
-            Forget(room, connection.Viewer.Conn);
-            _registry.ConnectionClosed(room, connection.Viewer.Conn);
-        }
-    }
-
-    /// <summary>Sends an unsequenced frame to every subscriber that already holds the room's snapshot.</summary>
-    public void Broadcast(RoomKey room, ServerFrame frame) {
-        if (!_rooms.TryGetValue(room, out var peers)) {
-            return;
-        }
-        byte[]? bytes = null;
-        foreach (var peer in peers.Values) {
-            if (peer.Live) {
-                peer.Connection.Send(bytes ??= WireWriter.ToUtf8(frame));
-            }
-        }
-    }
-
-    private async Task SubscribeAsync(Peer peer, Epoch? epoch, long? seq) {
-        try {
-            var result = await _registry.SubscribeAsync(peer.Room, peer, peer.Connection.Viewer, epoch, seq, CancellationToken.None);
-            if (result == PostResult.Accepted) {
-                return;
-            }
-        } catch (Exception e) {
-            PokerRoomLog.GatewayFailed(_logger, e, peer.Room, "sub");
-        }
-        // A room too busy for a new subscription, or one that could not be reached: the client reconnects and resumes.
-        Forget(peer.Room, peer.Id);
-        peer.Connection.Restart();
-    }
-
-    private async Task CommandAsync(Peer peer, CmdFrame command) {
-        try {
-            var result = await _registry.CommandAsync(peer.Room, peer, peer.Connection.Viewer, command, CancellationToken.None);
-            if (result != PostResult.Closed) {
-                return;
-            }
-        } catch (Exception e) {
-            PokerRoomLog.GatewayFailed(_logger, e, peer.Room, command.K);
-        }
-        peer.Connection.Restart();
-    }
-
-    private void Forget(RoomKey room, ConnectionId connection) {
-        if (_rooms.TryGetValue(room, out var peers)) {
-            peers.TryRemove(connection, out _);
-            if (peers.IsEmpty) {
-                _rooms.TryRemove(new KeyValuePair<RoomKey, ConcurrentDictionary<ConnectionId, Peer>>(room, peers));
-            }
-        }
-    }
-
-    private IReadOnlyList<ServerFrame> FillsAfterResume(RoomKey room) {
-        return _fills.TryGetValue(room.Kind, out var fills) ? [.. fills.SelectMany(x => x.AfterResume(room))] : [];
-    }
-
-    private sealed class Peer(RoomGateway gateway, IClientConnection connection, RoomKey room) : IRoomPeer {
-        private volatile bool _live;
-
-        public ConnectionId Id => Connection.Viewer.Conn;
-
-        public IClientConnection Connection { get; } = connection;
-
-        public RoomKey Room { get; } = room;
-
-        /// <summary>The peer has its snapshot or replay, so unsequenced fills may reach it.</summary>
-        public bool Live => _live;
-
-        public bool Send(byte[] frame) {
-            var span = frame.AsSpan();
-            if (span.StartsWith("{\"t\":\"kick\""u8)) {
-                _live = false;
-                gateway.Forget(Room, Id);
-                Connection.Kick(Room, ((KickFrame)WireParser.ParseServer(frame).Frame!).Code);
-                return true;
-            }
-            var sent = Connection.Send(frame);
-            if (sent && (span.StartsWith("{\"t\":\"snap\""u8) || span.StartsWith("{\"t\":\"replay\""u8))) {
-                _live = true;
-                foreach (var fill in gateway.FillsAfterResume(Room)) {
-                    Connection.Send(fill);
-                }
-            }
-            return sent;
-        }
-
-        public void Restart() {
-            _live = false;
-            Connection.Restart();
-        }
-    }
-}
-
-/// <summary>No team roles and no board grants: quick sessions work, team rooms refuse everyone.</summary>
-internal sealed class NoTeamAccess : IAccessView {
-    public TeamRole? RoleIn(TeamId team, PrincipalId principal) => null;
-
-    public bool HasCurrentGrant(BoardId board, PrincipalId principal, DateTimeOffset? passwordSetAt) => false;
 }
 
 internal static partial class PokerRoomLog {
     [LoggerMessage(Level = LogLevel.Warning, Message = "Room {Room}: the Jira {Call} call failed")]
     public static partial void JiraCallFailed(ILogger logger, Exception exception, RoomKey room, string call);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Room {Room}: handing {Kind} to the actor failed; the connection restarts")]
-    public static partial void GatewayFailed(ILogger logger, Exception exception, RoomKey room, string kind);
 }

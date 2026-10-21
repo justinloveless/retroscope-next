@@ -21,6 +21,13 @@ public interface IRoomBinding<TState, TInput, TEvent> where TState : class where
     TInput? FromClient(Command command);
 
     /// <summary>
+    /// Whether <paramref name="command"/> creates something under a client-minted id. Deciders answer a create whose id
+    /// already exists with the same payload with a no-op (UF6): it committed under an earlier <c>(cid, q)</c>, so the
+    /// ack says <c>dup</c>.
+    /// </summary>
+    bool IsCreate(Command command) => false;
+
+    /// <summary>
     /// <see cref="EventDurability.Committed"/> events are written in the command's transaction,
     /// <see cref="EventDurability.Ephemeral"/> ones are sequenced without one and
     /// <see cref="EventDurability.MemoryOnly"/> ones never reach the wire.

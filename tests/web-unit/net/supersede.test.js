@@ -4,8 +4,12 @@ import { COMMANDS } from '../../../web/src/net/protocol.gen.js';
 import { SUPERSEDE, supersedeKey } from '../../../web/src/net/supersede.js';
 
 // Kinds that overwrite a value but deliberately have no key: their precondition names the value they replace
-// (`from`), or they patch only some fields, so a newer command can depend on the older one having applied.
+// (`from`, or a baseVersion/expected the screens read from the optimistic view), or they patch only some fields,
+// so a newer command can depend on the older one having applied.
 const UNKEYED_OVERWRITES = new Set([
+  'poker.round.setTicket',
+  'retro.board.rename',
+  'retro.card.edit',
   'poker.settings.update',
   'retro.column.update',
   'retro.config.update',
@@ -48,7 +52,7 @@ test('key members are required members of the command', () => {
 test('a key is the kind (or its group) plus the target', () => {
   assert.equal(supersedeKey('poker.vote.set', { roundId: 'r1', points: '3' }), 'poker.vote.set:r1');
   assert.equal(supersedeKey('poker.abstain.set', { roundId: 'r1', abstain: true }), 'poker.vote.set:r1');
-  assert.equal(supersedeKey('retro.card.edit', { cardId: 'c1', body: 'x', baseVersion: 1 }), 'retro.card.edit:c1');
+  assert.equal(supersedeKey('retro.card.edit', { cardId: 'c1', body: 'x', baseVersion: 1 }), null);
   assert.equal(supersedeKey('retro.vote.set', { cardId: 'c1', on: true }), 'retro.vote.set:c1');
   assert.equal(supersedeKey('retro.column.reorder', { order: [] }), 'retro.column.reorder');
   assert.equal(supersedeKey('retro.card.add', { cardId: 'c1' }), null);

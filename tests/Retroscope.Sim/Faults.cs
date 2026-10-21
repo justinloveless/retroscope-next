@@ -11,16 +11,19 @@ internal enum Faults {
     Membership = 32,
     Board = 64,
 
-    /// <summary>Opt-in: sessionStorage goes back to an older copy as a whole (see the U15 decisions).</summary>
+    /// <summary>sessionStorage goes back to an older copy as a whole.</summary>
     StaleStorage = 128,
 
-    /// <summary>Opt-in: a duplicated tab whose original stays open (the residual case of §c.6).</summary>
+    /// <summary>
+    /// Opt-in: a duplicated tab whose original stays open and misses the boot check (the residual case of §c.6). Two
+    /// live tabs then hold one outbox, and each can be answered truthfully for the same intent (see UF9 decisions).
+    /// </summary>
     Twins = 256,
 
-    /// <summary>Opt-in: the server notices a dropped socket only after the client reconnected (4409).</summary>
+    /// <summary>The server notices a dropped socket only after the client reconnected (4409).</summary>
     StaleSocket = 512,
 
-    Default = Network | Commits | Crashes | Storage | FullQueues | Membership | Board,
+    Default = Network | Commits | Crashes | Storage | FullQueues | Membership | Board | StaleStorage | StaleSocket,
     All = Default | StaleStorage | Twins | StaleSocket,
 }
 
@@ -54,6 +57,8 @@ internal sealed class Stats {
 
     public int AutoReveals { get; set; }
 
+    public int TimerExpiries { get; set; }
+
     public int CidReuseNacks { get; set; }
 
     /// <summary>Crashes that lost a spotlight position which had not settled yet (§c.8).</summary>
@@ -77,6 +82,7 @@ internal sealed class Stats {
         Drops += other.Drops;
         FullQueueEpisodes += other.FullQueueEpisodes;
         AutoReveals += other.AutoReveals;
+        TimerExpiries += other.TimerExpiries;
         CidReuseNacks += other.CidReuseNacks;
         SpotlightLost += other.SpotlightLost;
         Acked += other.Acked;

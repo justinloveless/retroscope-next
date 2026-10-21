@@ -145,18 +145,35 @@ test('a gap resubscribes and the replay fills it', async () => {
   assert.ok(fake.received.some((r) => r.frame.t === 'sub' && r.frame.s === 0));
 });
 
-test('a 4409 hello rejection mints a new cid and the next hello is welcomed', async () => {
+test('a 4409 hello rejection with no twin keeps the cid, and the next hello is welcomed', async () => {
   fake.rejectNextHello(4409);
   const room = socket.room(POKER, model);
   const firstCid = outbox.cid;
   socket.start();
   await until(() => room.synced, 'the snapshot after the second hello');
-  assert.equal(hellos().length, 2);
-  assert.equal(hellos()[0], firstCid);
-  assert.notEqual(hellos()[1], firstCid);
+  assert.deepEqual(hellos(), [firstCid, firstCid]);
 });
 
-test('cid_reuse reconnects under a new cid and resends the entry with a new q', async () => {
+test('a server_busy nack resubscribes before the resend, which keeps its q', async () => {
+  let first = true;
+  fake.onCommand('poker.vote.set', (ctx) => {
+    if (first) {
+      first = false;
+      ctx.nack('server_busy');
+      return;
+    }
+    ctx.commit([{ k: 'poker.vote.state', d: { roundId: ROUND, pid: PID, status: 'selected' } }]);
+  });
+  const room = socket.room(POKER, model);
+  socket.start();
+  await until(() => room.synced, 'the snapshot');
+  room.send('poker.vote.set', vote(3));
+  await until(() => room.pending().length === 0, 'the ack of the resend', 3000);
+  const after = fake.received.map((r) => r.frame).filter((f) => f.t === 'sub' || f.t === 'cmd').map((f) => f.t === 'cmd' ? f.q : 'sub');
+  assert.deepEqual(after, [1, 'sub', 1]);
+});
+
+test('cid_reuse without a twin keeps the cid and resends the entry with a new q', async () => {
   let first = true;
   fake.onCommand('poker.vote.set', (ctx) => {
     if (first) {
@@ -170,9 +187,8 @@ test('cid_reuse reconnects under a new cid and resends the entry with a new q', 
   socket.start();
   await until(() => room.synced, 'the snapshot');
   room.send('poker.vote.set', vote(3));
-  await until(() => room.pending().length === 0 && room.synced, 'the ack under the new cid');
-  assert.equal(hellos().length, 2);
-  assert.notEqual(hellos()[1], hellos()[0]);
+  await until(() => room.pending().length === 0 && room.synced, 'the ack of the renumbered entry', 3000);
+  assert.equal(hellos().length, 1);
   assert.deepEqual(cmds().map((f) => f.q), [1, 2]);
   assert.deepEqual(room.view.kinds, ['poker.vote.state']);
 });

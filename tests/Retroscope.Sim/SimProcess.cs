@@ -1,12 +1,12 @@
 using System.Diagnostics;
-using System.Reflection;
-using System.Threading.Channels;
 using Microsoft.Extensions.Logging.Abstractions;
 using Retroscope.Core.Ids;
 using Retroscope.Core.Poker;
 using Retroscope.Core.Protocol;
+using Retroscope.Core.Room;
 using Retroscope.Core.Team;
 using Retroscope.Server.Realtime.Actors;
+using Retroscope.Server.Realtime.Transport;
 
 namespace Retroscope.Sim;
 
@@ -27,15 +27,21 @@ internal sealed class SimProcess {
         _world = world;
         Clock = world.Clock.ForProcess();
         var runtime = new ActorRuntime(world.Options, Clock, NullLoggerFactory.Instance);
-        Registry = new ActorRegistry(runtime, [
-            RoomType.Of(new PokerBinding(world.Oracle, world.Bug, () => !Dead), new PokerSimStore(world, this), world.Access),
+        RoomType[] types = [
+            RoomType.Of(SimPokerBinding.Create(world.Oracle, world.Bug, () => !Dead), new PokerSimStore(world, this), world.Access),
             RoomType.Of(new TeamBinding(world.Oracle, Clock, () => !Dead), new TeamSimStore(world, this), world.Access),
-        ]);
+            RoomType.Of(new SimRetroBinding(world.Oracle, () => !Dead), new RetroSimStore(world, this), world.Access),
+        ];
+        Registry = new ActorRegistry(runtime, types);
+        Gateway = new RoomGateway(Registry, types, [], NullLogger<RoomGateway>.Instance);
     }
 
     public SimClock.ProcessClock Clock { get; }
 
     public ActorRegistry Registry { get; }
+
+    /// <summary>The real gateway the transport hands every socket's traffic to.</summary>
+    public RoomGateway Gateway { get; }
 
     // Written on actor threads and read by the world, which no longer synchronizes with the actor through a reply.
     private volatile bool _dead;
@@ -69,8 +75,7 @@ internal sealed class SimProcess {
 
     /// <summary>
     /// Waits until every live actor (except <paramref name="held"/> ones) has empty queues and is parked waiting for
-    /// its next message. The check only reads the actor's fields: a barrier message would itself change what the
-    /// actor does (an idle actor does not retire while anything is queued, and any message reloads a poisoned one).
+    /// its next message (<see cref="IQuiescent"/>).
     /// </summary>
     public async Task QuiesceAsync(IReadOnlySet<RoomKey> held) {
         var deadline = Stopwatch.StartNew();
@@ -79,7 +84,7 @@ internal sealed class SimProcess {
         while (!Dead && !CrashRequested) {
             var quiet = true;
             foreach (var room in _world.Rooms) {
-                if (!held.Contains(room) && Registry.TryGet(room, out var actor) && !ActorFields.Of(actor.GetType()).IsParked(actor)) {
+                if (!held.Contains(room) && Registry.TryGet(room, out var actor) && !((IQuiescent)actor).IsParked) {
                     quiet = false;
                     break;
                 }
@@ -98,55 +103,13 @@ internal sealed class SimProcess {
             }
         }
     }
-
-    /// <summary>
-    /// The actor's private queue state (§c.7), read and never written. An actor is parked when both channels are empty
-    /// and it is awaiting both of its pending reads (<c>RoomActor.NextAsync</c>): a read that completed means it woke.
-    /// </summary>
-    private sealed class ActorFields(FieldInfo internalQueue, FieldInfo externalQueue, FieldInfo internalReady, FieldInfo externalReady, PropertyInfo completion) {
-        private static readonly Dictionary<Type, ActorFields> Cache = [];
-        private static readonly Lock CacheLock = new();
-
-        public static ActorFields Of(Type actorType) {
-            lock (CacheLock) {
-                if (!Cache.TryGetValue(actorType, out var fields)) {
-                    const BindingFlags Flags = BindingFlags.Instance | BindingFlags.NonPublic;
-                    fields = new ActorFields(
-                        actorType.GetField("_internal", Flags) ?? throw Missing(actorType, "_internal"),
-                        actorType.GetField("_external", Flags) ?? throw Missing(actorType, "_external"),
-                        actorType.GetField("_internalReady", Flags) ?? throw Missing(actorType, "_internalReady"),
-                        actorType.GetField("_externalReady", Flags) ?? throw Missing(actorType, "_externalReady"),
-                        actorType.GetProperty("Completion") ?? throw Missing(actorType, "Completion"));
-                    Cache[actorType] = fields;
-                }
-                return fields;
-            }
-        }
-
-        public bool IsParked(object actor) {
-            if (completion.GetValue(actor) is Task { IsCompleted: true }) {
-                return true;
-            }
-            // The single-reader unbounded channel cannot count, but it can peek, as the actor itself does.
-            if (((Channel<ActorMessage>)internalQueue.GetValue(actor)!).Reader.TryPeek(out _)
-                || ((Channel<ActorMessage>)externalQueue.GetValue(actor)!).Reader.Count > 0) {
-                return false;
-            }
-            return internalReady.GetValue(actor) is Task { IsCompleted: false }
-                && externalReady.GetValue(actor) is Task { IsCompleted: false };
-        }
-
-        private static InvalidOperationException Missing(Type type, string member) {
-            return new InvalidOperationException($"{type.Name} has no member {member}; update the simulation's quiescence check.");
-        }
-    }
 }
 
 /// <summary>
-/// A socket as the actors see it (U14's <c>IClientConnection</c>, reduced to <see cref="IRoomPeer"/>). Frames are
-/// parsed when sent, checked by the oracle, and queued for the world to deliver in order.
+/// A socket as the transport hands it to the gateway (U14's <see cref="IClientConnection"/>). Frames are parsed when
+/// sent, checked by the oracle, and queued for the world to deliver in order.
 /// </summary>
-internal sealed class SimConnection(World world, SimTab tab, SimProcess process, ConnectionId id, ClientId cid) : IRoomPeer {
+internal sealed class SimConnection(World world, SimTab tab, SimProcess process, ConnectionId id, ClientId cid) : IClientConnection {
     private readonly Lock _lock = new();
     private readonly Queue<ServerFrame> _inbox = new();
 
@@ -158,6 +121,10 @@ internal sealed class SimConnection(World world, SimTab tab, SimProcess process,
     public SimTab Tab { get; } = tab;
 
     public SimProcess Process { get; } = process;
+
+    public Viewer Viewer { get; } = new(tab.Who, cid, id);
+
+    public Guid? AuthSessionId => null;
 
     /// <summary>Rooms this socket asked for, so the transport can tell each actor when the socket closes.</summary>
     public HashSet<RoomKey> Rooms { get; } = [];
@@ -184,17 +151,27 @@ internal sealed class SimConnection(World world, SimTab tab, SimProcess process,
         }
     }
 
+    public bool Send(ServerFrame frame) => Send(WireWriter.ToUtf8(frame));
+
+    public bool Send(IReadOnlyList<ReadOnlyMemory<byte>> segments) {
+        var bytes = new List<byte>();
+        foreach (var segment in segments) {
+            bytes.AddRange(segment.ToArray());
+        }
+        return Send(bytes.ToArray());
+    }
+
     /// <summary>
     /// A socket whose client already vanished still takes writes until the server notices (keep-alive), so the
     /// frame is observed and dropped rather than refused.
     /// </summary>
-    public bool Send(byte[] frame) {
+    public bool Send(ReadOnlyMemory<byte> utf8) {
         lock (_lock) {
             if (ServerClosing || Process.Dead) {
                 return false;
             }
         }
-        var parsed = WireParser.ParseServer(frame);
+        var parsed = WireParser.ParseServer(utf8.Span);
         if (!parsed.Ok) {
             world.Oracle.Fail($"the server sent an unparseable frame: {parsed.Error} {parsed.Message}");
             return true;
@@ -206,6 +183,12 @@ internal sealed class SimConnection(World world, SimTab tab, SimProcess process,
             }
         }
         return true;
+    }
+
+    /// <summary>The transport drops the room from the socket and tells the client why.</summary>
+    public void Kick(RoomKey room, KickCode code) {
+        Rooms.Remove(room);
+        Send(new KickFrame(room, code));
     }
 
     public void Restart() {

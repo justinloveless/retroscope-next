@@ -13,5 +13,7 @@
   <ItemGroup>
     <!-- The reference client fold of a poker room (U7), shared with the property tests and the golden transcripts. -->
     <Compile Include="../Retroscope.Core.Tests/Poker/ViewerModel.cs" Link="Linked/ViewerModel.cs" />
+    <!-- The reference client fold of a board (U8); RetroFixture.cs supplies the serializer it borrows. -->
+    <Compile Include="../Retroscope.Core.Tests/Retro/RetroViewerModel.cs" Link="Linked/RetroViewerModel.cs" />
   </ItemGroup>
 </Project>

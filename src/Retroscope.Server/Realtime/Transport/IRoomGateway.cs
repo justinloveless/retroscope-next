@@ -5,8 +5,8 @@ using Retroscope.Core.Room;
 namespace Retroscope.Server.Realtime.Transport;
 
 /// <summary>
-/// Where the transport hands room traffic: the actor runtime (U13) implements it and registers it in
-/// <c>ActorsModule.AddServices</c>. Every method is called from a connection's receive loop and must not block it
+/// Where the transport hands room traffic: the actor runtime implements it (<c>Actors/RoomGateway</c>) and registers
+/// it in <c>ActorsModule.AddServices</c>. Every method is called from a connection's receive loop and must not block it
 /// (R26): a full actor queue answers with a <c>server_busy</c> nack through the connection instead.
 /// </summary>
 public interface IRoomGateway {
@@ -44,21 +44,4 @@ public interface IClientConnection {
 
     /// <summary>Sends <c>bye{restart, retryMs}</c> and closes with 1012 (fencing loss, outcome-unknown commit, shutdown).</summary>
     void Restart();
-}
-
-/// <summary>Serves no rooms: used until the actor runtime registers the real gateway.</summary>
-internal sealed class UnavailableRoomGateway : IRoomGateway {
-    public void Subscribe(IClientConnection connection, RoomKey room, Epoch? epoch, long? seq) {
-        connection.Kick(room, KickCode.NotFound);
-    }
-
-    public void Unsubscribe(IClientConnection connection, RoomKey room) {
-    }
-
-    public void Command(IClientConnection connection, CmdFrame command) {
-        connection.Send(new NackFrame(command.R, command.Q, NackCode.NotSubscribed));
-    }
-
-    public void Disconnected(IClientConnection connection, IReadOnlyCollection<RoomKey> rooms) {
-    }
 }

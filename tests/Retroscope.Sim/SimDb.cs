@@ -1,6 +1,7 @@
 using Retroscope.Core.Ids;
 using Retroscope.Core.Poker;
 using Retroscope.Core.Protocol;
+using Retroscope.Core.Retro;
 using Retroscope.Core.Room;
 using Retroscope.Core.Team;
 using Retroscope.Server.Data;
@@ -33,8 +34,9 @@ internal enum CommitFault : byte {
 }
 
 /// <summary>
-/// The database: one poker session and its team, as their rows would load. Committed events are applied to a
-/// private copy of each state, so a reload sees exactly what committed and nothing that was only in memory.
+/// The database: one poker session, one board and their team, as their rows would load. Committed events are applied
+/// to a private copy of each state (the board's are replayed onto its seeded rows), so a reload sees exactly what
+/// committed and nothing that was only in memory.
 /// </summary>
 internal sealed class SimDb {
     private readonly Lock _lock = new();
@@ -42,10 +44,14 @@ internal sealed class SimDb {
     private readonly Dictionary<RoomKey, CommitFault> _faults = [];
     private readonly PokerState _poker;
     private readonly TeamState _team;
+    private readonly Func<RetroState> _board;
+    private readonly List<RetroEvent> _boardEvents = [];
 
-    public SimDb(PokerState poker, TeamState team) {
+    /// <param name="board">Builds the board's seeded rows; called for every load.</param>
+    public SimDb(PokerState poker, TeamState team, Func<RetroState> board) {
         _poker = poker.Clone();
         _team = Clone(team);
+        _board = board;
     }
 
     /// <summary>The board side of action items: card id → (body, version), for the text-sync repair on load.</summary>
@@ -118,6 +124,32 @@ internal sealed class SimDb {
             return Clone(_team);
         }
     }
+
+    /// <summary>
+    /// The board as <c>RetroStore.LoadAsync</c> (U22) builds it: its committed rows, with the roster and the
+    /// endorsement limit read from the team.
+    /// </summary>
+    public RetroState LoadRetro() {
+        lock (_lock) {
+            var state = RetroRows();
+            state.Members.AddRange(TeamProjection.Roster(_team.Members.Values));
+            state.MaxEndorsements = _team.MaxEndorsements;
+            return state;
+        }
+    }
+
+    /// <summary>The board's own rows: its seed and every committed event, without the team's parts.</summary>
+    public RetroState RetroRows() {
+        lock (_lock) {
+            var state = _board();
+            foreach (var evt in _boardEvents) {
+                RetroApply.Apply(state, evt);
+            }
+            return state;
+        }
+    }
+
+    public void ApplyRetro(RetroEvent evt) => _boardEvents.Add(evt);
 
     public ClientCursor Cursor(RoomKey room, ClientId client, PrincipalId principal) {
         lock (_lock) {
@@ -376,5 +408,43 @@ internal sealed class TeamSimStore(World world, SimProcess process) : SimStore<T
         World.PostLater(Process, registry => registry.Post<PokerState, PokerInput>(World.PokerRoom, new RosterChanged(seats)));
         World.PostLater(Process, registry => registry.AccessChanged(World.PokerRoom));
         World.PostLater(Process, registry => registry.AccessChanged(World.TeamRoom));
+        var roster = TeamProjection.Roster(members);
+        World.PostLater(Process, registry => registry.Post<RetroState, RetroInput>(World.BoardRoom, new RetroInput.MembersChanged(roster)));
+        World.PostLater(Process, registry => registry.AccessChanged(World.BoardRoom));
+    }
+}
+
+internal sealed class RetroSimStore(World world, SimProcess process) : SimStore<RetroState, RetroEvent>(world, process) {
+    public override Task<RetroState?> LoadAsync(RoomKey room, DateTimeOffset now, CancellationToken cancellationToken) {
+        return Task.FromResult<RetroState?>(Db.LoadRetro());
+    }
+
+    protected override bool Apply(IReadOnlyList<RetroEvent> events) {
+        foreach (var evt in events) {
+            Db.ApplyRetro(evt);
+        }
+        return false;
+    }
+
+    /// <summary>R5 for the board, and readiness is only ever recorded for the stage the board is in.</summary>
+    protected override void CheckPreconditions(Intent? intent, IReadOnlyList<RetroEvent> events) {
+        var rows = Db.RetroRows();
+        foreach (var evt in events) {
+            switch (evt) {
+                case ReadySet ready when ready.Stage != rows.Stage:
+                    World.Oracle.Fail($"readiness for {ready.Stage} recorded while the board is in {rows.Stage} ({intent})");
+                    break;
+                case StageChanged stage when stage.From != rows.Stage:
+                    World.Oracle.Fail($"stage change from {stage.From} accepted while the board is in {rows.Stage} ({intent})");
+                    break;
+                case TimerChanged { ExpiredAt: { } end } when rows.Timer is not { State: TimerState.Running } || rows.Timer.EndsAt != end:
+                    World.Oracle.Fail($"timer expiry at {end:O} committed for a timer that is {rows.Timer.State} until {rows.Timer.EndsAt:O}");
+                    break;
+            }
+        }
+        if (intent?.Command is RetroCardEdit edit && events.Any(x => x is CardEdited)
+            && rows.Cards.TryGetValue(edit.CardId, out var card) && card.Version != edit.BaseVersion) {
+            World.Oracle.Fail($"stale overwrite accepted: card.edit with baseVersion {edit.BaseVersion} over version {card.Version} ({intent})");
+        }
     }
 }
