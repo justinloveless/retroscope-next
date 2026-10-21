@@ -184,7 +184,11 @@ public sealed class PokerJiraLoop(
 
     public RoomKind Kind => RoomKind.Poker;
 
-    /// <summary>Requests metadata for every ticket key of the room it has not requested yet. Actor thread only.</summary>
+    /// <summary>
+    /// Requests metadata for every ticket key of the room it has not requested yet, and hands cached metadata back to
+    /// rounds whose parent key no longer matches it (a ticket set back to a fetched key, a second round with the same
+    /// key, a reload). Actor thread only.
+    /// </summary>
     public void Track(PokerState state) {
         if (port is null || state.TeamId is not { } team || !state.Jira.Configured) {
             return;
@@ -192,13 +196,25 @@ public sealed class PokerJiraLoop(
         var room = RoomKey.Poker(state.SessionId);
         var meta = _rooms.GetOrAdd(room, static (_, team) => new RoomMeta(team), team);
         meta.State.SetTarget(state);
+        List<JiraMeta>? refill = null;
         lock (meta) {
             foreach (var id in state.Order) {
-                if (state.Rounds[id].TicketKey is { } key && meta.Requested.Add(key)) {
+                var round = state.Rounds[id];
+                if (round.TicketKey is not { } key) {
+                    continue;
+                }
+                if (meta.Requested.Add(key)) {
                     meta.Batch.Add(key);
+                } else if (meta.Issues.TryGetValue(key, out var issue)
+                    && ParentOf(issue) != round.ParentKey
+                    && !(refill?.Contains(issue) ?? false)) {
+                    (refill ??= []).Add(issue);
                 }
             }
             ScheduleLocked(room, meta);
+        }
+        if (refill is not null) {
+            registry().Post<PokerState, PokerInput>(room, new JiraMetaLoaded(refill));
         }
         if (_rooms.Count > _pruneAt) {
             Prune();
@@ -293,6 +309,11 @@ public sealed class PokerJiraLoop(
             gate.Broadcast(room, new XFrame(room, issue));
         }
         registry().Post<PokerState, PokerInput>(room, new JiraMetaLoaded(issues));
+    }
+
+    // Mirrors PokerDecider's normalisation so a cached issue with an unusable parent never looks stale forever.
+    private static string? ParentOf(JiraMeta issue) {
+        return TicketKeys.IsValid(issue.ParentKey) ? issue.ParentKey : null;
     }
 
     // Rooms whose actor state is gone (evicted or reloaded without Jira) keep nothing once nothing is in flight.
