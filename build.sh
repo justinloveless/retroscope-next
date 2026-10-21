@@ -152,8 +152,10 @@ cmd_aot_smoke() {
   SMOKE_PID=""
   trap smoke_cleanup EXIT
 
+  image_port="$(free_port)"
   log "throwaway Postgres on port $pg_port"
-  docker run -d --rm --name "$SMOKE_PG" -p "127.0.0.1:$pg_port:5432" \
+  # The chiseled app container joins this container's network namespace, so its port is published here.
+  docker run -d --rm --name "$SMOKE_PG" -p "127.0.0.1:$pg_port:5432" -p "127.0.0.1:$image_port:8080" \
     -e POSTGRES_DB=retroscope -e POSTGRES_USER=retroscope_owner -e POSTGRES_PASSWORD=smoke \
     "$POSTGRES_IMAGE" >/dev/null
   for _ in $(seq 1 60); do
@@ -179,8 +181,11 @@ cmd_aot_smoke() {
   log "chiseled image serves /healthz"
   docker build -f deploy/Dockerfile -t retroscope:aot-smoke . >"$ARTIFACTS/aot/image.log" 2>&1 \
     || { tail -50 "$ARTIFACTS/aot/image.log"; die "image build failed"; }
-  image_port="$(free_port)"
-  docker run -d --rm --name "$SMOKE_APP" -p "127.0.0.1:$image_port:8080" retroscope:aot-smoke >/dev/null
+  docker run -d --name "$SMOKE_APP" --network "container:$SMOKE_PG" \
+    -e DATABASE_URL="Host=127.0.0.1;Port=5432;Database=retroscope;Username=retroscope_app;Password=smoke-app" \
+    -e DATABASE_OWNER_URL="Host=127.0.0.1;Port=5432;Database=retroscope;Username=retroscope_owner;Password=smoke" \
+    -e PUBLIC_URL="http://127.0.0.1:$image_port" \
+    retroscope:aot-smoke >/dev/null
   wait_http "http://127.0.0.1:$image_port/healthz" || { docker logs "$SMOKE_APP"; die "chiseled image did not serve /healthz"; }
   retry 5 docker exec "$SMOKE_APP" /app/retroscope healthcheck || die "healthcheck subcommand failed inside the image"
 
