@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Retroscope.Server.Endpoints;
 
 namespace Retroscope.Server.Json;
 
@@ -7,7 +8,11 @@ namespace Retroscope.Server.Json;
     JsonSerializerDefaults.Web,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-// Placeholder until the module adds its own types: the generator emits nothing for an empty context.
-[JsonSerializable(typeof(JsonElement))]
+[JsonSerializable(typeof(AdminUserPatch))]
+[JsonSerializable(typeof(AdminMemberRequest))]
+[JsonSerializable(typeof(AdminUser))]
+[JsonSerializable(typeof(IReadOnlyList<AdminUser>))]
+[JsonSerializable(typeof(IReadOnlyList<AdminTeam>))]
+[JsonSerializable(typeof(AdminStats))]
 public sealed partial class AdminJsonContext : JsonSerializerContext {
 }
