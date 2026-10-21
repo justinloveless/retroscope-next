@@ -69,6 +69,7 @@ public sealed class LeaderProcessTests(PostgresFixture postgres) {
             };
             info.Environment["ASPNETCORE_URLS"] = "http://127.0.0.1:0";
             info.Environment["DOTNET_hostBuilder__reloadConfigOnChange"] = "false";
+            info.Environment["PUBLIC_URL"] = "http://127.0.0.1";
             info.Environment["DATABASE_URL"] = database.AppConnectionString;
             info.Environment["DATABASE_OWNER_URL"] = database.OwnerConnectionString;
             info.Environment[LeaderOptions.AcquireSecondsKey] = acquireSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
