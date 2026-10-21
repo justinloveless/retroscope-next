@@ -4,8 +4,11 @@ import { COMMANDS } from '../../../web/src/net/protocol.gen.js';
 import { SUPERSEDE, supersedeKey } from '../../../web/src/net/supersede.js';
 
 // Kinds that overwrite a value but deliberately have no key: their precondition names the value they replace
-// (`from`), or they patch only some fields, so a newer command can depend on the older one having applied.
+// (`from`, or a baseVersion/expected the screens read from the optimistic view), or they patch only some fields,
+// so a newer command can depend on the older one having applied.
 const UNKEYED_OVERWRITES = new Set([
+  'poker.round.setTicket',
+  'retro.board.rename',
   'poker.settings.update',
   'retro.column.update',
   'retro.config.update',

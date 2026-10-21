@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CID_CHECK_MS, OUTBOX_CAP, createOutbox } from '../../../web/src/net/outbox.js';
+import { CID_CHECK_MS, OUTBOX_CAP, TWIN_RECHECK_MS, createOutbox } from '../../../web/src/net/outbox.js';
 import {
   OTHER_PID, OTHER_ROOM, PID, ROOM, brokenStorage, channelHub, fakeTimers, memoryStorage, uuidSequence,
 } from './_fakes.js';
@@ -65,14 +65,37 @@ test('sync raises cseq to lastQ and never lowers it', () => {
   assert.equal(outbox.add(ROOM, 'retro.vote.set', { cardId: 'x', on: true }).q, 41);
 });
 
-test('sync renumbers unsent entries whose q the server already saw, and keeps sent ones', () => {
+test('sync renumbers unsent entries created before the first sync whose q the server already saw', () => {
   const { outbox } = outboxWith({ storage: memoryStorage() });
-  const sent = outbox.add(ROOM, 'retro.vote.set', { cardId: 'a', on: true });
+  const sent = outbox.add(ROOM, 'retro.vote.set', { cardId: 'a', on: true }, { beforeSync: true });
   outbox.markSent(sent);
-  const unsent = outbox.add(ROOM, 'retro.vote.set', { cardId: 'b', on: true });
+  const unsent = outbox.add(ROOM, 'retro.vote.set', { cardId: 'b', on: true }, { beforeSync: true });
+  const later = outbox.add(ROOM, 'retro.vote.set', { cardId: 'c', on: true });
   outbox.sync(ROOM, 5);
   assert.equal(sent.q, 1, 'a sent entry resends with its q and is acked dup if it landed');
   assert.equal(unsent.q, 6);
+  assert.equal(later.q, 3, 'after a sync cseq was at the cursor, so a lower cursor means someone else used the q');
+});
+
+test('entries restored from storage keep their q at sync: they may have been sent since that copy', () => {
+  const storage = memoryStorage();
+  const { outbox } = outboxWith({ storage });
+  outbox.add(ROOM, 'retro.vote.set', { cardId: 'a', on: true }, { beforeSync: true });
+  const { outbox: reloaded } = outboxWith({ storage, uuid: uuidSequence('r') });
+  const [restored] = reloaded.entries(ROOM);
+  reloaded.sync(ROOM, 4);
+  assert.equal(restored.q, 1, 'resent as q 1, so a commit since then comes back dup');
+  assert.equal(reloaded.cseq, 4);
+});
+
+test('a retryable nack keeps the q and marks the entry', () => {
+  const storage = memoryStorage();
+  const { outbox } = outboxWith({ storage });
+  const a = outbox.add(ROOM, 'retro.vote.set', { cardId: 'a', on: true });
+  outbox.markSent(a);
+  outbox.markRetry(a);
+  assert.deepEqual([a.q, a.sent, a.retry], [1, true, true]);
+  assert.equal(JSON.parse(storage.data.get('rs.outbox')).entries[0].retry, true);
 });
 
 test('renumber moves the entry behind every other entry in q order', () => {
@@ -132,22 +155,37 @@ test('the first known principal is adopted without clearing', () => {
   assert.equal(entry.pid, PID);
 });
 
-test('remint after 4409 keeps entries and their q', () => {
-  const { outbox } = outboxWith({ storage: memoryStorage() });
+test('a twin check that nobody answers keeps the cid, the entries and their q', async () => {
+  const open = channelHub();
+  const { outbox, timers } = outboxWith({ storage: memoryStorage(), channel: open() });
   const entry = outbox.add(ROOM, 'retro.vote.set', { cardId: 'x', on: true });
-  outbox.remint();
-  assert.equal(outbox.cid, 'c2');
+  const check = outbox.checkTwin(TWIN_RECHECK_MS);
+  timers.advance(TWIN_RECHECK_MS);
+  assert.equal(await check, false);
+  assert.equal(outbox.cid, 'c1');
   assert.equal(entry.q, 1);
   assert.equal(outbox.size, 1);
 });
 
-test('remint after cid_reuse gives every entry a new q', () => {
-  const { outbox } = outboxWith({ storage: memoryStorage() });
-  const a = outbox.add(ROOM, 'retro.vote.set', { cardId: 'a', on: true });
-  const b = outbox.add(ROOM, 'retro.vote.set', { cardId: 'b', on: true });
-  outbox.markSent(a);
-  outbox.remint({ renumber: true });
-  assert.deepEqual([a.q, b.q, a.sent], [3, 4, false]);
+test('two copies that booted together both keep the cid until a recheck finds the other', async () => {
+  const open = channelHub();
+  const storage = memoryStorage();
+  outboxWith({ storage, channel: null }).outbox.add(ROOM, 'retro.vote.set', { cardId: 'x', on: true });
+  const a = outboxWith({ storage: memoryStorage(Object.fromEntries(storage.data)), channel: open(), uuid: uuidSequence('a') });
+  const b = outboxWith({ storage: memoryStorage(Object.fromEntries(storage.data)), channel: open(), uuid: uuidSequence('b') });
+  a.timers.advance(CID_CHECK_MS);
+  b.timers.advance(CID_CHECK_MS);
+  await Promise.all([a.outbox.ready, b.outbox.ready]);
+  assert.deepEqual([a.outbox.cid, b.outbox.cid], ['c1', 'c1'], 'tabs that are still checking do not answer');
+  let changes = 0;
+  b.outbox.onChange(() => changes++);
+  const check = b.outbox.checkTwin(TWIN_RECHECK_MS);
+  b.timers.advance(TWIN_RECHECK_MS);
+  assert.equal(await check, true);
+  assert.equal(b.outbox.cid, 'b1');
+  assert.equal(b.outbox.size, 0, 'the entries belong to the tab that answered');
+  assert.equal(changes, 1);
+  assert.deepEqual([a.outbox.cid, a.outbox.size], ['c1', 1]);
 });
 
 test('ephemeral entries older than 10 s are dropped, durable ones kept', () => {

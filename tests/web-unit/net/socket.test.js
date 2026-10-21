@@ -1,24 +1,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClock } from '../../../web/src/core/clock.js';
-import { createOutbox } from '../../../web/src/net/outbox.js';
+import { TWIN_RECHECK_MS, createOutbox } from '../../../web/src/net/outbox.js';
 import {
   BACKOFF_MAX_MS, BACKOFF_RESET_MS, PING_EVERY_MS, WATCHDOG_MS, backoffDelay, createSocket,
 } from '../../../web/src/net/socket.js';
 import {
-  OTHER_PID, OTHER_ROOM, PID, ROOM, fakeDocument, fakeTimers, fakeWebSocketClass, fakeWindow, listModel,
+  OTHER_PID, OTHER_ROOM, PID, ROOM, channelHub, fakeDocument, fakeTimers, fakeWebSocketClass, fakeWindow, listModel,
   memoryStorage, syncSchedule, uuidSequence,
 } from './_fakes.js';
 
 const EPOCH = '00000000000000aa';
 const ME = { pid: PID, kind: 'user', name: 'Ada' };
 
-function setup({ random = () => 0.5, storage = memoryStorage(), pid = PID } = {}) {
+function setup({ random = () => 0.5, storage = memoryStorage(), pid = PID, channel = null } = {}) {
   const timers = fakeTimers();
   const ws = fakeWebSocketClass();
   const doc = fakeDocument();
   const win = fakeWindow();
-  const outbox = createOutbox({ storage, channel: null, pid, now: timers.now, setTimer: timers.setTimer, uuid: uuidSequence() });
+  const outbox = createOutbox({ storage, channel, pid, now: timers.now, setTimer: timers.setTimer, uuid: uuidSequence() });
   const nacks = [];
   const socket = createSocket({
     url: 'ws://test/ws',
@@ -183,20 +183,53 @@ test('a close with 1005 (how WebKit reports 1012) reconnects like 1012', async (
   }
 });
 
-test('4409 mints a new cid, keeps the outbox and reconnects', async () => {
+const card = (id, body) => ({ cardId: id, columnId: 'k', body, anonymous: false });
+
+test('4409 without a live twin keeps the cid, the outbox and every q, and reconnects with backoff', async () => {
   const { socket, ws, timers, outbox } = setup();
   const room = joinRoom(socket);
   socket.start();
   await welcome(ws.last());
   ws.last().receive({ t: 'snap', r: ROOM, e: EPOCH, s: 3, lastQ: 0, d: { items: [] } });
-  room.send('retro.card.add', { cardId: 'c', columnId: 'k', body: 'x', anonymous: false });
+  room.send('retro.card.add', card('c', 'x'));
   const oldCid = outbox.cid;
   ws.last().serverClose(4409);
+  await Promise.resolve();
+  assert.equal(outbox.cid, oldCid, 'the holder is this tab\'s own dead socket: the cursor still dedupes');
+  assert.equal(socket.status.get().state, 'waiting');
+  timers.advance(BACKOFF_MAX_MS);
+  await ws.last().open();
+  assert.equal(ws.last().sent[0].cid, oldCid);
+  ws.last().receive({ t: 'welcome', conn: 'conn', me: ME, n: 5_000_000 });
+  ws.last().receive({ t: 'replay', r: ROOM, e: EPOCH, from: 4, lastQ: 1, txs: [] });
+  assert.deepEqual(ws.last().frames('cmd').map((f) => f.q), [1]);
+});
+
+test('4409 with a live twin holding the cid yields: a new cid and an empty outbox', async () => {
+  const open = channelHub();
+  const storage = memoryStorage();
+  const { socket, ws, timers, outbox } = setup({ storage, channel: open() });
+  const room = joinRoom(socket);
+  room.send('retro.card.add', card('c', 'x'));
+  const twin = createOutbox({ storage: memoryStorage(Object.fromEntries(storage.data)), channel: null, pid: PID });
+  assert.equal(twin.cid, outbox.cid);
+  const twinChannel = open();
+  twinChannel.addEventListener('message', (event) => {
+    if (event.data.t === 'cid?' && event.data.cid === twin.cid) {
+      twinChannel.postMessage({ t: 'cid!', cid: twin.cid });
+    }
+  });
+  socket.start();
+  await ws.last().open();
+  const oldCid = outbox.cid;
+  ws.last().serverClose(4409);
+  timers.advance(TWIN_RECHECK_MS);
+  await Promise.resolve();
   assert.notEqual(outbox.cid, oldCid);
+  assert.equal(room.pending().length, 0, 'the twin owns the copied entries');
   timers.advance(BACKOFF_MAX_MS);
   await ws.last().open();
   assert.equal(ws.last().sent[0].cid, outbox.cid);
-  assert.equal(room.pending().length, 1);
 });
 
 test('4401 and 4403 stop reconnecting', async () => {
@@ -228,47 +261,48 @@ test('a welcome for another principal clears the outbox and reconnects under a n
   assert.equal(room.view, null);
 });
 
-test('cid_reuse mints a new cid and resends every pending entry with a new q', async () => {
-  const { socket, ws, outbox } = setup();
+test('cid_reuse without a twin keeps the socket and the cid and resends only that entry under a new q', async () => {
+  const { socket, ws, timers, outbox } = setup();
   const room = joinRoom(socket);
   socket.start();
   await welcome(ws.last());
   ws.last().receive({ t: 'snap', r: ROOM, e: EPOCH, s: 3, lastQ: 0, d: { items: [] } });
-  room.send('retro.card.add', { cardId: 'c', columnId: 'k', body: 'x', anonymous: false });
-  room.send('retro.card.add', { cardId: 'd', columnId: 'k', body: 'y', anonymous: false });
+  room.send('retro.card.add', card('c', 'x'));
+  room.send('retro.card.add', card('d', 'y'));
   const oldCid = outbox.cid;
   ws.last().receive({ t: 'nack', r: ROOM, q: 1, code: 'cid_reuse', retry: false });
-  assert.notEqual(outbox.cid, oldCid);
-  const next = ws.last();
-  assert.equal(ws.sockets.length, 2);
-  await welcome(next);
-  assert.equal(next.sent[0].cid, outbox.cid);
-  next.receive({ t: 'replay', r: ROOM, e: EPOCH, from: 4, lastQ: 0, txs: [] });
-  assert.deepEqual(next.frames('cmd').map((f) => [f.q, f.d.body]), [[3, 'x'], [4, 'y']]);
+  await Promise.resolve();
+  assert.equal(outbox.cid, oldCid);
+  assert.equal(ws.sockets.length, 1);
+  timers.advance(250);
+  ws.last().receive({ t: 'replay', r: ROOM, e: EPOCH, from: 4, lastQ: 0, txs: [] });
+  assert.deepEqual(ws.last().frames('cmd').map((f) => [f.q, f.d.body]), [[1, 'x'], [2, 'y'], [3, 'x']]);
 });
 
-test('after cid_reuse, a create that already committed under the old cid is acked once, not applied twice', async () => {
-  const { socket, ws } = setup();
+test('cid_reuse with a live twin yields and reconnects under a new cid', async () => {
+  const open = channelHub();
+  const storage = memoryStorage();
+  const { socket, ws, timers, outbox } = setup({ storage, channel: open() });
   const room = joinRoom(socket);
   socket.start();
   await welcome(ws.last());
   ws.last().receive({ t: 'snap', r: ROOM, e: EPOCH, s: 3, lastQ: 0, d: { items: [] } });
-  room.send('retro.card.add', { cardId: 'c', columnId: 'k', body: 'x', anonymous: false });
-  room.send('retro.card.add', { cardId: 'd', columnId: 'k', body: 'y', anonymous: false });
-  // x committed, but its ack was lost; y collided with another tab's (cid, q).
-  ws.last().receive({ t: 'tx', r: ROOM, s: 4, ev: [{ k: 'test.added', d: { item: 'x' } }] });
-  ws.last().receive({ t: 'nack', r: ROOM, q: 2, code: 'cid_reuse', retry: false });
-  const next = ws.last();
-  await welcome(next);
-  next.receive({ t: 'replay', r: ROOM, e: EPOCH, from: 5, lastQ: 0, txs: [] });
-  assert.deepEqual(next.frames('cmd').map((f) => [f.q, f.d.cardId]), [[3, 'c'], [4, 'd']]);
-
-  // The server finds card c with the same payload and acks without a tx (Core's idempotent-create rule).
-  next.receive({ t: 'ack', r: ROOM, q: 3, s: 4 });
-  next.receive({ t: 'tx', r: ROOM, s: 5, ev: [{ k: 'test.added', d: { item: 'y' } }] });
-  next.receive({ t: 'ack', r: ROOM, q: 4, s: 5 });
+  room.send('retro.card.add', card('c', 'x'));
+  const twinChannel = open();
+  const cid = outbox.cid;
+  twinChannel.addEventListener('message', (event) => {
+    if (event.data.t === 'cid?' && event.data.cid === cid) {
+      twinChannel.postMessage({ t: 'cid!', cid });
+    }
+  });
+  ws.last().receive({ t: 'nack', r: ROOM, q: 1, code: 'cid_reuse', retry: false });
+  timers.advance(TWIN_RECHECK_MS);
+  await Promise.resolve();
+  assert.notEqual(outbox.cid, cid);
   assert.equal(room.pending().length, 0);
-  assert.deepEqual(room.view.items, ['x', 'y']);
+  assert.equal(ws.sockets.length, 2, 'reconnects at once under the new cid');
+  await ws.last().open();
+  assert.equal(ws.last().sent[0].cid, outbox.cid);
 });
 
 test('online and visible reconnect at once instead of waiting out the backoff', async () => {
