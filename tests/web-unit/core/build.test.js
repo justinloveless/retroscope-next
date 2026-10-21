@@ -2,9 +2,9 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
@@ -185,18 +185,19 @@ test('node web/build.mjs exits non-zero when a source file uses a banned sink', 
   assert.equal(existsSync(join(copy, 'dist', 'manifest.json')), false);
 });
 
-test('the real source tree has no banned sinks', async () => {
-  const result = await esbuild.build({
-    absWorkingDir: web,
-    entryPoints: ['src/entry.js', 'src/core/a11y.js', 'src/core/clock.js', 'src/core/fmt.js', 'src/core/list.js', 'src/core/store.js', 'src/core/theme.js',
-      ...['avatar', 'button', 'confirm', 'dialog', 'icons', 'menu', 'popover', 'resizable', 'select', 'switch', 'tabs', 'toast', 'tooltip'].map((n) => `src/ui/${n}.js`)],
-    bundle: true,
-    write: false,
-    outdir: 'out',
-    format: 'esm',
-    splitting: true,
-    logLevel: 'silent',
-    plugins: [bannedSinksPlugin()],
-  });
-  assert.equal(result.errors.length, 0);
+// Scans files, not the bundle graph, so a module that no entry reaches yet is still covered.
+test('no file under web/src uses a banned sink', async () => {
+  const src = join(web, 'src');
+  const files = (await readdir(src, { recursive: true, withFileTypes: true }))
+    .filter((entry) => entry.isFile())
+    .map((entry) => join(entry.parentPath ?? entry.path, entry.name));
+  assert.ok(files.some((file) => file.endsWith(join('core', 'router.js'))));
+
+  const found = [];
+  for (const file of files) {
+    for (const { sink, line } of findBannedSinks(await readFile(file, 'utf8'))) {
+      found.push(`${relative(web, file)}:${line} ${sink}`);
+    }
+  }
+  assert.deepEqual(found, []);
 });
