@@ -9,10 +9,10 @@ import { createHeader } from './screens/header.js';
 
 const THEMES = new Set(['light', 'dark', 'system']);
 
-// Route modules that take the tab's socket as mount(root, boot, {socket}). The socket starts as soon
-// as the page loads, so the WebSocket handshake overlaps the chunk download. Screens that still open a
-// socket of their own are left out: two sockets of one tab share a cid and fight with 4409.
-const SHARED_SOCKET = new Set(['retro/index.js']);
+// Room screens share the tab's one socket (two sockets of one tab share a cid and fight with 4409). It
+// starts as soon as the page loads, so the WebSocket handshake overlaps the chunk download, and reaches
+// the screen as mount(root, boot, {socket}).
+const ROOM_MODULES = new Set(['poker/index.js', 'retro/index.js', 'team/index.js']);
 
 function readBoot() {
   try {
@@ -38,7 +38,7 @@ function notFound(root) {
 }
 
 async function sharedSocket(route) {
-  if (!SHARED_SOCKET.has(route.module) || !currentMe()?.principal) {
+  if (!ROOM_MODULES.has(route.module) || !currentMe()?.principal) {
     return {};
   }
   const socket = await getSocket();

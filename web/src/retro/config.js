@@ -1,7 +1,9 @@
 // Board settings (DESIGN §c.4 `retro.config.update`, R5). The dialog sends only the fields the facilitator
-// changed, each with the value they saw, so it never overwrites a change made after it opened. A refused
-// update is dropped silently (§g.4); the dialog notices because the board's config moved away from what
-// it saw, and shows the fresh values instead. `maxVotes: 0` means unlimited on the wire (U2 decision 5).
+// changed, each with the value they saw, so it never overwrites a change made after it opened. It does not
+// send an update the board's rules already refuse (not a facilitator, archived, a value out of range, a
+// field someone else changed meanwhile); it says why instead. A refused update that races another change
+// is dropped silently (§g.4); the dialog notices because the board's config moved away from what it saw,
+// and shows the fresh values instead. `maxVotes: 0` means unlimited on the wire (U2 decision 5).
 
 import { h } from '../core/h.js';
 import { createButton } from '../ui/button.js';
@@ -11,6 +13,11 @@ import { createSwitch } from '../ui/switch.js';
 import { isFacilitator } from './model.js';
 
 const SAVE_TIMEOUT_MS = 8000;
+
+const NACKS = {
+  forbidden: 'Only facilitators can change the settings.',
+  board_archived: 'This board is archived, so its settings cannot change.',
+};
 
 const FIELDS = [
   { key: 'allowAnonymous', label: 'Allow anonymous posts', group: 'General' },
@@ -40,6 +47,20 @@ export function configUpdate(seen, wanted) {
     }
   }
   return Object.keys(patch).length === 0 ? null : { patch, expected };
+}
+
+/** Why the board refuses any settings change from `me` right now (RetroDecider), or null. */
+export function refusalOf(view, me) {
+  if (view.meta.archived) {
+    return 'This board is archived, so its settings cannot change.';
+  }
+  return isFacilitator(view, me) ? null : 'Only facilitators can change the settings.';
+}
+
+/** The fields of `update` that someone else changed since the dialog read them: the server refuses those as stale. */
+export function staleFields(update, config) {
+  const current = asPatch(config);
+  return Object.keys(update.patch).filter((key) => current[key] !== update.expected[key]);
 }
 
 function openDialog(ctx, onClosed) {
@@ -112,6 +133,9 @@ function openDialog(ctx, onClosed) {
     if (wanted.voteEmoji === '' || [...wanted.voteEmoji].length > 8) {
       return ['voteEmoji', 'The vote emoji is 1 to 8 characters.'];
     }
+    if (/[\p{Cc}\p{Cs}]/u.test(wanted.voteEmoji)) {
+      return ['voteEmoji', 'The vote emoji cannot contain control characters.'];
+    }
     return null;
   }
 
@@ -154,16 +178,27 @@ function openDialog(ctx, onClosed) {
     fill(current, followed);
   }
 
+  function refuse(message) {
+    error.hidden = false;
+    error.textContent = message;
+  }
+
   function save() {
     if (saving) {
       return;
     }
     error.hidden = true;
+    notice.hidden = true;
+    const view = ctx.view();
+    const refused = refusalOf(view, ctx.me());
+    if (refused) {
+      refuse(refused);
+      return;
+    }
     const wanted = values();
     const invalid = validate(wanted);
     if (invalid) {
-      error.hidden = false;
-      error.textContent = invalid[1];
+      refuse(invalid[1]);
       inputs.get(invalid[0]).input?.focus();
       return;
     }
@@ -172,14 +207,23 @@ function openDialog(ctx, onClosed) {
       dialog.close();
       return;
     }
+    const stale = staleFields(update, view.config);
+    if (stale.length > 0) {
+      for (const key of stale) {
+        touched.delete(key);
+      }
+      refresh(view.config);
+      const names = stale.map((key) => FIELDS.find((f) => f.key === key).label.toLowerCase());
+      settle(`Someone else changed ${names.join(', ')} first, so nothing was saved. The latest values are shown; review them and save again.`);
+      return;
+    }
     saving = update;
     notice.hidden = true;
     saveButton.update({ busy: true, disabled: true });
     ctx.command('retro.config.update', update, {
       onNack(nack) {
         settle();
-        error.hidden = false;
-        error.textContent = nack.code === 'forbidden' ? 'Only facilitators can change the settings.' : 'The settings could not be saved.';
+        refuse(NACKS[nack.code] ?? 'The settings could not be saved.');
         return true;
       },
     });

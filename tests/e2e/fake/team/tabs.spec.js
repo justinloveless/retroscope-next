@@ -1,5 +1,5 @@
 import { json, problem } from '../../../web-fake-server/http.js';
-import { BOARD_1, MEMBER, ROOM, TEAM_ID, board, setupTeam, teamUrl, expect, test } from './_team.js';
+import { BOARD_1, MEMBER, ROOM, TEAM_ID, board, setupTeam, teamUrl, choose, expect, test } from './_team.js';
 
 test.describe('team page', () => {
   test('shows the team header and switches tabs through the query string', async ({ page, fake }) => {
@@ -45,7 +45,7 @@ test.describe('team page', () => {
     setupTeam(fake);
     await page.goto(teamUrl());
     await expect(page.getByRole('heading', { name: 'Sprint 41 retro' })).toBeVisible();
-    await fake.waitForConnection();
+    await fake.waitForSubscription(ROOM);
     fake.kick(ROOM, 'access_revoked');
     await expect(page.getByRole('heading', { name: 'You no longer have access to this team.' })).toBeVisible();
   });
@@ -54,7 +54,7 @@ test.describe('team page', () => {
     setupTeam(fake);
     await page.goto(teamUrl());
     await expect(page.getByText('3 members')).toBeVisible();
-    await fake.waitForConnection();
+    await fake.waitForSubscription(ROOM);
     fake.tx(ROOM, [{ k: 'team.members', d: { members: [{ pid: MEMBER, name: 'Mia Member', role: 'member' }] } }]);
     await expect(page.getByText('1 member', { exact: true })).toBeVisible();
   });
@@ -83,7 +83,7 @@ test.describe('boards tab', () => {
     const calls = setupTeam(fake);
     await page.goto(teamUrl());
     await expect(page.getByRole('heading', { name: 'Sprint 41 retro' })).toBeVisible();
-    await fake.waitForConnection();
+    await fake.waitForSubscription(ROOM);
 
     const BOARD_3 = '0192f0a0-0000-7000-8000-0000000000b3';
     fake.route('GET', `/api/teams/${TEAM_ID}/boards`, (req) => {
@@ -123,9 +123,9 @@ test.describe('boards tab', () => {
     await page.getByRole('button', { name: 'New board' }).first().click();
     const dialog = page.getByRole('dialog', { name: 'New retro board' });
     await dialog.getByLabel('Title').fill('Sprint 43 retro');
-    await dialog.getByLabel('Who can open it').selectOption('password');
+    await choose(dialog.getByLabel('Who can open it'), 'Password');
     await dialog.getByLabel('Board password').fill('hunter22');
-    await dialog.getByLabel('Template').selectOption({ label: 'Starfish' });
+    await choose(dialog.getByLabel('Template'), 'Starfish');
     await dialog.getByRole('button', { name: 'Create board' }).click();
 
     await expect(page).toHaveURL(/\/retro\/NEWBOARD42$/);

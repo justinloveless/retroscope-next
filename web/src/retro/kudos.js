@@ -87,18 +87,14 @@ function playArpeggio() {
   }
 }
 
-// Styles go through the CSSOM (style-src 'self'); the animation is Web Animations, not CSS keyframes.
+// Each piece's place and colour go through the CSSOM (style-src 'self'); the animation is Web Animations.
 function confetti(layer) {
   for (let i = 0; i < CONFETTI_PIECES; i++) {
     const piece = h('span', {
       class: 'retro-confetti',
       'aria-hidden': 'true',
       style: {
-        position: 'absolute',
-        top: '-12px',
         left: `${(i + 0.5) * (100 / CONFETTI_PIECES)}%`,
-        width: '8px',
-        height: '8px',
         background: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
         'border-radius': i % 3 === 0 ? '50%' : '1px',
       },
@@ -116,21 +112,10 @@ function confetti(layer) {
 /** The recipient's celebration: a card naming the giver and the kudos, confetti and a chime. */
 export function celebrate({ emoji, typeName, from }) {
   const reduced = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  const layer = h('div', {
-    class: 'retro-celebration-confetti',
-    'aria-hidden': 'true',
-    style: { position: 'fixed', inset: '0', overflow: 'hidden', 'pointer-events': 'none', 'z-index': '60' },
-  });
-  const card = h('div', {
-    class: 'card retro-celebration',
-    role: 'status',
-    style: {
-      position: 'fixed', left: '50%', top: '30%', transform: 'translate(-50%, -50%)', 'z-index': '61',
-      padding: '1.5rem 2rem', 'text-align': 'center', 'max-width': 'calc(100vw - 2rem)', cursor: 'pointer',
-    },
-  },
-  h('div', { class: 'retro-celebration-emoji', 'aria-hidden': 'true', text: emoji, style: { 'font-size': '3rem', 'line-height': '1.2' } }),
-  h('p', { class: 'retro-celebration-title', text: 'You got kudos!', style: { 'font-weight': '700', 'font-size': '1.25rem' } }),
+  const layer = h('div', { class: 'retro-celebration-confetti', 'aria-hidden': 'true' });
+  const card = h('div', { class: 'card retro-celebration', role: 'status' },
+  h('div', { class: 'retro-celebration-emoji', 'aria-hidden': 'true', text: emoji }),
+  h('p', { class: 'retro-celebration-title', text: 'You got kudos!' }),
   h('p', { class: 'retro-celebration-detail', text: `${from} recognised you as ${typeName}.` }));
   let timer = 0;
   const close = () => {
@@ -196,7 +181,6 @@ export const kudos = {
           class: 'retro-card-meta retro-kudos-types',
           role: 'group',
           'aria-label': `Kudos for ${person.name}`,
-          style: { 'justify-content': 'flex-start' },
         }, offer.types.map((type) => {
           const mine = offer.given.find((e) => e.to === person.pid && e.typeId === type.id) ?? null;
           const received = offer.all.filter((e) => e.to === person.pid && e.typeId === type.id).length;

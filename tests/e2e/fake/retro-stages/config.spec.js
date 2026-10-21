@@ -84,6 +84,58 @@ test('a stale save shows the fresh values and keeps the facilitator\'s other cha
   expect(sent(fake, 'retro.config.update').at(-1)).toEqual({ patch: { showAuthorNames: false }, expected: { showAuthorNames: true } });
 });
 
+test('a save that someone else\'s change already made stale is not sent', async ({ page, fake }) => {
+  const server = serveConfig(fake, CONFIG);
+  await openBoard(page, fake, { snap: snapshot() });
+  await settingsButton(page).click();
+  const dialog = dialogOf(page);
+  await votes(dialog).fill('5');
+  await dialog.getByRole('switch', { name: 'Show author names' }).click();
+  server.change({ maxVotes: 3 });
+  await expect(votes(dialog)).toHaveValue('5');
+
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(dialog.getByRole('status')).toContainText('Someone else changed votes per person first');
+  await expect(votes(dialog)).toHaveValue('3');
+  await expect(dialog.getByRole('switch', { name: 'Show author names' })).toHaveAttribute('aria-checked', 'false');
+  expect(sent(fake, 'retro.config.update')).toEqual([]);
+
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(dialog).toBeHidden();
+  expect(sent(fake, 'retro.config.update')).toEqual([{ patch: { showAuthorNames: false }, expected: { showAuthorNames: true } }]);
+});
+
+test('a board archived while the dialog is open refuses the save with the reason', async ({ page, fake }) => {
+  serveConfig(fake, CONFIG);
+  const snap = snapshot();
+  await openBoard(page, fake, { snap });
+  await settingsButton(page).click();
+  const dialog = dialogOf(page);
+  await dialog.getByRole('switch', { name: 'Allow anonymous posts' }).click();
+  fake.tx(ROOM, [{ k: 'retro.board.meta', d: { ...snap.meta, archived: true } }]);
+  await expect(page.locator('.retro-banner-archived')).toBeVisible();
+
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('This board is archived, so its settings cannot change.');
+  await expect(dialog).toBeVisible();
+  expect(sent(fake, 'retro.config.update')).toEqual([]);
+});
+
+test('a vote emoji with a control character is refused before sending', async ({ page, fake }) => {
+  serveConfig(fake, CONFIG);
+  await openBoard(page, fake, { snap: snapshot() });
+  await settingsButton(page).click();
+  const dialog = dialogOf(page);
+  // Set directly: some engines drop a typed control character, a paste or a script need not.
+  await dialog.getByRole('textbox', { name: /Vote emoji/ }).evaluate((input) => {
+    input.value = '👍\u0007';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('The vote emoji cannot contain control characters.');
+  expect(sent(fake, 'retro.config.update')).toEqual([]);
+});
+
 test('fields the facilitator has not touched follow other people\'s changes', async ({ page, fake }) => {
   const server = serveConfig(fake, CONFIG);
   await openBoard(page, fake, { snap: snapshot() });

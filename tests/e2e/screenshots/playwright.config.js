@@ -16,6 +16,9 @@ export default defineConfig({
   use: {
     ...devices['Desktop Chrome'],
     baseURL: process.env.RS_PREVIEW_URL ?? 'http://localhost:5173',
+    // Pinned, so dates and times in the shots do not depend on the machine taking them.
+    timezoneId: 'UTC',
+    locale: 'en-US',
     trace: 'retain-on-failure',
   },
   projects: [{ name: 'chromium' }],

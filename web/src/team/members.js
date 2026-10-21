@@ -3,6 +3,7 @@ import { reconcile } from '../core/list.js';
 import { formatDate } from '../core/fmt.js';
 import { createAvatar } from '../ui/avatar.js';
 import { createButton } from '../ui/button.js';
+import { createChoice } from '../ui/choice.js';
 import { createMenu } from '../ui/menu.js';
 import { confirmDialog } from '../ui/confirm.js';
 import { icon } from '../ui/icons.js';
@@ -181,11 +182,11 @@ export function createMembersTab(ctx) {
 
   function inviteByEmail() {
     const email = input({ name: 'email', type: 'email', required: true, autocomplete: 'off', placeholder: 'name@example.com' });
-    const role = h('select', { class: 'select', name: 'role' }, h('option', { value: 'member' }, 'Member'), h('option', { value: 'admin' }, 'Admin'));
+    const role = createChoice({ label: 'Role', name: 'role', options: [{ value: 'member', label: 'Member' }, { value: 'admin', label: 'Admin' }] });
     formDialog({
       title: 'Invite by email',
       description: 'They get an email with a link to join. The invite works only for that address.',
-      content: [field('Email', email), field('Role', role)],
+      content: [field('Email', email), field('Role', role.el)],
       submitLabel: 'Send invite',
       async submit() {
         const invite = await ctx.api.post('/invites', { kind: 'email', email: email.value.trim(), role: role.value });
@@ -197,12 +198,16 @@ export function createMembersTab(ctx) {
   }
 
   function inviteByLink() {
-    const days = h('select', { class: 'select', name: 'expiresInDays' },
-      ...[1, 7, 30].map((d) => h('option', { value: String(d), selected: d === 7 }, d === 1 ? '1 day' : `${d} days`)));
+    const days = createChoice({
+      label: 'Expires after',
+      name: 'expiresInDays',
+      options: [1, 7, 30].map((d) => ({ value: String(d), label: d === 1 ? '1 day' : `${d} days` })),
+      value: '7',
+    });
     formDialog({
       title: 'Create an invite link',
       description: 'Anyone with the link can join as a member until it expires or you revoke it.',
-      content: field('Expires after', days),
+      content: field('Expires after', days.el),
       submitLabel: 'Create link',
       async submit() {
         const invite = await ctx.api.post('/invites', { kind: 'link', expiresInDays: Number(days.value) });

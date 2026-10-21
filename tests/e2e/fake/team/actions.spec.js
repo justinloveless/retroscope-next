@@ -1,5 +1,5 @@
 import { json, problem } from '../../../web-fake-server/http.js';
-import { BOARD_1, ITEM_1, ITEM_2, MEMBER, OWNER, ROOM, TEAM_ID, actionItem, listItems, setupTeam, snapshot, teamUrl, expect, test } from './_team.js';
+import { BOARD_1, ITEM_1, ITEM_2, MEMBER, OWNER, ROOM, TEAM_ID, actionItem, listItems, setupTeam, snapshot, teamUrl, choose, expect, test } from './_team.js';
 
 const COMMENT_1 = '0192f0a0-0000-7000-8000-000000007001';
 const COMMENT_2 = '0192f0a0-0000-7000-8000-000000007002';
@@ -19,15 +19,15 @@ test.describe('action items tab', () => {
 
     await expect(page.locator(`.team-group[data-board="${BOARD_1}"] .team-group-title`)).toHaveText('Sprint 41 retro');
     await expect(item(page, ITEM_1).locator('strong')).toHaveText('flaky');
-    await expect(item(page, ITEM_2).getByLabel('Assigned to')).toHaveValue(MEMBER);
+    await expect(item(page, ITEM_2).getByLabel('Assigned to')).toHaveAccessibleName('Assigned to: Mia Member');
 
-    await page.getByLabel('Assignee').selectOption(MEMBER);
+    await choose(page.getByLabel('Assignee'), 'Mia Member');
     await expect(page).toHaveURL(new RegExp(`assignee=${MEMBER}`));
     await expect(item(page, ITEM_1)).toHaveCount(0);
     await expect(item(page, ITEM_2)).toBeVisible();
     expect(calls.actionItems.at(-1).query.get('assignee')).toBe(MEMBER);
 
-    await page.getByLabel('Status').selectOption('done');
+    await choose(page.getByLabel('Status'), 'Done');
     await expect(page.getByText('No action items match these filters.')).toBeVisible();
     expect(calls.actionItems.at(-1).query.get('status')).toBe('done');
   });
@@ -50,9 +50,9 @@ test.describe('action items tab', () => {
     });
     await page.goto(teamUrl('?tab=actions&status=all'));
 
-    await item(page, ITEM_1).getByLabel('Assigned to').selectOption(OWNER);
+    await choose(item(page, ITEM_1).getByLabel('Assigned to'), 'Olive Owner');
     await expect.poll(() => commands).toEqual([{ itemId: ITEM_1, userId: OWNER }]);
-    await expect(item(page, ITEM_1).getByLabel('Assigned to')).toHaveValue(OWNER);
+    await expect(item(page, ITEM_1).getByLabel('Assigned to')).toHaveAccessibleName('Assigned to: Olive Owner');
 
     // The server has not answered yet: the done state on screen is the optimistic intent.
     await item(page, ITEM_1).getByRole('button', { name: 'Mark done' }).click();
@@ -76,13 +76,13 @@ test.describe('action items tab', () => {
     const calls = setupTeam(fake);
     await page.goto(teamUrl('?tab=actions'));
     await expect(item(page, ITEM_2)).toBeVisible();
-    await fake.waitForConnection();
+    await fake.waitForSubscription(ROOM);
 
     fake.tx(ROOM, [{ k: 'team.action.text', d: { itemId: ITEM_2, text: 'Write the *new* runbook', sourceVersion: 2 } }]);
     await expect(item(page, ITEM_2).locator('em')).toHaveText('new');
     fake.tx(ROOM, [{ k: 'team.action.text', d: { itemId: ITEM_2, text: 'An older edit', sourceVersion: 1 } }]);
     fake.tx(ROOM, [{ k: 'team.action.updated', d: { item: { ...snapshot().actionItems[1], text: 'Write the *new* runbook', sourceVersion: 2, assignedTo: OWNER } } }]);
-    await expect(item(page, ITEM_2).getByLabel('Assigned to')).toHaveValue(OWNER);
+    await expect(item(page, ITEM_2).getByLabel('Assigned to')).toHaveAccessibleName('Assigned to: Olive Owner');
     await expect(item(page, ITEM_2)).toContainText('Write the new runbook');
 
     const ITEM_3 = '0192f0a0-0000-7000-8000-0000000000c3';
@@ -138,7 +138,7 @@ test.describe('action item comments', () => {
     await expect(panel.locator(`[data-id="${COMMENT_1}"] strong`).last()).toHaveText('flaky');
     expect(gets).toHaveLength(1);
 
-    await fake.waitForConnection();
+    await fake.waitForSubscription(ROOM);
     comments = [...comments, comment(COMMENT_2, 'Yes, twice today.', null)];
     fake.tx(ROOM, [{ k: 'team.action.comments', d: { itemId: ITEM_1, count: 2 } }]);
     await expect(panel.locator(`[data-id="${COMMENT_2}"]`)).toContainText('Anonymous');
@@ -165,7 +165,7 @@ test.describe('action item comments', () => {
     });
     fake.route('POST', `/api/teams/${TEAM_ID}/action-items/${ITEM_1}/comments`, problem(404, 'not_found'));
     await page.goto(teamUrl('?tab=actions'));
-    await fake.waitForConnection();
+    await fake.waitForSubscription(ROOM);
 
     fake.tx(ROOM, [{ k: 'team.action.comments', d: { itemId: ITEM_1, count: 0 } }]);
     await expect(item(page, ITEM_1).getByRole('button', { name: 'Add comment' })).toBeVisible();

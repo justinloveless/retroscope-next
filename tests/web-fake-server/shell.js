@@ -28,6 +28,19 @@ export function bootJson(boot) {
 
 const escapeAttr = (value) => value.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 
+// The same head links Server/Hosting/Shell writes, each only when the build ships its file.
+const THEME_COLOR = '#111827';
+
+function iconLinks(manifest) {
+  const has = (path) => Object.hasOwn(manifest.public ?? {}, path);
+  const logo = manifest.assets?.['logo.svg'];
+  return [
+    has('/favicon.ico') ? '<link rel="icon" href="/favicon.ico" sizes="48x48">' : null,
+    logo ? `<link rel="icon" href="${escapeAttr(logo)}" type="image/svg+xml">` : null,
+    has('/manifest.webmanifest') ? '<link rel="manifest" href="/manifest.webmanifest">' : null,
+  ].filter(Boolean);
+}
+
 export function renderShell({ manifest, csp }, route, boot) {
   const [entry, ...entryImports] = manifest.entry;
   const preload = [...new Set([...entryImports, ...(manifest.routes[route] ?? [])])].filter((f) => f !== entry);
@@ -38,7 +51,9 @@ export function renderShell({ manifest, csp }, route, boot) {
     '<head>',
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    `<meta name="theme-color" content="${THEME_COLOR}">`,
     '<title>Retroscope</title>',
+    ...iconLinks(manifest),
     ...styles.map((href) => `<link rel="stylesheet" href="${escapeAttr(href)}">`),
     ...preload.map((href) => `<link rel="modulepreload" href="${escapeAttr(href)}">`),
     `<script type="application/json" id="boot">${bootJson(boot)}</script>`,
