@@ -73,7 +73,11 @@ test('a holder whose page is hidden for six minutes keeps the spotlight', async 
   await bob.page.reload();
   await bob.page.locator('.nt-table').waitFor();
   await chooseSpotlight(bob.page, 'Spotlight this round');
+  await expect(spotlightControl(bob.page)).toHaveAttribute('data-role', 'bound');
   await expect(spotlightControl(ann.page)).toHaveAttribute('data-role', 'other');
+  // A socket opened after the take would be a reconnect, and a reconnected tab is no longer bound.
+  const sockets = [];
+  bob.page.on('websocket', (ws) => sockets.push(ws.url()));
 
   await bob.page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
@@ -90,7 +94,10 @@ test('a holder whose page is hidden for six minutes keeps the spotlight', async 
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
     document.dispatchEvent(new Event('visibilitychange'));
   });
-  await expect(spotlightControl(bob.page)).toHaveAttribute('data-role', /bound|mine/);
+  await expect(spotlightControl(bob.page)).toHaveAttribute('data-role', 'bound');
+  await ann.page.waitForTimeout(1500);
+  await expect(spotlightControl(bob.page)).toHaveAttribute('data-role', 'bound');
+  expect(sockets).toEqual([]);
 });
 
 test('the spotlight is released three minutes after its holder leaves, not before', async ({ open }) => {
