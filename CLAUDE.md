@@ -137,10 +137,10 @@ dotnet run --project tests/Retroscope.Soak -- --profile short    # soak/chaos ru
 
 `.github/workflows/images.yml` builds and pushes `ghcr.io/justinloveless/retroscope` and `retroscope-import`, tagged with the commit SHA, on every push to `main` and on every `v*` tag. `deploy/docker-compose.yml` pulls them by digest and never builds on the VPS.
 
-Coolify's own auto deploy is off; GitHub Actions drives every deploy through the Coolify API, using `deploy/coolify-deploy.sh`. The script sets the resource's branch and `APP_DIGEST`/`IMPORTER_DIGEST` (the hex after `sha256:`), deploys, and waits for `/healthz` and `running:healthy`.
+Coolify's own auto deploy is off; GitHub Actions drives every deploy through the Coolify API, using `deploy/coolify-deploy.sh`. The script pins the resource's branch and commit (`git_commit_sha`, so the compose file matches the images), sets `APP_DIGEST`/`IMPORTER_DIGEST` (the hex after `sha256:`), deploys, and waits for `/healthz` and `running:healthy`.
 
-- **Production** (`.github/workflows/deploy.yml`) deploys automatically after `ci` succeeds on a push to `main`, once that commit's images exist. It skips a commit that `main` has already moved past. A manual run from `main` redeploys or rolls back to any commit whose `ci` run on `main` passed.
-- **Preview** (`.github/workflows/preview.yml`) is a single slot on its own Coolify resource, with its own database and secrets. A same-repository PR labelled `preview` deploys on label, push and reopen, and a manual run deploys any branch. The last deploy wins, and the PR gets one sticky comment with the URL and commit.
+- **Production** (`.github/workflows/deploy.yml`) deploys automatically after `ci` succeeds on a push to `main`. It follows that push's `images.yml` run and takes the digests from its `image-digests` artifact, never from a GHCR tag. It skips a commit only when a newer commit on `main` has a `ci` run that is running or passed. A manual run from `main` redeploys or rolls back to any commit whose `ci` run on `main` passed and whose artifact still exists. Its token lives in the `production` environment, which only `main` can use.
+- **Preview** (`.github/workflows/preview.yml`) is a single slot on its own Coolify resource, server and team, with its own token (`preview` environment), database and secrets. A same-repository PR labelled `preview` deploys on label, push and reopen, and a manual run deploys any branch. Preview images are tagged `preview-<sha>`. The last deploy wins, and the PR gets one sticky comment with the URL and commit.
 - The repository variables, the token's permissions and the by-hand fallback are in `deploy/COOLIFY_SETUP.md` section 11.
 
 The guides are:
