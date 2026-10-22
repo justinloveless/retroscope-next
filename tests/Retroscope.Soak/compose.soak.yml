@@ -27,6 +27,10 @@ services:
   fakejira:
     image: retroscope-soak-fakes:test
 
+  fakeoidc:
+    image: retroscope-soak-fakes:test
+    ports: !reset []
+
 networks:
   edge:
     ipam:
