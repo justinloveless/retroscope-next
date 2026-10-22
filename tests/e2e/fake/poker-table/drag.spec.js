@@ -1,16 +1,28 @@
 import { expect, test } from '../_harness/fixtures.js';
-import { ME, R1, handCard, lastCommand, openTable, seat, setupPoker } from './_poker.js';
+import { R1, handCard, lastCommand, openTable, setupPoker } from './_poker.js';
 
 async function centre(locator) {
-  await locator.scrollIntoViewIfNeeded();
   const box = await locator.boundingBox();
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
 
-// The lower edge of the table, which stays on screen once the hand is scrolled into view on a phone.
+// A resting card mostly hides under the bar; pointing at the hand raises the fan first.
+async function cardCentre(page, points) {
+  await page.locator('.nt-hand').hover();
+  const card = handCard(page, points);
+  await expect.poll(async () => {
+    const before = await card.boundingBox();
+    await page.waitForTimeout(100);
+    const after = await card.boundingBox();
+    return before.y === after.y && after.y + after.height < (await page.locator('.nt-dock-bar').boundingBox()).y;
+  }).toBe(true);
+  return centre(card);
+}
+
+// A point on the issue, above the raised hand.
 async function tableTarget(page) {
   const box = await page.locator('.nt-field').boundingBox();
-  return { x: box.x + box.width / 2, y: box.y + box.height - 16 };
+  return { x: box.x + box.width / 2, y: box.y + box.height / 3 };
 }
 
 test('hand cards opt out of touch panning so a touch drag is not cancelled', async ({ page, fake }) => {
@@ -21,10 +33,10 @@ test('hand cards opt out of touch panning so a touch drag is not cancelled', asy
   }
 });
 
-test('dragging a card onto the table plays it: vote and lock in one command', async ({ page, fake }) => {
+test('dragging a card onto the issue plays it: vote and lock in one command', async ({ page, fake }) => {
   setupPoker(fake);
   await openTable(page);
-  const from = await centre(handCard(page, 8));
+  const from = await cardCentre(page, 8);
   const to = await tableTarget(page);
 
   await page.mouse.move(from.x, from.y);
@@ -42,13 +54,13 @@ test('dragging a card onto the table plays it: vote and lock in one command', as
   expect((await lastCommand(fake, 'poker.vote.set')).d).toEqual({ roundId: R1, points: 8, lock: true });
   await expect(page.locator('.nt-float')).toHaveCount(0);
   await expect(page.locator('.nt-drop')).toHaveCount(0);
-  await expect(seat(page, ME)).toHaveAttribute('data-status', 'locked');
+  await expect(handCard(page, 8).locator('.nt-hand-locked')).toBeVisible();
 });
 
-test('releasing away from the table plays nothing', async ({ page, fake }) => {
+test('releasing over the hand plays nothing', async ({ page, fake }) => {
   setupPoker(fake);
   await openTable(page);
-  const from = await centre(handCard(page, 3));
+  const from = await cardCentre(page, 3);
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
   // Firefox drops a release outside the viewport, and the strip and docked header push the hand near its edge.
@@ -58,10 +70,10 @@ test('releasing away from the table plays nothing', async ({ page, fake }) => {
   expect(fake.received.filter(({ frame }) => frame.t === 'cmd')).toEqual([]);
 });
 
-test('holding a card over a side zone for 2 s plays "between" and locks it in', async ({ page, fake }) => {
+test('holding a card over the gap beside it in the raised fan for 2 s plays "between" and locks it in', async ({ page, fake }) => {
   setupPoker(fake);
   await openTable(page);
-  const from = await centre(handCard(page, 5));
+  const from = await cardCentre(page, 5);
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
   await page.mouse.move(from.x, from.y - 20, { steps: 3 });
@@ -88,10 +100,10 @@ test('holding a card over a side zone for 2 s plays "between" and locks it in', 
   expect(fake.received.filter(({ frame }) => frame.k === 'poker.vote.set')).toHaveLength(1);
 });
 
-test('leaving a side zone before 2 s resets the hold', async ({ page, fake }) => {
+test('leaving a gap before 2 s resets the hold', async ({ page, fake }) => {
   setupPoker(fake);
   await openTable(page);
-  const from = await centre(handCard(page, 5));
+  const from = await cardCentre(page, 5);
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
   await page.mouse.move(from.x, from.y - 20, { steps: 3 });
@@ -112,8 +124,8 @@ test('a locked hand cannot be dragged', async ({ page, fake }) => {
   await openTable(page);
   await handCard(page, 2).click();
   await page.getByRole('button', { name: 'Lock In' }).click();
-  await expect(seat(page, ME)).toHaveAttribute('data-status', 'locked');
-  const from = await centre(handCard(page, 13));
+  await expect(page.locator('.nt-hand-locked')).toBeVisible();
+  const from = await cardCentre(page, 13);
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
   await page.mouse.move(from.x, from.y - 80, { steps: 4 });

@@ -149,6 +149,8 @@ export async function openBrowse(page, path) {
 export const row = (page, key) => page.locator(`.jira-row[data-key="${key}"]`);
 export const bucket = (page, name) => page.locator('.jira-bucket').filter({ has: page.locator('.jira-bucket-name', { hasText: name }) });
 export const drawer = (page) => page.locator('.jira-drawer');
+/** The viewed round's issue at the centre of the stage. */
+export const issueView = (page) => page.locator('.jira-issue');
 
 /** The last command of kind `k` the page sent, waiting for it to arrive. */
 export async function sent(fake, k) {
