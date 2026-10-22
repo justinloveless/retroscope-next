@@ -1,7 +1,8 @@
 // Golden geometry of the seats around the issue (docs/followups/UX1.md, UX2.md): for 1–16 players on three
 // stage sizes, every seat stays inside the stage, out of the top and bottom bands (a corner seat's box may
 // spill into them), clear of every other seat and turned toward the stage centre, and each side's seats lie on
-// a shallow arc that bows in by no more than its small sagitta.
+// a shallow arc that wraps around the issue like a bracket, its ends curving in by no more than its small
+// sagitta (docs/followups/UX4.md).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SEAT_SIZES, depthLimit, extents, maxSagitta, planSeats, seatLayout, seatsOverlap } from '../../../web/src/poker/geometry.js';
@@ -91,12 +92,13 @@ test('seat cards use the scales the pixel art renders crisply at', () => {
   }
 });
 
-test('at 1440×900 six players sit at full-size cards or larger, and the issue keeps 560 px', () => {
+// The seats alone; the betting lines and the column centring (column.test.js) take some more.
+test('at 1440×900 six players sit at full-size cards or larger, and the seats leave the issue 540 px', () => {
   const stage = STAGES[0];
   for (const players of [3, 6]) {
     const layout = planSeats(stage, players - 1);
     assert.ok(layout.size.card >= 1, `${players} players get ${layout.size.name} seats`);
-    assert.ok(stage.width - 2 * Math.ceil(layout.depth) >= 560, `${players} players leave the issue ${stage.width - 2 * Math.ceil(layout.depth)} px`);
+    assert.ok(stage.width - 2 * Math.ceil(layout.depth) >= 540, `${players} players leave the issue ${stage.width - 2 * Math.ceil(layout.depth)} px`);
   }
   assert.equal(planSeats(STAGES[1], 2).size.name, 'large', 'a small table on a wide stage gets the largest cards');
 });
@@ -110,11 +112,28 @@ test('players fill the two sides alternately and each side runs top to bottom', 
   }
 });
 
-test('a lone seat on a side sits level with the stage centre and faces straight in', () => {
+test('a lone seat on a side sits halfway between the bands, turned toward the centre', () => {
   const stage = STAGES[0];
   const [left, right] = seatLayout(stage, 2, SEAT_SIZES[1]).seats;
-  assert.ok(near(left.y, stage.height / 2, 0.01) && near(left.angle, 90, 0.01));
-  assert.ok(near(right.y, stage.height / 2, 0.01) && near(right.angle, -90, 0.01));
+  const middle = (stage.top + stage.height - stage.bottom) / 2;
+  assert.ok(near(left.y, middle, 0.01) && near(right.y, middle, 0.01));
+  assert.ok(near(left.angle, -right.angle, 0.01) && left.angle > 45 && left.angle < 135);
+});
+
+test('each side\'s group is centred vertically between the bands', () => {
+  for (const stage of STAGES) {
+    for (const count of [3, 6, 9, 12]) {
+      const layout = planSeats(stage, count);
+      const all = layout.chip ? [...layout.seats, layout.chip] : layout.seats;
+      const middle = (stage.top + stage.height - stage.bottom) / 2;
+      for (const side of ['left', 'right']) {
+        const ys = all.filter((s) => s.side === side).map((s) => s.y);
+        if (ys.length) {
+          assert.ok(near((Math.min(...ys) + Math.max(...ys)) / 2, middle, 0.5), `${stage.name}, ${count} players, ${side}`);
+        }
+      }
+    }
+  }
 });
 
 test('seats on one side are spread evenly along a gentle arc', () => {
@@ -128,8 +147,13 @@ test('seats on one side are spread evenly along a gentle arc', () => {
     assert.ok(gap >= size.spacing - 1);
   }
   assert.ok(layout.sagitta > 0, 'a roomy stage bows its arcs');
+  // Like a bracket: the middle seat is the farthest across from the stage centre, the ends curve in.
+  const across = (s) => Math.abs(s.x - stage.width / 2);
   const middle = left[Math.floor(left.length / 2)];
-  assert.ok(middle.x > left[0].x && middle.x > left.at(-1).x, 'the arc bows toward the centre');
+  assert.ok(across(middle) > across(left[0]) && across(middle) > across(left.at(-1)), 'the arc wraps around the issue');
+  const right = layout.seats.filter((s) => s.side === 'right');
+  const mid = right[Math.floor(right.length / 2)];
+  assert.ok(across(mid) > across(right[0]) && across(mid) > across(right.at(-1)), 'the right arc wraps around the issue');
 });
 
 test('a crowded table hides the rest behind one chip, and the depth covers every seat', () => {

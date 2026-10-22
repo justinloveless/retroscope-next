@@ -1,5 +1,6 @@
-// The printed betting line of each side (docs/followups/UX3.md): concentric with the side's seat arc, a
-// constant gap in toward the centre, ending just past the first and last seat, and absent on an empty side.
+// The printed betting line of each side (docs/followups/UX3.md, UX4.md): concentric with the side's seat arc,
+// a constant gap in toward the centre, ending just past the first and last seat, curving in like a bracket
+// around the issue, and absent on an empty side.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SEAT_SIZES, printedArc, seatLayout } from '../../../web/src/poker/geometry.js';
@@ -20,19 +21,20 @@ function sides(layout) {
   return { left: all.filter((s) => s.side === 'left'), right: all.filter((s) => s.side === 'right') };
 }
 
-test('each side gets one arc a constant gap inboard of its seats, bowing toward the centre', () => {
+test('each side gets one arc a constant gap inboard of its seats, wrapping around the issue', () => {
   const layout = seatLayout(STAGE, 6, SEAT_SIZES[1]);
   assert.ok(Number.isFinite(layout.curve.radius));
   const { left, right } = sides(layout);
   for (const [side, slots] of [['left', left], ['right', right]]) {
     const arc = parse(printedArc(slots, layout.curve, { offset: OFFSET, overhang: OVERHANG, width: STAGE.width }));
-    assert.ok(Math.abs(arc.r - (layout.curve.radius + OFFSET)) < 0.2, `${side}: concentric with the seats`);
-    assert.equal(arc.sweep, side === 'left' ? 1 : 0, `${side}: bows toward the centre`);
-    // Every seat centre lies the same distance outside the printed circle.
+    assert.ok(Math.abs(arc.r - (layout.curve.radius - OFFSET)) < 0.2, `${side}: concentric with the seats`);
+    assert.equal(arc.sweep, side === 'left' ? 0 : 1, `${side}: curves in at its ends`);
+    // Every seat centre lies the same distance outside the printed circle, whose centre is toward the issue.
     const local = (x) => (side === 'left' ? x : STAGE.width - x);
-    const cx = local(arc.x1) - Math.sqrt(arc.r ** 2 - (arc.y1 - layout.curve.middle) ** 2);
+    const cx = local(arc.x1) + Math.sqrt(arc.r ** 2 - (arc.y1 - layout.curve.middle) ** 2);
+    assert.ok(cx > STAGE.width / 4, `${side}: the circle's centre lies in toward the issue`);
     for (const seat of slots) {
-      const gap = arc.r - Math.hypot(local(seat.x) - cx, seat.y - layout.curve.middle);
+      const gap = Math.hypot(local(seat.x) - cx, seat.y - layout.curve.middle) - arc.r;
       assert.ok(Math.abs(gap - OFFSET) < 0.5, `${side}: seat ${gap.toFixed(1)} px from the line`);
     }
     const ys = slots.map((s) => s.y);
