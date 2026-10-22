@@ -2,6 +2,8 @@
 # Retroscope build entry point (DESIGN §k.1). Verbs:
 #   ./build.sh                     restore, build, test, web
 #   ./build.sh test                every suite except e2e and soak
+#   ./build.sh quick [paths]       the development loop: only the tests that cover the changed files (tools/quick.mjs);
+#                                  --plan prints them without running
 #   ./build.sh verify              the full pass CI runs (test, web, generated files committed, aot-smoke) on a clean
 #                                  tree; records the tree so the pre-push hook lets it through
 #   ./build.sh hooks               installs the pre-push hook that requires verify (every verb installs it once the
@@ -141,6 +143,11 @@ cmd_test() {
     log "golden vectors"
     node tests/golden/make-golden.mjs --verify
   fi
+}
+
+cmd_quick() {
+  node_deps
+  RS_JOBS="$RS_JOBS" node tools/quick.mjs "$@"
 }
 
 stamp_dir() {
@@ -604,6 +611,7 @@ fi
 case "${1:-all}" in
   all) cmd_test; cmd_web ;;
   test) cmd_test ;;
+  quick) shift; cmd_quick "$@" ;;
   verify) cmd_verify ;;
   hooks) ;;
   web) cmd_web ;;
@@ -612,5 +620,5 @@ case "${1:-all}" in
   e2e) shift; cmd_e2e "$@" ;;
   preview) shift; cmd_preview "$@" ;;
   screenshots) cmd_screenshots ;;
-  *) die "unknown verb '$1' (all | test | verify | hooks | web | aot-smoke | fake-e2e <glob> | e2e <glob> | preview [fake|real] | screenshots)" ;;
+  *) die "unknown verb '$1' (all | test | quick [paths] | verify | hooks | web | aot-smoke | fake-e2e <glob> | e2e <glob> | preview [fake|real] | screenshots)" ;;
 esac
