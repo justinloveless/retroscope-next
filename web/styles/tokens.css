@@ -28,6 +28,12 @@
   --page-gradient: linear-gradient(160deg, #eef2ff 0%, #ffffff 45%, #fdf2f8 100%);
   --avatar-bg: #e0e7ff;
   --avatar-fg: #4338ca;
+  /* The poker table's felt (docs/followups/UX3.md): the cloth, its shaded edge, the printed ink and how much
+     of the card colour the frosted issue panel keeps. */
+  --felt: #1b7344;
+  --felt-shade: #0b4428;
+  --felt-print: #f4f8f1;
+  --felt-glass: 84%;
 }
 
 :root[data-theme="dark"] {
@@ -55,6 +61,10 @@
   --page-gradient: linear-gradient(160deg, #0b1437 0%, #020817 50%, #1e0b2e 100%);
   --avatar-bg: #312e81;
   --avatar-fg: #a5b4fc;
+  --felt: #125232;
+  --felt-shade: #05230f;
+  --felt-print: #e3ece2;
+  --felt-glass: 68%;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -83,6 +93,10 @@
     --page-gradient: linear-gradient(160deg, #0b1437 0%, #020817 50%, #1e0b2e 100%);
     --avatar-bg: #312e81;
     --avatar-fg: #a5b4fc;
+    --felt: #125232;
+    --felt-shade: #05230f;
+    --felt-print: #e3ece2;
+    --felt-glass: 68%;
   }
 }
 
