@@ -55,13 +55,25 @@ These came from the owner at the start of the project and shape every decision. 
   - Don't run the full suite repeatedly.
   - Remove any containers you start.
 - **Only verified work merges to `main`.** `main` deploys to production by itself once CI passes on it, so a merge is a release.
-- **Quick mode.** For UI iterations the owner reviews by eye, the owner may ask for quick mode: run `./build.sh web` plus the touched unit tests and self-review screenshots, with no e2e or full suite. Quick-mode work is unverified, so it stays on a branch. The owner reviews it locally (`./build.sh preview`) or on the preview slot, through the `preview` label on its PR or a manual run of the preview workflow. The gaps it leaves (visual baselines, e2e specs) must be closed by a full verified pass before it merges to `main`.
+- **Test while you work with `./build.sh quick`, and nothing bigger.** It maps the changed files (since the merge base with upstream, including uncommitted and untracked files) to the narrowest tests that cover them through the table in `tools/quick.mjs`, and runs only those. Pass paths to narrow it further, or `--plan` to see the commands without running them.
+  - Do not run `./build.sh test`, `./build.sh`, the 2000-seed sim or `aot-smoke` during development. The full suite runs once, before a push.
+  - When a path has no focused test, `quick` says so. Add a row to the `RULES` table rather than reaching for the full suite.
+  - `quick` reports files that tests regenerated (`protocol.gen.js`, golden transcripts). Review and commit them.
+  - It builds the web bundle into a temporary directory, so `web/dist` is never touched.
+- **Verify before every push with `./build.sh verify`.** It is the full pass CI runs: `test`, `web`, generated files committed, then `aot-smoke`. It needs a clean working tree and records the tree it passed. It takes far longer than a tool call's timeout, so commit first, run it as its own background step, and push only after it passes.
+  - The pre-push hook (installed into `.git/hooks` by any `build.sh` verb, and shared by every worktree) refuses to push a commit whose tree has not passed `verify`. It never runs the pass itself. A rebase or amend that leaves the content unchanged keeps its pass.
+  - Never bypass it. `.claude/hooks/guard-push.sh` is a tripwire, not a guarantee: it blocks `--no-verify` (and its abbreviations), `hooksPath` overrides and hand-made stamps. If `verify` fails, fix the cause.
+  - This replaces any general "run the full suite after every change" rule for this repository: the full suite runs at push time.
+- **Parallel agents** each work in their own `git worktree`. Two `dotnet build` runs in one checkout fight over `bin/` and `obj/`.
+- **UI quick mode.** For UI iterations the owner reviews by eye, the owner may ask for quick mode: run `./build.sh quick` and self-review screenshots, with no e2e. Quick-mode work is unverified, so it stays on a branch (pushing the branch still needs `verify`, which has no e2e). The owner reviews it locally (`./build.sh preview`) or on the preview slot, through the `preview` label on its PR or a manual run of the preview workflow. The gaps it leaves (visual baselines, e2e specs) must be closed by a full verified pass before it merges to `main`.
 
 ## Commands
 
 `build.sh` is the entry point. On Rancher Desktop it sets `DOCKER_HOST` and `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE` itself. The Integration and Importer tests need Docker (Testcontainers).
 
 ```sh
+./build.sh quick [paths] [--plan]    # development loop: only the tests covering the changed files
+./build.sh verify                    # full pass before pushing: test, web, generated files committed, aot-smoke
 ./build.sh                           # test, then web
 ./build.sh test                      # dotnet build + all .NET tests + simulation (2000 seeds, --strict)
                                      #   + web-unit and web-fake-server node tests + golden-vector check
@@ -82,7 +94,7 @@ dotnet run --project tests/Retroscope.Soak -- --profile short    # soak/chaos ru
   - Tests run on Microsoft.Testing.Platform (`global.json`). A filter that matches nothing exits with code 8.
   - Export the two Docker variables `build.sh` sets before running `dotnet test` directly.
 - **Web unit tests.** Use `node --test tests/web-unit/poker/*.test.js`. Pass explicit files, not a directory: directory arguments fail on Node 22, which CI uses, even though they work on Node 20.
-- **Simulation.** Use `dotnet run --project tests/Retroscope.Sim -- --seeds 2000 --strict`. To reproduce a failure, run the `replay:` line the sim prints, which carries the seed, steps and fault set.
+- **Simulation.** `quick` runs `dotnet run --project tests/Retroscope.Sim -- --seeds 50 --strict --no-teeth` (a small seed count needs `--no-teeth`); `verify` runs the 2000-seed pass with teeth. To reproduce a failure, run the `replay:` line the sim prints, which carries the seed, steps and fault set.
 - **Regenerating pinned outputs.** These are regenerated with environment variables, and the diff must then be reviewed:
   - `RS_UPDATE_SCHEMA_SNAPSHOT=1` (`tests/schema.snapshot.sql`)
   - `RS_UPDATE_AUTHZ_MATRIX=1` (`tests/authz-matrix.csv`)
