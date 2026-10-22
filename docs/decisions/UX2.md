@@ -89,7 +89,8 @@ it lists, and this file.
    (`seats.labelReach()`, which grows when a revealed vote chip joins a name) into `--nt-labels`, and the overlay's
    side inset is the larger of that and `--nt-ring`. When less than 480 px is left between the labels (the 640 px
    stage at 1280×800 with both panels open), the table gets `is-results-narrow`. The piles then deal at 0.75×
-   (0.5× from five piles up) with narrower name columns, so the results fit without scrolling.
+   (0.5× from five piles up) with narrower name columns, so the results fit without scrolling. Only the ring
+   does this. The phone's seat row has no side labels, and its piles stay full size.
 2. **Seats keep their size through a reveal.** The seats plan against the larger of the dock's current height and
    its height before the reveal, so a live reveal (or opening the results) no longer grows the seats, and the
    next round does not shrink them back. A tab that opens straight onto a revealed round has seen no hand yet. It
@@ -102,3 +103,11 @@ it lists, and this file.
 4. **Known flake, outside UX2.** `real/poker-jira.spec.js:96` sometimes times out at 30 s when it is the first
    chromium test of a cold stack. It passes on rerun, and UX2 does not touch the issue drawer. The owner of
    that spec can warm the stack or raise that test's timeout.
+5. **The avatar still covers part of a revealed card's outer end** (decision 1 of items 1–4). Moving it out to the
+   card's edge on reveal would deepen every seat by about half an avatar and shift the ring at the moment of the
+   reveal. The value stays readable on the label's chip and in the overlay. This is left for the owner to judge.
+6. **Baselines.** The fake table's two desktop reveal baselines moved, because Bob's seat now keeps its voting place.
+   They were regenerated on macOS and in the pinned Linux image (`run-server`, as above). The phone reveal shot was
+   already flaky in Linux: the row's small between card sometimes rasterizes its diagonal a pixel apart, 66 pixels in
+   all. The spec now waits for the between card's crossfade to end and allows 80 pixels. The fake baselines then
+   passed `--repeat-each 8` in Linux and `--repeat-each 5` on macOS. The real-stack baselines pass unchanged on both.
