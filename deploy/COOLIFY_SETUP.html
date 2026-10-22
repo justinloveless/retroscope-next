@@ -1,0 +1,2040 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Set up Coolify to host Retroscope Next</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    :root {
+      --sidebar-w: 248px;
+      --accent: #4c6ef5;
+      --bg: #f4f6fb;
+      --surface: #fff;
+      --border: #e8ecf3;
+      --text: #1a1a2e;
+      --text-sub: #3d4f72;
+      --code-bg: #eef1f8;
+      --pre-bg: #1e2235;
+      --pre-fg: #cdd6f4;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 15px;
+      line-height: 1.65;
+      color: var(--text);
+      background: var(--bg);
+      margin: 0;
+      padding: 0;
+    }
+
+    /* ── Layout ── */
+    .layout {
+      display: flex;
+      min-height: 100vh;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: var(--sidebar-w);
+      flex-shrink: 0;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      background: #1e2235;
+      color: #b8c0db;
+      padding: 1.5rem 0 2rem;
+      scrollbar-width: thin;
+      scrollbar-color: #3a4060 transparent;
+    }
+
+    .sidebar::-webkit-scrollbar { width: 4px; }
+    .sidebar::-webkit-scrollbar-thumb { background: #3a4060; border-radius: 4px; }
+
+    .sidebar-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #6b7db3;
+      padding: 0 1.2rem 0.75rem;
+      border-bottom: 1px solid #2d3450;
+      margin-bottom: 0.75rem;
+    }
+
+    .nav-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .nav-list a {
+      display: block;
+      color: #9aa8cc;
+      text-decoration: none;
+      font-size: 0.82rem;
+      line-height: 1.4;
+      padding: 0.28rem 1.2rem;
+      transition: color 0.15s, background 0.15s;
+      border-left: 2px solid transparent;
+    }
+
+    .nav-list a:hover {
+      color: #e0e6f7;
+      background: rgba(255,255,255,0.05);
+      border-left-color: var(--accent);
+    }
+
+    .nav-list a.active {
+      color: #fff;
+      border-left-color: var(--accent);
+      background: rgba(76,110,245,0.12);
+    }
+
+    /* Indent levels — add .nav-h2 / .nav-h3 / .nav-h4 to <li> elements */
+    .nav-h2 > a { color: #c8d0e8; font-weight: 600; padding-top: 0.5rem; }
+    .nav-h3 > a { padding-left: 2rem; font-size: 0.79rem; }
+    .nav-h4 > a { padding-left: 3rem; font-size: 0.75rem; color: #7a89b0; }
+
+    /* ── Main content ── */
+    .main {
+      flex: 1;
+      min-width: 0;
+      padding: 2rem 2rem 4rem;
+    }
+
+    .page {
+      max-width: 1100px;
+      margin: 0 auto;
+      background: var(--surface);
+      border-radius: 10px;
+      box-shadow: 0 2px 16px rgba(0,0,0,0.08);
+      padding: 3rem 3.5rem;
+    }
+
+    /* ── Typography ── */
+    h1 {
+      font-size: 1.8rem;
+      font-weight: 700;
+      margin-top: 0;
+      margin-bottom: 0.35rem;
+      color: #0d1b2a;
+      border-bottom: 3px solid var(--border);
+      padding-bottom: 0.75rem;
+    }
+
+    h2 {
+      font-size: 1.22rem;
+      font-weight: 700;
+      margin-top: 2.6rem;
+      margin-bottom: 0.5rem;
+      color: #1a2744;
+      border-left: 4px solid var(--accent);
+      padding-left: 0.75rem;
+      scroll-margin-top: 1.5rem;
+    }
+
+    h3 {
+      font-size: 1.03rem;
+      font-weight: 600;
+      margin-top: 1.8rem;
+      margin-bottom: 0.4rem;
+      color: var(--text-sub);
+      scroll-margin-top: 1.5rem;
+    }
+
+    h4 {
+      font-size: 0.93rem;
+      font-weight: 600;
+      margin-top: 1.4rem;
+      margin-bottom: 0.3rem;
+      color: #4a5a7e;
+      font-style: italic;
+      scroll-margin-top: 1.5rem;
+    }
+
+    p { margin: 0.6rem 0 0.9rem; }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    code {
+      font-family: "SF Mono", "Fira Code", "Cascadia Code", Menlo, Consolas, monospace;
+      font-size: 0.84em;
+      background: var(--code-bg);
+      border-radius: 4px;
+      padding: 0.15em 0.4em;
+    }
+
+    pre {
+      background: var(--pre-bg);
+      color: var(--pre-fg);
+      border-radius: 8px;
+      padding: 1.2rem 1.4rem;
+      overflow-x: auto;
+      font-size: 0.82rem;
+      line-height: 1.6;
+      margin: 1rem 0 1.4rem;
+    }
+
+    pre code {
+      background: none;
+      padding: 0;
+      font-size: inherit;
+      color: inherit;
+      border-radius: 0;
+    }
+
+    ul, ol { padding-left: 1.5rem; margin: 0.5rem 0 1rem; }
+    li { margin-bottom: 0.35rem; }
+
+    /* ── Tables ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0 1.5rem;
+      font-size: 0.88rem;
+    }
+
+    th {
+      background: var(--accent);
+      color: #fff;
+      font-weight: 600;
+      padding: 0.55rem 0.8rem;
+      text-align: left;
+    }
+
+    td {
+      padding: 0.55rem 0.8rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+
+    tr:nth-child(even) td { background: #f7f9ff; }
+
+    /* ── Callout boxes ──────────────────────────────────────────────
+       Usage: <div class="callout callout-green"> ... </div>
+       Available modifiers: callout-green, callout-blue, callout-yellow, callout-red
+    ── */
+    .callout {
+      border-radius: 0 6px 6px 0;
+      padding: 0.7rem 1rem;
+      margin: 1rem 0;
+      font-size: 0.93rem;
+      border-left-width: 4px;
+      border-left-style: solid;
+    }
+
+    .callout-green  { background: #edf7ed; border-left-color: #2d8a4e; }
+    .callout-blue   { background: #e8f0fe; border-left-color: var(--accent); }
+    .callout-yellow { background: #fff8e1; border-left-color: #f5a623; }
+    .callout-red    { background: #fdecea; border-left-color: #d32f2f; }
+
+    /* ── Badges ─────────────────────────────────────────────────────
+       Usage: <span class="badge badge-green">Label</span>
+       Available modifiers: badge-green, badge-blue, badge-yellow, badge-red
+    ── */
+    .badge {
+      display: inline-block;
+      border-radius: 4px;
+      padding: 0.1em 0.55em;
+      font-size: 0.8rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .badge-green  { background: #d4edda; color: #1a5c2a; }
+    .badge-blue   { background: #cce5ff; color: #004085; }
+    .badge-yellow { background: #fff3cd; color: #7a5900; }
+    .badge-red    { background: #f8d7da; color: #721c24; }
+
+    /* ── Footer ── */
+    footer {
+      margin-top: 3rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.8rem;
+      color: #999;
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       COMMENT SYSTEM
+       ══════════════════════════════════════════════════════════════ */
+
+    /* Fixed trigger button (top-right of viewport) */
+    .cm-trigger {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      z-index: 900;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.4rem 0.85rem;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-sub);
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      transition: background 0.15s, box-shadow 0.15s;
+    }
+    .cm-trigger:hover { background: var(--bg); box-shadow: 0 4px 12px rgba(0,0,0,0.14); }
+
+    .cm-trigger-badge {
+      background: var(--accent);
+      color: #fff;
+      border-radius: 10px;
+      padding: 0.1em 0.5em;
+      font-size: 0.72rem;
+      font-weight: 700;
+      display: none;
+    }
+    .cm-trigger-badge.visible { display: inline; }
+
+    /* Inline comment button — appended to each heading via JS */
+    .cm-heading-btn {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 1px solid #dee2e6;
+      background: #fff;
+      color: #9aa8cc;
+      cursor: pointer;
+      font-size: 11px;
+      line-height: 1;
+      margin-left: 8px;
+      vertical-align: middle;
+      flex-shrink: 0;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .cm-heading-btn:hover,
+    .cm-heading-btn:focus { background: var(--accent); color: #fff; border-color: var(--accent); outline: none; }
+    .cm-heading-btn.cm-has-comments { color: var(--accent); border-color: var(--accent); display: inline-flex; }
+
+    /* Show comment button when the parent heading is hovered */
+    h2:hover > .cm-heading-btn,
+    h3:hover > .cm-heading-btn,
+    h4:hover > .cm-heading-btn { display: inline-flex; }
+
+    /* Popover (anchored to heading button) */
+    .cm-popover {
+      position: fixed;
+      z-index: 1100;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: 0 6px 28px rgba(0,0,0,0.16);
+      width: 320px;
+      max-width: calc(100vw - 2rem);
+      display: none;
+      flex-direction: column;
+    }
+    .cm-popover.open { display: flex; }
+
+    .cm-popover-header {
+      padding: 0.7rem 1rem 0.55rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .cm-popover-section-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+    .cm-popover-title {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text);
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .cm-popover-close {
+      background: none;
+      border: none;
+      color: #adb5bd;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      padding: 0;
+      flex-shrink: 0;
+    }
+    .cm-popover-close:hover { color: var(--text); }
+
+    .cm-popover-body {
+      padding: 0.6rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    .cm-empty-note {
+      font-size: 0.8rem;
+      color: #adb5bd;
+      font-style: italic;
+    }
+
+    .cm-comment-item {
+      position: relative;
+      font-size: 0.82rem;
+      color: var(--text-sub);
+      border-left: 3px solid var(--accent);
+      padding: 0.4rem 1.6rem 0.4rem 0.6rem;
+      background: var(--bg);
+      border-radius: 0 5px 5px 0;
+    }
+    .cm-comment-text { white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
+    .cm-comment-meta {
+      font-size: 0.7rem;
+      color: #adb5bd;
+      margin-top: 0.2rem;
+    }
+    .cm-comment-del {
+      position: absolute;
+      top: 5px;
+      right: 6px;
+      background: none;
+      border: none;
+      color: #ced4da;
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+      padding: 0;
+    }
+    .cm-comment-del:hover { color: #d32f2f; }
+
+    .cm-popover-footer {
+      padding: 0.55rem 1rem 0.75rem;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+    }
+    .cm-textarea {
+      width: 100%;
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+      padding: 0.45rem 0.65rem;
+      font-size: 0.82rem;
+      font-family: inherit;
+      color: var(--text);
+      resize: vertical;
+      min-height: 64px;
+      outline: none;
+      line-height: 1.5;
+    }
+    .cm-textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(76,110,245,0.14); }
+    .cm-textarea::placeholder { color: #adb5bd; }
+
+    .cm-popover-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.73rem;
+      color: #adb5bd;
+    }
+    .cm-hint { font-style: italic; }
+
+    .cm-btn-row { display: flex; gap: 0.4rem; }
+    .cm-btn {
+      border-radius: 5px;
+      padding: 0.3rem 0.75rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid #dee2e6;
+      background: #fff;
+      color: var(--text-sub);
+    }
+    .cm-btn:hover { background: var(--bg); }
+    .cm-btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .cm-btn-primary:hover { background: #3b5bdb; border-color: #3b5bdb; }
+
+    /* Slide-in panel */
+    .cm-panel {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: 360px;
+      max-width: 100vw;
+      background: #fff;
+      border-left: 1px solid var(--border);
+      box-shadow: -6px 0 28px rgba(0,0,0,0.1);
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.22s ease;
+    }
+    .cm-panel.open { transform: translateX(0); }
+
+    .cm-panel-header {
+      padding: 1rem 1.2rem 0.9rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .cm-panel-title {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: #0d1b2a;
+    }
+    .cm-panel-close {
+      background: none;
+      border: none;
+      font-size: 20px;
+      color: #adb5bd;
+      cursor: pointer;
+      line-height: 1;
+      padding: 0;
+    }
+    .cm-panel-close:hover { color: var(--text); }
+
+    .cm-panel-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.9rem 1.2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .cm-panel-empty {
+      color: #adb5bd;
+      font-size: 0.84rem;
+      font-style: italic;
+      text-align: center;
+      padding: 2.5rem 0;
+      line-height: 1.6;
+    }
+    .cm-panel-group-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--accent);
+      margin-bottom: 0.45rem;
+    }
+    .cm-panel-group-title a {
+      color: inherit;
+      text-decoration: none;
+    }
+    .cm-panel-group-title a:hover { text-decoration: underline; }
+
+    .cm-panel-footer {
+      padding: 0.85rem 1.2rem;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .cm-export-btn {
+      width: 100%;
+      background: #1e2235;
+      color: #b8c0db;
+      border: none;
+      border-radius: 7px;
+      padding: 0.6rem 1rem;
+      font-size: 0.84rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      transition: background 0.15s, color 0.15s;
+    }
+    .cm-export-btn:hover { background: #2d3450; color: #e0e6f7; }
+
+    /* Export modal */
+    .cm-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 1200;
+      background: rgba(10,15,40,0.55);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .cm-modal-backdrop.open { display: flex; }
+
+    .cm-modal-card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 12px 48px rgba(0,0,0,0.22);
+      width: 660px;
+      max-width: 100%;
+      max-height: 82vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .cm-modal-header {
+      padding: 1.1rem 1.5rem 0.9rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+    }
+    .cm-modal-header-text { flex: 1; }
+    .cm-modal-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #0d1b2a;
+      margin: 0 0 0.2rem;
+    }
+    .cm-modal-subtitle {
+      font-size: 0.79rem;
+      color: #adb5bd;
+      line-height: 1.4;
+    }
+    .cm-modal-body {
+      flex: 1;
+      overflow: auto;
+      padding: 1rem 1.5rem;
+    }
+    .cm-export-pre {
+      background: var(--pre-bg);
+      color: var(--pre-fg);
+      border-radius: 8px;
+      padding: 1rem 1.2rem;
+      font-size: 0.78rem;
+      font-family: "SF Mono", "Fira Code", Menlo, Consolas, monospace;
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin: 0;
+      line-height: 1.65;
+    }
+    .cm-modal-footer {
+      padding: 0.85rem 1.5rem;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+
+<div class="layout">
+
+  <!-- ══ Sidebar ══════════════════════════════════════════════════════
+       Add one <li> per heading. Use class nav-h2 / nav-h3 / nav-h4
+       to control indentation. Each href must match the id on the
+       corresponding heading element in the main content.
+  ════════════════════════════════════════════════════════════════════ -->
+  <nav class="sidebar" aria-label="Page outline">
+    <div class="sidebar-title">On this page</div>
+    <ul class="nav-list">
+      <li class="nav-h2"><a href="#0-what-you-end-up-with">0. What you end up with</a></li>
+      <li class="nav-h3"><a href="#prerequisites-checklist">Prerequisites checklist</a></li>
+      <li class="nav-h2"><a href="#1-prepare-the-vps-and-install-coolify">1. Prepare the VPS and install Coolify</a></li>
+      <li class="nav-h3"><a href="#1-1-add-swap">1.1 Add swap</a></li>
+      <li class="nav-h3"><a href="#1-2-install-coolify">1.2 Install Coolify</a></li>
+      <li class="nav-h3"><a href="#1-3-open-the-right-ports">1.3 Open the right ports</a></li>
+      <li class="nav-h3"><a href="#1-4-optional-cap-coolify-s-own-memory">1.4 Optional: cap Coolify's own memory</a></li>
+      <li class="nav-h2"><a href="#2-point-dns-at-the-vps">2. Point DNS at the VPS</a></li>
+      <li class="nav-h2"><a href="#3-prepare-github-images-digests-and-registry-access">3. Prepare GitHub: images, digests, and registry access</a></li>
+      <li class="nav-h3"><a href="#3-1-confirm-the-images-build">3.1 Confirm the images build</a></li>
+      <li class="nav-h3"><a href="#3-2-find-the-image-digests">3.2 Find the image digests</a></li>
+      <li class="nav-h3"><a href="#3-3-create-a-token-that-can-pull-the-private-images">3.3 Create a token that can pull the private images</a></li>
+      <li class="nav-h3"><a href="#3-4-add-the-ghcr-login-to-the-coolify-server">3.4 Add the GHCR login to the Coolify server</a></li>
+      <li class="nav-h2"><a href="#4-create-the-coolify-project-and-the-compose-resource">4. Create the Coolify project and the compose resource</a></li>
+      <li class="nav-h3"><a href="#4-1-create-the-project">4.1 Create the project</a></li>
+      <li class="nav-h3"><a href="#4-2-give-coolify-read-access-to-the-private-repo">4.2 Give Coolify read access to the private repo</a></li>
+      <li class="nav-h3"><a href="#4-3-create-the-resource">4.3 Create the resource</a></li>
+      <li class="nav-h3"><a href="#4-4-attach-the-domain">4.4 Attach the domain</a></li>
+      <li class="nav-h3"><a href="#4-5-turn-off-gzip-for-this-resource">4.5 Turn off gzip for this resource</a></li>
+      <li class="nav-h3"><a href="#4-6-websockets">4.6 WebSockets</a></li>
+      <li class="nav-h2"><a href="#5-set-the-environment-variables">5. Set the environment variables</a></li>
+      <li class="nav-h3"><a href="#5-1-all-variables-at-a-glance">5.1 All variables at a glance</a></li>
+      <li class="nav-h3"><a href="#5-2-ghcr-owner">5.2 GHCR_OWNER</a></li>
+      <li class="nav-h3"><a href="#5-3-app-digest-and-importer-digest">5.3 APP_DIGEST and IMPORTER_DIGEST</a></li>
+      <li class="nav-h3"><a href="#5-4-public-url">5.4 PUBLIC_URL</a></li>
+      <li class="nav-h3"><a href="#5-5-db-owner-password-and-db-app-password">5.5 DB_OWNER_PASSWORD and DB_APP_PASSWORD</a></li>
+      <li class="nav-h3"><a href="#5-6-app-keys">5.6 APP_KEYS</a></li>
+      <li class="nav-h3"><a href="#5-7-anon-tag-key">5.7 ANON_TAG_KEY</a></li>
+      <li class="nav-h3"><a href="#5-8-smtp-variables">5.8 SMTP variables</a></li>
+      <li class="nav-h3"><a href="#5-9-trusted-proxy-cidrs-and-client-ip-header">5.9 TRUSTED_PROXY_CIDRS and CLIENT_IP_HEADER</a></li>
+      <li class="nav-h3"><a href="#5-10-sign-in-variables">5.10 Sign-in variables</a></li>
+      <li class="nav-h3"><a href="#5-11-jira-host-allowlist-and-blob-bytes-max">5.11 JIRA_HOST_ALLOWLIST and BLOB_BYTES_MAX</a></li>
+      <li class="nav-h2"><a href="#6-set-up-google-sign-in-optional">6. Set up Google sign-in (optional)</a></li>
+      <li class="nav-h2"><a href="#7-set-up-microsoft-entra-sign-in-optional">7. Set up Microsoft Entra sign-in (optional)</a></li>
+      <li class="nav-h2"><a href="#8-set-up-email-smtp-and-its-dns-records">8. Set up email (SMTP) and its DNS records</a></li>
+      <li class="nav-h3"><a href="#8-1-check-which-ports-your-vps-provider-blocks">8.1 Check which ports your VPS provider blocks</a></li>
+      <li class="nav-h3"><a href="#8-2-pick-a-provider-and-get-credentials">8.2 Pick a provider and get credentials</a></li>
+      <li class="nav-h3"><a href="#8-3-add-dmarc">8.3 Add DMARC</a></li>
+      <li class="nav-h3"><a href="#8-4-set-the-variables">8.4 Set the variables</a></li>
+      <li class="nav-h2"><a href="#9-set-the-trusted-proxy-subnet">9. Set the trusted proxy subnet</a></li>
+      <li class="nav-h2"><a href="#10-deploy-for-the-first-time-and-smoke-test">10. Deploy for the first time and smoke test</a></li>
+      <li class="nav-h3"><a href="#10-1-deploy">10.1 Deploy</a></li>
+      <li class="nav-h3"><a href="#10-2-check-the-stack-on-the-vps">10.2 Check the stack on the VPS</a></li>
+      <li class="nav-h3"><a href="#10-3-check-https-headers-and-compression">10.3 Check HTTPS, headers, and compression</a></li>
+      <li class="nav-h3"><a href="#10-4-smoke-test-in-the-browser">10.4 Smoke test in the browser</a></li>
+      <li class="nav-h3"><a href="#10-5-make-yourself-an-app-admin">10.5 Make yourself an app admin</a></li>
+      <li class="nav-h2"><a href="#11-release-a-new-version">11. Release a new version</a></li>
+      <li class="nav-h3"><a href="#11-1-by-hand">11.1 By hand</a></li>
+      <li class="nav-h3"><a href="#11-2-by-api-optional-automation">11.2 By API (optional automation)</a></li>
+      <li class="nav-h2"><a href="#12-back-up-and-restore">12. Back up and restore</a></li>
+      <li class="nav-h2"><a href="#13-rotate-keys">13. Rotate keys</a></li>
+      <li class="nav-h2"><a href="#14-import-data-from-the-old-supabase-app">14. Import data from the old Supabase app</a></li>
+      <li class="nav-h2"><a href="#15-measure-on-the-vps">15. Measure on the VPS</a></li>
+      <li class="nav-h2"><a href="#16-troubleshooting">16. Troubleshooting</a></li>
+      <li class="nav-h2"><a href="#unverified-items-to-check-on-your-screen">Unverified items to check on your screen</a></li>
+    </ul>
+  </nav>
+
+  <!-- ══ Main ═════════════════════════════════════════════════════════ -->
+  <main class="main">
+  <div class="page">
+<h1>Set up Coolify to host Retroscope Next</h1>
+<p>This guide takes you from an empty VPS to a running Retroscope Next behind HTTPS on Coolify. It covers every environment variable: what it does, and how to get or generate its value.</p>
+<p><code>deploy/RUNBOOK.md</code> stays the operations reference. This guide repeats only what you need for setup and links to the runbook for the rest. Items marked <strong>UNVERIFIED</strong> are steps or labels the research could not confirm in official docs or in the repo. Check them on your own screen as you go.</p>
+<h2 id="0-what-you-end-up-with">0. What you end up with</h2>
+<ul>
+<li>A 2 vCPU / 2 GB x86_64 VPS running Coolify&#39;s control plane and Traefik.</li>
+<li>One Coolify <strong>Docker Compose</strong> resource built from <code>deploy/docker-compose.yml</code>, with three long-running services:<ul>
+<li><code>app</code>: the Retroscope server, port 8080 inside the container, no host port.</li>
+<li><code>db</code>: Postgres 18, no host port.</li>
+<li><code>backup</code>: a sidecar that writes a daily <code>pg_dump</code> into the <code>pgbackups</code> volume.</li>
+</ul>
+</li>
+<li>A fourth service, <code>importer</code>, is in profile <code>import</code>. It runs only during the one-time data import.</li>
+<li>HTTPS on <code>https://&lt;your-domain&gt;</code>, with a Let&#39;s Encrypt certificate issued by Coolify&#39;s Traefik.</li>
+<li>Images that GitHub Actions builds and pushes to GHCR. The VPS pulls them by digest and never builds anything.</li>
+</ul>
+<p>Our stack is capped at 1 vCPU and about 1 GB by the <code>mem_limit</code> and <code>cpus</code> values in the compose file:</p>
+<table>
+<thead>
+<tr>
+<th>Service</th>
+<th>Memory</th>
+<th>CPU</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>app</code></td>
+<td>200m</td>
+<td>0.6</td>
+</tr>
+<tr>
+<td><code>db</code></td>
+<td>288m</td>
+<td>0.35</td>
+</tr>
+<tr>
+<td><code>backup</code></td>
+<td>48m</td>
+<td>0.05</td>
+</tr>
+<tr>
+<td><code>importer</code> (import only, runs in place of <code>app</code>)</td>
+<td>256m</td>
+<td>0.6</td>
+</tr>
+</tbody></table>
+<p>Coolify, Traefik, and the OS use the rest of the box.</p>
+<h3 id="prerequisites-checklist">Prerequisites checklist</h3>
+<p>Collect these before you start:</p>
+<ul>
+<li><input disabled="" type="checkbox"> A VPS with <strong>x86_64 (amd64)</strong> CPU, 2 vCPU, 2 GB RAM, at least 10 GB disk, and a fresh Ubuntu LTS (20.04, 22.04, or 24.04). The images are built for <code>linux/amd64</code> only (<code>.github/workflows/images.yml</code>), so an ARM VPS cannot run them.</li>
+<li><input disabled="" type="checkbox"> Root or sudo SSH access to the VPS.</li>
+<li><input disabled="" type="checkbox"> A domain or subdomain you control, for example <code>retro.example.com</code>.</li>
+<li><input disabled="" type="checkbox"> Admin access to the GitHub repo <code>justinloveless/retroscope-next</code>.</li>
+<li><input disabled="" type="checkbox"> An account with a transactional email provider (section 8).</li>
+<li><input disabled="" type="checkbox"> Optional: a Google Cloud account for Google sign-in (section 6).</li>
+<li><input disabled="" type="checkbox"> Optional: a Microsoft Entra tenant for Microsoft sign-in (section 7).</li>
+<li><input disabled="" type="checkbox"> <code>openssl</code> on your own machine, to generate secrets.</li>
+<li><input disabled="" type="checkbox"> A password manager to store every secret you generate. Coolify and the providers show several of them only once.</li>
+</ul>
+<h2 id="1-prepare-the-vps-and-install-coolify">1. Prepare the VPS and install Coolify</h2>
+<p>Skip the install steps if Coolify already runs on the box. Do the swap and firewall steps either way.</p>
+<h3 id="1-1-add-swap">1.1 Add swap</h3>
+<p><code>deploy/RUNBOOK.md</code> section 2 requires a 2 GB swapfile with <code>vm.swappiness=10</code> as a safety net against the OOM killer. Run as root:</p>
+<pre><code>fallocate -l 2G /swapfile &amp;&amp; chmod 600 /swapfile &amp;&amp; mkswap /swapfile &amp;&amp; swapon /swapfile
+echo '/swapfile none swap sw 0 0' &gt;&gt; /etc/fstab
+echo 'vm.swappiness=10' &gt; /etc/sysctl.d/99-swappiness.conf &amp;&amp; sysctl --system</code></pre>
+<p>Check it: <code>swapon --show</code> lists <code>/swapfile</code>, and <code>sysctl vm.swappiness</code> prints <code>10</code>.</p>
+<h3 id="1-2-install-coolify">1.2 Install Coolify</h3>
+<p>Source: <a href="https://coolify.io/docs/get-started/installation">https://coolify.io/docs/get-started/installation</a></p>
+<ol>
+<li><p>If Docker was installed through snap, remove it first.</p>
+</li>
+<li><p>The installer opens a registration page. The docs warn that &quot;anyone who reaches the registration page first can become the instance admin and gain root access to your server.&quot; Avoid that by pre-seeding the admin account. Run as root, and type the password at the silent prompt so it stays out of shell history and the process list:</p>
+<pre><code>read -rs ROOT_USER_PASSWORD   # type the admin password, press Enter
+export ROOT_USERNAME=&lt;admin-name&gt; ROOT_USER_EMAIL=&lt;admin-email&gt; ROOT_USER_PASSWORD
+curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash
+unset ROOT_USER_PASSWORD</code></pre>
+<p>The docs&#39; one-line form, <code>env ROOT_USER_PASSWORD=&#39;...&#39; bash -c &#39;...&#39;</code>, puts the password in shell history. Do not use it. The installer writes <code>ROOT_USER_PASSWORD</code> in plain text into <code>/data/coolify/source/.env</code> (install.sh, the <code>update_env_var &quot;ROOT_USER_PASSWORD&quot;</code> call). Step 5 deals with that.</p>
+<p>If you do not pre-seed, run the plain <code>curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash</code> and register through the SSH tunnel in step 3 immediately after the install finishes.</p>
+</li>
+<li><p>Reach the dashboard only through an SSH tunnel until it has its own HTTPS domain. Plain <code>http://&lt;vps-ip&gt;:8000</code> sends the admin password, the GHCR token, and every app secret you enter later over the internet in clear text. From your own machine:</p>
+<pre><code>ssh -L 8000:localhost:8000 root@&lt;vps-ip&gt;</code></pre>
+<p>Then open <code>http://localhost:8000</code> and sign in, or register if you did not pre-seed the admin.</p>
+</li>
+<li><p>Optional: give the dashboard its own HTTPS domain under <strong>Settings</strong> &gt; <strong>Instance Domain</strong> (for example <code>https://coolify.&lt;your-domain&gt;</code>, with its own DNS record). After that you can use the dashboard without the tunnel. Do not enter any secret over plain http.</p>
+</li>
+<li><p>After the first sign-in, change the admin password in the UI. Then delete the <code>ROOT_USER_PASSWORD</code> line from <code>/data/coolify/source/.env</code>, and copy the file to your password manager or another safe place. It holds Coolify&#39;s <code>APP_KEY</code> and other instance secrets.</p>
+</li>
+</ol>
+<h3 id="1-3-open-the-right-ports">1.3 Open the right ports</h3>
+<p>Source: <a href="https://coolify.io/docs/knowledge-base/server/firewall">https://coolify.io/docs/knowledge-base/server/firewall</a></p>
+<ul>
+<li>Keep 22 (SSH), 80 (HTTP, needed for certificate issuance), and 443 (HTTPS) open.</li>
+<li>Close ports 8000 (dashboard), 6001 (realtime), and 6002 (terminal) once you reach the dashboard through the SSH tunnel or its own HTTPS domain (section 1.2).</li>
+<li>Close them in the VPS provider&#39;s cloud firewall, or with <code>ufw-docker</code>. A plain <code>ufw deny 8000</code> does not work: Docker-published ports bypass ufw&#39;s INPUT rules, so the dashboard stays reachable. Coolify&#39;s firewall page points to the same two options.</li>
+<li>Check from your own machine that the ports are closed: <code>nc -vz &lt;vps-ip&gt; 8000</code> (and 6001, 6002) must fail.</li>
+</ul>
+<h3 id="1-4-optional-cap-coolify-s-own-memory">1.4 Optional: cap Coolify&#39;s own memory</h3>
+<p>The box is exactly Coolify&#39;s minimum, and our stack shares it. You can cap Coolify&#39;s own containers in <code>/data/coolify/source/docker-compose.custom.yml</code>, which upgrades leave alone (<a href="https://coolify.io/docs/knowledge-base/custom-compose-overrides">https://coolify.io/docs/knowledge-base/custom-compose-overrides</a>). The docs&#39; example shape is:</p>
+<pre><code>services:
+  coolify:
+    mem_limit: &lt;limit&gt;</code></pre>
+<p>The research found no recommended value. Measure first (section 15), and set a cap only if Coolify&#39;s memory grows into our slice.</p>
+<h2 id="2-point-dns-at-the-vps">2. Point DNS at the VPS</h2>
+<p>Sources: <a href="https://coolify.io/docs/knowledge-base/dns-configuration">https://coolify.io/docs/knowledge-base/dns-configuration</a>, <a href="https://coolify.io/docs/core/networking/dns">https://coolify.io/docs/core/networking/dns</a>, <a href="https://developers.cloudflare.com/dns/manage-dns-records/how-to/create-dns-records/">https://developers.cloudflare.com/dns/manage-dns-records/how-to/create-dns-records/</a></p>
+<ol>
+<li>At your DNS provider, create an <code>A</code> record for the app&#39;s hostname (for example <code>retro</code>) with the VPS&#39;s public IPv4 address as the value.<ul>
+<li>In Cloudflare: <strong>DNS</strong> &gt; <strong>Records</strong> &gt; <strong>Add record</strong>, <strong>Type</strong> <code>A</code>, enter the <strong>Name</strong> and the IPv4 address as <strong>Content</strong>, set <strong>Proxy status</strong> and <strong>TTL</strong>, then <strong>Save</strong>.</li>
+</ul>
+</li>
+<li>Add an <code>AAAA</code> record only if IPv6 works end to end on the VPS. Coolify&#39;s docs warn that &quot;a broken IPv6 path can cause domain or certificate requests to fail.&quot;</li>
+<li>A wildcard <code>*</code> record does not cover the apex domain. If you use the root domain, add a separate record for it.</li>
+<li>Check the record from your machine: <code>dig +short &lt;your-domain&gt; A</code> prints the VPS IP.</li>
+<li>If you use Cloudflare, set the record to <strong>DNS only</strong> (grey cloud) until Coolify has issued the certificate. <strong>UNVERIFIED:</strong> Coolify&#39;s docs do not cover Let&#39;s Encrypt behind Cloudflare&#39;s proxy. DNS only is the safe choice. If you turn the proxy on later, set <code>CLIENT_IP_HEADER=CF-Connecting-IP</code> (section 5).</li>
+</ol>
+<p>Your <code>PUBLIC_URL</code> is now <code>https://&lt;your-domain&gt;</code>. The Google and Entra redirect URIs must use exactly this host.</p>
+<h2 id="3-prepare-github-images-digests-and-registry-access">3. Prepare GitHub: images, digests, and registry access</h2>
+<h3 id="3-1-confirm-the-images-build">3.1 Confirm the images build</h3>
+<p><code>.github/workflows/images.yml</code> runs on every push to <code>main</code> and on every <code>v*</code> tag. It:</p>
+<ol>
+<li>Runs the Native AOT smoke test (<code>./build.sh aot-smoke</code>).</li>
+<li>Builds <code>ghcr.io/justinloveless/retroscope</code> from <code>deploy/Dockerfile</code> and <code>ghcr.io/justinloveless/retroscope-import</code> from <code>deploy/Dockerfile.importer</code>, for <code>linux/amd64</code> only.</li>
+<li>Pushes both, tagged with the commit SHA only. There is no <code>latest</code> tag.</li>
+<li>Prints both digests in the run summary.</li>
+</ol>
+<p>To check it:</p>
+<ol>
+<li>Open the repo on GitHub, then <strong>Actions</strong> &gt; <strong>images</strong>.</li>
+<li>Open the most recent green run on <code>main</code>. If none exists, push to <code>main</code> or run a tagged release, then wait for it.</li>
+</ol>
+<h3 id="3-2-find-the-image-digests">3.2 Find the image digests</h3>
+<p>The run summary of the green run shows two lines:</p>
+<pre><code>app: ghcr.io/justinloveless/retroscope@sha256:&lt;hex&gt;
+importer: ghcr.io/justinloveless/retroscope-import@sha256:&lt;hex&gt;</code></pre>
+<p>Copy the hex after <code>sha256:</code> on the <code>app</code> line. That is <code>APP_DIGEST</code>. Copy the hex on the <code>importer</code> line. That is <code>IMPORTER_DIGEST</code>. Do not include the <code>sha256:</code> prefix, because the compose file adds it.</p>
+<h3 id="3-3-create-a-token-that-can-pull-the-private-images">3.3 Create a token that can pull the private images</h3>
+<p>The repo is private. Packages that Actions pushes with <code>GITHUB_TOKEN</code> are linked to the repo and &quot;automatically inherit the access permissions of the linked repository&quot;, and &quot;when you first publish a package, the default visibility is private&quot; (<a href="https://docs.github.com/en/packages/learn-github-packages/about-permissions-for-github-packages">https://docs.github.com/en/packages/learn-github-packages/about-permissions-for-github-packages</a>). The VPS therefore has to log in to GHCR.</p>
+<p>GitHub Packages &quot;only supports authentication using a personal access token (classic)&quot; (<a href="https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry">https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry</a>). Fine-grained tokens are not listed as supported.</p>
+<ol>
+<li>On GitHub, click your profile picture, then <strong>Settings</strong> &gt; <strong>Developer settings</strong> &gt; <strong>Personal access tokens</strong> &gt; <strong>Tokens (classic)</strong> &gt; <strong>Generate new token</strong> &gt; <strong>Generate new token (classic)</strong> (<a href="https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens">https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens</a>).</li>
+<li>In <strong>Note</strong>, name it, for example <code>coolify-ghcr-pull</code>.</li>
+<li>Set an <strong>Expiration</strong> and put a reminder in your calendar to rotate it before then.</li>
+<li>Select <strong>only</strong> the <code>read:packages</code> scope.</li>
+<li>Click <strong>Generate token</strong> and copy it into your password manager.</li>
+</ol>
+<p>GitHub warns that a classic token with <code>read:packages</code> can read every package your account can reach, not only this repo&#39;s. Store it only in Coolify&#39;s Registries login or the server&#39;s Docker config. Never put it in the repo or in a URL.</p>
+<p>Do not make the packages public. Anonymous pulls would work, but the research recommends against it for this app.</p>
+<h3 id="3-4-add-the-ghcr-login-to-the-coolify-server">3.4 Add the GHCR login to the Coolify server</h3>
+<p>Source: <a href="https://coolify.io/docs/knowledge-base/docker/registry">https://coolify.io/docs/knowledge-base/docker/registry</a></p>
+<ol>
+<li>In Coolify, open <strong>Registries</strong> in the main sidebar, or <strong>Servers</strong> &gt; <strong>localhost</strong> &gt; <strong>Registries</strong>.</li>
+<li>Click <strong>Log in</strong> and choose the <strong>GHCR</strong> preset.</li>
+<li>Enter your GitHub username and the token from 3.3.</li>
+</ol>
+<p>&quot;Coolify runs <code>docker login</code> for the configured server user.&quot; The credentials land in that user&#39;s <code>~/.docker/config.json</code>, which is &quot;encoded, not encrypted&quot;. Coolify does not store the token in its database.</p>
+<p>If your Coolify version has no <strong>Registries</strong> page, log in over SSH as the user Coolify connects with. On <code>localhost</code> that is normally root (<strong>UNVERIFIED</strong>):</p>
+<pre><code>read -rs REGISTRY_TOKEN   # paste the token, press Enter
+printf '%s' &quot;$REGISTRY_TOKEN&quot; | docker login ghcr.io --username &lt;your-github-username&gt; --password-stdin
+unset REGISTRY_TOKEN</code></pre>
+<p>Check it: <code>docker pull ghcr.io/justinloveless/retroscope@sha256:&lt;APP_DIGEST&gt;</code> succeeds on the VPS.</p>
+<h2 id="4-create-the-coolify-project-and-the-compose-resource">4. Create the Coolify project and the compose resource</h2>
+<p>Source: <a href="https://coolify.io/docs/get-started/concepts">https://coolify.io/docs/get-started/concepts</a>. Coolify organises things as Project, then Environment, then Resource.</p>
+<h3 id="4-1-create-the-project">4.1 Create the project</h3>
+<ol>
+<li>In Coolify, create a project, for example <code>retroscope</code>.</li>
+<li>Open its environment. Use <code>production</code> if Coolify created one. <strong>UNVERIFIED:</strong> whether a new project gets a <code>production</code> environment automatically. If not, create one.</li>
+</ol>
+<h3 id="4-2-give-coolify-read-access-to-the-private-repo">4.2 Give Coolify read access to the private repo</h3>
+<p>The recommended resource type is a Git-based compose application, so the compose file stays in sync with the repo. A private repo needs a deploy key or a GitHub App. The deploy key is the simpler, read-only option (<a href="https://coolify.io/docs/applications/sources/github/deploy-key">https://coolify.io/docs/applications/sources/github/deploy-key</a>).</p>
+<ol>
+<li>In Coolify, go to <strong>Keys &amp; Tokens</strong> &gt; <strong>Private Keys</strong> &gt; <strong>New private key</strong> and choose <strong>Generate ED25519</strong>. Save it.</li>
+<li>Click the key&#39;s edit icon and copy the <strong>public</strong> key.</li>
+<li>On GitHub, open <code>https://github.com/justinloveless/retroscope-next/settings/keys</code>, click <strong>Add deploy key</strong>, paste the public key, and leave <strong>Allow write access</strong> off.</li>
+</ol>
+<p>Alternative: <strong>+ New</strong> &gt; <strong>Private Repository (with GitHub App)</strong>. Coolify recommends the GitHub App &quot;for the most complete integration&quot; (<a href="https://coolify.io/docs/applications/sources/github/app">https://coolify.io/docs/applications/sources/github/app</a>). Either works for this stack.</p>
+<h3 id="4-3-create-the-resource">4.3 Create the resource</h3>
+<p>Sources: <a href="https://coolify.io/docs/applications/build-packs/docker-compose">https://coolify.io/docs/applications/build-packs/docker-compose</a>, <a href="https://coolify.io/docs/knowledge-base/docker/compose">https://coolify.io/docs/knowledge-base/docker/compose</a></p>
+<ol>
+<li><p>In the project&#39;s environment, click <strong>+ New</strong> &gt; <strong>Private Repository (with Deploy Key)</strong>.</p>
+</li>
+<li><p>Choose the server <strong>localhost</strong> and the key from 4.2.</p>
+</li>
+<li><p>Enter the SSH URL <code>git@github.com:justinloveless/retroscope-next.git</code>. Do not use the HTTPS URL.</p>
+</li>
+<li><p>Choose the branch <code>main</code>.</p>
+</li>
+<li><p>Under <strong>General</strong> &gt; <strong>Build pipeline</strong>, set:</p>
+<ul>
+<li><strong>Build strategy</strong>: <code>Compose</code></li>
+<li><strong>Base Directory</strong>: <code>/</code></li>
+<li><strong>Docker Compose Location</strong>: <code>/deploy/docker-compose.yml</code></li>
+</ul>
+<p>Coolify joins the two paths, and the file extension must match exactly (<code>.yml</code>).</p>
+</li>
+<li><p>Do not switch on <strong>Raw</strong> compose deployment (<strong>Advanced</strong> &gt; <strong>Docker compose</strong> &gt; <strong>Compose deployment</strong>). Raw mode deploys the file as-is, and you would have to write the Traefik labels and networks yourself. Our file has none.</p>
+</li>
+<li><p>Do not deploy yet. The environment variables come first (section 5).</p>
+</li>
+</ol>
+<p>The compose file has only <code>image:</code> entries and no <code>build:</code> sections, so Coolify pulls and never builds. A test in <code>tests/Retroscope.Integration.Tests/Deploy</code> enforces that.</p>
+<p>A fallback is <strong>Docker Compose Empty</strong>, where you paste the YAML into Coolify. It has &quot;no Git source, branch, or pull-request events&quot;, so the pasted file drifts from the repo. Use it only if the Git option fails.</p>
+<p><strong>Auto deploy on push:</strong> a push to <code>main</code> also starts a new image build, but <code>APP_DIGEST</code> does not change until you set it. A Git-triggered redeploy would only restart the same image. In the resource, open <strong>Advanced</strong> &gt; <strong>Deployment</strong> &gt; <strong>Auto deploy</strong> and choose <strong>Manual deployments only</strong> (the other option is <strong>Deploy on push (webhooks)</strong>; source: Coolify <code>resources/views/livewire/project/application/advanced.blade.php</code>). Do not add a GitHub webhook for this resource. A deploy-key resource receives push events only through a webhook you add yourself. Deploy by hand or by API (section 11).</p>
+<h3 id="4-4-attach-the-domain">4.4 Attach the domain</h3>
+<p>Source: <a href="https://coolify.io/docs/core/networking/domains">https://coolify.io/docs/core/networking/domains</a></p>
+<ol>
+<li>In the resource, open <strong>Domains</strong> &gt; <strong>Add domain</strong>.</li>
+<li>Set <strong>Service</strong> to <code>app</code>, <strong>Protocol</strong> to <code>https</code>, the hostname to <code>&lt;your-domain&gt;</code>, and <strong>Port</strong> to <code>8080</code>.<ul>
+<li>In versions with a single text field instead of a form, enter <code>https://&lt;your-domain&gt;:8080</code> for the <code>app</code> service. <strong>UNVERIFIED:</strong> which Coolify version introduced the form.</li>
+</ul>
+</li>
+<li>Leave the domains of <code>db</code>, <code>backup</code>, and <code>importer</code> empty.</li>
+</ol>
+<p>The port only tells Traefik which container port to route to. It does not publish a host port. Do not add a <code>ports:</code> entry for any service.</p>
+<p>Coolify&#39;s Traefik issues the certificate with Let&#39;s Encrypt over the HTTP challenge on ports 80 and 443. The hostname must already resolve to the VPS (section 2).</p>
+<h3 id="4-5-turn-off-gzip-for-this-resource">4.5 Turn off gzip for this resource</h3>
+<p><code>deploy/RUNBOOK.md</code> section 12 requires Traefik compression to stay off: the app compresses static assets itself and deliberately leaves dynamic responses uncompressed (BREACH risk). Coolify adds a <code>gzip</code> middleware by default.</p>
+<ol>
+<li>In the resource, open <strong>Advanced</strong> and find the <strong>Proxy</strong> section.</li>
+<li>Set <strong>Gzip compression</strong> to <strong>Disabled</strong> (API field <code>is_gzip_enabled</code>). It defaults to <strong>Enabled</strong>, and Coolify applies it to compose services too.</li>
+</ol>
+<p>The control shows only while Coolify manages the container labels (the default). If the Proxy section says labels are managed manually, switch label management back to Coolify first. Source: Coolify v4.x source (<code>resources/views/livewire/project/application/advanced.blade.php</code>, <code>app/Livewire/Project/Application/Advanced.php</code>, <code>bootstrap/helpers/parsers.php</code>). The docs pages do not describe this control, so confirm the label on your screen.</p>
+<p>You check the result after the first deploy (section 10).</p>
+<h3 id="4-6-websockets">4.6 WebSockets</h3>
+<p>The app uses WebSockets for live rooms. <strong>UNVERIFIED</strong> in Coolify&#39;s docs: no page covers WebSockets. Traefik normally passes Upgrade requests through, and the local rehearsal behind Traefik v3.7.16 confirmed it (<code>deploy/RUNBOOK.md</code> section 14). You prove it on the VPS with the drill in section 15. There is nothing to configure.</p>
+<h2 id="5-set-the-environment-variables">5. Set the environment variables</h2>
+<p>Source: <a href="https://coolify.io/docs/knowledge-base/environment-variables">https://coolify.io/docs/knowledge-base/environment-variables</a></p>
+<p>Coolify reads every <code>${VAR}</code> in the compose file and lists it under the resource&#39;s <strong>Environment Variables</strong>:</p>
+<ul>
+<li><code>${VAR:?}</code> marks a required variable. &quot;Coolify blocks deployment while its value is empty.&quot;</li>
+<li><code>${VAR:-x}</code> pre-fills the value <code>x</code>.</li>
+</ul>
+<p>You can enter values in the <strong>Normal view</strong> (Add, then Name and Value) or paste <code>.env</code>-style text in the <strong>Developer view</strong>. Saving the Developer view &quot;creates, updates, and removes entries to match its contents&quot;, so paste the complete list there, never part of it.</p>
+<p>The VPS never builds, so for every secret set <strong>Build time</strong> to &quot;Not available during build&quot; and leave <strong>Runtime</strong> available.</p>
+<p>Changes to runtime variables need a <strong>Restart</strong>. A digest change needs a <strong>Redeploy</strong> so the new image is pulled.</p>
+<p>Values must not contain <code>;</code>, because <code>DB_APP_PASSWORD</code> and <code>DB_OWNER_PASSWORD</code> sit inside Npgsql connection strings in the compose file. Avoid <code>$</code> too, because of compose interpolation. The generator commands below produce safe values.</p>
+<h3 id="5-1-all-variables-at-a-glance">5.1 All variables at a glance</h3>
+<p>Required means the compose file marks it <code>${VAR:?}</code>. Defaults come from the compose file.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Required</th>
+<th>Example format</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>GHCR_OWNER</code></td>
+<td>yes</td>
+<td><code>justinloveless</code></td>
+<td>Lower-case GitHub owner in <code>ghcr.io/&lt;owner&gt;/…</code>.</td>
+</tr>
+<tr>
+<td><code>APP_DIGEST</code></td>
+<td>yes</td>
+<td><code>&lt;64 hex chars&gt;</code></td>
+<td>App image digest, without <code>sha256:</code>.</td>
+</tr>
+<tr>
+<td><code>IMPORTER_DIGEST</code></td>
+<td>no, but set it</td>
+<td><code>&lt;64 hex chars&gt;</code></td>
+<td>Importer image digest, without <code>sha256:</code>.</td>
+</tr>
+<tr>
+<td><code>PUBLIC_URL</code></td>
+<td>yes</td>
+<td><code>https://retro.example.com</code></td>
+<td>Public origin. Drives CSP, CSRF and WebSocket Origin checks, mail links, OIDC redirect URIs, HSTS, and the SMTP EHLO name.</td>
+</tr>
+<tr>
+<td><code>DB_OWNER_PASSWORD</code></td>
+<td>yes</td>
+<td><code>&lt;hex string&gt;</code></td>
+<td>Password of the Postgres owner role <code>retroscope_owner</code>.</td>
+</tr>
+<tr>
+<td><code>DB_APP_PASSWORD</code></td>
+<td>yes</td>
+<td><code>&lt;hex string&gt;</code></td>
+<td>Password the migrator sets on the <code>retroscope_app</code> role the app uses.</td>
+</tr>
+<tr>
+<td><code>APP_KEYS</code></td>
+<td>yes</td>
+<td><code>k1:&lt;base64 of 32 bytes&gt;</code></td>
+<td>Keyring that seals Jira credentials, link-invite tokens, and the OIDC state cookie, and keys the audit-log email HMAC.</td>
+</tr>
+<tr>
+<td><code>ANON_TAG_KEY</code></td>
+<td>yes</td>
+<td><code>&lt;base64 of 32 bytes&gt;</code></td>
+<td>Tags anonymous cards and comments so their authors can still edit them. Never rotate it unless it leaks.</td>
+</tr>
+<tr>
+<td><code>SMTP_HOST</code></td>
+<td>yes</td>
+<td><code>smtp.resend.com</code></td>
+<td>Mail submission host.</td>
+</tr>
+<tr>
+<td><code>SMTP_PORT</code></td>
+<td>no (<code>587</code>)</td>
+<td><code>587</code></td>
+<td>Mail submission port, 1-65535.</td>
+</tr>
+<tr>
+<td><code>SMTP_SECURITY</code></td>
+<td>no (empty)</td>
+<td><code>starttls</code>, <code>tls</code>, or <code>none</code></td>
+<td>Empty means implicit TLS on 465 and STARTTLS on every other port.</td>
+</tr>
+<tr>
+<td><code>SMTP_USER</code></td>
+<td>no (empty)</td>
+<td>provider-specific</td>
+<td>SMTP login. Set both user and password, or neither.</td>
+</tr>
+<tr>
+<td><code>SMTP_PASSWORD</code></td>
+<td>no (empty)</td>
+<td>provider-specific</td>
+<td>SMTP password or API key.</td>
+</tr>
+<tr>
+<td><code>SMTP_FROM</code></td>
+<td>yes</td>
+<td><code>Retroscope &lt;noreply@example.com&gt;</code></td>
+<td>Sender address, used for both the envelope and the header.</td>
+</tr>
+<tr>
+<td><code>TRUSTED_PROXY_CIDRS</code></td>
+<td>yes</td>
+<td><code>10.0.5.0/24</code></td>
+<td>Subnet Traefik reaches the app from. Only peers inside it may set the client IP.</td>
+</tr>
+<tr>
+<td><code>CLIENT_IP_HEADER</code></td>
+<td>no (empty)</td>
+<td><code>CF-Connecting-IP</code></td>
+<td>Set only when Cloudflare proxies in front of Traefik.</td>
+</tr>
+<tr>
+<td><code>GOOGLE_CLIENT_ID</code></td>
+<td>no (empty)</td>
+<td><code>&lt;id&gt;.apps.googleusercontent.com</code></td>
+<td>Google sign-in. Set both Google values, or neither.</td>
+</tr>
+<tr>
+<td><code>GOOGLE_CLIENT_SECRET</code></td>
+<td>no (empty)</td>
+<td>from Google</td>
+<td>Google sign-in secret.</td>
+</tr>
+<tr>
+<td><code>ENTRA_CLIENT_ID</code></td>
+<td>no (empty)</td>
+<td><code>&lt;GUID&gt;</code></td>
+<td>Entra sign-in. Set both Entra values, or neither.</td>
+</tr>
+<tr>
+<td><code>ENTRA_CLIENT_SECRET</code></td>
+<td>no (empty)</td>
+<td>from Entra</td>
+<td>Entra sign-in secret.</td>
+</tr>
+<tr>
+<td><code>ENTRA_TENANT</code></td>
+<td>no (<code>organizations</code>)</td>
+<td><code>organizations</code> or <code>&lt;tenant GUID&gt;</code></td>
+<td>Authority tenant segment. ASCII letters, digits, <code>-</code>, and <code>.</code> only.</td>
+</tr>
+<tr>
+<td><code>ENTRA_ALLOWED_TENANTS</code></td>
+<td>no (empty)</td>
+<td><code>&lt;tid1&gt;,&lt;tid2&gt;</code></td>
+<td>Tenant IDs allowed to sign in. <strong>Empty disables Entra.</strong></td>
+</tr>
+<tr>
+<td><code>ENTRA_TENANT_DOMAINS</code></td>
+<td>no (empty)</td>
+<td><code>&lt;tid&gt;=example.com|example.org</code></td>
+<td>Email domains trusted per tenant when the token lacks <code>xms_edov</code>.</td>
+</tr>
+<tr>
+<td><code>JIRA_HOST_ALLOWLIST</code></td>
+<td>no (empty)</td>
+<td><code>jira.example.com</code></td>
+<td>Extra exact Jira host names beyond <code>*.atlassian.net</code>.</td>
+</tr>
+<tr>
+<td><code>BLOB_BYTES_MAX</code></td>
+<td>no (<code>2147483648</code>)</td>
+<td><code>2147483648</code></td>
+<td>Ceiling on all board images together, in bytes.</td>
+</tr>
+</tbody></table>
+<p>Fixed values in the compose file that you do not set: <code>ASPNETCORE_URLS</code>, <code>DATABASE_URL</code>, <code>DATABASE_OWNER_URL</code>, <code>DOTNET_GCHeapHardLimit</code>, <code>DOTNET_gcServer</code>, <code>DOTNET_gcConcurrent</code>, and <code>DOTNET_GCConserveMemory</code>. Leave them alone.</p>
+<p>The app also reads two variables that the compose file does not set. Leave them unset:</p>
+<ul>
+<li><code>WEB_ROOT</code> (<code>src/Retroscope.Server/Hosting/HostingOptions.cs</code>): defaults to the <code>wwwroot</code> folder next to the binary.</li>
+<li><code>HEALTHCHECK_PORT</code> (<code>src/Retroscope.Server/Hosting/Health.cs</code>): defaults to <code>8080</code>. It must match the port in <code>ASPNETCORE_URLS</code>, or the container healthcheck fails.</li>
+</ul>
+<p>Optional variables that are <strong>not</strong> in the compose file. Add them to the <code>app</code> service&#39;s environment in the compose file only if you need them:</p>
+<ul>
+<li><code>LEADER_ACQUIRE_SECONDS</code> (default 60): how long a starting app waits for the leader lease before it exits.</li>
+<li><code>Logging__Console__FormatterName=simple</code>: plain-text logs instead of JSON.</li>
+<li><code>Logging__LogLevel__Default=Warning</code>: quieter logs.</li>
+</ul>
+<p>Never set <code>GOOGLE_AUTHORIZE_URL</code>, <code>GOOGLE_TOKEN_URL</code>, or <code>ENTRA_AUTHORITY_URL</code> in production. They exist for tests.</p>
+<p>The <code>IMPORT_*</code> variables are only for the data import (section 14).</p>
+<h3 id="5-2-ghcr-owner">5.2 <code>GHCR_OWNER</code></h3>
+<p>Set it to <code>justinloveless</code>. It must be lower case, because <code>images.yml</code> lowercases the owner when it names the images.</p>
+<h3 id="5-3-app-digest-and-importer-digest">5.3 <code>APP_DIGEST</code> and <code>IMPORTER_DIGEST</code></h3>
+<p>Copy them from the images run summary (section 3.2). Paste only the hex after <code>sha256:</code>.</p>
+<p>Set <code>IMPORTER_DIGEST</code> too, even though the compose file does not require it. The <code>importer</code> service is in profile <code>import</code> and should not start, but the Coolify docs do not say whether Coolify honours <code>profiles</code> (<strong>UNVERIFIED</strong>). If Coolify parses or pulls the importer with an empty digest, the image reference <code>…/retroscope-import@sha256:</code> is invalid and the deploy fails. Setting it avoids that.</p>
+<h3 id="5-4-public-url">5.4 <code>PUBLIC_URL</code></h3>
+<p>Set it to <code>https://&lt;your-domain&gt;</code>, with no trailing path, no query, and no <code>user@</code> part. The app refuses to start if the value is not an absolute http or https origin with path <code>/</code> only (<code>src/Retroscope.Server/Hosting/HostingOptions.cs</code>).</p>
+<p>Use <code>https</code>. HSTS is sent only when <code>PUBLIC_URL</code> is https, and the session cookie <code>__Host-rs_sid</code> is <code>Secure</code>, so sign-in does not work over plain http.</p>
+<h3 id="5-5-db-owner-password-and-db-app-password">5.5 <code>DB_OWNER_PASSWORD</code> and <code>DB_APP_PASSWORD</code></h3>
+<p>Generate two different values on your own machine:</p>
+<pre><code>openssl rand -hex 32   # DB_OWNER_PASSWORD
+openssl rand -hex 32   # DB_APP_PASSWORD</code></pre>
+<p>The repo gives no generator command. Hex is a recommendation: it avoids <code>;</code>, <code>=</code>, <code>$</code>, <code>+</code>, and <code>/</code>, which could break the connection strings or compose interpolation.</p>
+<p>How each one behaves:</p>
+<ul>
+<li><code>DB_OWNER_PASSWORD</code> becomes <code>POSTGRES_PASSWORD</code> when Postgres initialises the empty <code>pgdata</code> volume. After that first start, changing the variable does <strong>not</strong> change the role&#39;s password. The Postgres image only reads it at initialisation (standard image behaviour, not verified in the repo). The runbook has no rotation procedure for it, so choose it once and keep it.</li>
+<li><code>DB_APP_PASSWORD</code> is set on the <code>retroscope_app</code> role by the migrator on every app start (<code>EnsureRolesAsync</code> in <code>src/Retroscope.Server/Data/Migrator.cs</code>). Changing it and redeploying works.</li>
+</ul>
+<h3 id="5-6-app-keys">5.6 <code>APP_KEYS</code></h3>
+<p>Generate a key:</p>
+<pre><code>openssl rand -base64 32</code></pre>
+<p>Set <code>APP_KEYS</code> to <code>k1:&lt;that output&gt;</code>. Rules from <code>src/Retroscope.Core/Security/Keyring.cs</code>:</p>
+<ul>
+<li>Entries are comma-separated, newest first.</li>
+<li>Each id is 1-32 characters of <code>A-Za-z0-9_-</code>, with no duplicates.</li>
+<li>Each key must decode to exactly 32 bytes. <code>openssl rand -base64 32</code> gives exactly that.</li>
+</ul>
+<p>The keyring may be parsed lazily, so a malformed value might fail only on first use (a sign-in, a Jira call) rather than at boot. Copy it carefully. To rotate it later, see section 13.</p>
+<h3 id="5-7-anon-tag-key">5.7 <code>ANON_TAG_KEY</code></h3>
+<p>Generate it the same way, as a separate value:</p>
+<pre><code>openssl rand -base64 32</code></pre>
+<p>Paste the output as-is, with no id prefix. <strong>Never rotate this key</strong> unless it leaks. A new key orphans every existing anonymous card from its author.</p>
+<p>The app reads this key lazily (<code>Lazy&lt;AnonTagger&gt;</code> in <code>src/Retroscope.Server/Realtime/Rooms/RetroRoom.cs</code>). A malformed value passes boot and <code>/healthz</code>, then fails on the first anonymous card or authorship check on a retro board. The smoke test in section 10.4 covers it. Copy it carefully.</p>
+<p>If you will import data from the old app (section 14), the importer must use these exact <code>APP_KEYS</code> and <code>ANON_TAG_KEY</code> values. Store them carefully.</p>
+<h3 id="5-8-smtp-variables">5.8 SMTP variables</h3>
+<p>Set these from your mail provider (section 8):</p>
+<ul>
+<li><code>SMTP_HOST</code>: the provider&#39;s SMTP host.</li>
+<li><code>SMTP_PORT</code>: 587 unless your VPS provider blocks it (section 8.1).</li>
+<li><code>SMTP_SECURITY</code>: leave empty for 587 (STARTTLS) or 465 (implicit TLS). Set <code>tls</code> for an implicit-TLS port other than 465, such as 2465. <code>none</code> is for local Mailpit only.</li>
+<li><code>SMTP_USER</code> and <code>SMTP_PASSWORD</code>: the provider&#39;s SMTP credentials. Set both, or neither.</li>
+<li><code>SMTP_FROM</code>: an address on your verified sending domain, either <code>noreply@&lt;domain&gt;</code> or <code>Retroscope &lt;noreply@&lt;domain&gt;&gt;</code>. The display name must not contain <code>&quot;</code>, <code>&lt;</code>, <code>&gt;</code>, or <code>\</code>.</li>
+</ul>
+<p>The app validates the server certificate against the system trust store, and STARTTLS fails if the server does not offer it.</p>
+<h3 id="5-9-trusted-proxy-cidrs-and-client-ip-header">5.9 <code>TRUSTED_PROXY_CIDRS</code> and <code>CLIENT_IP_HEADER</code></h3>
+<p><code>TRUSTED_PROXY_CIDRS</code> is the subnet Traefik reaches the app from. You can only find the exact subnet after the first deploy creates the network, but the compose file requires a value before that. Section 9 walks through it:</p>
+<ol>
+<li><p>For the first deploy, use the Docker address pool that the Coolify installer configured as a temporary placeholder. On the VPS, run:</p>
+<pre><code>jq '.&quot;default-address-pools&quot;' /etc/docker/daemon.json</code></pre>
+<p>Use the <code>base</code> it prints, normally <code>10.0.0.0/8</code>. The current installer (<a href="https://cdn.coollabs.io/coolify/install.sh">https://cdn.coollabs.io/coolify/install.sh</a>) writes <code>&quot;default-address-pools&quot;: [{&quot;base&quot;: &quot;10.0.0.0/8&quot;, &quot;size&quot;: 24}]</code> unless <code>DOCKER_ADDRESS_POOL_BASE</code> was set or a pool already existed, so Coolify&#39;s networks are /24s inside <code>10.0.0.0/8</code>. Do not use <code>172.16.0.0/12,192.168.0.0/16</code>: on a Coolify box that misses Traefik, and every user then shares one rate limit.</p>
+</li>
+<li><p>After the first deploy, narrow it to the real /24 subnet (section 9).</p>
+</li>
+</ol>
+<p>Leave <code>CLIENT_IP_HEADER</code> empty unless Cloudflare proxies your domain (orange cloud). Then set <code>CF-Connecting-IP</code>.</p>
+<h3 id="5-10-sign-in-variables">5.10 Sign-in variables</h3>
+<p><code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> come from section 6. The <code>ENTRA_*</code> variables come from section 7. A provider with no credentials does not appear on the sign-in screen, so you can deploy first with email and password only and add providers later.</p>
+<h3 id="5-11-jira-host-allowlist-and-blob-bytes-max">5.11 <code>JIRA_HOST_ALLOWLIST</code> and <code>BLOB_BYTES_MAX</code></h3>
+<ul>
+<li><code>JIRA_HOST_ALLOWLIST</code>: leave it empty if your teams use Jira Cloud (<code>*.atlassian.net</code>). For self-hosted Jira, list the exact host names, comma-separated. A malformed entry stops the app.</li>
+<li><code>BLOB_BYTES_MAX</code>: leave the default (2 GiB) unless disk space is short. It must be a positive whole number of bytes.</li>
+</ul>
+<h2 id="6-set-up-google-sign-in-optional">6. Set up Google sign-in (optional)</h2>
+<p>Sources: <a href="https://support.google.com/cloud/answer/15549257">https://support.google.com/cloud/answer/15549257</a>, <a href="https://support.google.com/cloud/answer/15544987">https://support.google.com/cloud/answer/15544987</a>, <a href="https://support.google.com/cloud/answer/15549945">https://support.google.com/cloud/answer/15549945</a>, <a href="https://support.google.com/cloud/answer/15549049">https://support.google.com/cloud/answer/15549049</a></p>
+<p>The app requests only <code>openid email profile</code>, uses the authorization code flow with PKCE, and trusts a Google email only when <code>email_verified</code> is true.</p>
+<ol>
+<li>Open the Google Auth Platform at <a href="https://console.developers.google.com/auth/overview">https://console.developers.google.com/auth/overview</a> and click <strong>GET STARTED</strong>. If no project is selected, create one.</li>
+<li>Under <strong>App Information</strong>, enter:<ul>
+<li><strong>App Name</strong>, for example <code>Retroscope</code>. Do not make it look like Google&#39;s or another company&#39;s brand.</li>
+<li><strong>User support email</strong>.</li>
+<li><strong>Contact Information</strong>: where Google sends project notifications.</li>
+</ul>
+</li>
+<li>Under <strong>Audience</strong>, choose <strong>External</strong>. <strong>Internal</strong> works only for members of a Google Cloud Organization. Anyone else gets an <code>org_internal</code> error.</li>
+<li>Under <strong>Branding</strong>:<ul>
+<li>Add your domain under <strong>Authorized domains</strong>.</li>
+<li>Add a homepage and a privacy policy on that domain. Google requires both for an external app in production.</li>
+</ul>
+</li>
+<li>Under <strong>Data Access</strong>, the app needs only <code>openid</code>, <code>email</code>, and <code>profile</code>. Do not add other scopes.</li>
+<li>Go to <strong>Clients</strong>, then <strong>CREATE CLIENT</strong>, and set <strong>Application type</strong> to <strong>Web application</strong>.</li>
+<li>Under <strong>Authorized redirect URIs</strong>, add exactly <code>https://&lt;your-domain&gt;/auth/oidc/google/callback</code>. Leave <strong>Authorized JavaScript origins</strong> empty.</li>
+<li>Click <strong>CREATE</strong>.</li>
+<li>Copy the <strong>Client secret</strong> now. Google shows the full secret only once. Copy the <strong>Client ID</strong> too.</li>
+<li>In Coolify, set <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code>, then restart the resource.</li>
+<li>Back in <strong>Audience</strong>, click <strong>Publish app</strong> to move from Testing to In production.</li>
+</ol>
+<p>Notes:</p>
+<ul>
+<li>Redirect URI changes can take from 5 minutes to a few hours to apply. A mismatch shows as <code>redirect_uri_mismatch</code>.</li>
+<li>In Testing, Google limits most apps to 100 listed test users with consent expiring after 7 days. Google&#39;s page says that limit does not apply to apps that request only <code>openid</code>, <code>email</code>, and <code>profile</code>, which is this app&#39;s case.</li>
+<li><strong>UNVERIFIED:</strong> whether publishing an app with only these non-sensitive scopes needs Google&#39;s verification. The pages say verification is needed to show the app&#39;s name and logo and for sensitive scopes.</li>
+<li>To replace the secret later, use <strong>Add Secret</strong> on the client page (two at most), switch the app over, then delete the old one.</li>
+</ul>
+<h2 id="7-set-up-microsoft-entra-sign-in-optional">7. Set up Microsoft Entra sign-in (optional)</h2>
+<p>Sources: <a href="https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app">https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app</a>, <a href="https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-redirect-uri">https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-redirect-uri</a>, <a href="https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-credentials">https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-credentials</a>, <a href="https://learn.microsoft.com/en-us/entra/identity-platform/optional-claims">https://learn.microsoft.com/en-us/entra/identity-platform/optional-claims</a>, <a href="https://learn.microsoft.com/en-us/entra/identity-platform/optional-claims-reference">https://learn.microsoft.com/en-us/entra/identity-platform/optional-claims-reference</a></p>
+<p>How the app checks an Entra sign-in (<code>src/Retroscope.Server/Auth/Oidc.cs</code>):</p>
+<ul>
+<li>Entra is enabled only when <code>ENTRA_ALLOWED_TENANTS</code> is non-empty.</li>
+<li>The token&#39;s <code>tid</code> must be in <code>ENTRA_ALLOWED_TENANTS</code>. Otherwise sign-in fails with <code>oidc_tenant</code>.</li>
+<li>The issuer must be <code>https://login.microsoftonline.com/{tid}/v2.0</code>.</li>
+<li>The email is trusted only if <code>xms_edov</code> is true, or if its domain is listed for that tenant in <code>ENTRA_TENANT_DOMAINS</code>.</li>
+</ul>
+<p>Steps:</p>
+<ol>
+<li>Sign in to <a href="https://entra.microsoft.com">https://entra.microsoft.com</a> as at least an Application Developer. If you have several tenants, switch with the <strong>Settings</strong> icon.</li>
+<li>Go to <strong>Entra ID</strong> &gt; <strong>App registrations</strong> &gt; <strong>New registration</strong> and enter a <strong>Name</strong>.</li>
+<li>Pick <strong>Supported account types</strong>:<ul>
+<li>For your organisation only: choose <strong>Single tenant only</strong>. You will set <code>ENTRA_TENANT=&lt;tenant ID&gt;</code> and <code>ENTRA_ALLOWED_TENANTS=&lt;same tenant ID&gt;</code>.</li>
+<li>For several organisations: choose <strong>Multiple Entra ID tenants</strong>. Keep <code>ENTRA_TENANT=organizations</code> and list every permitted tenant ID in <code>ENTRA_ALLOWED_TENANTS</code>.</li>
+<li>Do not choose any option that includes personal Microsoft accounts. Use <code>organizations</code> or a tenant ID for <code>ENTRA_TENANT</code>. Personal-account tenants are rejected unless listed in <code>ENTRA_ALLOWED_TENANTS</code>.</li>
+</ul>
+</li>
+<li>Click <strong>Register</strong>.</li>
+<li>On the <strong>Overview</strong> page, copy the <strong>Application (client) ID</strong> into <code>ENTRA_CLIENT_ID</code>. Copy the tenant ID too. <strong>UNVERIFIED:</strong> its label, normally <strong>Directory (tenant) ID</strong>.</li>
+<li>Add the redirect URI: <strong>Manage</strong> &gt; <strong>Authentication</strong>, open the <strong>Redirect URI configuration</strong> tab, select <strong>Add Redirect URI</strong>, choose the <strong>Web</strong> tile, enter <code>https://&lt;your-domain&gt;/auth/oidc/entra/callback</code>, then click <strong>Configure</strong>.</li>
+<li>Create the secret: <strong>Certificates &amp; secrets</strong> &gt; <strong>Client secrets</strong> &gt; <strong>New client secret</strong>.<ul>
+<li>Enter a description and an expiry. The maximum is 24 months, and Microsoft recommends less than 12.</li>
+<li>Click <strong>Add</strong>, then copy the <strong>Value</strong>, not the <strong>Secret ID</strong>, into <code>ENTRA_CLIENT_SECRET</code>. Microsoft never shows it again.</li>
+<li>Put a rotation reminder in your calendar before the expiry. Microsoft prefers certificates over secrets in production, but the app reads only a secret.</li>
+</ul>
+</li>
+<li>Add optional claims: <strong>Manage</strong> &gt; <strong>Token configuration</strong> &gt; <strong>Add optional claim</strong>, choose token type <strong>ID</strong>, select <code>email</code> and <code>xms_edov</code>, then click <strong>Add</strong>.<ul>
+<li><code>xms_edov</code> is issued only together with <code>email</code>.</li>
+<li><strong>UNVERIFIED:</strong> that <code>xms_edov</code> appears in the picker. If it does not, open <strong>Manage</strong> &gt; <strong>Manifest</strong> and add <code>{&quot;name&quot;:&quot;xms_edov&quot;,&quot;essential&quot;:false}</code> (and <code>email</code> the same way, if missing) under <code>optionalClaims.idToken</code>.</li>
+<li><strong>UNVERIFIED:</strong> a prompt to turn on the Microsoft Graph email permission often appears when you add <code>email</code>. If it appears, accept it.</li>
+</ul>
+</li>
+<li>Optional: under <strong>API permissions</strong> &gt; <strong>Add a permission</strong> &gt; <strong>Microsoft Graph</strong> &gt; <strong>Delegated permissions</strong>, tick <code>openid</code>, <code>email</code>, and <code>profile</code>. The app requests them dynamically anyway, and they need no admin consent. <strong>UNVERIFIED:</strong> exact labels.</li>
+<li>In Coolify, set:<ul>
+<li><code>ENTRA_CLIENT_ID</code> and <code>ENTRA_CLIENT_SECRET</code>.</li>
+<li><code>ENTRA_TENANT</code>: <code>organizations</code>, or your tenant ID for a single-tenant app.</li>
+<li><code>ENTRA_ALLOWED_TENANTS</code>: the tenant IDs, comma-separated, lower case.</li>
+<li>Optional <code>ENTRA_TENANT_DOMAINS</code>: <code>&lt;tid&gt;=example.com|example.org</code>, and <code>,</code> between tenants. A malformed entry stops the app.</li>
+</ul>
+</li>
+<li>Restart the resource.</li>
+</ol>
+<h2 id="8-set-up-email-smtp-and-its-dns-records">8. Set up email (SMTP) and its DNS records</h2>
+<p>The app sends sign-up verification, magic-link, and password-reset mail over SMTP. Without working SMTP, nobody can verify an email address.</p>
+<h3 id="8-1-check-which-ports-your-vps-provider-blocks">8.1 Check which ports your VPS provider blocks</h3>
+<ul>
+<li>Hetzner Cloud blocks 25 and 465 by default. Port 587 &quot;is not blocked&quot; (<a href="https://docs.hetzner.com/cloud/servers/faq/">https://docs.hetzner.com/cloud/servers/faq/</a>).</li>
+<li>DigitalOcean blocks 25, 465, and 587 on Droplets and recommends a third-party email service (<a href="https://docs.digitalocean.com/support/why-is-smtp-blocked/">https://docs.digitalocean.com/support/why-is-smtp-blocked/</a>).</li>
+<li>Other providers: check their docs.</li>
+</ul>
+<p>If 587 and 465 are blocked, use an alternate port that your mail provider offers (table in section 8.2): Resend and SES offer 2587 (STARTTLS) and 2465 (TLS); Postmark and Mailgun offer 2525 (STARTTLS). Leave <code>SMTP_SECURITY</code> empty for a STARTTLS port, and set <code>SMTP_SECURITY=tls</code> for 2465.</p>
+<h3 id="8-2-pick-a-provider-and-get-credentials">8.2 Pick a provider and get credentials</h3>
+<p>Any SMTP provider works. These are the ones researched. Use a subdomain such as <code>mail.&lt;your-domain&gt;</code> for sending if the provider recommends it.</p>
+<table>
+<thead>
+<tr>
+<th>Provider</th>
+<th><code>SMTP_HOST</code></th>
+<th>Ports</th>
+<th><code>SMTP_USER</code></th>
+<th><code>SMTP_PASSWORD</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Resend</td>
+<td><code>smtp.resend.com</code></td>
+<td>STARTTLS 25, 587, 2587. Implicit TLS 465, 2465.</td>
+<td>the literal <code>resend</code></td>
+<td>a Resend API key</td>
+</tr>
+<tr>
+<td>Postmark</td>
+<td><code>smtp.postmarkapp.com</code></td>
+<td>STARTTLS 25, 2525, 587</td>
+<td>Server API Token, or the SMTP token&#39;s Access Key</td>
+<td>the same Server API Token, or the SMTP token&#39;s Secret Key</td>
+</tr>
+<tr>
+<td>Amazon SES</td>
+<td><code>email-smtp.&lt;region&gt;.amazonaws.com</code></td>
+<td>STARTTLS 25, 587, 2587. TLS 465, 2465.</td>
+<td>SMTP username from SES</td>
+<td>SMTP password from SES</td>
+</tr>
+<tr>
+<td>Mailgun</td>
+<td><code>smtp.mailgun.org</code> (US) or <code>smtp.eu.mailgun.org</code> (EU)</td>
+<td>STARTTLS 25, 587, 2525. TLS 465.</td>
+<td>per-domain SMTP login</td>
+<td>per-domain SMTP password</td>
+</tr>
+</tbody></table>
+<p>Provider steps:</p>
+<ul>
+<li><strong>Resend</strong> (<a href="https://resend.com/docs/send-with-smtp">https://resend.com/docs/send-with-smtp</a>, <a href="https://resend.com/docs/add-a-domain">https://resend.com/docs/add-a-domain</a>):<ol>
+<li>Go to <strong>Domains</strong> &gt; <strong>Add Domain</strong>. Resend recommends a subdomain, for example <code>notifications.&lt;your-domain&gt;</code>.</li>
+<li>Pick a region.</li>
+<li>Copy the TXT and MX or CNAME records from the <strong>Records</strong> tab to your DNS exactly. Turn off Cloudflare proxying on every CNAME.</li>
+<li>Wait for verification, usually about 15 minutes and up to 72 hours. Use <strong>Restart verification</strong> if it stalls.</li>
+<li>Create an API key and use it as <code>SMTP_PASSWORD</code>.</li>
+</ol>
+</li>
+<li><strong>Postmark</strong> (<a href="https://postmarkapp.com/developer/user-guide/send-email-with-smtp">https://postmarkapp.com/developer/user-guide/send-email-with-smtp</a>, <a href="https://postmarkapp.com/support/article/1046-how-do-i-verify-a-domain">https://postmarkapp.com/support/article/1046-how-do-i-verify-a-domain</a>):<ol>
+<li>Turn on SMTP in the server&#39;s <strong>Settings</strong>.</li>
+<li>Go to <strong>Sender Signatures</strong> &gt; <strong>DNS Settings</strong>.</li>
+<li>Add the DKIM TXT record it shows.</li>
+<li>Add a Return-Path CNAME with host <code>pm_bounces</code> and value <code>pm.mtasv.net</code>.</li>
+<li>Click <strong>Verify</strong>. Allow up to 48 hours.</li>
+<li>Use the Server API Token as both user and password. Mail without an <code>X-PM-MESSAGE-STREAM</code> header goes to the default transactional stream. An SMTP Token&#39;s secret is shown only once.</li>
+</ol>
+</li>
+<li><strong>Amazon SES</strong> (<a href="https://docs.aws.amazon.com/ses/latest/dg/smtp-credentials.html">https://docs.aws.amazon.com/ses/latest/dg/smtp-credentials.html</a>, <a href="https://docs.aws.amazon.com/ses/latest/dg/creating-identities.html">https://docs.aws.amazon.com/ses/latest/dg/creating-identities.html</a>, <a href="https://docs.aws.amazon.com/ses/latest/dg/request-production-access.html">https://docs.aws.amazon.com/ses/latest/dg/request-production-access.html</a>):<ol>
+<li>Go to <strong>Configuration</strong> &gt; <strong>Identities</strong> &gt; <strong>Create identity</strong> &gt; <strong>Domain</strong>, and use Easy DKIM (2048-bit).</li>
+<li>Publish the 3 CNAME records it gives you.</li>
+<li>Go to <strong>SMTP settings</strong> &gt; <strong>Create SMTP Credentials</strong>, which opens IAM. Click <strong>Create user</strong>, then <strong>Show</strong> or <strong>Download .csv file</strong>. You cannot view them again. The SMTP password is not your AWS secret access key, and it is specific to one region.</li>
+<li>New accounts are in the sandbox: they can send only to verified addresses, 200 messages per 24 hours. To leave it, go to <strong>Account dashboard</strong> &gt; <strong>View Get set up page</strong> &gt; <strong>Request production access</strong>, and choose <strong>Transactional</strong>. The first response comes within 96 hours.</li>
+</ol>
+</li>
+<li><strong>Mailgun</strong> (<a href="https://documentation.mailgun.com/docs/mailgun/user-manual/sending-messages/send-smtp">https://documentation.mailgun.com/docs/mailgun/user-manual/sending-messages/send-smtp</a>): credentials are per domain under <strong>Sending</strong> &gt; <strong>Domain Settings</strong> &gt; <strong>SMTP Credentials</strong>. A domain&#39;s region (US or EU) is fixed when you create it. <strong>UNVERIFIED:</strong> the username format (often <code>postmaster@&lt;domain&gt;</code>) and whether the password is shown only once.</li>
+<li><strong>Brevo:</strong> the official page could not be fetched. <strong>UNVERIFIED</strong> from third-party sources: host <code>smtp-relay.brevo.com</code>, ports 587 and 2525 (STARTTLS) or 465 (TLS), password is an SMTP key from <strong>Settings</strong> &gt; <strong>SMTP &amp; API</strong> &gt; <strong>SMTP Keys</strong>, username is the SMTP login on that page.</li>
+</ul>
+<h3 id="8-3-add-dmarc">8.3 Add DMARC</h3>
+<p>After the domain verifies, add a TXT record at <code>_dmarc.&lt;sending-domain&gt;</code>:</p>
+<pre><code>v=DMARC1; p=none; rua=mailto:&lt;reports-address&gt;</code></pre>
+<p>Start with <code>p=none</code>. Move to <code>p=quarantine</code>, then <code>p=reject</code>, once reports look clean. Keep alignment relaxed (no <code>aspf=s</code>) if the MAIL FROM is a subdomain. The repo states no SPF, DKIM, or DMARC requirements. They come from the provider.</p>
+<h3 id="8-4-set-the-variables">8.4 Set the variables</h3>
+<p>Set <code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_SECURITY</code>, <code>SMTP_USER</code>, <code>SMTP_PASSWORD</code>, and <code>SMTP_FROM</code> as in section 5.8. <code>SMTP_FROM</code> must use the verified domain.</p>
+<h2 id="9-set-the-trusted-proxy-subnet">9. Set the trusted proxy subnet</h2>
+<p>The app reads the client IP from <code>X-Forwarded-For</code> only when the request comes from inside <code>TRUSTED_PROXY_CIDRS</code>, and only the rightmost hop. Per-IP limits (10 logins a minute, 5 signups an hour) and audit-log address prefixes depend on it. A wrong value puts every user behind one shared limit.</p>
+<p>Coolify gives each compose resource its own network, and the proxy joins &quot;the <code>coolify</code> network and the resource-specific networks&quot; (<a href="https://coolify.io/docs/core/networking-in-coolify">https://coolify.io/docs/core/networking-in-coolify</a>). The right value is the subnet of the network that both <code>coolify-proxy</code> and the <code>app</code> container are on.</p>
+<p>Until you do this, <code>TRUSTED_PROXY_CIDRS</code> holds the <code>10.0.0.0/8</code> placeholder from section 5.9. After the first deploy (section 10), on the VPS:</p>
+<ol>
+<li><p>Find the app container&#39;s name. Coolify adds a suffix, so search for it:</p>
+<pre><code>docker ps --format '{{.Names}}' | grep -i app</code></pre>
+</li>
+<li><p>List the app&#39;s networks:</p>
+<pre><code>docker inspect &lt;app-container&gt; -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}'</code></pre>
+</li>
+<li><p>List the proxy&#39;s networks and pick the one that appears in both lists:</p>
+<pre><code>docker inspect coolify-proxy -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}'</code></pre>
+</li>
+<li><p>Get that network&#39;s subnet:</p>
+<pre><code>docker network inspect &lt;shared-network&gt; -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}'</code></pre>
+</li>
+<li><p>In Coolify, set <code>TRUSTED_PROXY_CIDRS</code> to that subnet and restart the resource.</p>
+</li>
+<li><p>Check: sign in, then run</p>
+<pre><code>docker exec &lt;db-container&gt; psql -U retroscope_owner -d retroscope \
+  -c &quot;select at, action, meta-&gt;&gt;'ip' from audit_log where action in ('auth.login','auth.login.fail') order by id desc limit 5&quot;</code></pre>
+<p>The <code>ip</code> column shows your own address prefix, not Traefik&#39;s. <code>audit_log</code> has no address column; sign-ins store the prefix in <code>meta-&gt;&gt;&#39;ip&#39;</code> (<code>db/migrations/0001_init.sql</code>, <code>src/Retroscope.Server/Endpoints/AuthEndpoints.cs</code>).</p>
+</li>
+</ol>
+<p>The proxy container name <code>coolify-proxy</code> comes from <code>deploy/RUNBOOK.md</code> and Coolify&#39;s networking docs. If it differs on your box, find the Traefik container with <code>docker ps</code>.</p>
+<h2 id="10-deploy-for-the-first-time-and-smoke-test">10. Deploy for the first time and smoke test</h2>
+<h3 id="10-1-deploy">10.1 Deploy</h3>
+<ol>
+<li>Check that every required variable has a value. Coolify refuses to deploy otherwise.</li>
+<li>Click <strong>Deploy</strong> and watch the log.</li>
+<li>Check the log for the <code>importer</code> service. It should not start. If Coolify tries to pull or create it, <code>IMPORTER_DIGEST</code> must be set (section 5.3). <strong>UNVERIFIED:</strong> whether Coolify honours <code>profiles</code>.</li>
+<li>The app starts after <code>db</code> reports healthy. It takes the leader lease, runs the migrations, creates the <code>retroscope_app</code> role with its grants, and then answers <code>/healthz</code>.</li>
+<li>The resource shows healthy when the <code>app</code> healthcheck passes (every 10 s, after a 20 s start period). <strong>UNVERIFIED:</strong> whether the <code>backup</code> service, which has no healthcheck, affects the resource&#39;s status in Coolify.</li>
+</ol>
+<h3 id="10-2-check-the-stack-on-the-vps">10.2 Check the stack on the VPS</h3>
+<pre><code>docker ps --format 'table {{.Names}}\t{{.Status}}'</code></pre>
+<p><code>app</code> and <code>db</code> show <code>(healthy)</code>. <code>backup</code> shows <code>Up</code>.</p>
+<p>Check that the limits were applied. The Coolify docs do not say whether compose <code>mem_limit</code> and <code>cpus</code> are honoured (<strong>UNVERIFIED</strong>):</p>
+<pre><code>docker inspect &lt;app-container&gt; -f '{{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'
+docker stats --no-stream</code></pre>
+<p>For <code>app</code> you expect <code>209715200 600000000</code> (200 MiB, 0.6 CPU).</p>
+<h3 id="10-3-check-https-headers-and-compression">10.3 Check HTTPS, headers, and compression</h3>
+<p>From your own machine:</p>
+<pre><code>curl -sI https://&lt;your-domain&gt;/
+curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' https://&lt;your-domain&gt;/</code></pre>
+<ul>
+<li>The first shows <code>strict-transport-security: max-age=63072000; includeSubDomains</code>.</li>
+<li>The second is a real GET of the HTML shell, a dynamic response of 2.1-3.3 KB (<code>deploy/RUNBOOK.md</code> section 12). It must show <strong>no</strong> <code>content-encoding</code> header. If it shows <code>content-encoding: gzip</code>, go back to section 4.5.</li>
+</ul>
+<p>Do not test with <code>curl -sI .../api/me</code>. <code>-I</code> sends HEAD, and <code>/api/me</code> accepts only GET, so the reply is a 405 with no body. Traefik&#39;s compress middleware skips small bodies (its documented default minimum is 1024 bytes, not checked in this repo), so that check prints no <code>content-encoding</code> even when gzip is on. <code>deploy/RUNBOOK.md</code> section 12 still shows that weak check.</p>
+<h3 id="10-4-smoke-test-in-the-browser">10.4 Smoke test in the browser</h3>
+<ol>
+<li>Open <code>https://&lt;your-domain&gt;</code> and sign up with email and password.</li>
+<li>Open the verification email and follow the link. If no mail arrives, read the app log for SMTP errors (section 16).</li>
+<li>Create a team.</li>
+<li>Start a poker session in the team. Open the same session in a second browser or a private window, join as another user or a guest, and vote in both. Votes appear live in both windows. That proves WebSockets work through Traefik.</li>
+<li>Open a retro board, add an anonymous card, then edit it. That is the first use of <code>ANON_TAG_KEY</code> (section 5.7). If it fails, check the app log for a key error.</li>
+<li>If you configured Google or Entra, sign out and sign in with each provider.</li>
+</ol>
+<h3 id="10-5-make-yourself-an-app-admin">10.5 Make yourself an app admin</h3>
+<p>A fresh database has no app admin, and the repo has no bootstrap step for one outside the import (where <code>IMPORT_ADMIN_EMAILS</code> sets them). The <code>users</code> table has an <code>is_admin</code> column. To make your account an admin:</p>
+<pre><code>docker exec &lt;db-container&gt; psql -U retroscope_owner -d retroscope \
+  -c &quot;update users set is_admin = true where email = '&lt;your-email-in-lower-case&gt;'&quot;</code></pre>
+<p>Emails are stored in lower case (a <code>CHECK</code> constraint in <code>db/migrations/0001_init.sql</code>). The change takes effect without signing out: every session lookup reads <code>users.is_admin</code> again (<code>src/Retroscope.Server/Data/Repos/SessionsRepo.cs</code>, <code>LoadAsync</code>).</p>
+<h2 id="11-release-a-new-version">11. Release a new version</h2>
+<p>Coolify redeploys a compose resource by stopping and recreating the containers. There is no rolling update. Clients see a short pause and reconnect.</p>
+<h3 id="11-1-by-hand">11.1 By hand</h3>
+<ol>
+<li>Wait for the images run on <code>main</code> (or on a <code>v*</code> tag) to go green.</li>
+<li>Copy the new <code>app</code> and <code>importer</code> digests from the run summary (section 3.2).</li>
+<li>In Coolify, set <code>APP_DIGEST</code> and <code>IMPORTER_DIGEST</code>.</li>
+<li>Click <strong>Redeploy</strong>. A restart is not enough, because the new image must be pulled.</li>
+</ol>
+<p>Every migration must be quick and compatible with the previous release, because the old binary stops before the new one starts (<code>deploy/RUNBOOK.md</code> section 11).</p>
+<h3 id="11-2-by-api-optional-automation">11.2 By API (optional automation)</h3>
+<p>Sources: <a href="https://coolify.io/docs/knowledge-base/git/github/github-actions">https://coolify.io/docs/knowledge-base/git/github/github-actions</a>, <a href="https://next.coolify.io/docs/core/automation/deploy-webhooks">https://next.coolify.io/docs/core/automation/deploy-webhooks</a>, <a href="https://coolify.io/docs/api-reference/api/operations/deploy-by-tag-or-uuid">https://coolify.io/docs/api-reference/api/operations/deploy-by-tag-or-uuid</a>, <a href="https://coolify.io/docs/api-reference/authorization">https://coolify.io/docs/api-reference/authorization</a></p>
+<p>The repo has no release workflow that sets the digest. To automate it:</p>
+<ol>
+<li><p>Enable API access on the instance: <strong>Settings</strong> &gt; <strong>Advanced</strong> &gt; <strong>API and MCP</strong> &gt; <strong>API access</strong>: <strong>Enabled</strong>, then <strong>Save</strong>. An administrator must do this on a self-hosted install.</p>
+</li>
+<li><p>In the same section, fill in <strong>Allowed IPs</strong>. Empty (or <code>0.0.0.0</code>) allows every source, and Coolify shows a warning for that. List only the addresses that call the API. GitHub-hosted runners have no fixed small set of addresses, so for automation from GitHub prefer a self-hosted runner or a webhook relay with a fixed address over opening the API to everyone.</p>
+</li>
+<li><p>Create an API token. It is shown only once. The current source labels the page <strong>Security</strong> &gt; <strong>API Tokens</strong>, and the docs say <strong>Keys &amp; Tokens</strong> &gt; <strong>API Tokens</strong>. Use whichever your version shows. The token needs both <strong>Write</strong> (for <code>PATCH /applications/{uuid}/envs</code>) and <strong>Deploy</strong> (for <code>POST /deploy</code>) (Coolify <code>routes/api.php</code>). Only a team admin or owner can create a token with <code>write</code>.</p>
+</li>
+<li><p>Set the token in your shell without echoing it:</p>
+<pre><code>read -rs COOLIFY_TOKEN   # paste the token, press Enter
+export COOLIFY_TOKEN COOLIFY_URL=https://&lt;coolify-domain&gt;</code></pre>
+</li>
+<li><p>Update the digest:</p>
+<pre><code>curl -X PATCH &quot;$COOLIFY_URL/api/v1/applications/&lt;resource-uuid&gt;/envs&quot; \
+  -H &quot;Authorization: Bearer $COOLIFY_TOKEN&quot; -H 'Content-Type: application/json' \
+  -d '{&quot;key&quot;:&quot;APP_DIGEST&quot;,&quot;value&quot;:&quot;&lt;hex&gt;&quot;}'</code></pre>
+<p>For a Docker Compose Empty resource the path is <code>/api/v1/services/&lt;uuid&gt;/envs</code>.</p>
+</li>
+<li><p>Deploy:</p>
+<pre><code>curl -X POST &quot;$COOLIFY_URL/api/v1/deploy&quot; \
+  -H &quot;Authorization: Bearer $COOLIFY_TOKEN&quot; -H 'Content-Type: application/json' \
+  -d '{&quot;uuid&quot;:&quot;&lt;resource-uuid&gt;&quot;,&quot;force&quot;:false}'</code></pre>
+<p>Or call the resource&#39;s <strong>Webhooks</strong> &gt; <strong>Deploy Webhook</strong> URL (<code>…/api/v1/deploy?uuid=&lt;uuid&gt;&amp;force=false</code>) with the same header.</p>
+</li>
+<li><p>Run <code>unset COOLIFY_TOKEN</code> when you are done.</p>
+</li>
+<li><p>To run this from GitHub Actions, store the URL and token as repo secrets (Coolify&#39;s docs name them <code>COOLIFY_WEBHOOK</code> and <code>COOLIFY_TOKEN</code>) under <strong>Settings</strong> &gt; <strong>Secrets and variables</strong> &gt; <strong>Actions</strong>. The Coolify API must be reachable from the runner and allowed by <strong>Allowed IPs</strong> (step 2).</p>
+</li>
+</ol>
+<h2 id="12-back-up-and-restore">12. Back up and restore</h2>
+<p>Full procedure: <code>deploy/RUNBOOK.md</code> section 8.</p>
+<ul>
+<li>The <code>backup</code> service runs <code>pg_dump -Fc</code> at start and then daily, writing <code>rs-&lt;weekday 1-7&gt;.dump</code> into the <code>pgbackups</code> volume. The volume keeps the last 7 days.</li>
+<li>The volume is on the same disk as the database. <strong>Copy the dumps off the box daily.</strong></li>
+</ul>
+<p>Coolify prefixes volume names. Find the real name first:</p>
+<pre><code>docker volume ls | grep pgbackups</code></pre>
+<p>Then copy today&#39;s dump to another machine. A dump holds user emails, password hashes, sealed Jira credentials, and audit data, so write it only into a private directory that is outside any git checkout (ideally on an encrypted disk):</p>
+<pre><code>umask 077
+mkdir -p ~/retroscope-backups
+ssh &lt;vps&gt; 'docker run --rm -v &lt;volume-name&gt;:/b alpine cat /b/rs-$(date +%u).dump' &gt; ~/retroscope-backups/rs-$(date +%F).dump</code></pre>
+<p>To encrypt each copy, pipe it through <code>age</code> or <code>gpg</code> before it touches the disk, for example <code>... | age -r &lt;your-age-public-key&gt; &gt; ~/retroscope-backups/rs-$(date +%F).dump.age</code>.</p>
+<p>Run this from a cron job or scheduled task on the other machine, and prune old copies. Never save a dump, the Developer-view <code>.env</code> text, or the import seal key inside this repo: its <code>.gitignore</code> has no entries for <code>*.dump</code>, <code>.env*</code>, or <code>*.key</code>, so such a file could be committed.</p>
+<p>Take a dump on demand:</p>
+<pre><code>docker exec &lt;backup-container&gt; sh -c 'pg_dump -Fc -h db -U retroscope_owner retroscope &gt; /backups/manual.dump'</code></pre>
+<p>To restore, follow <code>deploy/RUNBOOK.md</code> section 8 steps 1-5: stop the app in Coolify, recreate the database empty, <code>pg_restore --no-owner --no-acl</code>, run <code>spot-load --sample 20</code>, then start the app. Rehearse a restore once before you depend on it.</p>
+<p>Coolify&#39;s own scheduled database backups cover standalone databases and databases inside a Service (<a href="https://coolify.io/docs/databases/backups">https://coolify.io/docs/databases/backups</a>). <strong>UNVERIFIED:</strong> whether a Backups tab appears for the <code>db</code> of a Git-based compose application. Keep the <code>backup</code> sidecar either way.</p>
+<h2 id="13-rotate-keys">13. Rotate keys</h2>
+<p>Full procedure: <code>deploy/RUNBOOK.md</code> section 6.</p>
+<p><strong><code>APP_KEYS</code>:</strong></p>
+<ol>
+<li>Generate a new key with <code>openssl rand -base64 32</code> and pick a new id (<code>k2</code>, <code>k3</code>, …).</li>
+<li>Set <code>APP_KEYS=&quot;k2:&lt;new&gt;,k1:&lt;old&gt;&quot;</code> and redeploy. On start, the leader re-seals every stored Jira credential under <code>k2</code>. The log shows <code>Re-sealed N Jira credential boxes under the active key…</code>.</li>
+<li>Keep <code>k1</code> listed for 30 days, because link invites live up to 30 days.</li>
+<li>Remove <code>k1</code> and redeploy.</li>
+</ol>
+<p>If a key leaked, drop the old key at once instead of waiting. Open link invites then stop working and must be re-created.</p>
+<p><strong><code>ANON_TAG_KEY</code>:</strong> never rotate it unless it leaks.</p>
+<p><strong><code>DB_APP_PASSWORD</code>:</strong> change it and redeploy. The migrator re-applies it on every start.</p>
+<p><strong><code>DB_OWNER_PASSWORD</code>:</strong> changing the variable alone does not change the role&#39;s password. There is no documented procedure for it.</p>
+<p><strong>External credentials:</strong> the GHCR token (section 3.3), the Google and Entra secrets, and the SMTP credentials expire or can be rotated at the provider. Update the variable in Coolify and restart.</p>
+<h2 id="14-import-data-from-the-old-supabase-app">14. Import data from the old Supabase app</h2>
+<p>Full procedure: <code>deploy/IMPORT_RUNBOOK.md</code>. Almost all of it runs <strong>off the VPS</strong>, on your own machine. Only the restore happens on the VPS.</p>
+<p>Summary of the order (<code>deploy/IMPORT_RUNBOOK.md</code> sections 5-9):</p>
+<ol>
+<li><p>Generate the seal key pair once, on your machine (section 3 of that runbook). The private key never goes to the VPS, Coolify, or CI.</p>
+<pre><code>umask 077
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out ~/retroscope-import/seal.key
+openssl pkey -in ~/retroscope-import/seal.key -pubout -out ~/retroscope-import/seal.pub</code></pre>
+</li>
+<li><p>Put the old app into maintenance and take a final Supabase backup.</p>
+</li>
+<li><p>Off-box, run <code>plan</code>, <code>fetch-storage</code>, <code>run</code>, and <code>verify</code> with the importer image into a local Postgres. Use the <strong>production</strong> <code>APP_KEYS</code> and <code>ANON_TAG_KEY</code>. Set <code>IMPORT_ADMIN_EMAILS</code> to at least your own email.</p>
+</li>
+<li><p>Review the report.</p>
+</li>
+<li><p><code>pg_dump</code> the result and copy it to the VPS with <code>scp</code>. On the VPS, run <code>chmod 600 /root/rs-import.dump</code> at once.</p>
+</li>
+<li><p>On the VPS, with the app stopped in Coolify: recreate the database empty, <code>pg_restore --no-owner --no-acl</code>, and run <code>spot-load --sample 20</code>.</p>
+</li>
+<li><p>Start the app, check <code>/healthz</code>, and sign in as an admin.</p>
+</li>
+<li><p>Run <code>cutover</code> from the importer image on the db container&#39;s network.</p>
+</li>
+<li><p>Delete <code>/root/rs-import.dump</code> from the VPS (<code>deploy/IMPORT_RUNBOOK.md</code> section 8).</p>
+</li>
+<li><p>Switch DNS or the Coolify domain if needed. Old links keep working.</p>
+</li>
+<li><p>Rotate credentials and clean up (sections 11-12 of that runbook). Remove the <code>IMPORT_*</code> variables from Coolify afterwards.</p>
+</li>
+</ol>
+<p><strong>Keep the importer secrets out of history and <code>ps</code>.</strong> <code>deploy/IMPORT_RUNBOOK.md</code> section 2 says to keep the importer variables in a mode-600 env file, &quot;never in shell history and never in the repository&quot;. The spot-load and cutover commands in that runbook pass <code>DATABASE_OWNER_URL</code> (which holds the owner password), <code>APP_KEYS</code>, and <code>ANON_TAG_KEY</code> as <code>-e VAR=value</code>, which leaks them into the VPS shell history and process list. Use an env file instead:</p>
+<pre><code>umask 077
+cat &gt; /root/rs.env   # paste the VAR=value lines, then press Ctrl-D
+docker run --rm --env-file /root/rs.env ...   # in place of every -e VAR=value
+rm /root/rs.env      # when the import is done</code></pre>
+<p>Or export each value after <code>read -rs VAR</code> and pass <code>-e VAR</code> with no value, so Docker copies it from your environment.</p>
+<p>Pulling the importer image on your own machine needs the same GHCR login as the VPS (section 3.3): <code>docker login ghcr.io --password-stdin</code> with a <code>read:packages</code> token. Rollback steps are in section 10 of <code>deploy/IMPORT_RUNBOOK.md</code>.</p>
+<h2 id="15-measure-on-the-vps">15. Measure on the VPS</h2>
+<p><code>deploy/RUNBOOK.md</code> section 15 lists checks nobody has run on the production host yet. Run them after the first deploy and record the results, with the date, in that section:</p>
+<ul>
+<li><input disabled="" type="checkbox"> Coolify and Traefik memory after a day idle: <code>docker stats --no-stream</code> and <code>free -m</code>. App, db, and backup must stay within their 536 MiB of limits.</li>
+<li><input disabled="" type="checkbox"> App and db idle memory: adapt <code>deploy/drills/idle-memory.sh</code> to the Coolify container names. Targets: app under 120 MB, db under 180 MB.</li>
+<li><input disabled="" type="checkbox"> WebSocket idle timeout through Coolify&#39;s Traefik: <code>RS_E2E_BASE_URL=https://&lt;your-domain&gt; node deploy/drills/ws-idle.mjs --seconds 300</code> exits 0.</li>
+<li><input disabled="" type="checkbox"> bcrypt hashes per second on the VPS CPU type.</li>
+<li><input disabled="" type="checkbox"> Throughput and p99 latency with <code>deploy/drills/load.mjs</code> against a <strong>staging copy</strong> on the VPS, never production (it creates 160 accounts).</li>
+<li><input disabled="" type="checkbox"> Redeploy pause: clients are back within 15 s.</li>
+<li><input disabled="" type="checkbox"> Trusted proxy subnet: the <code>audit_log</code> check in section 9.</li>
+<li><input disabled="" type="checkbox"> No dynamic compression: the GET <code>curl -s -o /dev/null -D - -H &#39;Accept-Encoding: gzip&#39; https://&lt;your-domain&gt;/</code> check in section 10.3 shows no <code>content-encoding</code>.</li>
+<li><input disabled="" type="checkbox"> HSTS on HTML: section 10.3.</li>
+<li><input disabled="" type="checkbox"> Swap: <code>swapon --show</code> and <code>sysctl vm.swappiness</code> (section 1.1).</li>
+<li><input disabled="" type="checkbox"> The off-box backup copy runs daily and a restore from it was rehearsed.</li>
+</ul>
+<h2 id="16-troubleshooting">16. Troubleshooting</h2>
+<table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Likely cause</th>
+<th>Fix</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Coolify will not start the deploy</td>
+<td>A required <code>${VAR:?}</code> variable is empty</td>
+<td>Fill in every required variable (section 5.1).</td>
+</tr>
+<tr>
+<td>Pull fails with <code>unauthorized</code> or <code>denied</code></td>
+<td>No GHCR login on the server, or the token lacks <code>read:packages</code> or expired</td>
+<td>Redo section 3.3 and 3.4. Test with <code>docker pull</code> on the VPS.</td>
+</tr>
+<tr>
+<td>Pull fails with <code>invalid reference format</code></td>
+<td><code>APP_DIGEST</code> or <code>IMPORTER_DIGEST</code> is empty or includes <code>sha256:</code></td>
+<td>Paste only the hex (section 5.3).</td>
+</tr>
+<tr>
+<td>Pull fails with <code>no matching manifest</code></td>
+<td>The VPS is ARM</td>
+<td>The images are <code>linux/amd64</code> only. Use an x86_64 VPS.</td>
+</tr>
+<tr>
+<td>App exits at start with a configuration error</td>
+<td>Invalid <code>PUBLIC_URL</code>, <code>TRUSTED_PROXY_CIDRS</code>, <code>ENTRA_*</code>, <code>SMTP_*</code>, or <code>JIRA_HOST_ALLOWLIST</code> value, or only one half of a client ID and secret pair</td>
+<td>Read the app log in Coolify, fix the named variable, and restart.</td>
+</tr>
+<tr>
+<td>App log says <code>Cannot load library libgssapi_krb5.so.2</code></td>
+<td>A custom connection string without <code>GSS Encryption Mode=Disable</code></td>
+<td>Use the compose file&#39;s connection strings unchanged.</td>
+</tr>
+<tr>
+<td>App never turns healthy</td>
+<td><code>/healthz</code> returns 200 only while the app holds the leader lease and the database answers</td>
+<td>Check that <code>db</code> is healthy and read the app log. A second app instance waits <code>LEADER_ACQUIRE_SECONDS</code> and exits.</td>
+</tr>
+<tr>
+<td>Database authentication fails after you changed <code>DB_OWNER_PASSWORD</code></td>
+<td>Postgres kept the password from its first initialisation</td>
+<td>Set the variable back to the original value.</td>
+</tr>
+<tr>
+<td>Certificate is not issued</td>
+<td>DNS does not point at the VPS, port 80 is closed, a broken <code>AAAA</code> record, or Cloudflare proxy on</td>
+<td>Check sections 1.3 and 2.</td>
+</tr>
+<tr>
+<td><code>redirect_uri_mismatch</code> from Google</td>
+<td>The registered URI differs from <code>PUBLIC_URL</code> + <code>/auth/oidc/google/callback</code></td>
+<td>Fix the URI and wait up to a few hours.</td>
+</tr>
+<tr>
+<td>Entra sign-in fails with <code>oidc_tenant</code></td>
+<td>The user&#39;s tenant is not in <code>ENTRA_ALLOWED_TENANTS</code></td>
+<td>Add the tenant ID.</td>
+</tr>
+<tr>
+<td>Entra button missing</td>
+<td><code>ENTRA_ALLOWED_TENANTS</code> empty, or client ID or secret missing</td>
+<td>Set all three (section 7).</td>
+</tr>
+<tr>
+<td>Entra account not linked by email</td>
+<td>No <code>xms_edov</code> claim and the domain not in <code>ENTRA_TENANT_DOMAINS</code></td>
+<td>Add the optional claims (section 7 step 8) or the domain.</td>
+</tr>
+<tr>
+<td>No email arrives</td>
+<td>Port blocked by the VPS provider, wrong <code>SMTP_SECURITY</code>, unverified sending domain, or SES sandbox</td>
+<td>Check the app log, then section 8.1 and 8.2.</td>
+</tr>
+<tr>
+<td>Every user hits the login rate limit together</td>
+<td><code>TRUSTED_PROXY_CIDRS</code> does not cover Traefik&#39;s address</td>
+<td>Redo section 9.</td>
+</tr>
+<tr>
+<td>Responses carry <code>content-encoding: gzip</code></td>
+<td>Coolify&#39;s gzip middleware is on</td>
+<td>Section 4.5.</td>
+</tr>
+<tr>
+<td>Anonymous card authors can no longer edit their cards</td>
+<td><code>ANON_TAG_KEY</code> changed</td>
+<td>Restore the original value.</td>
+</tr>
+<tr>
+<td>Jira credentials stop working after a key change</td>
+<td>A key was removed from <code>APP_KEYS</code> too early</td>
+<td>Put the old key back and follow section 13.</td>
+</tr>
+</tbody></table>
+<p>Useful commands on the VPS:</p>
+<ul>
+<li>Database shell: <code>docker exec -it &lt;db-container&gt; psql -U retroscope_owner -d retroscope</code>.</li>
+<li>App logs: the resource&#39;s <strong>Logs</strong> in Coolify, or <code>docker logs &lt;app-container&gt;</code>. Resource metrics are not available for Docker Compose apps in Coolify.</li>
+</ul>
+<h2 id="unverified-items-to-check-on-your-screen">Unverified items to check on your screen</h2>
+<p>The research could not confirm these in official docs or the repo:</p>
+<ol>
+<li>Whether Coolify honours compose <code>profiles</code>, so the <code>importer</code> service stays down.</li>
+<li>The name of the network the proxy shares with <code>app</code> (section 9 finds it on the box).</li>
+<li>Whether compose <code>mem_limit</code> and <code>cpus</code> are applied by Coolify.</li>
+<li>WebSocket idle behaviour through Coolify&#39;s Traefik.</li>
+<li>Whether the <code>backup</code> service, which has no healthcheck, affects the resource&#39;s status.</li>
+<li>Which server user holds the GHCR login on <code>localhost</code> (normally root).</li>
+<li>Whether a Backups tab exists for a database inside a Git-based compose application.</li>
+<li>Which Coolify version added the Registries page and the domain form.</li>
+<li>Whether a new Coolify project gets a <code>production</code> environment automatically.</li>
+<li>Let&#39;s Encrypt behaviour behind Cloudflare&#39;s proxy.</li>
+<li>Google verification for apps with only non-sensitive scopes.</li>
+<li>Entra&#39;s tenant ID label, the <code>xms_edov</code> picker entry, the Graph email permission prompt, and the API permission labels.</li>
+<li>Mailgun&#39;s username format and all Brevo details.</li>
+<li>Traefik&#39;s compress middleware minimum body size (1024 bytes per Traefik&#39;s docs), which section 10.3 relies on.</li>
+<li>On-screen labels taken from Coolify source rather than docs: <strong>Gzip compression</strong> (section 4.5), <strong>Auto deploy</strong> (section 4.3), and the API token page name (section 11.2).</li>
+</ol>
+
+<footer>Generated from COOLIFY_SETUP.md</footer>
+  </div>
+  </main>
+</div>
+
+<!-- ══ Comment system chrome ═════════════════════════════════════════
+
+     cm-trigger    — fixed button top-right; opens the panel
+     cm-popover    — per-section comment form; anchored to heading btn
+     cm-panel      — slide-in right panel listing all comments
+     cm-modal      — export modal; produces AI-pasteable text block
+
+     Comments are stored in localStorage keyed by document title.
+     "Export for AI" generates a structured plain-text block you can
+     paste directly into a Claude chat to request targeted edits.
+═════════════════════════════════════════════════════════════════════ -->
+
+<!-- Trigger -->
+<button class="cm-trigger" id="cm-trigger" title="View all comments">
+  &#128172; Comments
+  <span class="cm-trigger-badge" id="cm-badge"></span>
+</button>
+
+<!-- Per-section popover -->
+<div class="cm-popover" id="cm-popover" role="dialog" aria-modal="true" aria-labelledby="cm-popover-title">
+  <div class="cm-popover-header">
+    <span class="cm-popover-section-label">&#167;</span>
+    <span class="cm-popover-title" id="cm-popover-title"></span>
+    <button class="cm-popover-close" id="cm-popover-close" aria-label="Close">&#215;</button>
+  </div>
+  <div class="cm-popover-body" id="cm-popover-body"></div>
+  <div class="cm-popover-footer">
+    <textarea class="cm-textarea" id="cm-textarea" placeholder="Add a comment for this section…" rows="3"></textarea>
+    <div class="cm-popover-actions">
+      <span class="cm-hint">&#8984;&#9166; / Ctrl+Enter to save</span>
+      <div class="cm-btn-row">
+        <button class="cm-btn" id="cm-cancel">Cancel</button>
+        <button class="cm-btn cm-btn-primary" id="cm-save">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- All-comments panel -->
+<div class="cm-panel" id="cm-panel" role="complementary" aria-label="Comments panel">
+  <div class="cm-panel-header">
+    <span class="cm-panel-title">Review Comments</span>
+    <button class="cm-panel-close" id="cm-panel-close" aria-label="Close panel">&#215;</button>
+  </div>
+  <div class="cm-panel-body" id="cm-panel-body"></div>
+  <div class="cm-panel-footer">
+    <button class="cm-export-btn" id="cm-export-btn">&#8595; Export for AI</button>
+  </div>
+</div>
+
+<!-- Export modal -->
+<div class="cm-modal-backdrop" id="cm-modal" role="dialog" aria-modal="true" aria-labelledby="cm-modal-title">
+  <div class="cm-modal-card">
+    <div class="cm-modal-header">
+      <div class="cm-modal-header-text">
+        <p class="cm-modal-title" id="cm-modal-title">Export Comments for AI</p>
+        <p class="cm-modal-subtitle">
+          Copy this block and paste it into a Claude chat.<br>
+          Say: <em>"Please apply these review comments."</em>
+        </p>
+      </div>
+      <button class="cm-popover-close" id="cm-modal-close" aria-label="Close">&#215;</button>
+    </div>
+    <div class="cm-modal-body">
+      <pre class="cm-export-pre" id="cm-export-pre"></pre>
+    </div>
+    <div class="cm-modal-footer">
+      <button class="cm-btn" id="cm-modal-cancel">Close</button>
+      <button class="cm-btn cm-btn-primary" id="cm-copy">Copy to Clipboard</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Highlights the active sidebar link based on scroll position.
+  // Requires each heading to have an id matching a sidebar href="#id".
+  (function () {
+    const headings = Array.from(document.querySelectorAll('h2[id], h3[id], h4[id]'));
+    const links    = Array.from(document.querySelectorAll('.nav-list a'));
+
+    function getActiveId() {
+      const scrollY = window.scrollY + 80;
+      let active = headings[0]?.id;
+      for (const h of headings) {
+        if (h.offsetTop <= scrollY) active = h.id;
+        else break;
+      }
+      return active;
+    }
+
+    function update() {
+      const id = getActiveId();
+      links.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + id));
+    }
+
+    window.addEventListener('scroll', update, { passive: true });
+    update();
+  })();
+</script>
+
+<script>
+  /* ══════════════════════════════════════════════════════════════════
+     Comment system
+     ══════════════════════════════════════════════════════════════════ */
+  (function () {
+    // ── Storage ──────────────────────────────────────────────────────
+    // Key includes the document title so different pages have separate
+    // comment stores even when served from the same origin.
+    const STORE_KEY = 'cm2:' + document.title;
+
+    function load() {
+      try { return JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); }
+      catch { return []; }
+    }
+    function persist(comments) {
+      localStorage.setItem(STORE_KEY, JSON.stringify(comments));
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────
+    function esc(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+    function fmtDate(iso) {
+      try {
+        return new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+      } catch { return iso; }
+    }
+    function uid() {
+      return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    }
+
+    // ── Initialise heading buttons ────────────────────────────────────
+    // Appends a small ◆ button to every id'd heading. The button is
+    // hidden via CSS until the heading is hovered, or when it already
+    // has comments (in which case a count badge keeps it visible).
+    function initHeadings() {
+      document.querySelectorAll('h2[id], h3[id], h4[id]').forEach(h => {
+        const btn = document.createElement('button');
+        btn.className = 'cm-heading-btn';
+        btn.dataset.sid   = h.id;
+        btn.dataset.label = h.childNodes[0]?.textContent?.trim() || h.id;
+        btn.setAttribute('aria-label', 'Comments for this section');
+        btn.innerHTML = '&#128172;';
+        btn.addEventListener('click', e => { e.stopPropagation(); openPopover(h.id, btn.dataset.label, btn); });
+        h.appendChild(btn);
+      });
+    }
+
+    // ── Badge / count refresh ─────────────────────────────────────────
+    function refreshBadges() {
+      const comments = load();
+      const bySection = {};
+      comments.forEach(c => { bySection[c.sid] = (bySection[c.sid] || 0) + 1; });
+
+      document.querySelectorAll('.cm-heading-btn').forEach(btn => {
+        const n = bySection[btn.dataset.sid] || 0;
+        btn.innerHTML = n > 0 ? `<span style="font-size:9px;font-weight:700;line-height:1">${n}</span>` : '&#128172;';
+        btn.classList.toggle('cm-has-comments', n > 0);
+      });
+
+      const total = comments.length;
+      const badge = document.getElementById('cm-badge');
+      badge.textContent = total || '';
+      badge.classList.toggle('visible', total > 0);
+    }
+
+    // ── Popover ───────────────────────────────────────────────────────
+    const popover   = document.getElementById('cm-popover');
+    const popTitle  = document.getElementById('cm-popover-title');
+    const popBody   = document.getElementById('cm-popover-body');
+    const textarea  = document.getElementById('cm-textarea');
+
+    let activeSid   = null;
+    let activeLabel = null;
+
+    function openPopover(sid, label, anchorBtn) {
+      activeSid   = sid;
+      activeLabel = label;
+      popTitle.textContent = label;
+      textarea.value = '';
+      renderPopoverBody();
+
+      // Position relative to the anchor button (fixed coords).
+      const r = anchorBtn.getBoundingClientRect();
+      const pw = 320;
+      const left = Math.min(r.left, window.innerWidth - pw - 16);
+      popover.style.top  = (r.bottom + 6) + 'px';
+      popover.style.left = Math.max(8, left) + 'px';
+
+      popover.classList.add('open');
+      textarea.focus();
+    }
+
+    function closePopover() {
+      popover.classList.remove('open');
+      activeSid = null;
+    }
+
+    function renderPopoverBody() {
+      const comments = load().filter(c => c.sid === activeSid);
+      popBody.innerHTML = '';
+      if (!comments.length) {
+        popBody.innerHTML = '<p class="cm-empty-note">No comments yet.</p>';
+        return;
+      }
+      comments.forEach(c => {
+        const div = document.createElement('div');
+        div.className = 'cm-comment-item';
+        div.innerHTML = `
+          <div class="cm-comment-text">${esc(c.text)}</div>
+          <div class="cm-comment-meta">${fmtDate(c.createdAt)}</div>
+          <button class="cm-comment-del" data-id="${esc(c.id)}" aria-label="Delete comment">&#215;</button>`;
+        div.querySelector('.cm-comment-del').addEventListener('click', e => {
+          deleteComment(e.currentTarget.dataset.id);
+        });
+        popBody.appendChild(div);
+      });
+    }
+
+    function saveComment() {
+      const text = textarea.value.trim();
+      if (!text || !activeSid) return;
+      const comments = load();
+      comments.push({ id: uid(), sid: activeSid, label: activeLabel, text, createdAt: new Date().toISOString() });
+      persist(comments);
+      textarea.value = '';
+      renderPopoverBody();
+      refreshBadges();
+      if (panel.classList.contains('open')) renderPanel();
+    }
+
+    function deleteComment(id) {
+      persist(load().filter(c => c.id !== id));
+      renderPopoverBody();
+      refreshBadges();
+      if (panel.classList.contains('open')) renderPanel();
+    }
+
+    document.getElementById('cm-popover-close').addEventListener('click', closePopover);
+    document.getElementById('cm-cancel').addEventListener('click', closePopover);
+    document.getElementById('cm-save').addEventListener('click', saveComment);
+
+    textarea.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveComment(); }
+    });
+
+    // Close popover when clicking outside of it.
+    document.addEventListener('click', e => {
+      if (popover.classList.contains('open') && !popover.contains(e.target)) closePopover();
+    });
+
+    // ── Panel ─────────────────────────────────────────────────────────
+    const panel     = document.getElementById('cm-panel');
+    const panelBody = document.getElementById('cm-panel-body');
+
+    document.getElementById('cm-trigger').addEventListener('click', () => {
+      panel.classList.toggle('open');
+      if (panel.classList.contains('open')) renderPanel();
+    });
+    document.getElementById('cm-panel-close').addEventListener('click', () => {
+      panel.classList.remove('open');
+    });
+
+    // Build a DOM-ordered list of sections with comments.
+    function orderedSections(comments) {
+      const headingOrder = Array.from(document.querySelectorAll('h2[id], h3[id], h4[id]')).map(h => h.id);
+      const map = {};
+      comments.forEach(c => {
+        if (!map[c.sid]) map[c.sid] = { label: c.label, comments: [] };
+        map[c.sid].comments.push(c);
+      });
+      return Object.entries(map).sort(([a], [b]) => {
+        const ai = headingOrder.indexOf(a), bi = headingOrder.indexOf(b);
+        return (ai < 0 ? 9999 : ai) - (bi < 0 ? 9999 : bi);
+      });
+    }
+
+    function renderPanel() {
+      const comments = load();
+      panelBody.innerHTML = '';
+      if (!comments.length) {
+        panelBody.innerHTML = '<p class="cm-panel-empty">No comments yet.<br>Hover any heading and click &#128172; to add one.</p>';
+        return;
+      }
+      orderedSections(comments).forEach(([sid, { label, comments: sc }]) => {
+        const group = document.createElement('div');
+
+        const title = document.createElement('div');
+        title.className = 'cm-panel-group-title';
+        title.innerHTML = `<a href="#${esc(sid)}" title="Jump to section">${esc(label)}</a>`;
+        group.appendChild(title);
+
+        sc.forEach(c => {
+          const item = document.createElement('div');
+          item.className = 'cm-comment-item';
+          item.innerHTML = `
+            <div class="cm-comment-text">${esc(c.text)}</div>
+            <div class="cm-comment-meta">${fmtDate(c.createdAt)}</div>
+            <button class="cm-comment-del" data-id="${esc(c.id)}" aria-label="Delete">&#215;</button>`;
+          item.querySelector('.cm-comment-del').addEventListener('click', e => {
+            deleteComment(e.currentTarget.dataset.id);
+            renderPanel();
+          });
+          group.appendChild(item);
+        });
+
+        panelBody.appendChild(group);
+      });
+    }
+
+    // ── Export ────────────────────────────────────────────────────────
+    function generateExport() {
+      const comments = load();
+      if (!comments.length) return '(No comments to export.)';
+
+      const sep = '─'.repeat(64);
+      const lines = [
+        'DOCUMENT REVIEW COMMENTS',
+        `Document : ${document.title}`,
+        `URL      : ${location.href}`,
+        `Exported : ${new Date().toLocaleString()}`,
+        `Comments : ${comments.length}`,
+        '',
+        'Paste this block into your Claude chat and say:',
+        '"Please apply these review comments to the document."',
+        '',
+      ];
+
+      orderedSections(comments).forEach(([sid, { label, comments: sc }]) => {
+        lines.push(sep);
+        lines.push(`Section : "${label}"  (#${sid})`);
+        lines.push(sep);
+        sc.forEach((c, i) => {
+          if (i > 0) lines.push('');
+          lines.push(c.text);
+          lines.push(`  — ${fmtDate(c.createdAt)}`);
+        });
+        lines.push('');
+      });
+
+      lines.push(sep);
+      lines.push('END OF REVIEW COMMENTS');
+      return lines.join('\n');
+    }
+
+    const modal     = document.getElementById('cm-modal');
+    const exportPre = document.getElementById('cm-export-pre');
+
+    document.getElementById('cm-export-btn').addEventListener('click', () => {
+      exportPre.textContent = generateExport();
+      modal.classList.add('open');
+    });
+
+    function closeModal() { modal.classList.remove('open'); }
+    document.getElementById('cm-modal-close').addEventListener('click', closeModal);
+    document.getElementById('cm-modal-cancel').addEventListener('click', closeModal);
+    modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+
+    document.getElementById('cm-copy').addEventListener('click', () => {
+      navigator.clipboard.writeText(exportPre.textContent).then(() => {
+        const btn = document.getElementById('cm-copy');
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = 'Copy to Clipboard'; }, 2000);
+      });
+    });
+
+    // ── Boot ──────────────────────────────────────────────────────────
+    initHeadings();
+    refreshBadges();
+  })();
+</script>
+
+</body>
+</html>
