@@ -81,3 +81,24 @@ it lists, and this file.
 - Screenshots were checked at 1440×900, 1920×1080 and 1280×800 with 3, 6 and 12 players, voting and revealed.
   Capping long seat names at the ring's depth was tried and dropped: on the 640 px stage it cut most names to a
   few letters, so labels keep UX1's 128 px.
+
+## Review fixes
+
+1. **The results overlay keeps clear of the seats' names.** The ring's labels hang up to 128 px in from a side,
+   further than the seats themselves. After each layout the table measures how far the drawn labels reach
+   (`seats.labelReach()`, which grows when a revealed vote chip joins a name) into `--nt-labels`, and the overlay's
+   side inset is the larger of that and `--nt-ring`. When less than 480 px is left between the labels (the 640 px
+   stage at 1280×800 with both panels open), the table gets `is-results-narrow`. The piles then deal at 0.75×
+   (0.5× from five piles up) with narrower name columns, so the results fit without scrolling.
+2. **Seats keep their size through a reveal.** The seats plan against the larger of the dock's current height and
+   its height before the reveal, so a live reveal (or opening the results) no longer grows the seats, and the
+   next round does not shrink them back. A tab that opens straight onto a revealed round has seen no hand yet. It
+   plans against the dock it sees, and its seats can shrink once when the next round deals the hand.
+3. **No bow at 1440×900 with 6 players and both panels open.** The issue column must stay 560 px wide there,
+   so each side may reach 120 px in. Three 1× seats per side already reach 118.7 px as a straight column at
+   their closest spacing. The 3 px of slack left would give a bow of about 1 px, which nobody can see. Each 10 px
+   of bow costs about 3 px of depth. A visible bow there needs a narrower issue column or smaller cards, so it
+   stays straight. The arcs bow visibly on wider stages, with fewer seats, and in the 12-player crowd.
+4. **Known flake, outside UX2.** `real/poker-jira.spec.js:96` sometimes times out at 30 s when it is the first
+   chromium test of a cold stack. It passes on rerun, and UX2 does not touch the issue drawer. The owner of
+   that spec can warm the stack or raise that test's timeout.
