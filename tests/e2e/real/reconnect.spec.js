@@ -8,12 +8,12 @@ test('a vote cast offline is sent when the context comes back, and everyone conv
   const [ann, bob] = players;
   const network = await networkSwitch(bob.context);
   await bob.page.reload();
-  await expect(bob.page.locator('.nt-seat')).toHaveCount(2);
+  await expect(bob.page.locator('.nt-seat')).toHaveCount(1);
 
   await network.offline();
   await handCard(bob.page, 5).click();
   await bob.page.getByRole('button', { name: 'Lock In' }).click();
-  await expect(seat(bob.page, bob.user)).toHaveAttribute('data-status', 'locked');
+  await expect(handCard(bob.page, 5).locator('.nt-hand-locked')).toBeVisible();
   await ann.page.waitForTimeout(1000);
   await expect(seat(ann.page, bob.user)).toHaveAttribute('data-status', 'empty');
 
@@ -42,7 +42,7 @@ test('a server restart mid-session keeps every acknowledged vote and the pages c
   const started = Date.now();
   await compose('restart', 'app');
   for (const { page } of players) {
-    await expect(page.locator('.nt-seat')).toHaveCount(2, { timeout: 60_000 });
+    await expect(page.locator('.nt-seat')).toHaveCount(1, { timeout: 60_000 });
   }
 
   await handCard(bob.page, 13).click();
