@@ -679,6 +679,166 @@
 .nt-flip-fade.is-flipped .nt-flip-back { opacity: 0; }
 .nt-flip-fade.is-flipped .nt-flip-front { opacity: 1; }
 
+/* ---- Results overlay (results.js): a revealed round's results over the issue, translucent so the issue shows
+   through, with a pile of cards per point value. ---- */
+.nt-results {
+  position: absolute;
+  top: 0.75rem;
+  left: 50%;
+  z-index: 5;
+  display: grid;
+  justify-items: center;
+  gap: 0.875rem;
+  width: max-content;
+  max-width: min(calc(100% - 2 * var(--nt-ring) - 1.5rem), 46rem);
+  max-height: calc(100% - var(--nt-dock-h) - 1.5rem);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0.875rem 1.25rem 1rem;
+  border: 1px solid color-mix(in srgb, hsl(var(--border)) 80%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, hsl(var(--background)) 88%, transparent);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.25), var(--shadow-sm);
+  translate: -50% 0;
+  animation: nt-results-in 0.3s cubic-bezier(.22, 1, .36, 1);
+}
+
+@supports (backdrop-filter: blur(1px)) {
+  .nt-results {
+    background: color-mix(in srgb, hsl(var(--background)) 62%, transparent);
+    backdrop-filter: blur(6px);
+  }
+}
+
+.nt-results:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+@keyframes nt-results-in {
+  from { opacity: 0; translate: -50% -0.75rem; }
+}
+
+.nt-results-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem 1rem;
+  width: 100%;
+}
+
+.nt-results-winner {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+}
+
+.nt-results-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+/* The piles say it all; the summary pills are for the compact bar. */
+.nt-results-actions > .nt-stacks {
+  display: none;
+}
+
+.nt-results-actions > .nt-dock-results:not([hidden]) {
+  flex-basis: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+.nt-table.is-results-open .nt-actions {
+  display: none;
+}
+
+.nt-table.is-results-open .nt-dock-bar:not(:has(> .nt-dock-tools > :not([hidden]))) {
+  display: none;
+}
+
+.nt-piles {
+  --scale: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 1rem 1.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nt-piles:has(> .nt-pile:nth-child(5)) {
+  --scale: 0.75;
+  gap: 0.75rem 1rem;
+}
+
+.nt-pile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.375rem;
+  max-width: calc(71px * var(--scale) + 3rem);
+}
+
+.nt-pile-cards {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 0.25rem;
+  transition: filter 0.3s;
+}
+
+.nt-pile-card + .nt-pile-card {
+  margin-top: calc(var(--pile-step, 22px) - 95px * var(--scale));
+}
+
+.nt-pile-card {
+  animation: nt-pile-deal 0.45s cubic-bezier(.22, 1, .36, 1) backwards;
+  animation-delay: calc(var(--k, 0) * 70ms);
+}
+
+@keyframes nt-pile-deal {
+  from { opacity: 0; transform: translateY(-1.5rem) rotate(-6deg); }
+}
+
+.nt-pile-value {
+  padding: 0.0625rem 0.5rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, hsl(var(--muted-foreground)) 22%, transparent);
+  font-family: var(--font-pixel);
+  font-size: 1rem;
+  white-space: nowrap;
+}
+
+.nt-pile.is-winner .nt-pile-cards {
+  filter: drop-shadow(0 0 10px var(--nt-glow));
+}
+
+.nt-pile.is-winner .nt-pile-value {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+.nt-pile-names {
+  max-width: 100%;
+  font-size: 0.75rem;
+  line-height: 1.3;
+  text-align: center;
+  color: hsl(var(--muted-foreground));
+  overflow-wrap: anywhere;
+}
+/* ---- End of the results overlay ---- */
+
 /* The dock: the hand peeking from the bottom with its bar, or a revealed round's results. */
 .nt-dock {
   position: absolute;
@@ -1792,7 +1952,9 @@
     transition: none !important;
   }
 
-  .neotro .nt-slide-in {
+  .neotro .nt-slide-in,
+  .neotro .nt-pile-card,
+  .neotro .nt-results {
     animation: nt-fade-in 0.3s ease-out !important;
   }
 
