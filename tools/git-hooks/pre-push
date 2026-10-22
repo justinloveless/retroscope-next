@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Refuses a push unless every pushed commit's tree passed the full pass (./build.sh verify). It never runs the pass
+# itself: that takes many minutes, and a push that an agent's tool call kills halfway would start it again on retry.
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+stamps="$(cd "$(git rev-parse --git-common-dir)" && pwd)/rs-verified"
+zero='^0+$'
+refused=0
+
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+  [[ "$local_sha" =~ $zero ]] && continue
+  tree="$(git rev-parse "$local_sha^{tree}")"
+  [[ -f "$stamps/$tree" ]] && continue
+  echo "pre-push: ${local_sha:0:12} has not passed the full test pass." >&2
+  refused=1
+done
+
+if (( refused )); then
+  if grep -q '^  verify)' "$root/build.sh"; then
+    cat >&2 <<'TEXT'
+Check the commit out with a clean working tree, run ./build.sh verify (it takes a while; agents should run it as its
+own background step), then push again.
+TEXT
+  else
+    echo "This branch predates ./build.sh verify. Merge or rebase onto main to get it, then verify and push." >&2
+  fi
+  exit 1
+fi

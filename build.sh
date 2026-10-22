@@ -2,6 +2,10 @@
 # Retroscope build entry point (DESIGN §k.1). Verbs:
 #   ./build.sh                     restore, build, test, web
 #   ./build.sh test                every suite except e2e and soak
+#   ./build.sh verify              the full pass CI runs (test, web, generated files committed, aot-smoke) on a clean
+#                                  tree; records the tree so the pre-push hook lets it through
+#   ./build.sh hooks               installs the pre-push hook that requires verify (every verb installs it once the
+#                                  hook is committed)
 #   ./build.sh web                 esbuild bundle into web/dist (emits manifest.json)
 #   ./build.sh aot-smoke           AOT publish with zero warnings, probe against a throwaway Postgres, the
 #                                  native server signs a user up and holds a /ws session (hello/welcome,
@@ -136,6 +140,55 @@ cmd_test() {
   if [[ -f tests/golden/make-golden.mjs ]]; then
     log "golden vectors"
     node tests/golden/make-golden.mjs --verify
+  fi
+}
+
+stamp_dir() {
+  echo "$(cd "$(git rev-parse --git-common-dir)" && pwd)/rs-verified"
+}
+
+# The stamp names the tree, not the commit, so a rebase or amend that keeps the content does not retest.
+cmd_verify() {
+  [[ -z "$(git status --porcelain)" ]] || die "verify needs a clean working tree, so that it tests exactly what gets pushed"
+  local tree
+  tree="$(git rev-parse 'HEAD^{tree}')"
+  cmd_test
+  cmd_web
+  log "generated files are committed"
+  git diff --exit-code
+  [[ -z "$(git status --porcelain)" ]] || { git status --short; die "the pass left untracked files behind"; }
+  cmd_aot_smoke
+  mkdir -p "$(stamp_dir)"
+  touch "$(stamp_dir)/$tree"
+  log "verify passed for tree ${tree:0:12}"
+}
+
+# Hooks live in the common .git, so one install covers every worktree. The shim prefers the pushing worktree's copy
+# and falls back to the main checkout's, so a branch cut before the hook existed is still gated.
+cmd_hooks() {
+  local hooks shim tmp
+  hooks="$(cd "$(git rev-parse --git-common-dir)" && pwd)/hooks"
+  shim="$hooks/pre-push"
+  if [[ -n "$(git config --get core.hooksPath || true)" ]]; then
+    printf 'build.sh: core.hooksPath is set, so the pre-push hook in %s is not used\n' "$hooks" >&2
+    return 0
+  fi
+  mkdir -p "$hooks"
+  tmp="$(mktemp "$hooks/pre-push.XXXXXX")"
+  cat >"$tmp" <<'SHIM'
+#!/usr/bin/env bash
+# Installed by ./build.sh hooks.
+hook="$(git rev-parse --show-toplevel)/tools/git-hooks/pre-push"
+[[ -x "$hook" ]] || hook="$(git rev-parse --git-common-dir)/../tools/git-hooks/pre-push"
+[[ -x "$hook" ]] || { echo "pre-push: no tools/git-hooks/pre-push here; run ./build.sh verify by hand" >&2; exit 1; }
+exec "$hook" "$@"
+SHIM
+  chmod +x "$tmp"
+  if cmp -s "$tmp" "$shim"; then
+    rm -f "$tmp"
+  else
+    mv "$tmp" "$shim"
+    log "installed the pre-push hook ($shim)"
   fi
 }
 
@@ -543,14 +596,21 @@ cmd_screenshots() {
   node tests/e2e/screenshots/contact-sheet.mjs "$ARTIFACTS/screenshots"
 }
 
+# Only a committed hook is installed, so a work-in-progress copy never gates the other worktrees.
+if [[ -z "${CI:-}" ]] && git cat-file -e HEAD:tools/git-hooks/pre-push 2>/dev/null; then
+  cmd_hooks
+fi
+
 case "${1:-all}" in
   all) cmd_test; cmd_web ;;
   test) cmd_test ;;
+  verify) cmd_verify ;;
+  hooks) ;;
   web) cmd_web ;;
   aot-smoke) cmd_aot_smoke ;;
   fake-e2e) shift; cmd_fake_e2e "$@" ;;
   e2e) shift; cmd_e2e "$@" ;;
   preview) shift; cmd_preview "$@" ;;
   screenshots) cmd_screenshots ;;
-  *) die "unknown verb '$1' (all | test | web | aot-smoke | fake-e2e <glob> | e2e <glob> | preview [fake|real] | screenshots)" ;;
+  *) die "unknown verb '$1' (all | test | verify | hooks | web | aot-smoke | fake-e2e <glob> | e2e <glob> | preview [fake|real] | screenshots)" ;;
 esac
