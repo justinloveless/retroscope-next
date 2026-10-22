@@ -266,7 +266,8 @@ public sealed class AdminEndpointTests(PostgresFixture postgres) {
 
         var promoted = await host.SendAsync(root, HttpMethod.Post, path, new { userId = member.Id.Value, role = "owner" });
 
-        Assert.NotEqual(HttpStatusCode.NoContent, promoted.StatusCode);
+        Assert.Equal(HttpStatusCode.InternalServerError, promoted.StatusCode);
+        Assert.Equal("internal", await promoted.CodeAsync());
         Assert.Equal("owner", await RoleAsync(host, team, owner.Id));
         Assert.Equal("member", await RoleAsync(host, team, member.Id));
         var members = await host.Registry.QueryAsync<Core.Team.TeamState, Core.Team.TeamInput, string>(
