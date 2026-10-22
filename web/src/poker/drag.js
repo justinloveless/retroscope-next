@@ -1,15 +1,17 @@
-// Drag-to-play (§g.8): Pointer Events with pointer capture, an 8 px threshold, a floating card, the dashed
-// drop overlay on the table and two side zones that vote "between" after a 2 s hold. The hand cards and
-// grips carry touch-action: none, otherwise a touch pan fires pointercancel mid-drag (F19).
+// Drag-to-play (§g.8, docs/followups/UX1.md): Pointer Events with pointer capture, an 8 px threshold, a
+// floating card and the dashed drop overlay on the issue: a drop anywhere above the raised hand plays the
+// card. The gaps between the dragged card and its neighbours in the raised fan vote "between" after a 2 s
+// hold. The hand cards carry touch-action: none, otherwise a touch pan fires pointercancel mid-drag (F19).
 
 import { h, setStyle } from '../core/h.js';
 import { DECK } from './model.js';
-import { betweenEl, cardEl, faceEl } from './reveal.js';
+import { betweenEl, faceEl } from './reveal.js';
 
 export const DRAG_THRESHOLD_PX = 8;
 export const HOLD_MS = 2000;
 const WIPE_CAP = 0.55;
-const ZONE_GAP_PX = 10;
+const ZONE_MARGIN = 0.15;
+const FLOOR_GAP_PX = 4;
 
 function inside(rect, x, y) {
   return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
@@ -23,23 +25,35 @@ function neighbours(points) {
   };
 }
 
-function sideZone(selection, shown, side) {
+// `neighbour` is the card on the other side of the gap.
+function gapZone(selection, neighbour, side) {
   const fill = h('span', { class: 'nt-zone-fill' });
   const pill = h('span', { class: 'nt-zone-pill', role: 'status' });
   const el = h('div', { class: ['nt-zone', `nt-zone-${side}`], 'data-zone': side },
     fill,
-    cardEl(shown, 'nt-zone-card'),
     h('span', { class: 'nt-zone-label', text: `Between ${selection.points} & ${selection.high}` }),
     pill);
-  return { el, fill, pill, selection };
+  return { el, fill, pill, selection, neighbour };
+}
+
+/** The gap between two cards' rects, kept clear of either card's centre. */
+export function gapRect(a, b) {
+  const ax = a.left + a.width / 2;
+  const bx = b.left + b.width / 2;
+  const d = Math.abs(bx - ax);
+  const left = Math.min(ax, bx) + d * ZONE_MARGIN;
+  const top = Math.min(a.top, b.top);
+  return { left, top, width: d * (1 - 2 * ZONE_MARGIN), height: Math.max(a.bottom, b.bottom) - top };
 }
 
 /**
- * dropZone: the table element a drop locks in over. onPlay({points, high}) plays the card (vote and lock
- * in one command). press(event, {points, high, source, onClick}) starts tracking a pointerdown on a hand
- * card; a release before the threshold calls onClick(event) instead.
+ * dropZone: the element over the issue a drop locks in on. cards(): the hand's single-value cards; the drop
+ * only counts above the highest of them, and the gaps beside the dragged card are its "between" zones.
+ * onPlay({points, high}) plays the card (vote and lock in one command). press(event, {points, high, source,
+ * onClick}) starts tracking a pointerdown on a hand card; a release before the threshold calls
+ * onClick(event) instead.
  */
-export function createDrag({ dropZone, onPlay }) {
+export function createDrag({ dropZone, cards = () => [], onPlay }) {
   let session = null;
 
   function cleanup() {
@@ -64,9 +78,31 @@ export function createDrag({ dropZone, onPlay }) {
     session = null;
   }
 
+  function cardAt(points) {
+    return cards().find((card) => Number(card.dataset.points) === points) ?? null;
+  }
+
+  function floor() {
+    const tops = cards().map((card) => card.getBoundingClientRect().top);
+    return tops.length ? Math.min(...tops) - FLOOR_GAP_PX : dropZone.getBoundingClientRect().bottom;
+  }
+
+  // The fan rises while the drag starts, so the zones and the overlay follow the cards on every move.
+  function track(s) {
+    const zone = dropZone.getBoundingClientRect();
+    setStyle(s.overlay, { bottom: `${Math.max(0, zone.bottom - floor())}px` });
+    const own = s.source.getBoundingClientRect();
+    for (const z of s.zones) {
+      const other = cardAt(z.neighbour);
+      if (other) {
+        const r = gapRect(own, other.getBoundingClientRect());
+        setStyle(z.el, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+      }
+    }
+  }
+
   function begin(s, x, y) {
     s.dragging = true;
-    const rect = s.source.getBoundingClientRect();
     s.source.classList.add('is-drag-source');
     document.documentElement.classList.add('nt-dragging');
     s.wipe = h('span', { class: 'nt-float-wipe' });
@@ -80,18 +116,11 @@ export function createDrag({ dropZone, onPlay }) {
     s.size = { w: s.float.offsetWidth, h: s.float.offsetHeight };
     if (s.high == null) {
       const { lower, higher } = neighbours(s.points);
-      const width = rect.width * 1.15;
-      const height = rect.height * 1.1;
-      const top = rect.top + (rect.height - height) / 2;
-      if (lower) {
-        const zone = sideZone(lower, lower.points, 'left');
-        setStyle(zone.el, { left: `${rect.left - width - ZONE_GAP_PX}px`, top: `${top}px`, width: `${width}px`, height: `${height}px` });
-        s.zones.push(zone);
+      if (lower && cardAt(lower.points)) {
+        s.zones.push(gapZone(lower, lower.points, 'left'));
       }
-      if (higher) {
-        const zone = sideZone(higher, higher.high, 'right');
-        setStyle(zone.el, { left: `${rect.right + ZONE_GAP_PX}px`, top: `${top}px`, width: `${width}px`, height: `${height}px` });
-        s.zones.push(zone);
+      if (higher && cardAt(higher.high)) {
+        s.zones.push(gapZone(higher, higher.high, 'right'));
       }
       document.body.append(...s.zones.map((z) => z.el));
     }
@@ -139,7 +168,8 @@ export function createDrag({ dropZone, onPlay }) {
 
   function move(s, x, y) {
     setStyle(s.float, { transform: `translate(${x - s.size.w / 2}px, ${y - s.size.h / 2}px)` });
-    const over = inside(dropZone.getBoundingClientRect(), x, y);
+    track(s);
+    const over = inside(dropZone.getBoundingClientRect(), x, y) && y < floor();
     if (over !== s.over) {
       s.over = over;
       s.overlay.classList.toggle('is-hover', over);

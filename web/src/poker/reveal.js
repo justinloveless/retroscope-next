@@ -1,5 +1,5 @@
-// Card faces from the sprite, the revealed stacks and the reveal flip (§g.8): 300 ms after a live reveal
-// every card turns over in 0.6 s; between cards crossfade instead, because clip-path and 3D do not mix.
+// Card faces from the sprite and the revealed results (§g.8). The seats flip their own cards 300 ms after a
+// live reveal (seats.js).
 
 import { h } from '../core/h.js';
 import { reconcile } from '../core/list.js';
@@ -43,68 +43,38 @@ function namesText(voters) {
     : names.join(', ');
 }
 
-function stackCard(group, flipped) {
-  const face = group.abstain ? cardEl('abstain') : faceEl(group.points, group.high, false);
-  const between = !group.abstain && group.high != null;
-  return h('span', { class: ['nt-flip', between && 'nt-flip-fade', flipped && 'is-flipped'] },
-    h('span', { class: 'nt-flip-inner' },
-      cardEl('back', 'nt-flip-back'),
-      h('span', { class: 'nt-flip-front' }, face)));
-}
-
 /**
- * The revealed table. update(state, roundId, {live}) renders the stacks; `live` is true when the reveal
- * just happened in front of this viewer, which plays the flip.
+ * The revealed votes grouped by value ("2 x 5 pts" and who), shown next to the winner while the seats
+ * hold the flipped cards themselves.
  */
-export function createReveal() {
-  const el = h('div', { class: 'nt-stacks', role: 'list', 'aria-label': 'Revealed votes' });
-  let flipTimer = 0;
+export function createResults() {
+  const el = h('ul', { class: 'nt-stacks', 'aria-label': 'Revealed votes' });
 
-  function create(group) {
-    const stack = h('div', { class: 'nt-stack-cards' });
-    const node = h('div', { class: 'nt-stack', role: 'listitem' },
-      stack,
+  function create() {
+    return h('li', { class: 'nt-stack' },
       h('span', { class: 'nt-stack-pill' }),
       h('span', { class: 'nt-stack-names' }));
-    node.stack = stack;
-    return node;
   }
 
-  function update(node, group, flipped) {
+  function update(node, group) {
     node.querySelector('.nt-stack-pill').textContent = groupLabel(group);
     const names = node.querySelector('.nt-stack-names');
     names.textContent = namesText(group.voters);
-    names.title = group.voters.map((v) => v.name).join(', ');
+    node.title = group.voters.map((v) => v.name).join(', ');
     node.setAttribute('aria-label', `${groupLabel(group)}: ${group.voters.map((v) => v.name).join(', ')}`);
-    reconcile(node.stack, group.voters, (v) => v.pid, () => stackCard(group, flipped), null);
   }
 
   return {
     el,
-    update(state, roundId, { live = false } = {}) {
-      const animate = live && !reducedMotion();
-      const groups = revealGroups(state, roundId);
-      reconcile(el, groups, (g) => g.key, (group) => {
-        const node = create(group);
-        update(node, group, !animate);
+    update(state, roundId) {
+      reconcile(el, revealGroups(state, roundId), (g) => g.key, (group) => {
+        const node = create();
+        update(node, group);
         return node;
-      }, (node, group) => update(node, group, !animate));
-      if (animate) {
-        clearTimeout(flipTimer);
-        flipTimer = setTimeout(() => {
-          for (const card of el.querySelectorAll('.nt-flip')) {
-            card.classList.add('is-flipped');
-          }
-        }, FLIP_DELAY_MS);
-      }
+      }, update);
     },
     clear() {
-      clearTimeout(flipTimer);
       reconcile(el, [], (g) => g.key, create, null);
-    },
-    destroy() {
-      clearTimeout(flipTimer);
-      el.remove();
     },
   };
 }

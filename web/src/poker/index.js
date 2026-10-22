@@ -1,6 +1,7 @@
 // The poker screen (/poker/:code and /teams/:tid/poker/:code): joins the room, paints from the boot
-// snapshot, follows pointer and spotlight navigation (R13), keeps ?round=N in the URL and wires the table,
-// the hand, drag-to-play and the shortcuts to the room's commands.
+// snapshot, follows pointer and spotlight navigation (R13), keeps ?round=N in the URL and wires the stage
+// (the issue with the players seated around it), the hand, drag-to-play and the shortcuts to the room's
+// commands.
 
 import { h, replaceContent } from '../core/h.js';
 import { ApiError, http } from '../core/http.js';
@@ -143,6 +144,7 @@ export function mount(root, boot = {}, app = {}) {
     setTicket(round, ticketKey) {
       send('poker.round.setTicket', { roundId: round.id, ticketKey, baseVersion: round.version }, { apply: ticketIntent(round.id, ticketKey) });
     },
+    editTicket: () => table.editTicket(),
   };
 
   function vote({ points, high = null }, lock = false) {
@@ -164,9 +166,10 @@ export function mount(root, boot = {}, app = {}) {
   }
 
   const table = createTable(actions);
-  const drag = createDrag({ dropZone: table.field, onPlay: (selection) => vote(selection, true) });
+  const drag = createDrag({ dropZone: table.field, cards: () => hand.cards(), onPlay: (selection) => vote(selection, true) });
   const hand = createHand({ onVote: (selection) => vote(selection), onLock: setLock, onAbstain: setAbstain, drag });
   const observerNote = h('p', { class: 'nt-observer', hidden: true }, icon('eye'), h('span', { text: 'You are an observer' }));
+  table.attachHand(hand, observerNote);
 
   function canVote(view) {
     return me !== null && roundPhase(roundById(view, viewed)) === 'voting' && !isObserver(view, me);
@@ -280,13 +283,14 @@ export function mount(root, boot = {}, app = {}) {
       return;
     }
     if (!center.contains(table.el)) {
-      replaceContent(center, table.el, hand.el, observerNote);
+      replaceContent(center, table.el);
     }
     table.update(view, viewed, { meta: room.extras['jira.meta'] });
     const own = myVote(view, viewed);
     const observing = me !== null && isObserver(view, me);
     const voting = roundPhase(roundById(view, viewed)) === 'voting';
     hand.el.hidden = !voting || observing || me === null;
+    hand.actions.hidden = hand.el.hidden;
     observerNote.hidden = !observing;
     hand.update({
       own,
@@ -429,7 +433,8 @@ export function mount(root, boot = {}, app = {}) {
       room.select((view) => [view, room.extras, room.kicked], shallowEq, render),
       watchStatus(),
     ];
-    const ctx = { room, socket, me, actions, navigate, get viewed() { return viewed; }, slots: { toolbar: extras, strip, left, right, center, page } };
+    const slots = { toolbar: extras, strip, left, right, center, page, issue: table.issue, issueScroller: table.scroller, results: table.results };
+    const ctx = { room, socket, me, actions, navigate, get viewed() { return viewed; }, slots };
     features = FEATURES.map((feature) => feature(ctx));
     render();
   }
