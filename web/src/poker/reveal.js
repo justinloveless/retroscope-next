@@ -36,7 +36,7 @@ function groupLabel(group) {
   return group.abstain ? `${count} x Abstain` : `${count} x ${voteLabel(group.points, group.high).replace(/ pts$/, '')} pts`;
 }
 
-function namesText(voters) {
+export function namesText(voters) {
   const names = voters.map((v) => v.name);
   return names.length > NAMES_SHOWN
     ? `${names.slice(0, NAMES_SHOWN).join(', ')} +${names.length - NAMES_SHOWN}`

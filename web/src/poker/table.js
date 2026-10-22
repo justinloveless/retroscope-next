@@ -3,13 +3,15 @@
 // and a dock floating at the bottom with the hand and its bar (Lock In, Abstain, Reveal) or the results of
 // a revealed round (winner, grouped votes, Replay and End/Continue/Next Round, the Jira submit chips).
 // The issue keeps clear of both: its side padding is the seat ring's depth and its bottom padding the
-// dock's height plus 24 px, both measured live.
+// dock's height plus 24 px, both measured live. While a revealed round's results overlay is open
+// (results.js), the winner, the round actions and the submit chips move into it from the dock.
 
 import { h, replaceContent, setStyle } from '../core/h.js';
 import { createButton } from '../ui/button.js';
 import { createDialog } from '../ui/dialog.js';
 import { isPresent, roundById, roundPhase, seatsOf } from './model.js';
 import { createResults } from './reveal.js';
+import { createResultsOverlay } from './results.js';
 import { createSeats } from './seats.js';
 
 export const TICKET_DEBOUNCE_MS = 500;
@@ -94,7 +96,13 @@ export function createTable(actions) {
   const issue = h('div', { class: 'nt-issue-slot' });
   const fallback = h('div', { class: 'nt-issue-fallback' });
   const scroller = h('div', { class: 'nt-issue', tabindex: '-1' }, h('div', { class: 'nt-issue-inner' }, issue, fallback));
-  const field = h('div', { class: 'nt-field' }, scroller);
+  const overlay = createResultsOverlay({
+    onToggle() {
+      placeResults();
+      frame ||= requestAnimationFrame(measure);
+    },
+  });
+  const field = h('div', { class: 'nt-field' }, scroller, overlay.el);
   const seats = createSeats();
   const results = createResults();
   const bar = h('div', { class: 'nt-actions' });
@@ -113,6 +121,7 @@ export function createTable(actions) {
   let debounce = 0;
   let sentKey = null;
   let frame = 0;
+  let revealedParts = null;
 
   function applyLayout(result) {
     if (result) {
@@ -191,6 +200,7 @@ export function createTable(actions) {
     }
     barKey = key;
     bar.dataset.phase = phase;
+    revealedParts = null;
     if (phase === 'voting') {
       replaceContent(bar, button('Reveal Cards', 'blue', () => actions.reveal(round), { className: 'nt-reveal' }));
     } else if (phase === 'revealed') {
@@ -202,13 +212,32 @@ export function createTable(actions) {
         : others
           ? [button('Next Round', 'purple', () => actions.nextActive(round))]
           : [button('End', 'default', () => actions.end(round)), button('Continue', 'purple', () => actions.continueRound(round))];
-      replaceContent(bar, winner, results.el, h('div', { class: 'nt-round-actions' }, replay, ...next));
+      revealedParts = { winner, roundActions: h('div', { class: 'nt-round-actions' }, replay, ...next) };
     } else if (phase === 'pending') {
       replaceContent(bar, h('p', { class: 'nt-note', text: 'Preview: this round has not been added yet.' }));
     } else if (phase === 'inactive') {
       replaceContent(bar, h('p', { class: 'nt-note', text: 'This round ended without a reveal.' }));
     } else {
       replaceContent(bar);
+    }
+  }
+
+  function placeResults() {
+    const open = revealedParts !== null && !overlay.minimized;
+    el.classList.toggle('is-results-open', open);
+    if (!revealedParts) {
+      overlay.hide();
+      overlay.showResults.remove();
+      dock.insertBefore(extra, handSlot);
+    } else if (open) {
+      overlay.showResults.remove();
+      overlay.show(revealedParts.winner, [results.el, revealedParts.roundActions, extra]);
+      replaceContent(bar);
+    } else {
+      overlay.hide();
+      revealedParts.roundActions.prepend(overlay.showResults);
+      replaceContent(bar, revealedParts.winner, results.el, revealedParts.roundActions);
+      dock.insertBefore(extra, handSlot);
     }
   }
 
@@ -272,17 +301,22 @@ export function createTable(actions) {
       round = roundById(state, id);
       phase = roundPhase(round);
       el.dataset.phase = phase;
+      const revealed = phase === 'revealed';
+      const live = revealed && previous !== null && roundPhase(previous) === 'voting';
+      overlay.round(state, id, { revealed, live });
       renderHeader();
       renderBar(state);
+      placeResults();
       renderFallback(meta);
-      const revealed = phase === 'revealed';
       extra.hidden = !revealed;
       if (revealed) {
         results.update(state, id);
       } else {
         results.clear();
       }
-      const live = revealed && previous !== null && roundPhase(previous) === 'voting';
+      if (live) {
+        overlay.claimFocus();
+      }
       applyLayout(seats.update(tableSeats(state, id), { revealed, animate: !switched, live }));
       if (switched) {
         scroller.scrollTop = 0;
