@@ -100,6 +100,45 @@ test('holding a card over the gap beside it in the raised fan for 2 s plays "bet
   expect(fake.received.filter(({ frame }) => frame.k === 'poker.vote.set')).toHaveLength(1);
 });
 
+test('the cards beside a dragged one move out, doubling the between zones, which stay clear of each other and the drop area', async ({ page, fake }) => {
+  setupPoker(fake);
+  await openTable(page);
+  const from = await cardCentre(page, 5);
+  const resting = { lower: (await centre(handCard(page, 3))).x, higher: (await centre(handCard(page, 8))).x };
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x, from.y - 20, { steps: 3 });
+  const left = page.locator('.nt-zone-left');
+  const right = page.locator('.nt-zone-right');
+  await expect(right).toBeVisible();
+
+  // The cards settle after a short slide; read everything once it stands still.
+  let read;
+  await expect.poll(async () => {
+    const before = JSON.stringify(read);
+    read = {
+      left: await left.boundingBox(),
+      right: await right.boundingBox(),
+      lower: (await centre(handCard(page, 3))).x,
+      higher: (await centre(handCard(page, 8))).x,
+      drop: await page.locator('.nt-drop').boundingBox(),
+    };
+    return JSON.stringify(read) === before;
+  }, { intervals: [150] }).toBe(true);
+
+  // UX1's zone was 70 % of the resting gap between card centres; UX2's is twice that.
+  expect(read.right.width).toBeGreaterThan(2 * 0.7 * (resting.higher - from.x) * 0.9);
+  expect(read.left.width).toBeGreaterThan(2 * 0.7 * (from.x - resting.lower) * 0.9);
+  expect(read.lower).toBeLessThan(resting.lower - 10);
+  expect(read.higher).toBeGreaterThan(resting.higher + 10);
+  expect(read.left.x + read.left.width).toBeLessThanOrEqual(read.right.x);
+  for (const zone of [read.left, read.right]) {
+    expect(zone.y).toBeGreaterThanOrEqual(read.drop.y + read.drop.height);
+  }
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+});
+
 test('leaving a gap before 2 s resets the hold', async ({ page, fake }) => {
   setupPoker(fake);
   await openTable(page);
