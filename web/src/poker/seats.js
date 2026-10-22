@@ -71,12 +71,13 @@ function createNode(seat) {
   avatar.el.removeAttribute('aria-label');
   const name = h('span', { class: 'nt-seat-name' });
   const vote = h('span', { class: 'nt-seat-vote', hidden: true });
+  const label = h('span', { class: 'nt-seat-label', 'aria-hidden': 'true' }, name, h('span', { class: 'nt-badge-guest', text: 'guest' }), vote);
   const node = h('li', { class: 'nt-seat' },
     h('span', { class: 'nt-seat-body', 'aria-hidden': 'true' },
       slot,
       h('span', { class: 'nt-seat-avatar' }, avatar.el, h('span', { class: 'nt-presence' }), value)),
-    h('span', { class: 'nt-seat-label', 'aria-hidden': 'true' }, name, h('span', { class: 'nt-badge-guest', text: 'guest' }), vote));
-  node.parts = { slot, value, avatar, name, vote };
+    label);
+  node.parts = { slot, value, avatar, name, vote, label };
   return node;
 }
 
@@ -191,6 +192,7 @@ export function createSeats() {
   function position(node, slot, size) {
     if (!slot) {
       node.placed = false;
+      node.labelAt = null;
       setStyle(node, { '--x': null, '--y': null, '--a': null, '--lx': null, '--ly': null, '--label-max': null });
       return;
     }
@@ -214,6 +216,7 @@ export function createSeats() {
       '--label-max': `${LABEL_MAX_PX}px`,
     });
     node.dataset.side = slot.side;
+    node.labelAt = slot.x + anchor;
     // A seat's first place is taken at once; only later moves glide.
     if (!node.placed) {
       node.placed = true;
@@ -292,6 +295,20 @@ export function createSeats() {
     layout(next) {
       stage = next;
       return place();
+    },
+    /** How far the ring's name labels reach in from either side edge, as drawn (a revealed vote widens them). */
+    labelReach() {
+      if (!stage || !el.classList.contains('is-ring')) {
+        return 0;
+      }
+      let reach = 0;
+      for (const node of el.querySelectorAll(':scope > .nt-seat:not([hidden])')) {
+        if (node.labelAt != null) {
+          const width = node.parts.label.offsetWidth;
+          reach = Math.max(reach, node.dataset.side === 'left' ? node.labelAt + width : stage.width - node.labelAt + width);
+        }
+      }
+      return reach;
     },
     get depth() {
       return plan && el.classList.contains('is-ring') ? plan.depth : 0;
