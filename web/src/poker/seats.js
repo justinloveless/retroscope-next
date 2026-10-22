@@ -11,7 +11,7 @@ import { h, replaceContent, setStyle } from '../core/h.js';
 import { reconcile } from '../core/list.js';
 import { createAvatar } from '../ui/avatar.js';
 import { createPopover } from '../ui/popover.js';
-import { STAGE_PAD_PX, extents, planSeats, printedArc } from './geometry.js';
+import { STAGE_PAD_PX, bettingArc, columnShift, extents, outlineReach, planSeats, shiftLayout } from './geometry.js';
 import { voteLabel } from './model.js';
 import { FLIP_DELAY_MS, cardEl, faceEl, reducedMotion } from './reveal.js';
 
@@ -24,10 +24,15 @@ const LABEL_MAX_PX = 128;
 const PRINT_PAD_PX = 4;
 const PRINT_PAD_SCALE = 3;
 // The betting line keeps this gap from the seats' outlines and ends this far past the outer seats.
-const ARC_GAP_PX = 14;
+export const ARC_GAP_PX = 28;
 const ARC_OVERHANG_PX = 22;
 // Room left between the betting line and the issue panel.
 const ARC_CLEAR_PX = 10;
+// Where the issue pane stops (neotro.css .nt-field --nt-pane-x): max(ring, 50% - 23rem) + 0.75rem.
+const PANE_HALF_PX = 368;
+const PANE_INSET_PX = 12;
+// The share of the stage's width the issue pane keeps however the seats are centred.
+export const ISSUE_KEEP = 0.5;
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 const STATUS_TEXT = { empty: 'waiting', selected: 'thinking', locked: 'locked in' };
@@ -106,27 +111,73 @@ export function printMetrics(size) {
   return { pad: PRINT_PAD_PX + PRINT_PAD_SCALE * size.card, stroke: 2 + 2.5 * scale };
 }
 
+// One side of a placed ring, measured in from its edge: the seats' outermost and innermost reach, the betting
+// line's path, and how far in the pane must start to keep clear of that line. Null when the side is empty.
+function sideOf(plan, side, width) {
+  const own = (plan.chip ? [...plan.seats, plan.chip] : plan.seats).filter((slot) => slot.side === side);
+  if (!own.length) {
+    return null;
+  }
+  const { width: w, height: h } = plan.size;
+  const { pad, stroke } = printMetrics(plan.size);
+  const box = { w: w + 2 * pad, h: h + 2 * pad, width };
+  const offset = outlineReach(own, plan.curve, box) + ARC_GAP_PX;
+  const arc = bettingArc(own, plan.curve, { offset, overhang: ARC_OVERHANG_PX + box.w / 4, width });
+  const local = (slot) => (side === 'left' ? slot.x : width - slot.x);
+  return {
+    d: arc.d,
+    outer: Math.min(...own.map((slot) => local(slot) - extents(w, h, slot.angle).ex)),
+    inner: Math.max(...own.map((slot) => local(slot) + extents(w, h, slot.angle).ex)),
+    reach: arc.reach + stroke / 2 + ARC_CLEAR_PX,
+  };
+}
+
 /**
  * The betting lines for a placed ring: {left, right, reach}: each side's path (null when that side is
  * empty) and how far the lines reach in from the side edges, so the issue can keep clear of them.
  */
 export function bettingLines(plan, width) {
-  const slots = plan.chip ? [...plan.seats, plan.chip] : plan.seats;
-  const { pad, stroke } = printMetrics(plan.size);
-  const w = plan.size.width + 2 * pad;
-  const h = plan.size.height + 2 * pad;
-  const lines = { left: null, right: null, reach: 0 };
-  for (const side of ['left', 'right']) {
-    const own = slots.filter((slot) => slot.side === side);
-    if (!own.length) {
-      continue;
-    }
-    const offset = Math.max(...own.map((slot) => extents(w, h, slot.angle).ex)) + ARC_GAP_PX;
-    lines[side] = printedArc(own, plan.curve, { offset, overhang: ARC_OVERHANG_PX + w / 4, width });
-    const inner = Math.max(...own.map((slot) => (side === 'left' ? slot.x : width - slot.x)));
-    lines.reach = Math.max(lines.reach, inner + offset + stroke / 2 + ARC_CLEAR_PX);
+  const left = sideOf(plan, 'left', width);
+  const right = sideOf(plan, 'right', width);
+  return { left: left?.d ?? null, right: right?.d ?? null, reach: Math.max(left?.reach ?? 0, right?.reach ?? 0) };
+}
+
+/**
+ * The placed ring moved in from the edges so each side's seats sit centred in the felt between the rail and
+ * the issue pane (docs/followups/UX4.md), with the betting line between them and the pane. Where the stage is
+ * too narrow for that, the seats move in only as far as keeps the issue pane ISSUE_KEEP of the stage's width.
+ */
+export function centreInColumns(plan, stage) {
+  if (!plan.seats.length) {
+    return plan;
   }
-  return lines;
+  const { width } = stage;
+  const wide = width / 2 - PANE_HALF_PX + PANE_INSET_PX;
+  const most = Math.max(wide, (width * (1 - ISSUE_KEEP)) / 2);
+  const measure = (layout, side) => {
+    const m = sideOf(layout, side, width);
+    return m && { ...m, reach: m.reach + PANE_INSET_PX };
+  };
+  // The pane's edge follows the side whose line reaches furthest in; that side is centred with the pane moving
+  // along with it, the other within the pane that leaves. Moving a seat also turns it a little further toward
+  // the centre, which widens it, so a few passes settle the result.
+  const shift = { left: 0, right: 0 };
+  let placed = plan;
+  for (let pass = 0; pass < 8; pass++) {
+    const sides = { left: measure(placed, 'left'), right: measure(placed, 'right') };
+    const [lead, other] = !sides.right || (sides.left && sides.left.reach >= sides.right.reach) ? ['left', 'right'] : ['right', 'left'];
+    const m = sides[lead];
+    const step = Math.min(most - m.reach, columnShift({ ...m, wide }));
+    shift[lead] = Math.max(0, shift[lead] + step);
+    const pane = Math.max(m.reach + step, wide);
+    if (sides[other]) {
+      const o = sides[other];
+      const centred = (STAGE_PAD_PX + pane - o.outer - o.inner) / 2;
+      shift[other] = Math.max(0, shift[other] + Math.min(centred, pane - o.reach));
+    }
+    placed = shiftLayout(plan, shift, stage);
+  }
+  return placed;
 }
 
 export function createSeats() {
@@ -281,6 +332,9 @@ export function createSeats() {
     }
     plan = planSeats(stage, seats.length);
     const ring = plan.seats.length > 0 && stage.width >= ROW_BELOW_PX;
+    if (ring) {
+      plan = centreInColumns(plan, stage);
+    }
     el.classList.toggle('is-row', !ring);
     el.classList.toggle('is-ring', ring);
     hidden = ring ? seats.slice(plan.seats.length) : [];
