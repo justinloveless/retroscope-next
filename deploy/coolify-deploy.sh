@@ -59,19 +59,28 @@ validate() {
 }
 
 # api METHOD PATH [JSON_BODY] -> response body on stdout. The token travels in a header file, never on a command line.
+# $WORK/body never outlives a call: curl leaves an existing -o file untouched when no response arrives, so a stale body
+# (for example the env listing, which can hold secret values) would otherwise be logged after a connection failure.
 api() {
   local method="$1" path="$2" body="${3:-}" code
+  rm -f "$WORK/body"
   local args=(--silent --show-error --fail-with-body --connect-timeout 10 --max-time 60
     -H @"$WORK/auth" -H 'Accept: application/json' -X "$method" -o "$WORK/body" -w '%{http_code}')
   # GETs are safe to retry, except /deploy, which queues a deployment.
   if [[ "$method" == GET && "$path" != /deploy* ]]; then args+=(--retry 3 --retry-delay 5 --retry-all-errors); fi
   if [[ -n "$body" ]]; then args+=(-H 'Content-Type: application/json' --data-binary "$body"); fi
   if ! code="$(curl "${args[@]}" "$COOLIFY_URL/api/v1$path")"; then
-    # Error bodies are messages and validation errors; cap them so nothing large reaches the log.
-    log "$method $path failed (HTTP ${code:-none}): $(head -c 500 "$WORK/body" 2>/dev/null || true)"
+    if [[ "$code" =~ ^[1-9][0-9]{2}$ && -f "$WORK/body" ]]; then
+      # An HTTP error body from this call is a message or validation errors; cap it so nothing large reaches the log.
+      log "$method $path failed (HTTP $code): $(head -c 500 "$WORK/body" || true)"
+    else
+      log "$method $path failed: no HTTP response"
+    fi
+    rm -f "$WORK/body"
     return 1
   fi
   cat "$WORK/body"
+  rm -f "$WORK/body"
 }
 
 ensure_branch() {
@@ -95,7 +104,7 @@ fetch_envs() { api GET "/applications/$COOLIFY_APP_UUID/envs" >"$WORK/envs"; }
 set_env() {
   local key="$1" value="$2" body method
   body="$(jq -nc --arg k "$key" --arg v "$value" '{key: $k, value: $v, is_preview: false, is_literal: true}')"
-  if jq -e --arg k "$key" 'any(.[]; .key == $k and (.is_preview | not))' "$WORK/envs" >/dev/null; then
+  if jq -e --arg k "$key" 'any(.[]; .key == $k and ((.is_preview == true or .is_preview == 1) | not))' "$WORK/envs" >/dev/null; then
     method=PATCH
   else
     method=POST
@@ -106,7 +115,7 @@ set_env() {
 
 verify_env() {
   local key="$1" want="$2" got
-  got="$(jq -r --arg k "$key" '[.[] | select(.key == $k and (.is_preview | not))][0] | if . == null then "<missing>" else (.value // "<hidden>") end' "$WORK/envs")"
+  got="$(jq -r --arg k "$key" '[.[] | select(.key == $k and ((.is_preview == true or .is_preview == 1) | not))][0] | if . == null then "<missing>" else (.value // "<hidden>") end' "$WORK/envs")"
   case "$got" in
     "$want") log "verified $key" ;;
     "<hidden>") log "warning: the token cannot read values, so $key is checked by its write response only" ;;
