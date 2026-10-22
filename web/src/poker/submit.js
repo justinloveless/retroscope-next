@@ -285,7 +285,12 @@ export function jiraFeature(ctx) {
     drawerLoad ??= import('./issue-drawer.js').then((module) => {
       if (!destroyed) {
         drawer = module.createIssueDrawer({ ...shared(), onClose: endPreview });
-        issuePanel = module.createIssuePanel({ ...shared(), scroller: slots.issueScroller, onLink: () => ctx.actions.editTicket() });
+        issuePanel = module.createIssuePanel({
+          ...shared(),
+          scroller: slots.issueScroller,
+          onLink: () => ctx.actions.editTicket(),
+          openLinked: (key) => drawer?.open(key),
+        });
         slots.issue.append(issuePanel.el);
         render();
       }

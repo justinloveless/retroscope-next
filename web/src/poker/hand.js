@@ -127,9 +127,11 @@ export function createHand({ onVote, onLock, onAbstain, drag }) {
         },
       },
     },
-    between ? betweenEl(item.points, item.high) : cardEl(item.points),
-    selected ? h('span', { class: 'nt-hand-pill', text: voteLabel(item.points, item.high) }) : null,
-    selected && view.locked ? h('span', { class: 'nt-hand-locked' }, icon('lock'), h('span', { text: 'Locked' })) : null);
+    // At rest the button is only the strip that peeks out; the face inside it shows the card's top.
+    h('span', { class: 'nt-hand-face' },
+      between ? betweenEl(item.points, item.high) : cardEl(item.points),
+      selected && view.locked ? h('span', { class: 'nt-hand-locked' }, icon('lock'), h('span', { text: 'Locked' })) : null),
+    selected ? h('span', { class: 'nt-hand-pill', text: voteLabel(item.points, item.high) }) : null);
     setStyle(button, { '--i': index });
     const text = describe(item, view.descriptions);
     if (text) {

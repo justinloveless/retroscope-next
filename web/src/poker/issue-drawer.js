@@ -531,7 +531,7 @@ function createIssueView(ctx, host) {
     for (const [label, items] of groups) {
       section.append(h('div', null, h('p', { style: MUTED, text: label }),
         h('ul', { style: { 'list-style': 'none', margin: '0', padding: '0', display: 'grid', gap: '0.25rem' } }, items.map((link) => h('li', { class: 'jira-link', dataset: { key: link.key }, style: ROW },
-          h('button', { type: 'button', class: 'btn btn-ghost btn-sm', style: { 'font-family': 'var(--font-mono)' }, text: link.key, on: { click: () => open(link.key) } }),
+          h('button', { type: 'button', class: 'btn btn-ghost btn-sm', style: { 'font-family': 'var(--font-mono)' }, text: link.key, on: { click: () => (ctx.openLinked ?? open)(link.key) } }),
           h('span', { style: { flex: '1', 'min-width': '0', 'font-size': '0.8125rem' }, text: link.summary ?? '' }),
           canEdit ? createButton({ label: `Remove link to ${link.key}`, icon: 'x', iconOnly: true, variant: 'ghost', size: 'icon', onClick: () => write(http.del(issuePath(`/links/${encodeURIComponent(link.id)}`)), `Removed the link to ${link.key}`) }).el : null)))));
     }
@@ -722,7 +722,8 @@ export function createIssueDrawer(ctx) {
 
 /**
  * The viewed round's issue at the centre of the stage. show(key) loads it, or shows "No issue linked" with
- * "Link a Jira issue" (ctx.onLink) for a round without a key. The stage scrolls it (`scroller`).
+ * "Link a Jira issue" (ctx.onLink) for a round without a key. The stage scrolls it (`scroller`). A linked
+ * issue opens elsewhere (ctx.openLinked), so the centre keeps the round's own issue.
  */
 export function createIssuePanel(ctx) {
   const title = h('h2', { class: 'jira-issue-title' });

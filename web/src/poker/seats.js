@@ -190,6 +190,7 @@ export function createSeats() {
 
   function position(node, slot, size) {
     if (!slot) {
+      node.placed = false;
       setStyle(node, { '--x': null, '--y': null, '--a': null, '--lx': null, '--ly': null, '--label-max': null });
       return;
     }
@@ -215,6 +216,12 @@ export function createSeats() {
     });
     node.dataset.side = slot.side;
     node.dataset.label = above ? 'above' : 'below';
+    // A seat's first place is taken at once; only later moves glide.
+    if (!node.placed) {
+      node.placed = true;
+      node.classList.add('is-placing');
+      requestAnimationFrame(() => requestAnimationFrame(() => node.classList.remove('is-placing')));
+    }
   }
 
   function place() {

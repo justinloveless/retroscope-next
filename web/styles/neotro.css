@@ -383,6 +383,11 @@
   animation: nt-fade-in 0.3s ease-out;
 }
 
+.nt-seats > .nt-seat.is-placing,
+.nt-seat.is-placing .nt-seat-body {
+  transition: none;
+}
+
 .nt-seat[data-absent],
 .nt-seat[data-observer] {
   opacity: 0.5;
@@ -959,26 +964,28 @@
   user-select: none;
 }
 
-/* The hand: about a third of each card peeks above the bar; hover, focus, a drag or a touch raises the fan. */
+/* The hand: about a third of each card peeks above the bar; hovering the dock, focus, a drag or a touch raises
+   the fan. */
 .nt-hand {
   --scale: 0.9;
   --card-h: calc(95px * var(--scale));
   --peek: calc(var(--card-h) * 0.35);
-  --lift: calc(var(--card-h) - var(--peek) + 12px);
+  --pick: 14px;
   display: flex;
   justify-content: center;
 }
 
 .nt-hand-tray {
-  height: var(--peek);
-  clip-path: inset(-100vh -100vw 0 -100vw);
+  display: flex;
+  align-items: flex-end;
+  height: calc(var(--peek) + var(--pick));
 }
 
 .nt-fan {
   --fan: 40deg;
   --step: calc(var(--fan) / max(1, var(--n, 7) - 1));
   display: flex;
-  align-items: flex-start;
+  align-items: flex-end;
   justify-content: center;
   margin: 0;
   padding: 0 0 0 calc(71px * var(--scale) / 3);
@@ -986,40 +993,55 @@
 }
 
 .nt-fan-slot {
+  display: flex;
+  align-items: flex-end;
   margin-left: calc(71px * var(--scale) / -3);
 }
 
+/* The button grows from the peeking strip to the whole card; its bottom edge stays put. */
 .nt-hand-card {
   position: relative;
   display: block;
+  height: var(--peek);
   padding: 0;
   border: 0;
   background: none;
   touch-action: none;
-  transform-origin: bottom center;
+  transform-origin: 50% 100%;
   rotate: calc(var(--i) * var(--step) - var(--fan) / 2);
   translate: 0 0;
-  transition: translate 0.25s ease-out, filter 0.3s ease-out, opacity 0.3s;
+  transition: height 0.25s ease-out, translate 0.25s ease-out, filter 0.3s ease-out, opacity 0.3s;
+}
+
+.nt-hand-face {
+  display: block;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 3px 3px 0 0;
 }
 
 .nt-hand-card.is-selected {
-  translate: 0 -14px;
+  height: calc(var(--peek) + var(--pick));
   filter: drop-shadow(0 0 10px var(--nt-glow));
   z-index: 1;
 }
 
-.nt-hand:is(:hover, :focus-within, .is-raised) .nt-hand-card,
+.nt-dock:hover .nt-hand-card,
+.nt-hand:is(:focus-within, .is-raised) .nt-hand-card,
 .nt-dragging .nt-hand-card {
-  translate: 0 calc(-1 * var(--lift));
+  height: var(--card-h);
+  translate: 0 -12px;
 }
 
-.nt-hand:is(:hover, :focus-within, .is-raised) .nt-hand-card:not([aria-disabled="true"]):is(:hover, :focus-visible) {
-  translate: 0 calc(-1 * var(--lift) - 8px);
+.nt-dock:hover .nt-hand-card:not([aria-disabled="true"]):hover,
+.nt-hand:is(:focus-within, .is-raised) .nt-hand-card:not([aria-disabled="true"]):is(:hover, :focus-visible) {
+  translate: 0 -20px;
 }
 
-.nt-hand:is(:hover, :focus-within, .is-raised) .nt-hand-card.is-selected,
+.nt-dock:hover .nt-hand-card.is-selected,
+.nt-hand:is(:focus-within, .is-raised) .nt-hand-card.is-selected,
 .nt-dragging .nt-hand-card.is-selected {
-  translate: 0 calc(-1 * var(--lift) - 18px);
+  translate: 0 -30px;
 }
 
 .nt-hand-card:focus-visible {
