@@ -141,7 +141,7 @@ export const kudos = {
       class: 'btn btn-ghost btn-sm retro-kudos-button',
       hidden: true,
       on: { click: () => open() },
-    }, icon('award'), h('span', { text: 'Kudos' }), left);
+    }, icon('award'), h('span', { text: 'Kudos' }), ' ', left, h('span', { class: 'sr-only', text: ' left' }));
     toolbar.append(button);
     const summary = h('p', { class: 'retro-kudos-summary', role: 'status' });
     const people = h('ul', { class: 'retro-cards retro-kudos-people' });
@@ -242,7 +242,6 @@ export const kudos = {
         button.hidden = offer === null || offer.types.length === 0;
         if (offer) {
           left.textContent = String(offer.left);
-          button.setAttribute('aria-label', `Kudos, ${offer.left} left`);
           if (dialog) {
             paintDrawer(offer);
           }

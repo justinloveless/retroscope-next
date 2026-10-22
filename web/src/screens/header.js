@@ -146,7 +146,12 @@ export function createHeader() {
     if (user) {
       const current = teamName(me);
       replaceContent(teamButton, icon('users'), h('span', { text: current ?? 'Teams' }), icon('chevron-down'));
-      teamButton.setAttribute('aria-label', current ? `Switch team (${current})` : 'Switch team');
+      // The name starts from the visible text (WCAG 2.5.3), so speech users can say what they see.
+      if (current) {
+        teamButton.setAttribute('aria-label', `Switch team: ${current}`);
+      } else {
+        teamButton.removeAttribute('aria-label');
+      }
       teamMenu.update({
         items: [
           ...(me.teams ?? []).map((t) => ({ action: t.id, label: t.name, icon: t.id === teamId ? 'check' : 'users' })),
