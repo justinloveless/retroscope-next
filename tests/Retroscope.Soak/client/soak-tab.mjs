@@ -14,14 +14,16 @@ const EPHEMERAL_TTL_MS = 10_000;
 
 export class SoakTab extends Tab {
   /**
-   * @param {object} options `kind` is 'poker' or 'board'; `onTx(tab, e, s, ev)` sees every tx this tab folds;
+   * @param {object} options `kind` is 'poker' or 'board'; `onTx(tab, e, s, ev)` sees every tx this tab folds and
+   *   `onSnap(tab, d)` every snapshot it takes;
    *   `onReconnect(tab, record)` and `onViolation(tab, violation)` report as they happen.
    */
-  constructor(user, room, { kind, label, onTx = () => {}, onReconnect = () => {}, onViolation = () => {} }) {
+  constructor(user, room, { kind, label, onTx = () => {}, onSnap = () => {}, onReconnect = () => {}, onViolation = () => {} }) {
     super(user, room);
     this.kind = kind;
     this.label = label;
     this.onTx = onTx;
+    this.onSnap = onSnap;
     this.onReconnect = onReconnect;
     this.onViolation = onViolation;
     this.state = null;
@@ -162,6 +164,7 @@ export class SoakTab extends Tab {
     }
     this.state = this.model.snapshot(f.d, f.o);
     this.settledAt = Date.now();
+    this.onSnap(this, f.d);
   }
 
   fold(e, s, ev) {

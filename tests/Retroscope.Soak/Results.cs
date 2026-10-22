@@ -27,7 +27,8 @@ internal sealed record RoomResult(
     IReadOnlyList<TimerResult> Timers);
 
 /// <param name="Expired">Distinct (epoch, seq) of the expiry frames for this <c>endsAt</c>.</param>
-internal sealed record TimerResult(long EndsAt, long? StartedAt, int Expired);
+/// <param name="EndedInSnap">Tabs whose snapshot, taken after <c>endsAt</c>, no longer showed this timer running.</param>
+internal sealed record TimerResult(long EndsAt, long? StartedAt, int Expired, int EndedInSnap);
 
 internal sealed record TabResult(string Room, string Label, Guid? Pid, bool Twin, IReadOnlyList<IntentResult> Intents);
 

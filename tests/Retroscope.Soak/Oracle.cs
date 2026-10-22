@@ -145,7 +145,7 @@ internal static class Oracle {
                 var endsAt = DateTimeOffset.FromUnixTimeMilliseconds(timer.EndsAt);
                 if (timer.Expired > 1) {
                     findings.Add(new("timer_expired_twice", $"{room.Key} timer ending {endsAt:O} expired in {timer.Expired} frames"));
-                } else if (timer.Expired == 0 && endsAt < runEnd - TimeSpan.FromSeconds(10) && !outages.Any(o => o.Covers(endsAt))) {
+                } else if (timer.Expired == 0 && timer.EndedInSnap == 0 && endsAt < runEnd - TimeSpan.FromSeconds(10) && !outages.Any(o => o.Covers(endsAt))) {
                     findings.Add(new("timer_missing", $"{room.Key} timer ending {endsAt:O} never expired on any tab"));
                 }
             }

@@ -73,7 +73,7 @@ function observeTx(room) {
       if (k === 'poker.round.revealed') {
         (room.reveals[d.roundId] ??= new Set()).add(key);
       } else if (k === 'retro.timer' && d.endsAt != null) {
-        const timer = (room.timers[d.endsAt] ??= { endsAt: d.endsAt, startedAt: null, expired: new Set() });
+        const timer = (room.timers[d.endsAt] ??= { endsAt: d.endsAt, startedAt: null, expired: new Set(), endedInSnap: new Set() });
         if (d.expired) {
           timer.expired.add(key);
         } else if (d.state === 'running') {
@@ -84,11 +84,30 @@ function observeTx(room) {
   };
 }
 
+// A tab that was away when a timer ran out (every tab is, in a partition longer than the presence grace) resumes with
+// a snapshot, not a replay, so it never sees the expiry frame; a snapshot taken after `endsAt` that no longer shows the
+// timer running proves the expiry instead. The soak only ever starts timers, so nothing else stops one.
+function observeSnap(room) {
+  return (tab, d) => {
+    if (room.kind !== 'board') {
+      return;
+    }
+    const now = Date.now();
+    const running = d.timer?.state === 'running' ? d.timer.endsAt : null;
+    for (const timer of Object.values(room.timers)) {
+      if (timer.expired.size === 0 && timer.endsAt <= now && timer.endsAt !== running) {
+        timer.endedInSnap.add(tab.label);
+      }
+    }
+  };
+}
+
 function addTab(room, principal, label, extra = {}) {
   const tab = Object.assign(new SoakTab(principal, room.key, {
     kind: room.kind,
     label,
     onTx: observeTx(room),
+    onSnap: observeSnap(room),
     onReconnect: (t, record) => {
       reconnects.push({ ...record, tab: t.label });
       emit({ ev: 'reconnect', tab: t.label, ...record });
@@ -377,7 +396,12 @@ function results() {
       id: room.id,
       initialRounds: room.initialRounds,
       reveals: Object.fromEntries(Object.entries(room.reveals).map(([id, seen]) => [id, seen.size])),
-      timers: Object.values(room.timers).map((t) => ({ endsAt: t.endsAt, startedAt: t.startedAt, expired: t.expired.size })),
+      timers: Object.values(room.timers).map((t) => ({
+        endsAt: t.endsAt,
+        startedAt: t.startedAt,
+        expired: t.expired.size,
+        endedInSnap: t.endedInSnap.size,
+      })),
     })),
     tabs: tabs.map((tab) => ({
       room: tab.room,
