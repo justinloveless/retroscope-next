@@ -1323,9 +1323,7 @@
   border: 0;
   background: none;
   touch-action: none;
-  /* A raised card lifts a little more the more it leans, so its lower corner clears the bar too. */
   --lean: calc(var(--i) * var(--step) - var(--fan) / 2);
-  --clear: calc(71px * var(--scale) / 2 * max(sin(var(--lean)), sin(-1 * var(--lean))));
   transform-origin: 50% 100%;
   rotate: var(--lean);
   transition: height 0.25s ease-out, filter 0.3s ease-out, opacity 0.3s;
@@ -1347,18 +1345,18 @@
 .nt-dock:hover .nt-hand-card,
 .nt-hand:is(:focus-within, .is-raised) .nt-hand-card,
 .nt-dragging .nt-hand-card {
-  height: calc(var(--card-h) + 12px + var(--tuck) + var(--clear));
+  height: calc(var(--card-h) + 12px + var(--tuck));
 }
 
 .nt-dock:hover .nt-hand-card:not([aria-disabled="true"]):hover,
 .nt-hand:is(:focus-within, .is-raised) .nt-hand-card:not([aria-disabled="true"]):is(:hover, :focus-visible) {
-  height: calc(var(--card-h) + 20px + var(--tuck) + var(--clear));
+  height: calc(var(--card-h) + 20px + var(--tuck));
 }
 
 .nt-dock:hover .nt-hand-card.is-selected,
 .nt-hand:is(:focus-within, .is-raised) .nt-hand-card.is-selected,
 .nt-dragging .nt-hand-card.is-selected {
-  height: calc(var(--card-h) + 30px + var(--tuck) + var(--clear));
+  height: calc(var(--card-h) + 30px + var(--tuck));
 }
 
 .nt-hand-card:focus-visible {
