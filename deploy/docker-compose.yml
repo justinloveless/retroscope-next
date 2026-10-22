@@ -96,6 +96,13 @@ services:
     volumes: ["pgbackups:/backups"]
     mem_limit: 48m
     cpus: 0.05
+    healthcheck:
+      # Healthy only while a non-empty dump from the last 26 hours exists, so a stalled backup shows in Coolify.
+      test: ["CMD-SHELL", "find /backups -name 'rs-*.dump' -size +0 -mmin -1560 | grep -q ."]
+      interval: 5m
+      timeout: 10s
+      retries: 1
+      start_period: 10m
     depends_on: { db: { condition: service_healthy } }
     restart: unless-stopped
     logging: *logging
