@@ -136,8 +136,9 @@ public sealed class RetroTranscriptTests {
 
     [Fact]
     public void Posts_in_the_same_millisecond() {
-        var driver = new RetroRoomDriver(new RetroFixture());
+        var driver = new RetroRoomDriver(new RetroFixture(team: true));
         var fx = driver.Fixture;
+        fx.State.Visibility = BoardVisibility.Link;
         var alice = driver.Watch(Alice);
         var higher = new CardId(Guid.Parse("ca000000-0000-4000-8000-0000000000f2"));
         var lower = new CardId(Guid.Parse("ca000000-0000-4000-8000-0000000000f1"));
@@ -151,6 +152,10 @@ public sealed class RetroTranscriptTests {
         driver.Accept(Alice, new RetroCommentAdd(new CommentId(Guid.Parse("c0000000-0000-4000-8000-0000000000f2")), lower, "First", false));
         fx.Now = Start.AddSeconds(1).AddTicks(7_000);
         driver.Accept(Bob, new RetroCommentAdd(new CommentId(Guid.Parse("c0000000-0000-4000-8000-0000000000f1")), lower, "Second", false));
+        fx.Now = Start.AddSeconds(2).AddTicks(2_000);
+        driver.Accept(Alice, new RetroEndorseGive(new EndorsementId(Guid.Parse("e0000000-0000-4000-8000-0000000000f2")), Bob.Id, Helper));
+        fx.Now = Start.AddSeconds(2).AddTicks(7_000);
+        driver.Accept(Bob, new RetroEndorseGive(new EndorsementId(Guid.Parse("e0000000-0000-4000-8000-0000000000f1")), Alice.Id, Helper));
 
         Emit("retro-same-millisecond-alice", driver, alice);
     }
