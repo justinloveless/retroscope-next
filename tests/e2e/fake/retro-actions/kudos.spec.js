@@ -36,7 +36,7 @@ test('giving and taking back kudos, within the per-board limit', async ({ page, 
   serveTeam(fake);
   serveKudos(fake, { max: 1 });
   await openBoard(page, fake, { snap: boardFor({ maxEndorsements: 1 }) });
-  await expect(kudosButton(page)).toHaveAttribute('aria-label', 'Kudos, 1 left');
+  await expect(kudosButton(page)).toHaveAccessibleName('Kudos 1 left');
 
   await kudosButton(page).click();
   await expect(drawer(page).getByRole('status')).toHaveText('You have 1 of 1 kudos left on this board.');
@@ -47,7 +47,7 @@ test('giving and taking back kudos, within the per-board limit', async ({ page, 
   await expect(kudosFor(page, 'Bob').getByRole('button', { name: 'Team Player' })).toHaveAttribute('aria-pressed', 'true');
   await expect(drawer(page).getByRole('status')).toHaveText('You have 0 of 1 kudos left on this board.');
   await expect(kudosFor(page, 'Carol Danvers').getByRole('button', { name: 'Innovator' })).toBeDisabled();
-  await expect(kudosButton(page)).toHaveAttribute('aria-label', 'Kudos, 0 left');
+  await expect(kudosButton(page)).toHaveAccessibleName('Kudos 0 left');
 
   await kudosFor(page, 'Bob').getByRole('button', { name: 'Team Player' }).click();
   await expect(kudosFor(page, 'Bob').getByRole('button', { name: 'Team Player' })).toHaveAttribute('aria-pressed', 'false');

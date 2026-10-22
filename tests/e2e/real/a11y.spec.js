@@ -1,34 +1,29 @@
 // An axe scan of the core screens against the real stack (§j), in light and dark. axe-core is evaluated through the
 // automation protocol, which the page's CSP does not govern, so the scan adds no script the app would refuse.
-// The first scan found the findings in KNOWN, all in code other units own; they are follow-ups in
-// docs/decisions/U45.md. Anything else fails, and so does a known finding on a selector it has not been seen on.
+// Every violation fails the test; the findings of the first scan were fixed by UF16 (docs/decisions/UF16.md).
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { createBoard, createPoker, createTeam, expect, json, seedUsers, test } from './_real.js';
 
 const AXE = readFileSync(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8');
 
-const KNOWN = [
-  ['color-contrast', /^\.btn-green$/],
-  ['color-contrast', /^\.btn-emerald > \.btn-label$/],
-  ['color-contrast', /^(div:nth-child\(\d\) > )?\.btn-primary(\[type="submit"\]|\.btn-sm > \.btn-label)$/],
-  ['color-contrast', /^#tabs-\*-tab-(signin|signup|poker|members|actions|kudos)$/],
-  ['color-contrast', /^\.nt-chip-key$/],
-  ['label-content-name-mismatch', /^\.app-team-switch$/],
-  ['label-content-name-mismatch', /^\.retro-kudos-button$/],
-  ['aria-prohibited-attr', /^\.retro-presence$/],
-];
-
-/** Violations not in KNOWN, as `rule selector` strings; generated tab ids are normalised to `#tabs-*-tab-…`. */
+/**
+ * Violations as `rule selector` strings; generated tab ids are normalised to `#tabs-*-tab-…`. A colour caught halfway
+ * through a CSS transition (a theme switch, a button that just became the selected one) is not what anyone reads, so
+ * the scan waits for running transitions first.
+ */
 async function scan(page) {
+  await page.evaluate(async () => {
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const transitions = document.getAnimations().filter((a) => a instanceof CSSTransition);
+    await Promise.all(transitions.map((a) => a.finished.catch(() => {})));
+  });
   await page.evaluate(AXE);
   const result = await page.evaluate(() => window.axe.run(document, {
     runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] },
     resultTypes: ['violations'],
   }));
-  return result.violations.flatMap((v) => v.nodes.map((n) => [v.id, n.target.join(' ').replace(/^#tabs-[a-z0-9]+-tab-/, '#tabs-*-tab-')]))
-    .filter(([id, target]) => !KNOWN.some(([known, pattern]) => known === id && pattern.test(target)))
-    .map(([id, target]) => `${id} ${target}`);
+  return result.violations.flatMap((v) => v.nodes.map((n) => `${v.id} ${n.target.join(' ').replace(/^#tabs-[a-z0-9]+-tab-/, '#tabs-*-tab-')}`));
 }
 
 for (const theme of ['light', 'dark']) {
