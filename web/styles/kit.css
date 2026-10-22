@@ -54,7 +54,7 @@
 .btn-primary { --fill: hsl(var(--primary)); --ink: hsl(var(--primary-foreground)); }
 .btn-secondary { --fill: hsl(var(--secondary)); --ink: hsl(var(--secondary-foreground)); }
 .btn-destructive { --fill: var(--red); --ink: #fff; --shade: var(--red-shade); }
-.btn-emerald { --fill: var(--emerald); --ink: #fff; --shade: var(--emerald-shade); }
+.btn-emerald { --fill: var(--emerald-strong); --ink: #fff; --shade: var(--emerald-shade); }
 .btn-gold { --fill: var(--amber); --ink: #1c1917; --shade: var(--amber-shade); }
 .btn-blue { --fill: var(--blue); --ink: #fff; --shade: var(--blue-shade); }
 .btn-purple { --fill: var(--purple); --ink: #fff; --shade: var(--purple-shade); }
@@ -229,7 +229,8 @@
   padding: 0.25rem;
   border-radius: var(--radius);
   background: hsl(var(--muted));
-  color: hsl(var(--muted-foreground));
+  /* --muted-foreground on --muted is 4.3:1 in the light theme, short of AA for the inactive tabs' text. */
+  color: hsl(var(--foreground) / 0.7);
 }
 
 .tabs-tab {
