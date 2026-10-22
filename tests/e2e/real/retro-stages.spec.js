@@ -33,8 +33,9 @@ test('two facilitators: readiness gates the stage, and the slower of two moves i
   await expect(pill(ann.page, 'Voting')).toHaveAttribute('aria-current', 'step');
   await network.online();
 
+  // Bob's socket comes back on the client's reconnect backoff, which grows while offline.
   for (const { page } of players) {
-    await expect(pill(page, 'Voting')).toHaveAttribute('aria-current', 'step');
+    await expect(pill(page, 'Voting')).toHaveAttribute('aria-current', 'step', { timeout: 20_000 });
     await expect(readyCount(page)).toHaveText('0/2 ready');
   }
   await expect(bob.page.getByRole('status').filter({ hasText: 'Someone else changed the stage first' })).toBeVisible();
