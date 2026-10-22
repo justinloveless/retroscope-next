@@ -1,6 +1,6 @@
 // The demo's seed content: two teams, retro boards in every stage, team and quick poker sessions, action
 // items, templates, invites and kudos. Times are relative to `now`, so the demo always looks recent.
-import { AISHA, DEMO, GUESTS, JONAS, LENA, MARCUS, PRIYA, SOFIA, TOM } from './people.js';
+import { AISHA, CROWD, DEMO, GUESTS, JONAS, LENA, MARCUS, PRIYA, SOFIA, TOM } from './people.js';
 import { DAY, HOUR, MINUTE, demoId } from './util.js';
 
 export const DEMO_TEAM = demoId('0001', 1);
@@ -18,6 +18,7 @@ export const CODES = {
   oldPoker: 'PKR40SRCH1',
   guildPoker: 'GLDPKR0001',
   quickPoker: 'QCKPKR2026',
+  crowdPoker: 'CRWDPKR012',
 };
 
 const TYPES = {
@@ -500,6 +501,25 @@ export function pokerSessions(now) {
         revealedAt: now - 8 * MINUTE, votes: revealedVotes([[DEMO, 2], [GUESTS[0], 2], [GUESTS[1], 3]]),
       },
       { id: round(32), number: 2, version: 1, state: 'voting', active: true, pending: false, autoReveal: true, votes: {} },
+    ],
+  }, {
+    id: demoId('0004', 5),
+    code: CODES.crowdPoker,
+    team: null,
+    createdBy: DEMO.pid,
+    createdAt: now - 20 * MINUTE,
+    peers: CROWD,
+    roster: [...CROWD],
+    currentRoundId: round(42),
+    rounds: [
+      {
+        id: round(41), number: 1, version: 1, state: 'revealed', active: false, pending: false, autoReveal: true, ticketKey: 'Onboarding checklist', winner: 5,
+        revealedAt: now - 9 * MINUTE, votes: revealedVotes([[DEMO, 5], ...CROWD.map((who, i) => [who, [3, 5, 5, 8, 5, null, 5, 3, 5, 8, 5][i]])]),
+      },
+      {
+        id: round(42), number: 2, version: 1, state: 'voting', active: true, pending: false, autoReveal: false, ticketKey: 'Export to CSV',
+        votes: Object.fromEntries(CROWD.slice(0, 5).map((who, i) => [who.pid, { points: [3, 5, 8, 5, 2][i], locked: i % 2 === 0, abstained: false }])),
+      },
     ],
   }];
 }
