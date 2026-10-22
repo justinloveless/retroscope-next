@@ -181,7 +181,10 @@ export class SoakTab extends Tab {
     }
     this.state = ev.reduce(this.model.apply, this.state);
     this.s = s;
-    this.settledAt = Date.now();
+    // A timer running out is due by the clock, not caused by the heal, so it does not count towards convergedMs.
+    if (!ev.every(({ k, d }) => k === 'retro.timer' && d.expired)) {
+      this.settledAt = Date.now();
+    }
     this.onTx(this, e, s, ev);
   }
 
