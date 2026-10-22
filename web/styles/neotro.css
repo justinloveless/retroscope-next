@@ -512,13 +512,18 @@
   margin-top: -4px;
 }
 
-/* On the ring the avatar sits on the card's outer end, so it adds nothing to how far a seat reaches in. */
+/* On the ring the avatar is centred on one of the card's outer corners (seats.js avatarCorner), so at most a
+   quarter of it lies over the card, and it adds nothing to how far a seat reaches in. */
 .nt-seats.is-ring:not([data-size="avatar"]) .nt-seat-avatar {
   position: absolute;
-  bottom: var(--seat-inset, 4px);
-  left: 50%;
+  top: 100%;
+  left: 0;
   margin: 0;
-  translate: -50% 0;
+  translate: -50% -50%;
+}
+
+.nt-seats.is-ring:not([data-size="avatar"]) .nt-seat[data-corner="end"] .nt-seat-avatar {
+  left: 100%;
 }
 
 .nt-seat-avatar .avatar {
@@ -603,7 +608,9 @@
   white-space: nowrap;
 }
 
-.nt-seats.is-ring .nt-seat[data-side="right"] .nt-seat-label { translate: -100% 0; }
+.nt-seats.is-ring .nt-seat[data-label-edge="above"] .nt-seat-label { translate: 0 -100%; }
+.nt-seats.is-ring .nt-seat[data-side="right"][data-label-edge="below"] .nt-seat-label { translate: -100% 0; }
+.nt-seats.is-ring .nt-seat[data-side="right"][data-label-edge="above"] .nt-seat-label { translate: -100% -100%; }
 
 .nt-seats[data-size="avatar"] .nt-seat-label {
   display: none;

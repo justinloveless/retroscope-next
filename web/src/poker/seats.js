@@ -1,6 +1,6 @@
 // The players around the issue (docs/followups/UX1.md, UX2.md): each seat sits on the left or right arc of
-// the stage (geometry.js), turned so its card faces the centre, with the avatar on the card's outer end and an
-// upright name label. A locked vote slides in face down along the seat's axis; a reveal flips every seated
+// the stage (geometry.js), turned so its card faces the centre, with the avatar on one of the card's outer corners
+// and an upright name label beside it (UX6.md). A locked vote slides in face down along the seat's axis; a reveal flips every seated
 // card in place. Votes stay secret until the reveal: before it a seat only knows "waiting", "thinking" or
 // "locked in". Narrow stages get one scrolling avatar row instead of the ring. The felt under them carries a
 // printed outline per seat (drawn by the stylesheet around the card slot) and one printed betting line per
@@ -18,6 +18,8 @@ import { FLIP_DELAY_MS, cardEl, faceEl, reducedMotion } from './reveal.js';
 export const ROW_BELOW_PX = 560;
 export const ANNOUNCE_EVERY_MS = 1000;
 const LABEL_GAP_PX = 3;
+// How far a ring seat's label overlaps the rim of its avatar.
+const LABEL_TUCK_PX = 4;
 const LABEL_MAX_PX = 128;
 // The printed outline stands this far out from the card (px at card scale 1, plus a fixed part); the
 // stylesheet draws it with the same numbers (.nt-seat-slot::before).
@@ -124,6 +126,74 @@ function sideOf(plan, side, width) {
     outer: Math.min(...own.map((slot) => local(slot) - extents(w, h, slot.angle).ex)),
     inner: Math.max(...own.map((slot) => local(slot) + extents(w, h, slot.angle).ex)),
   };
+}
+
+/**
+ * Where a ring seat's avatar sits (docs/followups/UX6.md): centred on one bottom corner of its card, the one
+ * nearer the stage's top edge for a seat above the seats' vertical `middle`, else the one nearer the bottom.
+ * Returns {corner: 'upper' | 'lower', sx, dx, dy}: `sx` is the corner's side across the card (-1 its left, +1
+ * its right, before the seat turns) and (dx, dy) the corner's offset from the seat centre on screen.
+ */
+export function avatarCorner(slot, size, middle) {
+  const rad = (slot.angle * Math.PI) / 180;
+  const sin = Math.sin(rad);
+  const cos = Math.cos(rad);
+  const upper = slot.y < middle - 0.5;
+  // A bottom corner (sx·w/2, h/2) lands sx·w/2·sin + h/2·cos below the centre; pick the higher or the lower one.
+  const sx = (sin >= 0) === upper ? -1 : 1;
+  const lx = (sx * size.width) / 2;
+  const ly = size.height / 2;
+  return { corner: upper ? 'upper' : 'lower', sx, dx: lx * cos - ly * sin, dy: lx * sin + ly * cos };
+}
+
+/**
+ * A ring seat's avatar and name label, relative to the seat centre on screen: {sx, avatar: {x, y}, label: {x, y,
+ * above}}. The avatar is centred on avatarCorner's corner. The upright label hangs just past the avatar on the
+ * same side (above it for an upper corner), off the card and overlapping only the avatar's rim, lined up with
+ * the avatar's outer edge and running in from there, where the gap to the neighbouring seat is widest. (x, y) is
+ * where the label is pinned: its outer end, and its bottom edge when `above`, else its top edge.
+ */
+export function seatMarks(slot, size, middle) {
+  const { corner, sx, dx, dy } = avatarCorner(slot, size, middle);
+  const rad = (slot.angle * Math.PI) / 180;
+  const ys = [-1, 1].flatMap((px) => [-1, 1].map((py) => (px * size.width * Math.sin(rad) + py * size.height * Math.cos(rad)) / 2));
+  const above = corner === 'upper';
+  const y = above
+    ? Math.min(Math.min(...ys) - LABEL_GAP_PX, dy - size.avatar / 2 + LABEL_TUCK_PX)
+    : Math.max(Math.max(...ys) + LABEL_GAP_PX, dy + size.avatar / 2 - LABEL_TUCK_PX);
+  const x = slot.side === 'left' ? dx - size.avatar / 2 : dx + size.avatar / 2;
+  return { sx, avatar: { x: dx, y: dy }, label: { x, y, above } };
+}
+
+// How far in from its side edge the seat's avatar starts (Infinity on the avatar-only size, where it sits inside
+// the seat's box).
+function avatarOuter(plan, slot, width) {
+  if (!plan.size.card) {
+    return Infinity;
+  }
+  const { dx } = avatarCorner(slot, plan.size, plan.curve?.middle ?? 0);
+  const x = slot.x + dx;
+  return (slot.side === 'left' ? x : width - x) - plan.size.avatar / 2;
+}
+
+/** The layout moved in where an avatar would otherwise come closer than STAGE_PAD_PX to the rail. */
+export function clearAvatars(plan, stage) {
+  if (!plan.seats.length || !plan.size.card) {
+    return plan;
+  }
+  let placed = plan;
+  for (let pass = 0; pass < 3; pass++) {
+    const need = (side) => {
+      const own = slotsOf(placed).filter((slot) => slot.side === side);
+      return own.length ? Math.max(0, STAGE_PAD_PX - Math.min(...own.map((slot) => avatarOuter(placed, slot, stage.width)))) : 0;
+    };
+    const shift = { left: need('left'), right: need('right') };
+    if (shift.left < 0.25 && shift.right < 0.25) {
+      break;
+    }
+    placed = shiftLayout(placed, shift, stage);
+  }
+  return placed;
 }
 
 function slotsOf(plan) {
@@ -303,29 +373,23 @@ export function createSeats() {
       node.placed = false;
       node.labelAt = null;
       setStyle(node, { '--x': null, '--y': null, '--a': null, '--lx': null, '--ly': null, '--label-max': null });
+      delete node.dataset.corner;
+      delete node.dataset.labelEdge;
       return;
     }
-    const rad = (slot.angle * Math.PI) / 180;
-    // The avatar sits on the card's outer end and the label hangs just below it, over the seat's own card, so
-    // a label never lands on a neighbouring seat.
-    const reach = size.height / 2 - size.avatar / 2 - size.inset;
-    const ax = -reach * Math.sin(rad);
-    const ay = reach * Math.cos(rad);
-    const offset = size.avatar / 2 + LABEL_GAP_PX;
-    const left = slot.side === 'left';
-    const anchor = left
-      ? Math.max(STAGE_PAD_PX / 2 - slot.x, ax - size.avatar / 2)
-      : Math.min(stage.width - STAGE_PAD_PX / 2 - slot.x, ax + size.avatar / 2);
+    const { sx, label } = seatMarks(slot, size, plan.curve?.middle ?? 0);
     setStyle(node, {
       '--x': `${slot.x}px`,
       '--y': `${slot.y}px`,
       '--a': `${slot.angle}deg`,
-      '--lx': `${anchor + size.width / 2}px`,
-      '--ly': `${ay + offset + size.height / 2}px`,
+      '--lx': `${label.x + size.width / 2}px`,
+      '--ly': `${label.y + size.height / 2}px`,
       '--label-max': `${LABEL_MAX_PX}px`,
     });
+    node.dataset.corner = sx < 0 ? 'start' : 'end';
+    node.dataset.labelEdge = label.above ? 'above' : 'below';
     node.dataset.side = slot.side;
-    node.labelAt = slot.x + anchor;
+    node.labelAt = slot.x + label.x;
     // A seat's first place is taken at once; only later moves glide.
     if (!node.placed) {
       node.placed = true;
@@ -341,7 +405,7 @@ export function createSeats() {
     plan = planSeats(stage, seats.length);
     const ring = plan.seats.length > 0 && stage.width >= ROW_BELOW_PX;
     if (ring) {
-      plan = centreInColumns(plan, stage);
+      plan = clearAvatars(centreInColumns(plan, stage), stage);
     }
     el.classList.toggle('is-row', !ring);
     el.classList.toggle('is-ring', ring);
@@ -353,12 +417,11 @@ export function createSeats() {
         '--seat-w': `${size.width}px`,
         '--seat-h': `${size.height}px`,
         '--seat-avatar': `${size.avatar}px`,
-        '--seat-inset': `${size.inset}px`,
         '--seat-scale': size.card,
       });
     } else {
       delete el.dataset.size;
-      setStyle(el, { '--seat-w': null, '--seat-h': null, '--seat-avatar': null, '--seat-inset': null, '--seat-scale': null });
+      setStyle(el, { '--seat-w': null, '--seat-h': null, '--seat-avatar': null, '--seat-scale': null });
     }
     const nodes = [...el.querySelectorAll(':scope > .nt-seat')];
     nodes.forEach((node, i) => {
