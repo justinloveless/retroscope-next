@@ -15,8 +15,11 @@ import { createResultsOverlay } from './results.js';
 import { createSeats } from './seats.js';
 
 export const TICKET_DEBOUNCE_MS = 500;
-// A seat's name label hangs below its avatar, so the lowest seats stay this far above the dock.
-const LABEL_ROOM_PX = 64;
+// A seat's avatar and name label stand out past its card's top or bottom edge (seats.js, UX6.md), so the seats
+// keep this much more room from the round header (whose band is short, so the top seats' labels also need the
+// room the band leaves) and from the dock.
+const LABEL_ROOM_TOP_PX = 52;
+const LABEL_ROOM_BOTTOM_PX = 28;
 // Below this much room between the ring's labels, the results overlay deals smaller piles.
 const RESULTS_NARROW_PX = 480;
 
@@ -147,8 +150,8 @@ export function createTable(actions) {
     applyLayout(seats.layout({
       width: el.clientWidth,
       height: el.clientHeight,
-      top: header.offsetTop + header.offsetHeight,
-      bottom: Math.max(dock.offsetHeight, restingDock) + LABEL_ROOM_PX,
+      top: header.offsetTop + header.offsetHeight + LABEL_ROOM_TOP_PX,
+      bottom: Math.max(dock.offsetHeight, restingDock) + LABEL_ROOM_BOTTOM_PX,
     }));
     const labels = Math.ceil(seats.labelReach());
     setStyle(el, { '--nt-labels': `${labels}px` });
