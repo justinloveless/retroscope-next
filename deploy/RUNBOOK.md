@@ -65,10 +65,16 @@ First deploy:
 4. Deploy. The app takes the leader lease, runs migrations and creates the `retroscope_app` role and grants as
    `retroscope_owner`, then answers `/healthz`.
 
-Each release:
-
-1. Take the `app` (and `importer`) digest from the images run summary: the hex after `sha256:`.
-2. Set `APP_DIGEST` (and `IMPORTER_DIGEST`) in the resource's environment and redeploy.
+Each release is automatic. When `ci` passes on a push to `main`, `.github/workflows/deploy.yml` waits for that push's
+images run, takes the digests from its `image-digests` artifact (never from a tag), pins the resource to that commit,
+sets `APP_DIGEST` and `IMPORTER_DIGEST` through the Coolify API, redeploys, and checks `/healthz` and the resource
+status (`deploy/COOLIFY_SETUP.md` section 11). The production token is in the `production` GitHub environment, which
+only `main` can use. To redeploy or roll back, run that workflow by hand from `main` with a commit SHA whose `ci` run
+passed; the commit's compose file comes with it, and its artifact must still exist (90 days). Unverified branches go to
+the separate preview resource through `.github/workflows/preview.yml` (the `preview` label on a PR, or a manual run); it
+runs on its own server and Coolify team, with its own token, database and secrets, and holds one branch at a time. If
+Actions or the API is down, set the resource's git commit and the two digests (the hex after `sha256:` from the images
+run summary of the push to `main`) in Coolify and redeploy by hand.
 
 Coolify redeploys compose apps by **stop and recreate**; there are no rolling updates. On stop, the app sends every
 socket `bye` with a spread `retryMs` and closes it with 1012; clients reconnect and resend unacknowledged commands. With

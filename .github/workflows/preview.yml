@@ -1,0 +1,180 @@
+name: preview
+
+# The single preview slot (deploy/COOLIFY_SETUP.md §11). A same-repository pull request labelled 'preview' is built
+# and deployed to the preview Coolify resource on every push; a manual run deploys any branch. The slot holds one
+# branch at a time and the last deploy wins. Previews are for unverified work, so this does not wait for ci.
+on:
+  pull_request:
+    types: [labeled, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch to deploy to the preview slot
+        type: string
+        required: true
+
+permissions: {}
+
+# Eligible runs share one group, so a newer preview cancels an older run as a whole and the last one wins. The group is
+# per workflow, not per job: with job-level groups an older run's deploy job could cancel a newer run's images job.
+# Runs that will not deploy (an unlabelled PR, another label added, a fork) get a group of their own and so never
+# cancel a live preview. Keep the condition in step with the target job's if.
+concurrency:
+  group: >-
+    ${{ (github.event_name == 'workflow_dispatch' ||
+         (github.event.pull_request.head.repo.full_name == github.repository &&
+          contains(github.event.pull_request.labels.*.name, 'preview') &&
+          (github.event.action != 'labeled' || github.event.label.name == 'preview')))
+        && 'preview' || format('preview-noop-{0}', github.run_id) }}
+  cancel-in-progress: true
+
+jobs:
+  target:
+    # Fork pull requests get no secrets, so they are skipped. Adding another label to a preview PR does not redeploy.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(github.event.pull_request.labels.*.name, 'preview') &&
+       (github.event.action != 'labeled' || github.event.label.name == 'preview'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read # resolve the branch head
+      pull-requests: read # find the open PR for a manual run
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      branch: ${{ steps.resolve.outputs.branch }}
+      pr: ${{ steps.resolve.outputs.pr }}
+    steps:
+      - name: Resolve branch and commit
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          INPUT_REF: ${{ inputs.ref }}
+        run: |
+          if [[ "$EVENT" == pull_request ]]; then
+            branch="$PR_BRANCH" sha="$PR_SHA" pr="$PR_NUMBER"
+          else
+            branch="${INPUT_REF#refs/heads/}"
+          fi
+          # Coolify needs a branch name; this is the same rule deploy/coolify-deploy.sh enforces.
+          if [[ ! "$branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$ || "$branch" == *..* || "$branch" == *.lock || "$branch" == */ ]]; then
+            echo "::error::the branch name is not one the preview deploy accepts"
+            exit 1
+          fi
+          if [[ "$EVENT" != pull_request ]]; then
+            sha="$(gh api "repos/$REPO/git/ref/heads/$branch" --jq '.object.sha')"
+            pr="$(gh pr list --repo "$REPO" --head "$branch" --state open --json number --jq '.[0].number // empty')"
+          fi
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not resolve the branch to a commit"; exit 1; }
+          [[ -z "$pr" || "$pr" =~ ^[0-9]+$ ]] || { echo "::error::unexpected pull request number"; exit 1; }
+          {
+            echo "branch=$branch"
+            echo "sha=$sha"
+            echo "pr=$pr"
+          } >> "$GITHUB_OUTPUT"
+          echo "Preview of $branch at $sha${pr:+ (PR #$pr)}"
+
+  images:
+    needs: target
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/images.yml
+    with:
+      ref: ${{ needs.target.outputs.sha }}
+
+  deploy:
+    needs: [target, images]
+    # The preview token lives in the 'preview' environment and reaches only the preview resource (COOLIFY_SETUP §11.4).
+    environment:
+      name: preview
+      url: ${{ vars.PREVIEW_URL }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read # checkout for the deploy script
+      pull-requests: write # the sticky preview comment
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Built the requested commit
+        env:
+          WANT: ${{ needs.target.outputs.sha }}
+          GOT: ${{ needs.images.outputs.sha }}
+        run: |
+          [[ "$WANT" == "$GOT" ]] || { echo "::error::images were built from $GOT, not $WANT"; exit 1; }
+
+      - name: Deploy to the preview slot
+        id: deploy
+        env:
+          COOLIFY_URL: ${{ vars.COOLIFY_URL }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          COOLIFY_APP_UUID: ${{ vars.PREVIEW_APP_UUID }}
+          PREVIEW_URL: ${{ vars.PREVIEW_URL }}
+          GIT_BRANCH: ${{ needs.target.outputs.branch }}
+          GIT_COMMIT: ${{ needs.target.outputs.sha }}
+          APP_DIGEST: ${{ needs.images.outputs.app_digest }}
+          IMPORTER_DIGEST: ${{ needs.images.outputs.importer_digest }}
+        run: HEALTH_URL="${PREVIEW_URL%/}/healthz" deploy/coolify-deploy.sh deploy
+
+      - name: Summary
+        if: always()
+        env:
+          SHA: ${{ needs.target.outputs.sha }}
+          BRANCH: ${{ needs.target.outputs.branch }}
+          APP_DIGEST: ${{ needs.images.outputs.app_digest }}
+          IMPORTER_DIGEST: ${{ needs.images.outputs.importer_digest }}
+          DEPLOYMENT: ${{ steps.deploy.outputs.deployment_uuid }}
+          STATUS: ${{ job.status }}
+          PREVIEW_URL: ${{ vars.PREVIEW_URL }}
+        run: |
+          {
+            echo "## Preview deploy: $STATUS"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| URL | $PREVIEW_URL |"
+            echo "| Branch | \`$BRANCH\` |"
+            echo "| Commit | \`$SHA\` |"
+            echo "| App digest | \`$APP_DIGEST\` |"
+            echo "| Importer digest | \`$IMPORTER_DIGEST\` |"
+            echo "| Coolify deployment | \`${DEPLOYMENT:-none}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment on the pull request
+        if: needs.target.outputs.pr != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ needs.target.outputs.pr }}
+          SHA: ${{ needs.target.outputs.sha }}
+          BRANCH: ${{ needs.target.outputs.branch }}
+          PREVIEW_URL: ${{ vars.PREVIEW_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          marker='<!-- retroscope-preview -->'
+          body="$marker
+          **Preview deployed:** $PREVIEW_URL
+
+          - Branch: \`$BRANCH\`
+          - Commit: \`$SHA\`
+          - Deployed: $(date -u '+%Y-%m-%d %H:%M UTC')
+          - Run: $RUN_URL
+
+          There is one preview slot. The next preview of any branch replaces this one, so check the commit above."
+          id="$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- retroscope-preview -->"))) | .id' \
+            | sed -n 1p)"
+          if [[ -n "$id" ]]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$id" -f body="$body" >/dev/null
+          else
+            gh api -X POST "repos/$REPO/issues/$PR/comments" -f body="$body" >/dev/null
+          fi
