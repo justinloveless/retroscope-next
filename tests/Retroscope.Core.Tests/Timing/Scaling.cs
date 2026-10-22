@@ -21,6 +21,9 @@ internal static class Scaling {
     private const int Runs = 9;
     private static readonly TimeSpan MinSample = TimeSpan.FromMilliseconds(10);
 
+    // Chosen once, so a run never compares samples of one clock with samples of the other.
+    private static readonly Func<TimeSpan> ThreadCpuTime = CpuClock() ?? (() => Stopwatch.GetElapsedTime(0));
+
     /// <summary>
     /// The work <paramref name="large"/> does divided by the work <paramref name="small"/> does, where large has four times
     /// the input. Work is this thread's CPU time, not elapsed time: a loaded machine preempts a long sample more often than a
@@ -50,13 +53,20 @@ internal static class Scaling {
         return ThreadCpuTime() - before;
     }
 
-    // CLOCK_THREAD_CPUTIME_ID is 16 on macOS and 3 on Linux; elsewhere elapsed time is the best there is.
-    private static TimeSpan ThreadCpuTime() {
+    // CLOCK_THREAD_CPUTIME_ID is 16 on macOS and 3 on Linux. On other platforms, or where clock_gettime cannot be
+    // loaded from libc, elapsed time is the best there is.
+    private static Func<TimeSpan>? CpuClock() {
         var clock = OperatingSystem.IsMacOS() ? 16 : OperatingSystem.IsLinux() ? 3 : -1;
-        if (clock < 0 || ClockGetTime(clock, out var now) != 0) {
-            return Stopwatch.GetElapsedTime(0);
+        try {
+            if (clock < 0 || ClockGetTime(clock, out _) != 0) {
+                return null;
+            }
+        } catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException) {
+            return null;
         }
-        return TimeSpan.FromTicks((now.Seconds * TimeSpan.TicksPerSecond) + (now.Nanoseconds / 100));
+        return () => ClockGetTime(clock, out var now) == 0
+            ? TimeSpan.FromTicks((now.Seconds * TimeSpan.TicksPerSecond) + (now.Nanoseconds / 100))
+            : throw new InvalidOperationException("clock_gettime failed after it had worked.");
     }
 
     private static TimeSpan Min(TimeSpan x, TimeSpan y) => x < y ? x : y;

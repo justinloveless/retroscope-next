@@ -205,11 +205,16 @@ export function createSpotlight(ctx) {
       }
       lastHolder = holder;
       wasBound = next.heldByThisTab;
+      const navigated = roundId !== viewed;
       view = next;
       viewed = roundId;
       render();
       const r = role();
-      if ((r === 'bound' || r === 'mine') && roundId !== view.spotlight.roundId && view.rounds.some((x) => x.id === roundId)) {
+      // The holder's preview takes the spotlight onto its pending round while this tab stays where it is; only
+      // navigating moves it away again, or followers would see the preview for a moment at most.
+      const onPreview = view.rounds.some((x) => x.id === view.spotlight?.roundId && x.pending);
+      if ((r === 'bound' || r === 'mine') && roundId !== view.spotlight.roundId && view.rounds.some((x) => x.id === roundId)
+        && (navigated || !onPreview)) {
         scheduleMove(roundId);
       }
     },

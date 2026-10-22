@@ -245,6 +245,49 @@ test('a retryable nack keeps the entry and its q, resubscribes after backoff and
   assert.equal(room.pending().length, 0);
 });
 
+test('a retry sub dropped while the connection is in rate-limit debt goes out again after each backoff', () => {
+  const { room, net, timers } = setup();
+  snap(room);
+  room.send('retro.card.add', add('x'));
+  room.handle({ t: 'nack', r: ROOM, q: 1, code: 'rate_limited', retry: true });
+  timers.advance(250);
+  assert.equal(subs(net).length, 1);
+  assert.deepEqual(timers.delays(), [500], 'a sub nothing answers is not the end of the retry');
+  timers.advance(500);
+  assert.equal(subs(net).length, 2);
+  timers.advance(999);
+  assert.equal(subs(net).length, 2);
+  timers.advance(1);
+  assert.equal(subs(net).length, 3);
+  assert.equal(net.cmds().length, 1, 'nothing resends before the room is in sync');
+  replay(room);
+  assert.deepEqual(net.cmds().map((f) => f.q), [1, 1]);
+  assert.deepEqual(timers.delays(), [], 'the replay settles the retry');
+  timers.advance(60_000);
+  assert.equal(subs(net).length, 3);
+  room.handle({ t: 'ack', r: ROOM, q: 1, s: 11 });
+  assert.equal(room.pending().length, 0);
+});
+
+test('re-subscribing after dropped subs backs off up to the retry cap, and an immediate retry keeps waiting', () => {
+  const { room, net, timers } = setup();
+  snap(room);
+  room.send('retro.card.add', add('x'));
+  room.handle({ t: 'nack', r: ROOM, q: 1, code: 'rate_limited', retry: true });
+  timers.advance(250);
+  const waits = [];
+  for (let i = 0; i < 6; i++) {
+    const [wait] = timers.delays();
+    waits.push(wait);
+    timers.advance(wait);
+  }
+  assert.deepEqual(waits, [500, 1000, 2000, 4000, RETRY_MAX_MS, RETRY_MAX_MS]);
+  assert.equal(subs(net).length, 7);
+  room.retryNow();
+  assert.equal(subs(net).length, 8);
+  assert.deepEqual(timers.delays(), [RETRY_MAX_MS], 'an immediate retry still waits for its answer');
+});
+
 test('commands pipelined behind a refused one are refused too, and all resend in q order', () => {
   const { room, net, timers } = setup();
   snap(room);

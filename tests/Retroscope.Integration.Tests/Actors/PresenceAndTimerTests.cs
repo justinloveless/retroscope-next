@@ -164,6 +164,24 @@ public sealed class PresenceAndTimerTests {
     }
 
     [Fact]
+    public void A_timer_that_fires_before_its_due_time_is_armed_again_for_the_remainder() {
+        var time = Clock();
+        var fired = new List<(string Key, long Generation)>();
+        var timers = new ActorTimers<string, int>(time, (key, generation) => fired.Add((key, generation)));
+        timers.Arm("a", time.GetUtcNow().AddMilliseconds(600.4), 1);
+
+        time.Advance(TimeSpan.FromMilliseconds(600));
+        Assert.Empty(fired);
+        Assert.False(timers.TryTake("a", 1, out _));
+        Assert.Equal(1, timers.Count);
+
+        time.Advance(TimeSpan.FromMilliseconds(1));
+        var (key, generation) = Assert.Single(fired);
+        Assert.True(timers.TryTake(key, generation, out var payload));
+        Assert.Equal(1, payload);
+    }
+
+    [Fact]
     public async Task Warm_up_runs_once_at_its_deadline() {
         var room = new CounterRoom(new Counter { WarmUntil = Start.AddSeconds(15) });
         await room.JoinAsync(Alice);

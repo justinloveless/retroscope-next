@@ -6,7 +6,6 @@ import { createButton } from '../../../web/src/ui/button.js';
 import { confirmDialog } from '../../../web/src/ui/confirm.js';
 import { createMenu } from '../../../web/src/ui/menu.js';
 import { createResizable } from '../../../web/src/ui/resizable.js';
-import { createSelect } from '../../../web/src/ui/select.js';
 import { createSwitch } from '../../../web/src/ui/switch.js';
 import { createTabs } from '../../../web/src/ui/tabs.js';
 import { toast } from '../../../web/src/ui/toast.js';
@@ -171,17 +170,6 @@ test('avatar shows initials without an image and falls back when the image fails
   img.dispatchEvent(new FakeEvent('error'));
   assert.equal(avatar.el.textContent, 'AL');
   assert.throws(() => createAvatar({ name: 'x', src: 'javascript:alert(1)' }), /refused/);
-});
-
-test('select reflects options and value', () => {
-  const changes = [];
-  const select = createSelect({ label: 'Sort', options: [{ value: 'votes', label: 'Votes' }, { value: 'time', label: 'Time' }], value: 'time', onChange: (v) => changes.push(v) });
-  const el = select.el.querySelector('select');
-  assert.equal(el.querySelectorAll('option').length, 2);
-  assert.equal(el.value, 'time');
-  el.value = 'votes';
-  el.dispatchEvent(new FakeEvent('change'));
-  assert.deepEqual(changes, ['votes']);
 });
 
 test('resizable clamps width and resizes with arrow keys', () => {

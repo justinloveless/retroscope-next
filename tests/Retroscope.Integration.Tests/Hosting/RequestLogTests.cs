@@ -31,15 +31,67 @@ public sealed class RequestLogTests {
         Assert.DoesNotContain(logs.Entries, x => x.Message.Contains(Token, StringComparison.Ordinal));
     }
 
+    // Every way a hand-made request can spell a path under /invite: encoded separators and letters, dot and empty
+    // segments, backslashes, mixed case, double encoding, and anything at all after the prefix.
     [Theory]
-    [InlineData("/invite/abc", "/invite/[redacted]")]
-    [InlineData("/INVITE/abc/def", "/invite/[redacted]")]
-    [InlineData("/invite", "/invite")]
-    [InlineData("/invite/", "/invite/")]
-    [InlineData("/invites/abc", "/invites/abc")]
+    [InlineData("/invite/abc")]
+    [InlineData("/INVITE/abc/def")]
+    [InlineData("/Invite/abc")]
+    [InlineData("/invite/")]
+    [InlineData("/invites/abc")]
+    [InlineData("/invite%2Fabc")]
+    [InlineData("/invite%2fabc")]
+    [InlineData("/InViTe%2Fabc")]
+    [InlineData("/invite%252Fabc")]
+    [InlineData("/invite%5Cabc")]
+    [InlineData("/invite\\abc")]
+    [InlineData("/%69nvite/abc")]
+    [InlineData("/%49NVITE%2Fabc")]
+    [InlineData("/invite/%2e%2e/abc")]
+    [InlineData("/invite/%2E%2E/%2E%2E/abc")]
+    [InlineData("/invite/../abc")]
+    [InlineData("//invite/abc")]
+    [InlineData("/./invite/abc")]
+    [InlineData("/retro/../invite/abc")]
+    [InlineData("/retro/%2e%2e/INVITE/abc")]
+    [InlineData("/retro%2F..%2Finvite%2Fabc")]
+    [InlineData("/invite;abc")]
+    [InlineData("/invite.abc")]
+    public void Any_spelling_of_a_path_under_invite_is_redacted(string path) =>
+        Assert.Equal(RequestLog.RedactedInvitePath, RequestLog.Redact(new PathString(path)));
+
+    [Theory]
+    [InlineData("/invite/abc?x=1")]
+    [InlineData("/invite%2Fabc")]
+    [InlineData("/%2e/invite/abc")]
+    [InlineData("http://retro.example/invite/abc")]
+    [InlineData("https://retro.example/INVITE%2Fabc?x=1")]
+    public void A_raw_target_under_invite_is_redacted_whatever_the_decoded_path(string rawTarget) =>
+        Assert.Equal(RequestLog.RedactedInvitePath, RequestLog.Redact(new PathString("/"), rawTarget));
+
+    [Theory]
+    [InlineData("/invite", null)]
+    [InlineData("/invite", "/invite?t=abc")]
+    [InlineData("/invite", "http://retro.example/invite")]
     [InlineData("/retro/ABC123", "/retro/ABC123")]
-    public void Only_paths_under_the_invite_segment_are_redacted(string path, string logged) =>
-        Assert.Equal(logged, RequestLog.Redact(new PathString(path)));
+    [InlineData("/api/teams/abc/invites", "/api/teams/abc/invites")]
+    [InlineData("/i/nvite", "/i/nvite")]
+    [InlineData("/retro/invite/abc", "/retro/invite/abc")]
+    public void Paths_outside_the_invite_prefix_are_logged_as_they_are(string path, string? rawTarget) =>
+        Assert.Equal(path, RequestLog.Redact(new PathString(path), rawTarget));
+
+    [Theory]
+    [InlineData("/invite%2F")]
+    [InlineData("/INVITE%2f")]
+    public async Task An_encoded_invite_path_never_logs_its_token(string prefix) {
+        var logs = new CapturingLoggerProvider();
+        await using var app = await StartAsync(logs);
+
+        using var response = await app.Client.GetAsync(new Uri(prefix + Token, UriKind.Relative), Ct);
+
+        Assert.Contains(logs.Entries, x => x.Message.StartsWith("GET /invite/[redacted] ", StringComparison.Ordinal));
+        Assert.DoesNotContain(logs.Entries, x => x.Message.Contains(Token, StringComparison.Ordinal));
+    }
 
     [Fact]
     public async Task Each_request_logs_method_path_and_status_but_not_the_query_nor_the_health_probe() {

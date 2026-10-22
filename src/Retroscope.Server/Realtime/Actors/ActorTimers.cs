@@ -33,10 +33,11 @@ public sealed class ActorTimers<TKey, TPayload>(TimeProvider time, Action<TKey, 
         }
         var generation = ++_generation;
         var delay = dueAt - time.GetUtcNow();
+        // Timers count whole milliseconds (a fraction is truncated), so round up rather than fire before dueAt.
         var timer = time.CreateTimer(
             _ => fired(key, generation),
             null,
-            delay > TimeSpan.Zero ? delay : TimeSpan.Zero,
+            delay > TimeSpan.Zero ? TimeSpan.FromMilliseconds(Math.Ceiling(delay.TotalMilliseconds)) : TimeSpan.Zero,
             Timeout.InfiniteTimeSpan);
         _armed[key] = new Armed(timer, generation, dueAt, payload);
     }
@@ -48,11 +49,21 @@ public sealed class ActorTimers<TKey, TPayload>(TimeProvider time, Action<TKey, 
         }
     }
 
-    /// <summary>Removes and returns the payload when <paramref name="generation"/> is still the armed one.</summary>
+    /// <summary>
+    /// Removes and returns the payload when <paramref name="generation"/> is still the armed one and its time has come.
+    /// A timer runs on the monotonic clock, not the wall clock the domain compares deadlines with, so it can fire a
+    /// moment early. The domain would decide such an input as a no-op, and an identical request is never armed again,
+    /// so an early fire is armed again for the remainder instead of taken.
+    /// </summary>
     public bool TryTake(TKey key, long generation, out TPayload payload) {
         if (_armed.TryGetValue(key, out var armed) && armed.Generation == generation) {
             _armed.Remove(key);
             armed.Timer.Dispose();
+            if (time.GetUtcNow() < armed.DueAt) {
+                Arm(key, armed.DueAt, armed.Payload);
+                payload = default!;
+                return false;
+            }
             _fired[key] = (armed.DueAt, armed.Payload);
             payload = armed.Payload;
             return true;

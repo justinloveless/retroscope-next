@@ -42,7 +42,9 @@ public sealed record AdminStats(
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record AdminUserPatch(bool? Disabled, bool? IsAdmin);
 
-/// <param name="Role">Defaults to <c>member</c>. Making someone the owner demotes the current owner to admin.</param>
+/// <param name="Role">
+/// Defaults to <c>member</c>. Making someone the owner transfers ownership: the current owner becomes an admin.
+/// </param>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record AdminMemberRequest(PrincipalId? UserId, TeamRole? Role);
 
@@ -274,12 +276,7 @@ public static class AdminEndpoints {
         }
 
         if (role == TeamRole.Owner && members.Values.FirstOrDefault(x => x.Role == TeamRole.Owner) is { } owner && owner.Pid != userId) {
-            // The one-owner index is not deferrable: the old owner steps down first.
-            var demoted = await AskAsync(registry, team, new TeamInput.MemberRoleSet(owner.Pid, TeamRole.Admin), cancellationToken);
-            if (demoted is not null) {
-                return demoted;
-            }
-            await AuditTeamAsync(dataSource, "admin.team.member.role", caller, team, owner.Pid, TeamRole.Admin, time.GetUtcNow());
+            return await ReplaceOwnerAsync(dataSource, registry, time, caller, team, owner.Pid, user, current is not null, cancellationToken);
         }
 
         TeamInput input = current is null ? new TeamInput.MemberAdded(user) : new TeamInput.MemberRoleSet(userId, role);
@@ -290,6 +287,43 @@ public static class AdminEndpoints {
         if (outcome.Status == AskStatus.Accepted) {
             var action = current is null ? "admin.team.member.add" : "admin.team.member.role";
             await AuditTeamAsync(dataSource, action, caller, team, userId, role, time.GetUtcNow());
+        }
+        return Results.NoContent();
+    }
+
+    // TransferOwnership demotes the old owner and promotes the new one in one team actor transaction, so no failure can
+    // leave the team without an owner. Someone who is not a member yet joins as a member first.
+    private static async Task<IResult> ReplaceOwnerAsync(
+        NpgsqlDataSource dataSource,
+        ActorRegistry registry,
+        TimeProvider time,
+        Caller caller,
+        TeamId team,
+        PrincipalId owner,
+        MemberInfo newOwner,
+        bool isMember,
+        CancellationToken cancellationToken) {
+        if (!isMember) {
+            var added = await registry.AskAsync<TeamState, TeamInput>(
+                RoomKey.Team(team), new TeamInput.MemberAdded(newOwner with { Role = TeamRole.Member }), null, cancellationToken);
+            if (Refusal(added) is { } refusal) {
+                return refusal;
+            }
+            if (added.Status == AskStatus.Accepted) {
+                await AuditTeamAsync(dataSource, "admin.team.member.add", caller, team, newOwner.Pid, TeamRole.Member, time.GetUtcNow());
+            }
+        }
+        var outcome = await registry.AskAsync<TeamState, TeamInput>(
+            RoomKey.Team(team), new TeamInput.TransferOwnership(owner, newOwner.Pid), null, cancellationToken);
+        if (outcome is { Status: AskStatus.Rejected, Code: NackCode.Forbidden or NackCode.NotFound }) {
+            // The owner changed, or the new owner left, since the roster was read.
+            return Problem.Result(StatusCodes.Status409Conflict, "conflict");
+        }
+        if (Refusal(outcome) is { } failure) {
+            return failure;
+        }
+        if (outcome.Status == AskStatus.Accepted) {
+            await AuditTeamAsync(dataSource, "admin.team.owner.transfer", caller, team, newOwner.Pid, TeamRole.Owner, time.GetUtcNow());
         }
         return Results.NoContent();
     }
@@ -376,10 +410,6 @@ public static class AdminEndpoints {
             view => ValueTask.FromResult<IReadOnlyDictionary<PrincipalId, MemberInfo>?>(
                 view.Found && !view.State!.Deleted ? new Dictionary<PrincipalId, MemberInfo>(view.State.Members) : null),
             cancellationToken);
-    }
-
-    private static async Task<IResult?> AskAsync(ActorRegistry registry, TeamId team, TeamInput input, CancellationToken cancellationToken) {
-        return Refusal(await registry.AskAsync<TeamState, TeamInput>(RoomKey.Team(team), input, null, cancellationToken));
     }
 
     private static IResult? Refusal(AskResult outcome) => outcome.Status switch {
