@@ -15,6 +15,7 @@ const BURST = { lockWithinMs: 1000, revealAtMs: 2000, nextAtMs: 3000 };
 const SPOTLIGHT = { moveEveryMs: 3000, createEveryMs: 30_000, contestEveryMs: 120_000 };
 const TIMER = { everyMs: 60_000, durationMs: 20_000 };
 const LIMITS = { cards: 150, comments: 300 };
+const PROBE = { budgetMs: 20_000, attemptMs: 6000, retryMs: 250 };
 
 const emit = (event) => process.stdout.write(`${JSON.stringify(event)}\n`);
 const log = (message) => process.stderr.write(`[soak-client ${new Date().toISOString().slice(11, 19)}] ${message}\n`);
@@ -323,11 +324,46 @@ function burst() {
 
 // Convergence --------------------------------------------------------------------------------------------------------
 
+/**
+ * A fresh snapshot of `room` as `principal` sees it, from a new connection: `{snap, ms, attempts}`, `snap` null when
+ * none came within `PROBE.budgetMs`. Each attempt is cut after `PROBE.attemptMs` and retried (after `bye.retryMs` when
+ * the server sent one); every failed attempt records where it stopped (`connect`: TCP, TLS or upgrade; `welcome`;
+ * `snap`), why (the close code or error) and the bye, kick and nack frames it got, so a `no_snapshot` names its cause.
+ * `Tab.connect` retries forever and keeps none of that.
+ */
 async function freshSnapshot(principal, room) {
-  const probe = new SoakTab(principal, room.key, { kind: room.kind, label: 'verifier' });
-  const took = await Promise.race([probe.connect(), sleep(20_000).then(() => null)]);
-  probe.close();
-  return took === null || probe.snap === null ? null : probe.snap;
+  const started = Date.now();
+  const attempts = [];
+  for (let left = PROBE.budgetMs; left > 0; left = PROBE.budgetMs - (Date.now() - started)) {
+    const probe = new SoakTab(principal, room.key, { kind: room.kind, label: 'verifier' });
+    const frames = [];
+    const receive = probe.receive.bind(probe);
+    probe.receive = (f, settle) => {
+      if (f.t === 'bye' || f.t === 'kick' || f.t === 'nack') {
+        frames.push({ t: f.t, code: f.code, ...(f.retryMs !== undefined ? { retryMs: f.retryMs } : {}) });
+      }
+      receive(f, settle);
+    };
+    const at = Date.now();
+    const opening = probe.open();
+    // `closed()` clears the socket before it rejects with "closed <code> …", so that message also means it was upgraded.
+    const failed = (error) => ({
+      stage: probe.me !== null ? 'snap' : probe.socket !== null || error.startsWith('closed ') ? 'welcome' : 'connect',
+      error,
+    });
+    const failure = await Promise.race([
+      opening.then(() => null, (error) => failed(error.message)),
+      sleep(Math.min(PROBE.attemptMs, left)).then(() => failed('timeout')),
+    ]);
+    probe.close();
+    opening.then(() => probe.close(), () => probe.close());
+    if (failure === null) {
+      return { snap: probe.snap, ms: Date.now() - started, attempts };
+    }
+    attempts.push({ ms: Date.now() - at, ...failure, frames });
+    await sleep(Math.min(probe.retryMs ?? PROBE.retryMs, Math.max(0, PROBE.budgetMs - (Date.now() - started))));
+  }
+  return { snap: null, ms: Date.now() - started, attempts };
 }
 
 /**
@@ -342,6 +378,7 @@ async function converge() {
   const allIn = Date.now();
   const drained = await until(() => tabs.every((t) => t.outbox.size === 0), 60_000);
   const diverged = [];
+  const retriedProbes = [];
   const groups = new Map();
   for (const tab of tabs) {
     const key = `${tab.room}|${tab.principal.cookie}`;
@@ -350,9 +387,12 @@ async function converge() {
   await pool([...groups.values()], 12, async (group) => {
     const room = group[0].roomRef;
     for (let attempt = 1; ; attempt++) {
-      const snap = await freshSnapshot(group[0].principal, room);
+      const { snap, ms, attempts } = await freshSnapshot(group[0].principal, room);
+      if (attempts.length > 0) {
+        retriedProbes.push({ room: room.key, ok: snap !== null, ms, attempts });
+      }
       if (snap === null) {
-        diverged.push({ room: room.key, reason: 'no_snapshot' });
+        diverged.push({ room: room.key, reason: 'no_snapshot', ms, attempts });
         return;
       }
       await until(() => group.every((t) => t.s >= snap.s || t.e !== snap.e), 3000);
@@ -381,6 +421,7 @@ async function converge() {
     unacked: tabs.reduce((n, t) => n + t.outbox.size, 0),
     diverged: diverged.slice(0, 20),
     divergedCount: diverged.length,
+    retriedProbes: retriedProbes.slice(0, 20),
   };
 }
 
