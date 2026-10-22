@@ -373,7 +373,7 @@ cmd_e2e() {
   need_docker
   node_deps
   log "compose.test.yml up"
-  docker compose -f deploy/compose.test.yml up -d --wait
+  docker compose -f deploy/compose.test.yml up -d --wait --build
   trap 'docker compose -f deploy/compose.test.yml down -v >/dev/null 2>&1 || true' EXIT
   log "Playwright (compose stack): $glob"
   export RS_E2E_BASE_URL="https://localhost:${RS_TEST_HTTPS_PORT:-18443}"

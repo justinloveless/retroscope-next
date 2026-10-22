@@ -65,7 +65,7 @@ All of these must pass:
   - overflow chip at 12 players
   - mobile seat row
   - drag-to-play and between-hold still work
-- `./build.sh e2e "real/poker*/*.spec.js"`
+- `./build.sh e2e "real/poker*.spec.js"`
 - `PREVIEW_PORT=5200 ./build.sh screenshots`, with new poker states captured
 
 Visual baselines are regenerated, macOS and Linux.
