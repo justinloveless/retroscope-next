@@ -296,6 +296,7 @@ JS
 smoke_cleanup() {
   [[ -n "${SMOKE_PID:-}" ]] && kill "$SMOKE_PID" 2>/dev/null
   docker rm -f "$SMOKE_PG" "$SMOKE_APP" >/dev/null 2>&1 || true
+  docker rmi "$SMOKE_IMAGE" >/dev/null 2>&1 || true
 }
 
 cmd_aot_smoke() {
@@ -312,6 +313,8 @@ cmd_aot_smoke() {
   pg_port="$(free_port)"
   SMOKE_PG="rs-aot-smoke-pg-$$"
   SMOKE_APP="rs-aot-smoke-app-$$"
+  # Per run, so an aot-smoke in another worktree cannot retag the image this run probes.
+  SMOKE_IMAGE="retroscope:aot-smoke-$$"
   SMOKE_PID=""
   trap smoke_cleanup EXIT
 
@@ -347,13 +350,13 @@ cmd_aot_smoke() {
   SMOKE_PID=""
 
   log "chiseled image serves /healthz"
-  docker build -f deploy/Dockerfile -t retroscope:aot-smoke . >"$ARTIFACTS/aot/image.log" 2>&1 \
+  docker build -f deploy/Dockerfile -t "$SMOKE_IMAGE" . >"$ARTIFACTS/aot/image.log" 2>&1 \
     || { tail -50 "$ARTIFACTS/aot/image.log"; die "image build failed"; }
   docker run -d --name "$SMOKE_APP" --network "container:$SMOKE_PG" \
     -e DATABASE_URL="Host=127.0.0.1;Port=5432;Database=retroscope;Username=retroscope_app;Password=smoke-app" \
     -e DATABASE_OWNER_URL="Host=127.0.0.1;Port=5432;Database=retroscope;Username=retroscope_owner;Password=smoke" \
     -e PUBLIC_URL="http://127.0.0.1:$image_port" \
-    retroscope:aot-smoke >/dev/null
+    "$SMOKE_IMAGE" >/dev/null
   wait_http "http://127.0.0.1:$image_port/healthz" || { docker logs "$SMOKE_APP"; die "chiseled image did not serve /healthz"; }
   retry 5 docker exec "$SMOKE_APP" /app/retroscope healthcheck || die "healthcheck subcommand failed inside the image"
 
