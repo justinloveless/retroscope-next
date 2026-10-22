@@ -1,8 +1,9 @@
 name: deploy
 
-# Production release (deploy/COOLIFY_SETUP.md §11). When ci passes on a push to main, wait for images.yml to push that
-# commit's images, point the production Coolify resource at their digests, deploy, and check health. A manual run
-# redeploys any commit whose ci run on main passed, for example to roll back.
+# Production release (deploy/COOLIFY_SETUP.md §11). When ci passes on a push to main, wait for that push's images.yml
+# run, take the digests from its image-digests artifact (never from a GHCR tag), point the production Coolify resource
+# at that commit and those digests, deploy, and check health. A manual run redeploys any commit whose ci run on main
+# passed, for example to roll back. The token lives in the 'production' environment, which only main may use.
 on:
   workflow_run:
     workflows: [ci]
@@ -17,11 +18,6 @@ on:
 
 permissions: {}
 
-# One production deploy at a time, never cancelled half-way. GitHub keeps only the newest pending run.
-concurrency:
-  group: production
-  cancel-in-progress: false
-
 jobs:
   deploy:
     # Manual runs must start from main, so the workflow and script that hold the token are the reviewed ones.
@@ -32,12 +28,21 @@ jobs:
        github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.head_branch == 'main' &&
        github.event.workflow_run.head_repository.full_name == github.repository)
+    # One production deploy at a time, never cancelled half-way. This sits on the job, so a run whose job is skipped
+    # never takes the slot. GitHub keeps only the newest pending job: an older pending one is cancelled (COOLIFY_SETUP
+    # §11.2).
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    environment:
+      name: production
+      url: ${{ vars.PROD_URL }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 110
     permissions:
-      contents: read # checkout and the commits API
-      actions: read # look up ci runs for a manual redeploy
-      packages: read # resolve image digests in GHCR
+      contents: read # checkout and the compare API
+      actions: read # ci and images runs, and the image-digests artifact
+      packages: read # confirm the digests exist in GHCR
     steps:
       - name: Target commit
         id: target
@@ -60,42 +65,70 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "Deploying $sha"
 
+      # ci and images.yml both start on the push. Follow that push's images run instead of polling GHCR: a failed run
+      # fails this deploy at once, and a slow one (its job may take 60 minutes) is waited for.
+      - name: Image digests from main's images run
+        id: images
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          deadline=$((SECONDS + 75 * 60))
+          while :; do
+            run="$(gh api "repos/$REPO/actions/workflows/images.yml/runs?head_sha=$SHA&event=push&branch=main&per_page=1" \
+              --jq '.workflow_runs[0] | if . == null then "" else "\(.id) \(.status) \(.conclusion // "-")" end')" || run=""
+            id="" status="" conclusion=""
+            read -r id status conclusion <<<"$run" || true
+            if [[ "$status" == completed ]]; then
+              [[ "$conclusion" == success ]] || { echo "::error::the images run for $SHA ended as $conclusion"; exit 1; }
+              break
+            fi
+            if ((SECONDS >= deadline)); then
+              echo "::error::the images run for $SHA did not finish within 75 minutes (${status:-no run found})"
+              exit 1
+            fi
+            echo "waiting for the images run of $SHA (${status:-not started})"
+            sleep 30
+          done
+          [[ "$id" =~ ^[0-9]+$ ]] || { echo "::error::unexpected images run id"; exit 1; }
+          dir="$RUNNER_TEMP/image-digests"
+          if ! gh run download "$id" --repo "$REPO" --name image-digests --dir "$dir"; then
+            echo "::error::images run $id has no image-digests artifact (built before it existed, or expired); deploy by hand (COOLIFY_SETUP.md §11.5)"
+            exit 1
+          fi
+          f="$dir/image-digests.json"
+          got="$(jq -r '.sha // empty' "$f")"
+          app="$(jq -r '.app // empty' "$f")"
+          importer="$(jq -r '.importer // empty' "$f")"
+          [[ "$got" == "$SHA" ]] || { echo "::error::the artifact is for $got, not $SHA"; exit 1; }
+          [[ "$app" =~ ^[0-9a-f]{64}$ && "$importer" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::malformed digests in the artifact"; exit 1; }
+          {
+            echo "run=$id"
+            echo "app=$app"
+            echo "importer=$importer"
+          } >> "$GITHUB_OUTPUT"
+          echo "images run $id: app sha256:$app, importer sha256:$importer"
+
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ci and images.yml both start on the push, and images.yml usually finishes later.
-      - name: Wait for the images
-        id: images
+      - name: Images exist in GHCR
         env:
-          SHA: ${{ steps.target.outputs.sha }}
+          APP_DIGEST: ${{ steps.images.outputs.app }}
+          IMPORTER_DIGEST: ${{ steps.images.outputs.importer }}
         run: |
           owner="${GITHUB_REPOSITORY_OWNER,,}"
-          deadline=$((SECONDS + 25 * 60))
-          digest() {
-            docker buildx imagetools inspect "ghcr.io/$owner/$1:$SHA" --format '{{json .Manifest}}' 2>/dev/null \
-              | jq -r '.digest // empty'
-          }
-          while :; do
-            app="$(digest retroscope || true)"
-            importer="$(digest retroscope-import || true)"
-            if [[ "$app" =~ ^sha256:[0-9a-f]{64}$ && "$importer" =~ ^sha256:[0-9a-f]{64}$ ]]; then break; fi
-            if ((SECONDS >= deadline)); then
-              echo "::error::images for $SHA did not appear in GHCR within 25 minutes; check the images workflow run"
-              exit 1
-            fi
-            echo "waiting for ghcr.io/$owner/retroscope{,-import}:$SHA"
-            sleep 30
-          done
-          echo "app=${app#sha256:}" >> "$GITHUB_OUTPUT"
-          echo "importer=${importer#sha256:}" >> "$GITHUB_OUTPUT"
-          echo "app $app, importer $importer"
+          docker buildx imagetools inspect "ghcr.io/$owner/retroscope@sha256:$APP_DIGEST" >/dev/null
+          docker buildx imagetools inspect "ghcr.io/$owner/retroscope-import@sha256:$IMPORTER_DIGEST" >/dev/null
 
-      # ci runs can finish out of order. An automatic deploy of a commit that main has moved past is skipped: the newer
-      # commit's own ci run deploys it. A manual run deploys exactly what was asked for.
-      - name: Still the newest commit on main
+      # ci runs can finish out of order. An automatic deploy is skipped when a newer commit on main has a ci run that
+      # is still going or has passed: that run deploys it. Newer commits whose ci failed do not block this one, so a
+      # red commit on top of a green one still lets the green one deploy. A manual run deploys exactly what was asked.
+      - name: Still the newest deployable commit
         id: fresh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -103,13 +136,32 @@ jobs:
           EVENT: ${{ github.event_name }}
           SHA: ${{ steps.target.outputs.sha }}
         run: |
-          tip="$(gh api "repos/$REPO/commits/main" --jq '.sha')"
-          if [[ "$EVENT" == workflow_run && "$tip" != "$SHA" ]]; then
-            echo "::notice::main has moved on to $tip; skipping $SHA"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
+          skip=false
+          if [[ "$EVENT" == workflow_run ]]; then
+            out="$(gh api "repos/$REPO/compare/$SHA...main" --jq '.status, (.commits | reverse | .[].sha)')"
+            mapfile -t lines <<<"$out"
+            case "${lines[0]:-}" in
+              identical) ;;
+              ahead)
+                for c in "${lines[@]:1}"; do
+                  [[ "$c" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::unexpected commit in the compare result"; exit 1; }
+                  ci="$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$c&event=push&branch=main&per_page=1" \
+                    --jq '.workflow_runs[0] | if . == null then "" else "\(.status) \(.conclusion // "-")" end')"
+                  status="${ci% *}" conclusion="${ci#* }"
+                  if [[ -n "$ci" && ( "$status" != completed || "$conclusion" == success ) ]]; then
+                    echo "::notice::newer commit $c on main has ci $status/$conclusion and deploys itself; skipping $SHA"
+                    skip=true
+                    break
+                  fi
+                done
+                ;;
+              *)
+                echo "::notice::$SHA is no longer on main (${lines[0]:-unknown}); skipping it"
+                skip=true
+                ;;
+            esac
           fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.fresh.outputs.skip == 'false'
@@ -141,7 +193,7 @@ jobs:
           STATUS: ${{ job.status }}
           PROD_URL: ${{ vars.PROD_URL }}
         run: |
-          if [[ "$SKIPPED" == true ]]; then result="skipped: main has a newer commit"; else result="$STATUS"; fi
+          if [[ "$SKIPPED" == true ]]; then result="skipped: a newer commit on main deploys instead"; else result="$STATUS"; fi
           {
             echo "## Production deploy: $result"
             echo
