@@ -1,14 +1,15 @@
-// Where the players sit around the issue (docs/followups/UX2.md): two independent shallow circular arcs, one
-// down each side. Each arc's chord runs vertically along its side between the top and bottom bands (the round
-// header and the hand), and the arc bows toward the stage centre by a small sagitta, so a seat at the top or
-// bottom of a side sits almost as close to the edge as the middle one. Players fill the sides alternately and
-// are spread evenly by arc length. Each seat is rotated so its card's top edge points at the stage centre.
+// Where the players sit around the issue (docs/followups/UX2.md, UX4.md): two independent shallow circular
+// arcs, one down each side, wrapping around the issue like brackets: ( ISSUE ). Each arc's middle is the point
+// farthest from the stage centre and its ends curve in toward it by a small sagitta. Each side's group is
+// centred vertically between the top and bottom bands (the round header and the hand). Players fill the sides
+// alternately and are spread evenly by arc length. Each seat is rotated so its card's top edge points at the
+// stage centre.
 // Pure: stage size, seat count and seat size in; centres and angles out.
 
 export const STAGE_PAD_PX = 8;
 export const MAX_SAGITTA_PX = 56;
 export const MAX_SAGITTA_SHARE = 0.05;
-export const MAX_DEPTH_SHARE = 0.15;
+export const MAX_DEPTH_SHARE = 0.16;
 export const MAX_DEPTH_PX = 220;
 const IDEAL_SPREAD = 1.6;
 const FIT_STEPS = 24;
@@ -65,33 +66,24 @@ function arcOf(half, sagitta) {
   return { radius, length: 2 * radius * Math.asin(Math.min(1, half / radius)), sagitta };
 }
 
-// The point `along` px of arc length from the arc's middle: how far in from the chord, and how far down.
+// The point `along` px of arc length from the arc's middle: how far in from the middle (the arc's outermost
+// point), and how far down.
 function pointOn(arc, along) {
   if (!Number.isFinite(arc.radius)) {
     return { inward: 0, down: along };
   }
   const theta = along / arc.radius;
-  return { inward: arc.sagitta - arc.radius * (1 - Math.cos(theta)), down: arc.radius * Math.sin(theta) };
+  return { inward: arc.radius * (1 - Math.cos(theta)), down: arc.radius * Math.sin(theta) };
 }
 
-// Arc length from the arc's middle to the point level with the stage centre, kept so that a group `span` long
-// centred there stays on the arc.
-function groupCentre(frame, arc, span) {
-  const level = frame.stage.height / 2 - frame.middle;
-  const along = Number.isFinite(arc.radius) ? arc.radius * Math.asin(Math.max(-1, Math.min(1, level / arc.radius))) : level;
-  const room = Math.max(0, (arc.length - span) / 2);
-  return Math.max(-room, Math.min(room, along));
-}
-
-// One side's seats, top to bottom, `step` apart along the arc and centred as near the stage centre's height
-// as the arc allows, so the seats face in as squarely as they can. The whole side is moved in just far
-// enough that every rotated seat clears the stage padding, which keeps its shape.
+// One side's seats, top to bottom, `step` apart along the arc and centred on its middle, so the group sits
+// halfway between the bands. The whole side is moved in just far enough that every rotated seat clears the
+// stage padding, which keeps its shape.
 function sideSlots(frame, side, count, arc, step) {
   const { stage, middle, w, h } = frame;
   const cx = stage.width / 2;
   const cy = stage.height / 2;
-  const centre = groupCentre(frame, arc, (count - 1) * step);
-  const points = Array.from({ length: count }, (_, j) => pointOn(arc, centre + (j - (count - 1) / 2) * step));
+  const points = Array.from({ length: count }, (_, j) => pointOn(arc, (j - (count - 1) / 2) * step));
   let shift = STAGE_PAD_PX + h / 2;
   let slots = [];
   for (let pass = 0; pass < 3; pass++) {
@@ -171,8 +163,9 @@ function fitSide(frame, count) {
  * Returns {seats: [{x, y, angle, side}], chip, hidden, depth, sagitta, curve}: the seats in player order
  * (player i sits on the left when i is even), the "+N" chip's slot when not everyone fits (the last slot of
  * the right arc, which alternation leaves free, so both arcs hold as many items as fit), how many players
- * that chip stands for, how far the seats reach in from either side edge, how far the arcs bow in, and the
- * arcs' shared circle: {radius, middle} (radius Infinity for a straight side, middle the chord's height).
+ * that chip stands for, how far the seats reach in from either side edge, how far the arcs' ends curve in,
+ * and the arcs' shared circle: {radius, middle} (radius Infinity for a straight side, middle the height of
+ * the arcs' outermost point). The circle's centre lies in toward the stage centre.
  */
 export function seatLayout(stage, count, seat) {
   const empty = { seats: [], chip: null, hidden: Math.max(0, count), depth: 0, sagitta: 0, curve: null };
@@ -187,14 +180,17 @@ export function seatLayout(stage, count, seat) {
   if (last < first) {
     return empty;
   }
+  // Centred between the bands, as long as the room allows on both sides of the middle.
+  const middle = Math.max(first, Math.min(last, ((stage.top ?? 0) + H - (stage.bottom ?? 0)) / 2));
+  const half = Math.min(middle - first, last - middle);
   const frame = {
     stage,
     w,
     h,
     spacing,
-    middle: (first + last) / 2,
-    half: (last - first) / 2,
-    sagitta: Math.min(maxSagitta(W), (last - first) / 2),
+    middle,
+    half,
+    sagitta: Math.min(maxSagitta(W), half),
     maxDepth: Math.min(stage.maxDepth ?? Infinity, W / 2),
   };
 
@@ -226,13 +222,50 @@ export function seatLayout(stage, count, seat) {
 
 const round1 = (n) => Math.round(n * 10) / 10;
 
+// The side's circle in the left side's coordinates (the right side mirrored): its centre, in from the slots.
+function circleOf(slots, curve, width) {
+  const local = (slot) => (slots[0].side === 'left' ? slot.x : width - slot.x);
+  const { radius, middle } = curve;
+  const first = slots[0];
+  const cx = local(first) + radius * Math.cos(Math.asin(Math.max(-1, Math.min(1, (first.y - middle) / radius))));
+  return { cx, cy: middle, radius, local };
+}
+
+function segmentDistance(px, py, [x1, y1], [x2, y2]) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)));
+  return Math.hypot(px - x1 - t * dx, py - y1 - t * dy);
+}
+
 /**
- * The printed betting line of one side (docs/followups/UX3.md): an SVG path concentric with that side's seat
- * arc, `offset` px further in toward the stage centre, running from `overhang` px above the first slot to
- * `overhang` px below the last. `slots` are the side's slots (seats and the chip), `curve` is
- * seatLayout's, `width` the stage's. Null when the side has no slots.
+ * How far in from a side's seat curve a `w`×`h` outline around each slot reaches, measured as the betting line
+ * is (radially, toward the circle's centre): the smallest `offset` at which printedArc's line touches one.
  */
-export function printedArc(slots, curve, { offset, overhang, width }) {
+export function outlineReach(slots, curve, { w, h, width }) {
+  if (!slots.length || !curve) {
+    return 0;
+  }
+  const local = (x) => (slots[0].side === 'left' ? x : width - x);
+  if (!Number.isFinite(curve.radius)) {
+    return Math.max(...slots.map((slot) => Math.max(...corners(slot, w, h).map(([x]) => local(x))) - local(slot.x)));
+  }
+  const circle = circleOf(slots, curve, width);
+  return Math.max(...slots.map((slot) => {
+    const box = corners(slot, w, h).map(([x, y]) => [local(x), y]);
+    const nearest = Math.min(...box.map((p, i) => segmentDistance(circle.cx, circle.cy, p, box[(i + 1) % 4])));
+    return circle.radius - nearest;
+  }));
+}
+
+/**
+ * The printed betting line of one side (docs/followups/UX3.md, UX4.md): {d, reach}, an SVG path concentric
+ * with that side's seat arc, `offset` px further in toward the stage centre, running from `overhang` px above
+ * the first slot to `overhang` px below the last, and how far in from the side edge the line reaches (at its
+ * ends, which curve in). `slots` are the side's slots (seats and the chip), `curve` is seatLayout's, `width`
+ * the stage's. Null when the side has no slots.
+ */
+export function bettingArc(slots, curve, { offset, overhang, width }) {
   if (!slots.length || !curve) {
     return null;
   }
@@ -240,23 +273,53 @@ export function printedArc(slots, curve, { offset, overhang, width }) {
   const sorted = [...slots].sort((a, b) => a.y - b.y);
   const first = sorted[0];
   const last = sorted[sorted.length - 1];
-  // Work as if on the left side, then mirror the x coordinates for the right.
-  const local = (slot) => (side === 'left' ? slot.x : width - slot.x);
   const out = (x) => round1(side === 'left' ? x : width - x);
-  const { radius, middle } = curve;
-  if (!Number.isFinite(radius)) {
-    const x = out(local(first) + offset);
-    return `M ${x} ${round1(first.y - overhang)} L ${x} ${round1(last.y + overhang)}`;
+  const circle = circleOf(sorted, curve, width);
+  const r = circle.radius - offset;
+  if (!Number.isFinite(circle.radius) || r <= 0) {
+    const x = circle.local(first) + offset;
+    return { d: `M ${out(x)} ${round1(first.y - overhang)} L ${out(x)} ${round1(last.y + overhang)}`, reach: x };
   }
-  const angle = (y, r) => Math.asin(Math.max(-1, Math.min(1, (y - middle) / r)));
-  const cx = local(first) - radius * Math.cos(angle(first.y, radius));
-  const r = radius + offset;
-  const from = angle(first.y - overhang, r);
-  const to = angle(last.y + overhang, r);
-  const at = (phi) => [out(cx + r * Math.cos(phi)), round1(middle + r * Math.sin(phi))];
+  const angle = (y) => Math.asin(Math.max(-1, Math.min(1, (y - circle.cy) / r)));
+  const from = angle(first.y - overhang);
+  const to = angle(last.y + overhang);
+  const at = (phi) => [out(circle.cx - r * Math.cos(phi)), round1(circle.cy + r * Math.sin(phi))];
   const [x1, y1] = at(from);
   const [x2, y2] = at(to);
-  return `M ${x1} ${y1} A ${round1(r)} ${round1(r)} 0 0 ${side === 'left' ? 1 : 0} ${x2} ${y2}`;
+  const reach = circle.cx - r * Math.cos(Math.max(Math.abs(from), Math.abs(to)));
+  return { d: `M ${x1} ${y1} A ${round1(r)} ${round1(r)} 0 0 ${side === 'left' ? 0 : 1} ${x2} ${y2}`, reach };
+}
+
+/** bettingArc's path alone. */
+export function printedArc(slots, curve, options) {
+  return bettingArc(slots, curve, options)?.d ?? null;
+}
+
+/**
+ * How far to move both sides' seats in from the edge so each side's group sits centred in its felt column,
+ * between the rail (`rail` px in) and the issue pane. The seats span `outer` to `inner` px in from the edge;
+ * the pane's edge lies at max(reach + shift, wide): `reach` moves in with the seats (the betting line plus
+ * its clearance), `wide` is where the pane stops on a stage wider than it needs. Negative when the seats
+ * already sit too far in.
+ */
+export function columnShift({ outer, inner, reach, wide, rail = STAGE_PAD_PX }) {
+  const bound = reach + rail - outer - inner;
+  return reach + bound >= wide ? bound : (wide + rail - outer - inner) / 2;
+}
+
+/**
+ * The layout with each side's slots moved `shift.left` or `shift.right` px in from their edge and turned to face
+ * the centre again; `depth` becomes the deeper side's reach. `layout` is planSeats'.
+ */
+export function shiftLayout(layout, shift, stage) {
+  const move = (slot) => {
+    const x = slot.side === 'left' ? slot.x + shift.left : slot.x - shift.right;
+    return { ...slot, x, angle: angleToward(x, slot.y, stage.width / 2, stage.height / 2) };
+  };
+  const seats = layout.seats.map(move);
+  const chip = layout.chip && move(layout.chip);
+  const depth = depthOf(chip ? [...seats, chip] : seats, { w: layout.size.width, h: layout.size.height, stage });
+  return { ...layout, seats, chip, depth };
 }
 
 /**
