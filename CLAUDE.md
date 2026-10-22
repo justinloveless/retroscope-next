@@ -54,7 +54,8 @@ These came from the owner at the start of the project and shape every decision. 
   - Never generate artificial CPU or memory load: no `yes`, busy loops or stress tools.
   - Don't run the full suite repeatedly.
   - Remove any containers you start.
-- **Quick mode.** For UI iterations the owner reviews by eye, the owner may ask for quick mode: run `./build.sh web` plus the touched unit tests and self-review screenshots, with no e2e or full suite. The gaps it leaves (visual baselines, e2e specs) must then be closed by a full verified pass before the next production deploy.
+- **Only verified work merges to `main`.** `main` deploys to production by itself once CI passes on it, so a merge is a release.
+- **Quick mode.** For UI iterations the owner reviews by eye, the owner may ask for quick mode: run `./build.sh web` plus the touched unit tests and self-review screenshots, with no e2e or full suite. Quick-mode work is unverified, so it stays on a branch. The owner reviews it locally (`./build.sh preview`) or on the preview slot, through the `preview` label on its PR or a manual run of the preview workflow. The gaps it leaves (visual baselines, e2e specs) must be closed by a full verified pass before it merges to `main`.
 
 ## Commands
 
@@ -134,9 +135,13 @@ dotnet run --project tests/Retroscope.Soak -- --profile short    # soak/chaos ru
 
 ## Deployment
 
-CI (`.github/workflows/images.yml`) builds and pushes `ghcr.io/justinloveless/retroscope` and `retroscope-import` on every push to `main` and on every `v*` tag. `deploy/docker-compose.yml` pulls them by digest and never builds on the VPS.
+`.github/workflows/images.yml` builds and pushes `ghcr.io/justinloveless/retroscope` and `retroscope-import`, tagged with the commit SHA, on every push to `main` and on every `v*` tag. `deploy/docker-compose.yml` pulls them by digest and never builds on the VPS.
 
-The Coolify resource tracks this repository, but auto deploy is off. A release means setting `APP_DIGEST` and `IMPORTER_DIGEST` (the hex after `sha256:`) on the resource and redeploying.
+Coolify's own auto deploy is off; GitHub Actions drives every deploy through the Coolify API, using `deploy/coolify-deploy.sh`. The script sets the resource's branch and `APP_DIGEST`/`IMPORTER_DIGEST` (the hex after `sha256:`), deploys, and waits for `/healthz` and `running:healthy`.
+
+- **Production** (`.github/workflows/deploy.yml`) deploys automatically after `ci` succeeds on a push to `main`, once that commit's images exist. It skips a commit that `main` has already moved past. A manual run from `main` redeploys or rolls back to any commit whose `ci` run on `main` passed.
+- **Preview** (`.github/workflows/preview.yml`) is a single slot on its own Coolify resource, with its own database and secrets. A same-repository PR labelled `preview` deploys on label, push and reopen, and a manual run deploys any branch. The last deploy wins, and the PR gets one sticky comment with the URL and commit.
+- The repository variables, the token's permissions and the by-hand fallback are in `deploy/COOLIFY_SETUP.md` section 11.
 
 The guides are:
 - `deploy/COOLIFY_SETUP.md`: setup and every environment variable;
