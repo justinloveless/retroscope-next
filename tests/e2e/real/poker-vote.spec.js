@@ -59,7 +59,7 @@ test('replay, end, continue and next move the whole table, and parallel rounds v
 
   await bob.page.getByRole('button', { name: 'Replay round' }).click();
   for (const { page } of players) {
-    await expect(page.getByRole('heading', { name: 'Your Hand' })).toBeVisible();
+    await expect(page.locator('.nt-hand')).toBeVisible();
     await expect(page.locator('.nt-stack')).toHaveCount(0);
   }
 

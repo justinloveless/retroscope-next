@@ -19,8 +19,8 @@ export async function openTable(page, code, query = '') {
 }
 
 /**
- * `names.length` people at one quick session created by the first; each page is open on the table and every seat is
- * visible to the first. Returns [{context, page, user}], session {id, code}.
+ * `names.length` people at one quick session created by the first; each page is open on the table and the first sees
+ * every other player's seat. Returns [{context, page, user}], session {id, code}.
  */
 export async function table(open, names, { teamId = null, create = null, ordered = false } = {}) {
   const users = await seedUsers(names, { ordered });
@@ -34,7 +34,8 @@ export async function table(open, names, { teamId = null, create = null, ordered
   for (const player of players) {
     await openTable(player.page, session.code);
   }
-  await expect(players[0].page.locator('.nt-seat')).toHaveCount(players.length);
+  // Nobody has a seat of their own: the first sees everyone else.
+  await expect(players[0].page.locator('.nt-seat')).toHaveCount(players.length - 1);
   return { players, session };
 }
 
