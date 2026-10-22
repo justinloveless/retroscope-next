@@ -52,3 +52,20 @@ it lists, and this file.
 7. **The crowded-table spec** (`seats.spec.js`) used 1024×640 to force the "+N" chip. The taller chord now seats 11
    avatar-only players there, so the spec uses 1024×500.
 8. **The table oval and its `--nt-felt` token** are removed. The issue panel keeps its own background.
+
+## Results overlay (item 5)
+
+1. **Where it lives.** `poker/results.js` holds the piles (`resultPiles`, pure) and the overlay. `table.js` only
+   moves the winner, the round actions and the submit chips (`ctx.slots.results`) between the overlay and the
+   dock's bar, so each of those elements exists once in the page.
+2. **Two views of the same votes.** The overlay's piles count a between vote on both of its ends, as the scoring
+   does (a 3–5 card sits in the 3 pile and the 5 pile), and abstains always get a pile of their own. The compact
+   bar keeps UX1's exact-vote pills (`.nt-stack-pill`, "1 x 3–5 pts"); they are in the page in both states and
+   hidden while the overlay is open, so the specs and the accessible names that read them still hold.
+3. **Memory.** A minimized round is kept in `sessionStorage` (one tab, survives a reload; page memory when storage
+   is refused). A live reveal of that round (after a replay) clears it, because it is a new result.
+4. **Focus.** On a live reveal the overlay takes focus unless a text field has it. Minimize, Esc and Show results
+   always move focus to the other control, because only the viewer's own action gets there (WebKit does not focus
+   a clicked button, so "only if focus was inside" lost it there).
+5. **Two peers in the fake specs** are two browser contexts of the same viewer on one fake room; the fake serves a
+   single viewer. Two real principals are a real-stack concern.
