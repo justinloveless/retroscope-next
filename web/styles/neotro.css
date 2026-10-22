@@ -11,7 +11,6 @@
 .neotro {
   --nt-primary: #3498db;
   --nt-glow: rgb(52 152 219 / 0.8);
-  --nt-felt: color-mix(in srgb, hsl(var(--card)) 70%, transparent);
   display: flex;
   flex-direction: column;
   height: 100dvh;
@@ -146,18 +145,6 @@
   min-height: 0;
   width: 100%;
   isolation: isolate;
-}
-
-/* The board under the issue: a faint oval the seats sit on. */
-.nt-table:not(.is-row)::before {
-  content: "";
-  position: absolute;
-  inset: 1.25rem calc(var(--nt-ring) * 0.45) calc(var(--nt-dock-h) * 0.4);
-  z-index: -1;
-  border: 1px solid color-mix(in srgb, hsl(var(--border)) 70%, transparent);
-  border-radius: 50%;
-  background: radial-gradient(ellipse at center, var(--nt-felt) 0%, color-mix(in srgb, hsl(var(--card)) 25%, transparent) 70%, transparent 100%);
-  pointer-events: none;
 }
 
 /* A soft backdrop behind the docked hand, so the issue fades out under it. */
@@ -404,7 +391,7 @@
 }
 
 .nt-seat-slot {
-  --scale: var(--seat-scale, 0.55);
+  --scale: var(--seat-scale, 1);
   position: relative;
   display: grid;
   flex: none;
@@ -428,6 +415,15 @@
   width: var(--seat-avatar, 34px);
   height: var(--seat-avatar, 34px);
   margin-top: -4px;
+}
+
+/* On the ring the avatar sits on the card's outer end, so it adds nothing to how far a seat reaches in. */
+.nt-seats.is-ring:not([data-size="avatar"]) .nt-seat-avatar {
+  position: absolute;
+  bottom: var(--seat-inset, 4px);
+  left: 50%;
+  margin: 0;
+  translate: -50% 0;
 }
 
 .nt-seat-avatar .avatar {

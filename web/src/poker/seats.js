@@ -1,5 +1,5 @@
-// The players around the issue (docs/followups/UX1.md): each seat sits on the left or right arc of the
-// stage (geometry.js), turned so its card faces the centre, with the avatar on the outer side and an
+// The players around the issue (docs/followups/UX1.md, UX2.md): each seat sits on the left or right arc of
+// the stage (geometry.js), turned so its card faces the centre, with the avatar on the card's outer end and an
 // upright name label. A locked vote slides in face down along the seat's axis; a reveal flips every seated
 // card in place. Votes stay secret until the reveal: before it a seat only knows "waiting", "thinking" or
 // "locked in". Narrow stages get one scrolling avatar row instead of the ring.
@@ -195,9 +195,9 @@ export function createSeats() {
       return;
     }
     const rad = (slot.angle * Math.PI) / 180;
-    // The avatar sits at the outer end of the seat's axis; the label hangs below it, or above it for seats in
-    // the upper half, where the card points down.
-    const reach = size.height / 2 - size.avatar / 2;
+    // The avatar sits on the card's outer end; the label hangs below it, or above it for seats in the upper
+    // half, where the card points down.
+    const reach = size.height / 2 - size.avatar / 2 - size.inset;
     const ax = -reach * Math.sin(rad);
     const ay = reach * Math.cos(rad);
     const above = Math.cos(rad) < -0.3;
@@ -240,11 +240,12 @@ export function createSeats() {
         '--seat-w': `${size.width}px`,
         '--seat-h': `${size.height}px`,
         '--seat-avatar': `${size.avatar}px`,
+        '--seat-inset': `${size.inset}px`,
         '--seat-scale': size.card,
       });
     } else {
       delete el.dataset.size;
-      setStyle(el, { '--seat-w': null, '--seat-h': null, '--seat-avatar': null, '--seat-scale': null });
+      setStyle(el, { '--seat-w': null, '--seat-h': null, '--seat-avatar': null, '--seat-inset': null, '--seat-scale': null });
     }
     const nodes = [...el.querySelectorAll(':scope > .nt-seat')];
     nodes.forEach((node, i) => {
