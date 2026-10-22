@@ -271,23 +271,96 @@ export function bettingArc(slots, curve, { offset, overhang, width }) {
   }
   const { side } = slots[0];
   const sorted = [...slots].sort((a, b) => a.y - b.y);
-  const first = sorted[0];
-  const last = sorted[sorted.length - 1];
-  const out = (x) => round1(side === 'left' ? x : width - x);
+  const top = sorted[0].y - overhang;
+  const bottom = sorted[sorted.length - 1].y + overhang;
   const circle = circleOf(sorted, curve, width);
   const r = circle.radius - offset;
   if (!Number.isFinite(circle.radius) || r <= 0) {
-    const x = circle.local(first) + offset;
-    return { d: `M ${out(x)} ${round1(first.y - overhang)} L ${out(x)} ${round1(last.y + overhang)}`, reach: x };
+    return linePath(side, { x: circle.local(sorted[0]) + offset, top, bottom }, width);
   }
-  const angle = (y) => Math.asin(Math.max(-1, Math.min(1, (y - circle.cy) / r)));
-  const from = angle(first.y - overhang);
-  const to = angle(last.y + overhang);
-  const at = (phi) => [out(circle.cx - r * Math.cos(phi)), round1(circle.cy + r * Math.sin(phi))];
+  return linePath(side, { cx: circle.cx, cy: circle.cy, r, top, bottom }, width);
+}
+
+// A betting line in the left side's coordinates, drawn on `side`: a straight line at `x`, or the part of the
+// circle (cx, cy, r) between the heights `top` and `bottom`, on its side away from the stage centre.
+function linePath(side, { x, cx, cy, r, top, bottom }, width) {
+  const out = (v) => round1(side === 'left' ? v : width - v);
+  if (x !== undefined) {
+    return { d: `M ${out(x)} ${round1(top)} L ${out(x)} ${round1(bottom)}`, reach: x };
+  }
+  const angle = (y) => Math.asin(Math.max(-1, Math.min(1, (y - cy) / r)));
+  const from = angle(top);
+  const to = angle(bottom);
+  const at = (phi) => [out(cx - r * Math.cos(phi)), round1(cy + r * Math.sin(phi))];
   const [x1, y1] = at(from);
   const [x2, y2] = at(to);
-  const reach = circle.cx - r * Math.cos(Math.max(Math.abs(from), Math.abs(to)));
+  const reach = cx - r * Math.cos(Math.max(Math.abs(from), Math.abs(to)));
   return { d: `M ${x1} ${y1} A ${round1(r)} ${round1(r)} 0 0 ${side === 'left' ? 0 : 1} ${x2} ${y2}`, reach };
+}
+
+// The smallest circle-centre position (in from the side edge, at height cy) at which a circle of radius `r`
+// keeps `clear` px from every outline corner box in `boxes` (left-side coordinates). Moving the centre in
+// only moves it away from boxes it is already inboard of, so the search is monotone.
+function centreClearing(boxes, cy, r, clear) {
+  const distance = (cx) => Math.min(...boxes.map((box) => Math.min(...box.map((p, i) => segmentDistance(cx, cy, p, box[(i + 1) % 4])))));
+  let lo = Math.max(...boxes.flat().map(([x]) => x));
+  let hi = lo + r + clear;
+  if (distance(lo) >= r + clear) {
+    return lo;
+  }
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    if (distance(mid) >= r + clear) {
+      hi = mid;
+    } else {
+      lo = mid;
+    }
+  }
+  return hi;
+}
+
+/**
+ * Both sides' printed betting lines as mirror images (docs/followups/UX5.md): {left, right, reach, needs}, two SVG
+ * paths and how far in from its side edge either line reaches. Each side's own line (bettingArc's, `gap` px
+ * in from its outlines) is measured; the longer one (on a tie, the more curved) gives both lines their span
+ * and radius, and both sit at the most inboard position that keeps `gap` px from every outline on either
+ * side. `sides` holds each side's slots (either may be empty), `box` the outline's {w, h}. `needs` says how
+ * far in the lines would reach if only that side's seats placed them. Null when there are no slots at all.
+ */
+export function mirroredArcs(sides, curve, { gap, overhang, box, width }) {
+  const present = ['left', 'right'].filter((side) => sides[side]?.length);
+  if (!present.length || !curve) {
+    return null;
+  }
+  const own = present.map((side) => {
+    const slots = [...sides[side]].sort((a, b) => a.y - b.y);
+    const local = (x) => (side === 'left' ? x : width - x);
+    const boxes = slots.map((slot) => corners(slot, box.w, box.h).map(([x, y]) => [local(x), y]));
+    const offset = outlineReach(slots, curve, { ...box, width }) + gap;
+    const r = curve.radius - offset;
+    return {
+      side,
+      boxes,
+      top: slots[0].y - overhang,
+      bottom: slots[slots.length - 1].y + overhang,
+      r: Number.isFinite(r) && r > 0 ? r : Infinity,
+    };
+  });
+  const span = (o) => o.bottom - o.top;
+  const big = own.reduce((a, b) => (Math.abs(span(a) - span(b)) > 0.5 ? (span(b) > span(a) ? b : a) : (b.r < a.r ? b : a)));
+  const { top, bottom, r } = big;
+  // Where each side alone would put the line; the most inboard of those keeps the gap on both.
+  const placed = own.map((o) => ({
+    side: o.side,
+    line: Number.isFinite(r)
+      ? { cx: centreClearing(o.boxes, curve.middle, r, gap), cy: curve.middle, r, top, bottom }
+      : { x: Math.max(...o.boxes.flat().map(([x]) => x)) + gap, top, bottom },
+  }));
+  const at = (line) => line.cx ?? line.x;
+  const line = placed.reduce((a, b) => (at(b.line) > at(a.line) ? b : a)).line;
+  const left = linePath('left', line, width);
+  const needs = Object.fromEntries(placed.map((p) => [p.side, linePath('left', p.line, width).reach]));
+  return { left: left.d, right: linePath('right', line, width).d, reach: left.reach, needs };
 }
 
 /** bettingArc's path alone. */
