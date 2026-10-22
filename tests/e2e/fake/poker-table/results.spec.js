@@ -119,6 +119,29 @@ test('no vote value reaches the page before the reveal', async ({ page, fake }) 
     .toEqual({ hidden: true, piles: 0, digits: [] });
 });
 
+test('on a narrow stage the results keep clear of the seats’ names and fit without scrolling', async ({ page, fake }, testInfo) => {
+  test.skip(testInfo.project.name === 'mobile-webkit', 'the ring is a desktop layout');
+  await page.setViewportSize({ width: 960, height: 800 });
+  const named = (who, name) => ({ ...who, name });
+  const people = [ME, named(BOB, 'Roberta Featherstone'), named(GUS, 'Gustavo Albuquerque'), named(DOT, 'Dorothea Vanderbilt')];
+  const votes = setupPoker(fake, { snap: snapshot({ roster: people, presence: people }), others: OTHERS });
+  await openTable(page);
+  votes.set(ME.pid, { points: 8, locked: true, abstained: false });
+  fake.tx(ROOM, [revealed(R1, votes, BOB.pid, 5)]);
+  await expect(results(page)).toBeVisible();
+  await expect(page.locator('.nt-seats')).toHaveClass(/is-ring/);
+  await expect(page.locator('.nt-seat-vote:visible')).toHaveCount(3);
+
+  await expect.poll(() => page.locator('.nt-table').evaluate((table) => {
+    const box = table.querySelector('.nt-results').getBoundingClientRect();
+    const crossed = [...table.querySelectorAll('.nt-seat:not([hidden]) .nt-seat-label')]
+      .map((label) => label.getBoundingClientRect())
+      .filter((r) => r.right > box.left && r.left < box.right && r.bottom > box.top && r.top < box.bottom);
+    const overlay = table.querySelector('.nt-results');
+    return { crossed: crossed.length, scrolls: overlay.scrollHeight > overlay.clientHeight + 1 };
+  })).toEqual({ crossed: 0, scrolls: false });
+});
+
 test.describe('with reduced motion', () => {
   test.use({ reducedMotion: 'reduce' });
 

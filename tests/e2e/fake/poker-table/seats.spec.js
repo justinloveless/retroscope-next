@@ -135,6 +135,22 @@ test('a crowded table shrinks its seats and puts the rest behind a "+N" chip', a
   await expect(list.locator('.nt-more-item').last()).toContainText('Kai');
 });
 
+test('a live reveal keeps the seats at the size they had while voting', async ({ page, fake }, testInfo) => {
+  desktopOnly(testInfo);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const votes = setupPoker(fake, { snap: table(12), others: Object.fromEntries(CROWD.map((p) => [p.pid, { points: 5, locked: true, abstained: false }])) });
+  await openTable(page);
+  const seats = page.locator('.nt-seats.is-ring');
+  await expect(seats).toHaveAttribute('data-size', /\w/);
+  const size = await seats.getAttribute('data-size');
+
+  fake.tx(ROOM, [revealed(R1, votes, BOB.pid)]);
+  await expect(page.getByRole('dialog', { name: 'Results' })).toBeVisible();
+  // The dock empties once the overlay holds the results; the seats have been laid out again by then.
+  await expect.poll(() => page.locator('.nt-table').evaluate((el) => el.style.getPropertyValue('--nt-dock-h'))).toBe('0px');
+  await expect(seats).toHaveAttribute('data-size', size);
+});
+
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
