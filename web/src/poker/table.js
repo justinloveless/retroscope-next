@@ -124,6 +124,7 @@ export function createTable(actions) {
   let sentKey = null;
   let frame = 0;
   let revealedParts = null;
+  let restingDock = 0;
 
   function applyLayout(result) {
     if (result) {
@@ -138,11 +139,16 @@ export function createTable(actions) {
       return;
     }
     setStyle(el, { '--nt-dock-h': `${Math.ceil(dock.offsetHeight)}px` });
+    // The seats keep the room the dock took before the reveal, so they do not grow when the hand goes away
+    // and shrink back for the next round.
+    if (phase !== 'revealed') {
+      restingDock = dock.offsetHeight;
+    }
     applyLayout(seats.layout({
       width: el.clientWidth,
       height: el.clientHeight,
       top: header.offsetTop + header.offsetHeight,
-      bottom: dock.offsetHeight + LABEL_ROOM_PX,
+      bottom: Math.max(dock.offsetHeight, restingDock) + LABEL_ROOM_PX,
     }));
     const labels = Math.ceil(seats.labelReach());
     setStyle(el, { '--nt-labels': `${labels}px` });
