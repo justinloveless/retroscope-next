@@ -1,8 +1,10 @@
 name: images
 
-# Builds the app and importer images on GitHub-hosted runners and pushes them to GHCR, tagged with the commit SHA; the
-# Coolify compose file references them by digest only (DESIGN §i.1, F1). deploy.yml waits for these images after ci
-# passes on main; preview.yml calls this workflow for a pull request's head commit.
+# Builds the app and importer images on GitHub-hosted runners and pushes them to GHCR; the Coolify compose file
+# references them by digest only (DESIGN §i.1, F1). A push tags them with the commit SHA and, on main, uploads their
+# digests as the 'image-digests' artifact, which deploy.yml reads after ci passes. Tags are mutable and previews run
+# branch code with packages: write, so production trusts only that artifact, never a tag. preview.yml calls this
+# workflow for a branch's head commit; those images are tagged preview-<sha> and never take a plain-SHA tag.
 on:
   push:
     branches: [main]
@@ -10,7 +12,7 @@ on:
   workflow_call:
     inputs:
       ref:
-        description: Commit SHA to build. The images are tagged with it.
+        description: Commit SHA to build. The images are tagged preview-<sha>.
         type: string
         required: true
     outputs:
@@ -62,7 +64,10 @@ jobs:
         run: |
           # Tag with the commit actually checked out: under workflow_call, github.sha is the caller's (for a
           # pull request, the merge commit), not the commit being built.
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          sha="$(git rev-parse HEAD)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then tag="$sha"; else tag="preview-$sha"; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           echo "app=ghcr.io/$owner/retroscope" >> "$GITHUB_OUTPUT"
           echo "importer=ghcr.io/$owner/retroscope-import" >> "$GITHUB_OUTPUT"
@@ -83,7 +88,7 @@ jobs:
           file: deploy/Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.names.outputs.app }}:${{ steps.names.outputs.sha }}
+          tags: ${{ steps.names.outputs.app }}:${{ steps.names.outputs.tag }}
 
       - name: Build and push importer
         id: importer
@@ -93,7 +98,7 @@ jobs:
           file: deploy/Dockerfile.importer
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.names.outputs.importer }}:${{ steps.names.outputs.sha }}
+          tags: ${{ steps.names.outputs.importer }}:${{ steps.names.outputs.tag }}
 
       - name: Digests
         id: digests
@@ -114,3 +119,15 @@ jobs:
             echo "app: $APP@$APP_DIGEST"
             echo "importer: $IMPORTER@$IMPORTER_DIGEST"
           } | tee -a "$GITHUB_STEP_SUMMARY"
+          jq -n --arg sha "$SHA" --arg app "${APP_DIGEST#sha256:}" --arg importer "${IMPORTER_DIGEST#sha256:}" \
+            '{sha: $sha, app: $app, importer: $importer}' > "$RUNNER_TEMP/image-digests.json"
+
+      # deploy.yml finds this run by commit, event and branch, and deploys exactly these digests.
+      - name: Upload digests for deploy
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: image-digests
+          path: ${{ runner.temp }}/image-digests.json
+          if-no-files-found: error
+          retention-days: 90
