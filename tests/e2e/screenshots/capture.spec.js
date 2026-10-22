@@ -19,9 +19,14 @@ const VIEWPORTS = {
 const poker = `/teams/${TEAM}/poker/${CODES.teamPoker}`;
 
 async function centre(locator) {
-  await locator.scrollIntoViewIfNeeded();
   const box = await locator.boundingBox();
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+/** Points at the hand, so the fan rises out of its resting peek. */
+async function raiseHand(page) {
+  await page.locator('.nt-hand').hover();
+  await page.waitForTimeout(400);
 }
 
 /** The Browse Jira panel: open by default on desktop, a sheet behind the toolbar button on phones. */
@@ -42,19 +47,20 @@ const STATES = [
   { route: 'team', state: 'tab-kudos', path: `/teams/${TEAM}?tab=kudos`, ready: 'text=Kudos leaderboard' },
   { route: 'team-settings', state: 'jira', path: `/teams/${TEAM}/settings#jira`, ready: 'text=demo-retail.atlassian.net' },
   { route: 'poker', state: 'voting', path: poker, ready: '.nt-seat[data-status="locked"]' },
-  { route: 'poker', state: 'revealed', path: `${poker}?round=1`, ready: '.nt-table' },
+  { route: 'poker', state: 'revealed', path: `${poker}?round=1`, ready: '.nt-seat .nt-flip.is-flipped' },
   {
     route: 'poker',
     state: 'drag',
     path: poker,
     ready: '.nt-hand-card[data-points="8"]',
     async act(page) {
+      await raiseHand(page);
       const from = await centre(page.locator('.nt-hand-card[data-points="8"]'));
       const field = await page.locator('.nt-field').boundingBox();
       await page.mouse.move(from.x, from.y);
       await page.mouse.down();
       await page.mouse.move(from.x + 12, from.y - 40, { steps: 3 });
-      await page.mouse.move(field.x + field.width / 2, field.y + field.height - 16, { steps: 5 });
+      await page.mouse.move(field.x + field.width / 2, field.y + field.height / 3, { steps: 5 });
       await expect(page.locator('.nt-drop')).toBeVisible();
       return async () => {
         await page.keyboard.press('Escape');
@@ -62,6 +68,28 @@ const STATES = [
       };
     },
   },
+  { route: 'poker', state: 'hand-raised', path: poker, ready: '.nt-hand-card[data-points="8"]', act: raiseHand },
+  {
+    route: 'poker',
+    state: 'between-hold',
+    path: poker,
+    ready: '.nt-hand-card[data-points="5"]',
+    async act(page) {
+      await raiseHand(page);
+      const from = await centre(page.locator('.nt-hand-card[data-points="5"]'));
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      await page.mouse.move(from.x, from.y - 20, { steps: 3 });
+      await page.mouse.move(...Object.values(await centre(page.locator('.nt-zone-right'))), { steps: 3 });
+      await expect(page.locator('.nt-zone-right')).toHaveClass(/is-holding/);
+      return async () => {
+        await page.keyboard.press('Escape');
+        await page.mouse.up();
+      };
+    },
+  },
+  { route: 'poker', state: 'crowd-12-voting', path: `/poker/${CODES.crowdPoker}?round=2`, ready: '.nt-seat[data-status="locked"]' },
+  { route: 'poker', state: 'crowd-12-revealed', path: `/poker/${CODES.crowdPoker}?round=1`, ready: '.nt-seat .nt-flip.is-flipped' },
   { route: 'poker', state: 'jira-panel', path: poker, ready: '.nt-table', act: jiraPanel },
   {
     route: 'poker',
