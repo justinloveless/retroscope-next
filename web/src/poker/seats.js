@@ -1,5 +1,5 @@
-// The players around the issue (docs/followups/UX1.md): each seat sits on the left or right arc of the
-// stage (geometry.js), turned so its card faces the centre, with the avatar on the outer side and an
+// The players around the issue (docs/followups/UX1.md, UX2.md): each seat sits on the left or right arc of
+// the stage (geometry.js), turned so its card faces the centre, with the avatar on the card's outer end and an
 // upright name label. A locked vote slides in face down along the seat's axis; a reveal flips every seated
 // card in place. Votes stay secret until the reveal: before it a seat only knows "waiting", "thinking" or
 // "locked in". Narrow stages get one scrolling avatar row instead of the ring.
@@ -71,12 +71,13 @@ function createNode(seat) {
   avatar.el.removeAttribute('aria-label');
   const name = h('span', { class: 'nt-seat-name' });
   const vote = h('span', { class: 'nt-seat-vote', hidden: true });
+  const label = h('span', { class: 'nt-seat-label', 'aria-hidden': 'true' }, name, h('span', { class: 'nt-badge-guest', text: 'guest' }), vote);
   const node = h('li', { class: 'nt-seat' },
     h('span', { class: 'nt-seat-body', 'aria-hidden': 'true' },
       slot,
       h('span', { class: 'nt-seat-avatar' }, avatar.el, h('span', { class: 'nt-presence' }), value)),
-    h('span', { class: 'nt-seat-label', 'aria-hidden': 'true' }, name, h('span', { class: 'nt-badge-guest', text: 'guest' }), vote));
-  node.parts = { slot, value, avatar, name, vote };
+    label);
+  node.parts = { slot, value, avatar, name, vote, label };
   return node;
 }
 
@@ -191,17 +192,17 @@ export function createSeats() {
   function position(node, slot, size) {
     if (!slot) {
       node.placed = false;
+      node.labelAt = null;
       setStyle(node, { '--x': null, '--y': null, '--a': null, '--lx': null, '--ly': null, '--label-max': null });
       return;
     }
     const rad = (slot.angle * Math.PI) / 180;
-    // The avatar sits at the outer end of the seat's axis; the label hangs below it, or above it for seats in
-    // the upper half, where the card points down.
-    const reach = size.height / 2 - size.avatar / 2;
+    // The avatar sits on the card's outer end and the label hangs just below it, over the seat's own card, so
+    // a label never lands on a neighbouring seat.
+    const reach = size.height / 2 - size.avatar / 2 - size.inset;
     const ax = -reach * Math.sin(rad);
     const ay = reach * Math.cos(rad);
-    const above = Math.cos(rad) < -0.3;
-    const offset = Math.max(size.avatar / 2, size.width / 2) + LABEL_GAP_PX;
+    const offset = size.avatar / 2 + LABEL_GAP_PX;
     const left = slot.side === 'left';
     const anchor = left
       ? Math.max(STAGE_PAD_PX / 2 - slot.x, ax - size.avatar / 2)
@@ -211,11 +212,11 @@ export function createSeats() {
       '--y': `${slot.y}px`,
       '--a': `${slot.angle}deg`,
       '--lx': `${anchor + size.width / 2}px`,
-      '--ly': `${ay + (above ? -offset : offset) + size.height / 2}px`,
+      '--ly': `${ay + offset + size.height / 2}px`,
       '--label-max': `${LABEL_MAX_PX}px`,
     });
     node.dataset.side = slot.side;
-    node.dataset.label = above ? 'above' : 'below';
+    node.labelAt = slot.x + anchor;
     // A seat's first place is taken at once; only later moves glide.
     if (!node.placed) {
       node.placed = true;
@@ -240,11 +241,12 @@ export function createSeats() {
         '--seat-w': `${size.width}px`,
         '--seat-h': `${size.height}px`,
         '--seat-avatar': `${size.avatar}px`,
+        '--seat-inset': `${size.inset}px`,
         '--seat-scale': size.card,
       });
     } else {
       delete el.dataset.size;
-      setStyle(el, { '--seat-w': null, '--seat-h': null, '--seat-avatar': null, '--seat-scale': null });
+      setStyle(el, { '--seat-w': null, '--seat-h': null, '--seat-avatar': null, '--seat-inset': null, '--seat-scale': null });
     }
     const nodes = [...el.querySelectorAll(':scope > .nt-seat')];
     nodes.forEach((node, i) => {
@@ -293,6 +295,20 @@ export function createSeats() {
     layout(next) {
       stage = next;
       return place();
+    },
+    /** How far the ring's name labels reach in from either side edge, as drawn (a revealed vote widens them). */
+    labelReach() {
+      if (!stage || !el.classList.contains('is-ring')) {
+        return 0;
+      }
+      let reach = 0;
+      for (const node of el.querySelectorAll(':scope > .nt-seat:not([hidden])')) {
+        if (node.labelAt != null) {
+          const width = node.parts.label.offsetWidth;
+          reach = Math.max(reach, node.dataset.side === 'left' ? node.labelAt + width : stage.width - node.labelAt + width);
+        }
+      }
+      return reach;
     },
     get depth() {
       return plan && el.classList.contains('is-ring') ? plan.depth : 0;

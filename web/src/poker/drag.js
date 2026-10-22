@@ -1,7 +1,8 @@
-// Drag-to-play (§g.8, docs/followups/UX1.md): Pointer Events with pointer capture, an 8 px threshold, a
-// floating card and the dashed drop overlay on the issue: a drop anywhere above the raised hand plays the
-// card. The gaps between the dragged card and its neighbours in the raised fan vote "between" after a 2 s
-// hold. The hand cards carry touch-action: none, otherwise a touch pan fires pointercancel mid-drag (F19).
+// Drag-to-play (§g.8, docs/followups/UX1.md, UX2.md): Pointer Events with pointer capture, an 8 px threshold,
+// a floating card and the dashed drop overlay on the issue: a drop anywhere above the raised hand plays the
+// card. The cards beside the dragged one move out by a slot, and the widened gaps between it and its
+// neighbours vote "between" after a 2 s hold. The hand cards carry touch-action: none, otherwise a touch pan
+// fires pointercancel mid-drag (F19).
 
 import { h, setStyle } from '../core/h.js';
 import { DECK } from './model.js';
@@ -36,7 +37,10 @@ function gapZone(selection, neighbour, side) {
   return { el, fill, pill, selection, neighbour };
 }
 
-/** The gap between two cards' rects, kept clear of either card's centre. */
+/**
+ * The gap between two cards' rects, kept clear of either card's centre, so the zones on the two sides of a
+ * card never meet. It spans the cards' height, which lies below the drop floor above the fan.
+ */
 export function gapRect(a, b) {
   const ax = a.left + a.width / 2;
   const bx = b.left + b.width / 2;
@@ -60,8 +64,9 @@ export function createDrag({ dropZone, cards = () => [], onPlay }) {
     if (!session) {
       return;
     }
-    const { source, pointerId, float, zones, overlay, frame, listeners } = session;
+    const { source, pointerId, float, zones, overlay, frame, follow, listeners } = session;
     cancelAnimationFrame(frame);
+    cancelAnimationFrame(follow);
     for (const [type, fn] of listeners) {
       source.removeEventListener(type, fn);
     }
@@ -87,7 +92,7 @@ export function createDrag({ dropZone, cards = () => [], onPlay }) {
     return tops.length ? Math.min(...tops) - FLOOR_GAP_PX : dropZone.getBoundingClientRect().bottom;
   }
 
-  // The fan rises while the drag starts, so the zones and the overlay follow the cards on every move.
+  // The fan rises and opens while the drag starts, so the zones and the overlay follow the cards every frame.
   function track(s) {
     const zone = dropZone.getBoundingClientRect();
     setStyle(s.overlay, { bottom: `${Math.max(0, zone.bottom - floor())}px` });
@@ -124,6 +129,11 @@ export function createDrag({ dropZone, cards = () => [], onPlay }) {
       }
       document.body.append(...s.zones.map((z) => z.el));
     }
+    const follow = () => {
+      track(s);
+      s.follow = requestAnimationFrame(follow);
+    };
+    s.follow = requestAnimationFrame(follow);
     move(s, x, y);
   }
 
@@ -194,6 +204,7 @@ export function createDrag({ dropZone, cards = () => [], onPlay }) {
       zones: [],
       listeners: new Map(),
       frame: 0,
+      follow: 0,
     };
     session = s;
     source.setPointerCapture?.(event.pointerId);

@@ -1,14 +1,17 @@
-// Where the players sit around the issue (docs/followups/UX1.md): two arcs of an ellipse inscribed in the
-// stage, one down the left side and one down the right, filled alternately and spread evenly by arc length.
-// The top and bottom edges stay clear for the round header and the hand. Each seat is rotated so its card's
-// top edge points at the stage centre. Pure: stage size, seat count and seat size in; centres and angles out.
+// Where the players sit around the issue (docs/followups/UX2.md): two independent shallow circular arcs, one
+// down each side. Each arc's chord runs vertically along its side between the top and bottom bands (the round
+// header and the hand), and the arc bows toward the stage centre by a small sagitta, so a seat at the top or
+// bottom of a side sits almost as close to the edge as the middle one. Players fill the sides alternately and
+// are spread evenly by arc length. Each seat is rotated so its card's top edge points at the stage centre.
+// Pure: stage size, seat count and seat size in; centres and angles out.
 
-export const MAX_ARC_DEG = 120;
 export const STAGE_PAD_PX = 8;
-const SAMPLES = 96;
+export const MAX_SAGITTA_PX = 56;
+export const MAX_SAGITTA_SHARE = 0.05;
+export const MAX_DEPTH_SHARE = 0.15;
+export const MAX_DEPTH_PX = 220;
 const IDEAL_SPREAD = 1.6;
-const MAX_DEPTH_SHARE = 0.25;
-const MAX_DEPTH_PX = 260;
+const FIT_STEPS = 24;
 const DEG = Math.PI / 180;
 
 /** The rotation (degrees, clockwise) that turns a seat's local "up" toward (cx, cy). */
@@ -21,6 +24,11 @@ export function extents(w, h, angle) {
   const c = Math.abs(Math.cos(angle * DEG));
   const s = Math.abs(Math.sin(angle * DEG));
   return { ex: (w * c + h * s) / 2, ey: (w * s + h * c) / 2 };
+}
+
+/** How far a side's arc may bow in from its chord on a stage `width` wide. */
+export function maxSagitta(width) {
+  return Math.min(MAX_SAGITTA_PX, width * MAX_SAGITTA_SHARE);
 }
 
 function corners(seat, w, h) {
@@ -48,53 +56,65 @@ export function seatsOverlap(a, b, w, h) {
   return true;
 }
 
-// Arc length from the side's midpoint to parameter u, for u in [0, uMax]; the ellipse is symmetric about it.
-function arcTable(a, b, uMax) {
-  const table = [0];
-  const step = uMax / SAMPLES;
-  for (let i = 1; i <= SAMPLES; i++) {
-    const u = (i - 0.5) * step;
-    table.push(table[i - 1] + Math.hypot(a * Math.sin(u), b * Math.cos(u)) * step);
+// A circular arc through the chord's ends (half-length `half`) whose middle lies `sagitta` in from the chord.
+function arcOf(half, sagitta) {
+  if (sagitta < 1e-6) {
+    return { radius: Infinity, length: 2 * half, sagitta: 0 };
   }
-  return { table, step };
+  const radius = (half * half + sagitta * sagitta) / (2 * sagitta);
+  return { radius, length: 2 * radius * Math.asin(Math.min(1, half / radius)), sagitta };
 }
 
-function paramAt({ table, step }, length) {
-  const target = Math.abs(length);
-  let i = 1;
-  while (i < table.length - 1 && table[i] < target) {
-    i++;
+// The point `along` px of arc length from the arc's middle: how far in from the chord, and how far down.
+function pointOn(arc, along) {
+  if (!Number.isFinite(arc.radius)) {
+    return { inward: 0, down: along };
   }
-  const span = table[i] - table[i - 1];
-  const u = (i - 1 + (span > 0 ? Math.min(1, (target - table[i - 1]) / span) : 0)) * step;
-  return Math.sign(length) * u;
+  const theta = along / arc.radius;
+  return { inward: arc.sagitta - arc.radius * (1 - Math.cos(theta)), down: arc.radius * Math.sin(theta) };
 }
 
-function place(stage, side, u, geometry) {
-  const { cx, cy, a, b, w, h } = geometry;
-  let x = side === 'left' ? cx - a * Math.cos(u) : cx + a * Math.cos(u);
-  let y = cy + b * Math.sin(u);
-  let angle = angleToward(x, y, cx, cy);
-  for (let pass = 0; pass < 2; pass++) {
-    const { ex, ey } = extents(w, h, angle);
-    x = Math.min(Math.max(x, ex + STAGE_PAD_PX), stage.width - ex - STAGE_PAD_PX);
-    y = Math.min(Math.max(y, ey + STAGE_PAD_PX), stage.height - ey - STAGE_PAD_PX);
-    angle = angleToward(x, y, cx, cy);
-  }
-  return { x, y, angle, side };
+// Arc length from the arc's middle to the point level with the stage centre, kept so that a group `span` long
+// centred there stays on the arc.
+function groupCentre(frame, arc, span) {
+  const level = frame.stage.height / 2 - frame.middle;
+  const along = Number.isFinite(arc.radius) ? arc.radius * Math.asin(Math.max(-1, Math.min(1, level / arc.radius))) : level;
+  const room = Math.max(0, (arc.length - span) / 2);
+  return Math.max(-room, Math.min(room, along));
 }
 
-function sideSlots(stage, side, count, spacing, geometry) {
-  if (count === 0) {
-    return [];
+// One side's seats, top to bottom, `step` apart along the arc and centred as near the stage centre's height
+// as the arc allows, so the seats face in as squarely as they can. The whole side is moved in just far
+// enough that every rotated seat clears the stage padding, which keeps its shape.
+function sideSlots(frame, side, count, arc, step) {
+  const { stage, middle, w, h } = frame;
+  const cx = stage.width / 2;
+  const cy = stage.height / 2;
+  const centre = groupCentre(frame, arc, (count - 1) * step);
+  const points = Array.from({ length: count }, (_, j) => pointOn(arc, centre + (j - (count - 1) / 2) * step));
+  let shift = STAGE_PAD_PX + h / 2;
+  let slots = [];
+  for (let pass = 0; pass < 3; pass++) {
+    slots = points.map(({ inward, down }) => {
+      const x = shift + inward;
+      const y = middle + down;
+      return { x: side === 'left' ? x : stage.width - x, y, angle: angleToward(side === 'left' ? x : stage.width - x, y, cx, cy), side };
+    });
+    shift = Math.max(...slots.map((slot, j) => STAGE_PAD_PX + extents(w, h, slot.angle).ex - points[j].inward));
   }
-  return Array.from({ length: count }, (_, j) => {
-    const length = (j - (count - 1) / 2) * spacing;
-    return place(stage, side, paramAt(geometry.arc, length), geometry);
-  });
+  return slots;
 }
 
-function anyOverlap(slots, w, h) {
+function depthOf(slots, frame) {
+  let depth = 0;
+  for (const slot of slots) {
+    const { ex } = extents(frame.w, frame.h, slot.angle);
+    depth = Math.max(depth, slot.side === 'left' ? slot.x + ex : frame.stage.width - slot.x + ex);
+  }
+  return depth;
+}
+
+function overlapping(slots, w, h) {
   for (let i = 1; i < slots.length; i++) {
     if (seatsOverlap(slots[i - 1], slots[i], w, h)) {
       return true;
@@ -103,63 +123,86 @@ function anyOverlap(slots, w, h) {
   return false;
 }
 
+// The deepest bow and widest spread at which `count` seats fit on one side: the sagitta gives way first, then
+// the spread, down to the seat's minimum spacing. Null when they do not fit within the stage's depth.
+function fitSide(frame, count) {
+  const { half, spacing, maxDepth, w, h } = frame;
+  const fits = (sagitta, step) => {
+    const arc = arcOf(half, sagitta);
+    if ((count - 1) * step > arc.length + 1e-6) {
+      return null;
+    }
+    const slots = sideSlots(frame, 'left', count, arc, step);
+    return depthOf(slots, frame) <= maxDepth && !overlapping(slots, w, h) ? { arc, step } : null;
+  };
+  const roomy = (sagitta) => (count > 1 ? Math.min(spacing * IDEAL_SPREAD, arcOf(half, sagitta).length / (count - 1)) : 0);
+  const search = (lo, hi, at) => {
+    for (let i = 0; i < FIT_STEPS; i++) {
+      const mid = (lo + hi) / 2;
+      [lo, hi] = at(mid) ? [mid, hi] : [lo, mid];
+    }
+    return lo;
+  };
+  const most = frame.sagitta;
+  const best = fits(most, roomy(most));
+  if (best) {
+    return best;
+  }
+  const flat = fits(0, roomy(0));
+  if (flat) {
+    const sagitta = search(0, most, (s) => fits(s, roomy(s)));
+    return fits(sagitta, roomy(sagitta));
+  }
+  if (count === 1 || !fits(0, spacing)) {
+    return null;
+  }
+  return fits(0, search(spacing, roomy(0), (step) => fits(0, step)));
+}
+
 /**
  * Seats `count` players around a stage.
  *
  * stage: {width, height, top?, bottom?, maxDepth?}; `top` and `bottom` are the heights of the bands kept
  * clear (the round header and the hand): no seat centre lies in them, though a corner seat's box may spill
- * into them. `maxDepth` caps how far the ring may reach in from a side edge, so the issue keeps its width.
+ * into them. `maxDepth` caps how far a side may reach in from its edge, so the issue keeps its width.
  * seat: {width, height, spacing}; the seat's box before rotation (`width` across its axis, `height` along
  * it) and the smallest distance between neighbouring centres along an arc.
  *
- * Returns {seats: [{x, y, angle, side}], chip, hidden, depth}: the seats in player order (player i sits on
- * the left when i is even), the "+N" chip's slot when not everyone fits (the last slot of the right arc,
- * which alternation leaves free, so both arcs hold as many items as fit), how many players that chip stands
- * for, and how far the ring reaches in from either side edge.
+ * Returns {seats: [{x, y, angle, side}], chip, hidden, depth, sagitta}: the seats in player order (player i
+ * sits on the left when i is even), the "+N" chip's slot when not everyone fits (the last slot of the right
+ * arc, which alternation leaves free, so both arcs hold as many items as fit), how many players that chip
+ * stands for, how far the seats reach in from either side edge, and how far the arcs bow in.
  */
 export function seatLayout(stage, count, seat) {
-  const empty = { seats: [], chip: null, hidden: Math.max(0, count), depth: 0 };
+  const empty = { seats: [], chip: null, hidden: Math.max(0, count), depth: 0, sagitta: 0 };
   const { width: W, height: H } = stage;
-  const top = stage.top ?? 0;
-  const bottom = stage.bottom ?? 0;
-  const maxDepth = stage.maxDepth ?? Infinity;
   const { width: w, height: h, spacing } = seat;
   if (count <= 0 || !(W > 0) || !(H > 0)) {
     return empty;
   }
-  const cx = W / 2;
-  const cy = H / 2;
-  const a = W / 2 - h / 2 - STAGE_PAD_PX;
-  const b = H / 2 - Math.hypot(w, h) / 2 - STAGE_PAD_PX;
-  const room = Math.min(cy - top, H - bottom - cy);
-  if (a <= 0 || b < 0 || room <= 0) {
+  const corner = Math.hypot(w, h) / 2 + STAGE_PAD_PX;
+  const first = Math.max(stage.top ?? 0, corner);
+  const last = Math.min(H - (stage.bottom ?? 0), H - corner);
+  if (last < first) {
     return empty;
   }
-  const reachAt = (u) => {
-    const slot = place(stage, 'left', u, { cx, cy, a, b, w, h });
-    return slot.x + extents(w, h, slot.angle).ex;
+  const frame = {
+    stage,
+    w,
+    h,
+    spacing,
+    middle: (first + last) / 2,
+    half: (last - first) / 2,
+    sagitta: Math.min(maxSagitta(W), (last - first) / 2),
+    maxDepth: Math.min(stage.maxDepth ?? Infinity, W / 2),
   };
-  if (reachAt(0) > maxDepth) {
-    return empty;
-  }
-  // The arc ends where a seat centre would enter the top or bottom band, at ±60°, or where the ring would
-  // reach deeper than allowed, whichever comes first.
-  let uMax = b === 0 ? 0 : Math.min((MAX_ARC_DEG / 2) * DEG, Math.asin(Math.min(1, room / b)));
-  if (reachAt(uMax) > maxDepth) {
-    let lo = 0;
-    let hi = uMax;
-    for (let i = 0; i < 30; i++) {
-      const mid = (lo + hi) / 2;
-      [lo, hi] = reachAt(mid) > maxDepth ? [lo, mid] : [mid, hi];
-    }
-    uMax = lo;
-  }
-  const geometry = { cx, cy, a, b, w, h, arc: arcTable(a, b, uMax) };
-  const length = 2 * geometry.arc.table[SAMPLES];
 
-  let perSide = Math.floor(length / spacing + 1e-9) + 1;
-  while (perSide > 1 && anyOverlap(sideSlots(stage, 'left', perSide, length / (perSide - 1), geometry), w, h)) {
+  let perSide = Math.floor((2 * frame.half) / spacing + 1e-9) + 1;
+  while (perSide > 0 && !fitSide(frame, perSide)) {
     perSide--;
+  }
+  if (perSide === 0) {
+    return empty;
   }
   const capacity = 2 * perSide;
   const overflowing = count > capacity;
@@ -167,41 +210,43 @@ export function seatLayout(stage, count, seat) {
   const slots = overflowing ? capacity : count;
   const left = Math.ceil(slots / 2);
   const right = Math.floor(slots / 2);
-  const fuller = Math.max(left, right);
-  const step = fuller > 1 ? Math.min(spacing * IDEAL_SPREAD, length / (fuller - 1)) : 0;
-  const leftSlots = sideSlots(stage, 'left', left, step, geometry);
-  const rightSlots = sideSlots(stage, 'right', right, step, geometry);
+  const { arc, step } = fitSide(frame, left);
+  const leftSlots = sideSlots(frame, 'left', left, arc, step);
+  const rightSlots = right > 0 ? sideSlots(frame, 'right', right, arc, step) : [];
 
   const seats = [];
   for (let i = 0; i < shown; i++) {
     seats.push(i % 2 === 0 ? leftSlots[i / 2] : rightSlots[(i - 1) / 2]);
   }
   const chip = overflowing ? rightSlots[right - 1] : null;
-  let depth = 0;
-  for (const slot of chip ? [...seats, chip] : seats) {
-    const { ex } = extents(w, h, slot.angle);
-    depth = Math.max(depth, slot.side === 'left' ? slot.x + ex : W - slot.x + ex);
-  }
-  return { seats, chip, hidden: count - shown, depth };
+  const depth = depthOf([...leftSlots, ...rightSlots], frame);
+  return { seats, chip, hidden: count - shown, depth, sagitta: arc.sagitta };
 }
 
 /**
- * Seat sizes from roomy to the avatar-only minimum: the box (`width` across, `height` along the axis),
- * the smallest centre distance along an arc (the box plus an upright name label), and the avatar diameter
- * and card scale the stylesheet draws. The avatar overlaps the card spot's outer end by 4 px.
+ * Seat sizes from roomy to the avatar-only minimum: the box (`width` across, `height` along the axis: the
+ * card itself), the smallest centre distance along an arc (the card plus an upright name label), the avatar
+ * diameter, how far the avatar sits in from the card's outer end, and the card scale the stylesheet draws.
+ * The card scales are the ones the pixel art renders crisply at.
  */
 export const SEAT_SIZES = Object.freeze([
-  Object.freeze({ name: 'full', width: 46, height: 82, spacing: 68, avatar: 34, card: 0.55 }),
-  Object.freeze({ name: 'compact', width: 36, height: 64, spacing: 56, avatar: 28, card: 0.42 }),
-  Object.freeze({ name: 'avatar', width: 34, height: 34, spacing: 40, avatar: 30, card: 0 }),
+  Object.freeze({ name: 'large', width: 107, height: 143, spacing: 131, avatar: 48, inset: 6, card: 1.5 }),
+  Object.freeze({ name: 'full', width: 71, height: 95, spacing: 95, avatar: 34, inset: 4, card: 1 }),
+  Object.freeze({ name: 'compact', width: 54, height: 72, spacing: 78, avatar: 26, inset: 3, card: 0.75 }),
+  Object.freeze({ name: 'avatar', width: 34, height: 34, spacing: 40, avatar: 30, inset: 2, card: 0 }),
 ]);
 
+/** How far the seats may reach in from a side of a stage `width` wide. */
+export function depthLimit(width) {
+  return Math.min(MAX_DEPTH_PX, width * MAX_DEPTH_SHARE);
+}
+
 /**
- * The roomiest size that seats everyone within `maxDepth` (a quarter of the stage width, at most 260 px,
- * unless the stage says otherwise), else the avatar-only minimum with a "+N" chip.
+ * The roomiest size that seats everyone within the stage's depth limit (`depthLimit`, unless the stage says
+ * otherwise), else the avatar-only minimum with a "+N" chip.
  */
 export function planSeats(stage, count) {
-  const limited = { maxDepth: Math.min(MAX_DEPTH_PX, stage.width * MAX_DEPTH_SHARE), ...stage };
+  const limited = { maxDepth: depthLimit(stage.width), ...stage };
   let layout = null;
   for (const size of SEAT_SIZES) {
     layout = { size, ...seatLayout(limited, count, size) };

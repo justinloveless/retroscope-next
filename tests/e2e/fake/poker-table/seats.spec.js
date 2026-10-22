@@ -119,7 +119,7 @@ test('the reveal flips each seat to its vote; before it no vote value is in the 
 
 test('a crowded table shrinks its seats and puts the rest behind a "+N" chip', async ({ page, fake }, testInfo) => {
   desktopOnly(testInfo);
-  await page.setViewportSize({ width: 1024, height: 640 });
+  await page.setViewportSize({ width: 1024, height: 500 });
   setupPoker(fake, { snap: table(12) });
   await openTable(page);
   const chip = page.locator('.nt-more-button');
@@ -133,6 +133,22 @@ test('a crowded table shrinks its seats and puts the rest behind a "+N" chip', a
   const list = page.getByRole('dialog', { name: 'More players' });
   await expect(list.locator('.nt-more-item')).toHaveCount(11 - shown);
   await expect(list.locator('.nt-more-item').last()).toContainText('Kai');
+});
+
+test('a live reveal keeps the seats at the size they had while voting', async ({ page, fake }, testInfo) => {
+  desktopOnly(testInfo);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const votes = setupPoker(fake, { snap: table(12), others: Object.fromEntries(CROWD.map((p) => [p.pid, { points: 5, locked: true, abstained: false }])) });
+  await openTable(page);
+  const seats = page.locator('.nt-seats.is-ring');
+  await expect(seats).toHaveAttribute('data-size', /\w/);
+  const size = await seats.getAttribute('data-size');
+
+  fake.tx(ROOM, [revealed(R1, votes, BOB.pid)]);
+  await expect(page.getByRole('dialog', { name: 'Results' })).toBeVisible();
+  // The dock empties once the overlay holds the results; the seats have been laid out again by then.
+  await expect.poll(() => page.locator('.nt-table').evaluate((el) => el.style.getPropertyValue('--nt-dock-h'))).toBe('0px');
+  await expect(seats).toHaveAttribute('data-size', size);
 });
 
 test.describe('on a phone', () => {
