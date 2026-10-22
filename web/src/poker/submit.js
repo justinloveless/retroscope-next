@@ -1,8 +1,8 @@
-// Jira on a team poker page (§f, §g.7, §g.8). `jiraFeature` is the poker screen's FEATURES entry: it
-// reads the team's Jira configuration, puts the browse panel (lazy chunk jira-browse) on the left, opens
-// issues in the drawer (lazy chunk jira-drawer), runs the spotlight holder's pending preview, and draws the
-// "Submit to Jira" chips under a revealed round. The chips live here, in the poker chunk, because they
-// must paint together with the reveal.
+// Jira on a team poker page (§f, §g.7, §g.8, docs/followups/UX1.md). `jiraFeature` is the poker screen's
+// FEATURES entry: it reads the team's Jira configuration, shows the viewed round's issue at the centre of
+// the stage and puts the browse panel on the left (both from lazy chunks), opens browsed issues in the
+// drawer, runs the spotlight holder's pending preview, and draws the "Submit to Jira" chips in the results
+// of a revealed round. The chips live here, in the poker chunk, because they must paint with the reveal.
 
 import { h, replaceContent } from '../core/h.js';
 import { http } from '../core/http.js';
@@ -130,14 +130,13 @@ export function createSheet({ side = 'right', label, width = '36rem', onClose })
 
 /** The submit chips and the shared submit state of one revealed round. */
 function createSubmit({ onSubmit }) {
-  const chips = h('div', { class: 'jira-submit-chips', role: 'group', 'aria-label': 'Points to submit', style: { display: 'flex', gap: '0.25rem', 'flex-wrap': 'wrap', 'justify-content': 'center' } });
+  const chips = h('div', { class: 'jira-submit-chips', role: 'group', 'aria-label': 'Points to submit' });
   const send = createButton({ label: 'Submit to Jira', icon: 'send', variant: 'emerald', press: true, size: 'sm', onClick: () => onSubmit(chosen) });
-  const status = h('p', { class: 'jira-submit-status', role: 'status', style: { margin: '0', 'font-size': '0.8125rem', color: 'hsl(var(--muted-foreground))', 'text-align': 'center' } });
+  const status = h('p', { class: 'jira-submit-status', role: 'status' });
   const el = h('section', {
     class: 'jira-submit',
     'aria-label': 'Submit points to Jira',
     hidden: true,
-    style: { display: 'grid', gap: '0.5rem', 'justify-items': 'center', 'max-width': '32rem', width: '100%' },
   }, chips, send.el, status);
   const buttons = SUBMIT_CHIPS.map((points) => createButton({
     label: String(points),
@@ -208,10 +207,8 @@ function createSubmit({ onSubmit }) {
 export function jiraFeature(ctx) {
   const { room, me, slots } = ctx;
   const toggle = createButton({ label: 'Browse Jira', icon: 'panel-left', variant: 'ghost', size: 'sm', pressed: false, className: 'jira-toggle', onClick: () => setPanel(!panelOpen, true) });
-  const details = createButton({ label: 'Issue details', icon: 'external-link', variant: 'ghost', size: 'sm', className: 'jira-details', onClick: () => openIssue(currentKey) });
   toggle.el.hidden = true;
-  details.el.hidden = true;
-  slots.toolbar.append(toggle.el, details.el);
+  slots.toolbar.append(toggle.el);
   const submit = createSubmit({ onSubmit: submitPoints });
 
   let view = null;
@@ -222,11 +219,11 @@ export function jiraFeature(ctx) {
   let browseLoad = null;
   let drawer = null;
   let drawerLoad = null;
+  let issuePanel = null;
   let sheet = null;
   let resizer = null;
   let panelOpen = false;
   let preview = null;
-  let currentKey = null;
   let idle = 0;
   let destroyed = false;
 
@@ -263,10 +260,8 @@ export function jiraFeature(ctx) {
       return;
     }
     toggle.el.hidden = false;
-    idle = setTimeout(() => {
-      loadBrowse();
-      loadDrawer();
-    }, IDLE_PREFETCH_MS);
+    loadDrawer();
+    idle = setTimeout(loadBrowse, IDLE_PREFETCH_MS);
     if (!mobile() && readPanels().left?.open !== false) {
       setPanel(true, false);
     }
@@ -290,6 +285,9 @@ export function jiraFeature(ctx) {
     drawerLoad ??= import('./issue-drawer.js').then((module) => {
       if (!destroyed) {
         drawer = module.createIssueDrawer({ ...shared(), onClose: endPreview });
+        issuePanel = module.createIssuePanel({ ...shared(), scroller: slots.issueScroller, onLink: () => ctx.actions.editTicket() });
+        slots.issue.append(issuePanel.el);
+        render();
       }
       return drawer;
     });
@@ -391,25 +389,19 @@ export function jiraFeature(ctx) {
     }
   }
 
-  function placeSubmit() {
-    const table = slots.center.querySelector(':scope > .nt-table');
-    if (table && table.nextElementSibling !== submit.el) {
-      table.after(submit.el);
-    }
-  }
-
   function render() {
     if (!view || !team) {
       submit.update(null);
       return;
     }
     const round = roundById(view, roundId);
-    currentKey = round?.ticketKey ?? null;
-    details.el.hidden = !currentKey;
+    issuePanel?.show(round?.ticketKey ?? null);
     if (preview && !preview.committed && view.rounds.some((r) => r.id === preview.roundId && !r.pending)) {
       preview.committed = true;
     }
-    placeSubmit();
+    if (submit.el.parentNode !== slots.results) {
+      slots.results.append(submit.el);
+    }
     submit.update(round && round.state === 'revealed' && !round.pending
       ? { round, submit: view.submits?.[round.id] ?? null, canEdit: canEdit(), names: (pid) => personName(view, pid) }
       : null);
@@ -432,10 +424,10 @@ export function jiraFeature(ctx) {
       endPreview();
       browse?.destroy();
       drawer?.destroy();
+      issuePanel?.destroy();
       sheet?.destroy();
       submit.el.remove();
       toggle.el.remove();
-      details.el.remove();
       resizer?.destroy();
       slots.left.hidden = true;
       slots.left.classList.remove('jira-panel');

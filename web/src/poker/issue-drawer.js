@@ -55,11 +55,12 @@ function heading(text) {
   return h('h3', { style: HEADING, text });
 }
 
-export function createIssueDrawer(ctx) {
-  const { teamId, jira, canEdit, explain, createSheet, addRounds, onClose } = ctx;
+// The issue's details in a host: the side sheet (the drawer) or the stage's centre (the issue panel).
+// host = {body, title, tools, scroller, inline, open(), hide()}.
+function createIssueView(ctx, host) {
+  const { teamId, jira, canEdit, explain, addRounds, onClose } = ctx;
   const base = `/api/teams/${encodeURIComponent(teamId)}/jira`;
-  const sheet = createSheet({ label: 'Issue details', onClose: close });
-  sheet.el.classList.add('jira-drawer');
+  const sheet = host;
 
   let key = null;
   let issue = null;
@@ -109,12 +110,16 @@ export function createIssueDrawer(ctx) {
       options = null;
       issue = null;
     }
+    const switched = k !== key;
     key = k;
     if (onAdd) {
       preview = { key: k, onAdd, added: false };
     }
     sheet.title.textContent = k;
     sheet.open();
+    if (switched && sheet.inline) {
+      sheet.scroller.scrollTop = 0;
+    }
     await load(false);
   }
 
@@ -673,29 +678,88 @@ export function createIssueDrawer(ctx) {
         on: { click: (event) => editSummary(event.currentTarget) },
       })
       : h('p', { style: { 'font-size': '1.125rem', 'font-weight': '600' }, text: f.summary ?? '' });
-    const scroll = sheet.body.scrollTop;
+    const scroll = sheet.scroller.scrollTop;
+    if (sheet.inline) {
+      replaceContent(sheet.title, issueTypeGlyph(f.issueType), h('span', { class: 'jira-issue-key', text: key }));
+    }
     replaceContent(sheet.body,
       previewBar(),
-      h('div', { style: ROW }, issueTypeGlyph(f.issueType), h('span', { style: { 'font-family': 'var(--font-mono)', 'font-size': '0.8125rem' }, text: key })),
+      sheet.inline ? null : h('div', { style: ROW }, issueTypeGlyph(f.issueType), h('span', { style: { 'font-family': 'var(--font-mono)', 'font-size': '0.8125rem' }, text: key })),
       title,
       fields(),
       descriptionSection(),
       attachmentsSection(),
       linksSection(),
       commentsSection());
-    sheet.body.scrollTop = scroll;
+    sheet.scroller.scrollTop = scroll;
     sheet.el.dataset.key = key;
   }
 
   return {
     open,
     close,
+    get key() {
+      return key;
+    },
     prefetch(k) {
       fetchIssue(k).catch(() => {});
     },
     destroy() {
       close();
-      sheet.destroy();
+      sheet.el.remove();
+    },
+  };
+}
+
+/** The drawer: a side sheet for issues opened from the browse panel or a link. */
+export function createIssueDrawer(ctx) {
+  let view = null;
+  const sheet = ctx.createSheet({ label: 'Issue details', onClose: () => view.close() });
+  sheet.el.classList.add('jira-drawer');
+  view = createIssueView(ctx, { ...sheet, el: sheet.el, scroller: sheet.body, inline: false });
+  return view;
+}
+
+/**
+ * The viewed round's issue at the centre of the stage. show(key) loads it, or shows "No issue linked" with
+ * "Link a Jira issue" (ctx.onLink) for a round without a key. The stage scrolls it (`scroller`).
+ */
+export function createIssuePanel(ctx) {
+  const title = h('h2', { class: 'jira-issue-title' });
+  const tools = h('div', { class: 'jira-issue-tools' });
+  const body = h('div', { class: 'jira-issue-body' });
+  const el = h('article', { class: 'jira-issue', 'aria-label': 'Issue' },
+    h('header', { class: 'jira-issue-head' }, title, tools), body);
+  const view = createIssueView({ ...ctx, onClose: null }, {
+    el, body, title, tools, scroller: ctx.scroller, inline: true, open() {}, hide() {},
+  });
+  let shown;
+
+  function unlinked() {
+    view.close();
+    replaceContent(title);
+    replaceContent(tools);
+    replaceContent(body, h('div', { class: 'nt-unlinked' },
+      h('p', { class: 'nt-unlinked-title', text: 'No issue linked' }),
+      h('p', { class: 'nt-unlinked-text', text: 'This round is not tied to a Jira issue yet.' }),
+      createButton({ label: 'Link a Jira issue', icon: 'link', variant: 'secondary', size: 'sm', className: 'nt-link-issue', onClick: () => ctx.onLink?.() }).el));
+  }
+
+  return {
+    el,
+    show(key) {
+      if (key === shown) {
+        return;
+      }
+      shown = key;
+      if (key) {
+        view.open(key);
+      } else {
+        unlinked();
+      }
+    },
+    destroy() {
+      view.destroy();
     },
   };
 }
