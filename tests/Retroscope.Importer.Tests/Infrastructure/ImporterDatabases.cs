@@ -50,8 +50,8 @@ public sealed class ImporterDatabases : IAsyncLifetime {
         .WithDatabase("postgres")
         .WithUsername("postgres")
         .WithPassword("importer-tests")
-        // Throwaway test data: trade durability for far less disk and CPU work.
-        .WithTmpfsMount("/var/lib/postgresql")
+        // Throwaway test data: skip fsync for far less disk and CPU work. Data stays on disk: a run creates thousands
+        // of per-test databases, which overflow an in-memory volume on CI runners.
         .WithCommand("-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off")
         .Build();
 
