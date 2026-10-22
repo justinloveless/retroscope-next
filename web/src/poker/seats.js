@@ -403,11 +403,13 @@ export function createSeats() {
       return { depth: 0, row: false };
     }
     plan = planSeats(stage, seats.length);
-    const ring = plan.seats.length > 0 && stage.width >= ROW_BELOW_PX;
+    // The phone row is a width decision only: an empty wide table keeps the table layout, with no seats on it.
+    const row = stage.width < ROW_BELOW_PX;
+    const ring = !row && plan.seats.length > 0;
     if (ring) {
       plan = clearAvatars(centreInColumns(plan, stage), stage);
     }
-    el.classList.toggle('is-row', !ring);
+    el.classList.toggle('is-row', row);
     el.classList.toggle('is-ring', ring);
     hidden = ring ? seats.slice(plan.seats.length) : [];
     const size = ring ? plan.size : null;
@@ -451,7 +453,7 @@ export function createSeats() {
       more.remove();
       popover.close();
     }
-    return { depth: reach, row: !ring };
+    return { depth: reach, row };
   }
 
   return {
