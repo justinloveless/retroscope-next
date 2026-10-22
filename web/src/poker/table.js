@@ -17,7 +17,7 @@ import { createSeats } from './seats.js';
 export const TICKET_DEBOUNCE_MS = 500;
 // A seat's name label hangs below its avatar, so the lowest seats stay this far above the dock.
 const LABEL_ROOM_PX = 64;
-// Below this much room between the seats' labels, the results overlay deals smaller piles.
+// Below this much room between the ring's labels, the results overlay deals smaller piles.
 const RESULTS_NARROW_PX = 480;
 
 function roundLabel(round) {
@@ -152,7 +152,7 @@ export function createTable(actions) {
     }));
     const labels = Math.ceil(seats.labelReach());
     setStyle(el, { '--nt-labels': `${labels}px` });
-    el.classList.toggle('is-results-narrow', el.clientWidth - 2 * Math.max(seats.depth, labels) < RESULTS_NARROW_PX);
+    el.classList.toggle('is-results-narrow', labels > 0 && el.clientWidth - 2 * Math.max(seats.depth, labels) < RESULTS_NARROW_PX);
   }
 
   const observer = typeof ResizeObserver === 'function'
