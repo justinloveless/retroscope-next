@@ -69,3 +69,15 @@ it lists, and this file.
    a clicked button, so "only if focus was inside" lost it there).
 5. **Two peers in the fake specs** are two browser contexts of the same viewer on one fake room; the fake serves a
    single viewer. Two real principals are a real-stack concern.
+
+## Baselines and verification (items 1–4, after the overlay landed)
+
+- The fake table's baselines (`tests/e2e/fake/poker-table/visual.spec.js-snapshots`) and the real stack's table and
+  reveal baselines (`tests/e2e/real/visual.spec.js-snapshots`) were regenerated on macOS and in the pinned Linux
+  Playwright image through `playwright run-server`, as in UF16, with the results overlay in place. The fake ones
+  passed `--repeat-each 5` and the real ones `--repeat-each 3`, on both platforms.
+- `node --test tests/web-unit/poker/geometry.test.js`: 13 pass. Planting a 2° angle error fails 8 of them, and
+  tripling the arc's bow fails 7.
+- Screenshots were checked at 1440×900, 1920×1080 and 1280×800 with 3, 6 and 12 players, voting and revealed.
+  Capping long seat names at the ring's depth was tried and dropped: on the 640 px stage it cut most names to a
+  few letters, so labels keep UX1's 128 px.
