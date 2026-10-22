@@ -29,6 +29,10 @@ export const GUESTS = [
   { pid: demoId('0009', 2), kind: 'guest', name: 'Lee', hue: 300 },
 ];
 
+// A crowded quick session: eleven guests around one table, so twelve players with Demo User.
+export const CROWD = ['Noor', 'Mateo', 'Hana', 'Felix', 'Ines', 'Kofi', 'Yara', 'Oskar', 'Mei', 'Ravi', 'Zoe']
+  .map((name, i) => ({ pid: demoId('0009', 11 + i), kind: 'guest', name, hue: (i * 33) % 360 }));
+
 export function personByKey(key) {
   const wanted = String(key ?? '').trim().toLowerCase();
   if (wanted === '') {

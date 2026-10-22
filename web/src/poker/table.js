@@ -1,15 +1,20 @@
-// The playing field (§g.8): the ticket header with the debounced key editor, Reveal or the results bar
-// with Replay and End/Continue/Next Round, and the table itself: seats while voting, stacks once revealed.
+// The stage (docs/followups/UX1.md): the round header with the debounced ticket-key editor on top, the
+// viewed round's issue at the centre (the stage's scroll container), the other players seated around it,
+// and a dock floating at the bottom with the hand and its bar (Lock In, Abstain, Reveal) or the results of
+// a revealed round (winner, grouped votes, Replay and End/Continue/Next Round, the Jira submit chips).
+// The issue keeps clear of both: its side padding is the seat ring's depth and its bottom padding the
+// dock's height plus 24 px, both measured live.
 
 import { h, replaceContent, setStyle } from '../core/h.js';
 import { createButton } from '../ui/button.js';
 import { createDialog } from '../ui/dialog.js';
-import { cardScale, roundById, roundPhase, seatsOf } from './model.js';
-import { createReveal } from './reveal.js';
+import { isPresent, roundById, roundPhase, seatsOf } from './model.js';
+import { createResults } from './reveal.js';
 import { createSeats } from './seats.js';
 
 export const TICKET_DEBOUNCE_MS = 500;
-const MOBILE = '(max-width: 767px)';
+// A seat's name label hangs below its avatar, so the lowest seats stay this far above the dock.
+const LABEL_ROOM_PX = 64;
 
 function roundLabel(round) {
   return round ? `Round ${round.number}` : '';
@@ -54,9 +59,26 @@ export function askNewRound({ title = 'Start New Round', confirmLabel = 'Start r
   });
 }
 
+/** Everyone at the table but the viewer: the players, then observers (dimmed, never dealt a card). */
+export function tableSeats(state, roundId) {
+  const seats = seatsOf(state, roundId).filter((s) => !s.me).map((s) => ({ ...s, observer: false }));
+  const seen = new Set(seats.map((s) => s.pid));
+  const observers = new Set(state.observers);
+  for (const p of [...(state.teamId ? state.roster : []), ...state.presence]) {
+    if (observers.has(p.pid) && p.pid !== state.me && !seen.has(p.pid)) {
+      seen.add(p.pid);
+      seats.push({ pid: p.pid, name: p.name ?? '', kind: p.kind ?? 'user', avatar: p.avatar ?? null, present: isPresent(state, p.pid), vote: null, me: false, observer: true });
+    }
+  }
+  return seats;
+}
+
 /**
  * actions: reveal(round), replay(round), end(round), nextActive(round) (end and go to the next active
  * round), continueRound(round) (dialog, then the atomic poker.round.next), setTicket(round, key).
+ * `issue` is where a feature puts the issue's details (the fallback shows while it is empty), `results`
+ * where it adds to a revealed round's results, and `field` the drop target over the issue.
+ * attachHand(hand, note) docks the hand (hand.js): its fan floats in the dock, its buttons join the bar.
  */
 export function createTable(actions) {
   const kicker = h('span', { class: 'nt-ticket-kicker' });
@@ -68,20 +90,59 @@ export function createTable(actions) {
     maxlength: '64',
   });
   const keyText = h('span', { class: 'nt-ticket-key' });
-  const summary = h('p', { class: 'nt-ticket-summary' });
-  const header = h('header', { class: 'nt-ticket' }, kicker, input, keyText, summary);
-  const bar = h('div', { class: 'nt-actions' });
+  const header = h('header', { class: 'nt-ticket' }, kicker, input, keyText);
+  const issue = h('div', { class: 'nt-issue-slot' });
+  const fallback = h('div', { class: 'nt-issue-fallback' });
+  const scroller = h('div', { class: 'nt-issue', tabindex: '-1' }, h('div', { class: 'nt-issue-inner' }, issue, fallback));
+  const field = h('div', { class: 'nt-field' }, scroller);
   const seats = createSeats();
-  const reveal = createReveal();
-  const field = h('div', { class: 'nt-field' }, seats.el, reveal.el);
-  const el = h('section', { class: 'nt-table', 'aria-label': 'Table' }, header, bar, field);
+  const results = createResults();
+  const bar = h('div', { class: 'nt-actions' });
+  const extra = h('div', { class: 'nt-dock-results' });
+  const handSlot = h('div', { class: 'nt-dock-hand' });
+  const actionSlot = h('div', { class: 'nt-dock-tools' });
+  const dockBar = h('div', { class: 'nt-dock-bar' }, actionSlot, bar);
+  const dock = h('div', { class: 'nt-dock' }, extra, handSlot, dockBar);
+  const el = h('section', { class: 'nt-table', 'aria-label': 'Table' }, header, seats.el, field, dock);
 
   let round = null;
   let roundId = null;
   let phase = 'missing';
   let barKey = '';
+  let fallbackKey = '';
   let debounce = 0;
   let sentKey = null;
+  let frame = 0;
+
+  function applyLayout(result) {
+    if (result) {
+      setStyle(el, { '--nt-ring': `${Math.ceil(result.depth)}px` });
+      el.classList.toggle('is-row', result.row);
+    }
+  }
+
+  function measure() {
+    frame = 0;
+    if (!el.isConnected) {
+      return;
+    }
+    setStyle(el, { '--nt-dock-h': `${Math.ceil(dock.offsetHeight)}px` });
+    applyLayout(seats.layout({
+      width: el.clientWidth,
+      height: el.clientHeight,
+      top: header.offsetTop + header.offsetHeight,
+      bottom: dock.offsetHeight + LABEL_ROOM_PX,
+    }));
+  }
+
+  const observer = typeof ResizeObserver === 'function'
+    ? new ResizeObserver(() => {
+      frame ||= requestAnimationFrame(measure);
+    })
+    : null;
+  observer?.observe(el);
+  observer?.observe(header);
+  observer?.observe(dock);
 
   function flushTicket() {
     clearTimeout(debounce);
@@ -131,7 +192,7 @@ export function createTable(actions) {
     barKey = key;
     bar.dataset.phase = phase;
     if (phase === 'voting') {
-      replaceContent(bar, button('Reveal Cards', 'blue', () => actions.reveal(round), { big: true, className: 'nt-reveal' }));
+      replaceContent(bar, button('Reveal Cards', 'blue', () => actions.reveal(round), { className: 'nt-reveal' }));
     } else if (phase === 'revealed') {
       const winner = h('p', { class: 'nt-winner', role: 'status' },
         'Winning Points: ', h('strong', { text: round.winner ? `${round.winner} pts` : '–' }));
@@ -141,7 +202,7 @@ export function createTable(actions) {
         : others
           ? [button('Next Round', 'purple', () => actions.nextActive(round))]
           : [button('End', 'default', () => actions.end(round)), button('Continue', 'purple', () => actions.continueRound(round))];
-      replaceContent(bar, winner, replay, ...next);
+      replaceContent(bar, winner, results.el, h('div', { class: 'nt-round-actions' }, replay, ...next));
     } else if (phase === 'pending') {
       replaceContent(bar, h('p', { class: 'nt-note', text: 'Preview: this round has not been added yet.' }));
     } else if (phase === 'inactive') {
@@ -151,7 +212,7 @@ export function createTable(actions) {
     }
   }
 
-  function renderHeader(meta) {
+  function renderHeader() {
     const editable = phase === 'voting';
     kicker.textContent = editable || (phase === 'revealed' && round.active) ? 'Now Pointing:' : 'Viewing:';
     input.hidden = !editable;
@@ -161,14 +222,46 @@ export function createTable(actions) {
       input.value = round?.ticketKey ?? '';
     }
     keyText.textContent = round?.ticketKey ?? roundLabel(round);
-    const title = round?.ticketKey ? meta?.[round.ticketKey]?.summary : null;
-    summary.textContent = title ?? '';
-    summary.hidden = !title;
+  }
+
+  // Shown while no feature fills the issue slot: quick sessions and teams without Jira.
+  function renderFallback(meta) {
+    const ticket = round?.ticketKey ?? null;
+    const summary = ticket ? meta?.[ticket]?.summary ?? null : null;
+    const key = JSON.stringify([ticket, summary, phase === 'voting']);
+    if (key === fallbackKey) {
+      return;
+    }
+    fallbackKey = key;
+    if (ticket) {
+      replaceContent(fallback,
+        h('p', { class: 'nt-issue-kicker', text: roundLabel(round) }),
+        h('h2', { class: 'nt-issue-text', text: ticket }),
+        summary ? h('p', { class: 'nt-issue-summary', text: summary }) : null);
+    } else {
+      replaceContent(fallback, h('div', { class: 'nt-unlinked' },
+        h('p', { class: 'nt-unlinked-title', text: 'No issue linked' }),
+        h('p', { class: 'nt-unlinked-text', text: phase === 'voting' ? 'Type a ticket key above to name this round.' : 'This round has no ticket.' })));
+    }
   }
 
   return {
     el,
     field,
+    issue,
+    scroller,
+    results: extra,
+    attachHand(hand, note) {
+      handSlot.replaceChildren(hand.el);
+      actionSlot.replaceChildren(hand.actions, note);
+    },
+    /** Puts the keyboard in the ticket key field (the "Link a Jira issue" action). */
+    editTicket() {
+      if (!input.hidden) {
+        input.focus();
+        input.select();
+      }
+    },
     update(state, id, { meta } = {}) {
       const switched = id !== roundId;
       const previous = switched ? null : round;
@@ -179,26 +272,27 @@ export function createTable(actions) {
       round = roundById(state, id);
       phase = roundPhase(round);
       el.dataset.phase = phase;
-      renderHeader(meta);
+      renderHeader();
       renderBar(state);
-
-      const shown = seatsOf(state, id);
-      const mobile = globalThis.matchMedia?.(MOBILE).matches ?? false;
-      setStyle(field, { '--scale': cardScale(phase === 'revealed' ? Math.max(1, shown.length) : shown.length, mobile) });
+      renderFallback(meta);
       const revealed = phase === 'revealed';
-      seats.el.hidden = revealed;
-      reveal.el.hidden = !revealed;
+      extra.hidden = !revealed;
       if (revealed) {
-        const live = previous !== null && roundPhase(previous) === 'voting';
-        reveal.update(state, id, { live });
+        results.update(state, id);
       } else {
-        reveal.clear();
-        seats.update(shown, { animate: !switched });
+        results.clear();
       }
+      const live = revealed && previous !== null && roundPhase(previous) === 'voting';
+      applyLayout(seats.update(tableSeats(state, id), { revealed, animate: !switched, live }));
+      if (switched) {
+        scroller.scrollTop = 0;
+      }
+      frame ||= requestAnimationFrame(measure);
     },
     destroy() {
       clearTimeout(debounce);
-      reveal.destroy();
+      cancelAnimationFrame(frame);
+      observer?.disconnect();
       seats.destroy();
       el.remove();
     },

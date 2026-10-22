@@ -59,7 +59,7 @@ test.describe('observers', () => {
   test('the toolbar toggle makes me an observer and back', async ({ page, fake }) => {
     const state = setupStrip(fake);
     await openStrip(page);
-    await expect(page.locator(`.nt-seat[data-pid="${ME.pid}"]`)).toHaveCount(1);
+    await expect(page.locator('.nt-hand')).toBeVisible();
 
     await page.getByRole('button', { name: 'Observer mode' }).click();
     await expect(page.getByRole('button', { name: 'Stop observing' })).toHaveAttribute('aria-pressed', 'true');
@@ -69,7 +69,8 @@ test.describe('observers', () => {
 
     await page.getByRole('button', { name: 'Stop observing' }).click();
     await expect(page.getByRole('button', { name: 'Observer mode' })).toHaveAttribute('aria-pressed', 'false');
-    await expect(page.locator(`.nt-seat[data-pid="${ME.pid}"]`)).toHaveCount(1);
+    await expect(page.locator('.nt-hand')).toBeVisible();
+    await expect(page.locator(`.nt-seat[data-pid="${ME.pid}"]`)).toHaveCount(0);
     expect(state.sent['poker.observer.set']).toEqual([
       { principalId: ME.pid, observer: true },
       { principalId: ME.pid, observer: false },
@@ -94,7 +95,10 @@ test.describe('observers', () => {
       { principalId: DOT.pid, observer: false },
     ]));
     expect(state.sent['poker.settings.update']).toBeUndefined();
-    await expect(page.locator(`.nt-seat[data-pid="${GUS.pid}"]`)).toHaveCount(0);
+    // Observers keep their seat, dimmed and without a card.
+    await expect(page.locator(`.nt-seat[data-pid="${GUS.pid}"]`)).toHaveAttribute('data-observer', '');
+    await expect(page.locator(`.nt-seat[data-pid="${GUS.pid}"]`)).toHaveAttribute('aria-label', 'Gus (guest), observer');
+    await expect(page.locator(`.nt-seat[data-pid="${DOT.pid}"]`)).not.toHaveAttribute('data-observer', '');
     await expect(page.locator(`.nt-seat[data-pid="${BOB.pid}"]`)).toHaveCount(1);
   });
 });

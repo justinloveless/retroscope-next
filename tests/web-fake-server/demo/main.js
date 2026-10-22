@@ -31,6 +31,7 @@ const lines = [
   `  Demo Team         ${a}/teams/${DEMO_TEAM}`,
   `  Team poker        ${a}/teams/${DEMO_TEAM}/poker/${CODES.teamPoker}`,
   `  Quick poker       ${a}/poker/${CODES.quickPoker}`,
+  `  Crowded poker     ${a}/poker/${CODES.crowdPoker}`,
   `  Retro, thinking   ${a}/retro/${CODES.thinking}`,
   `  Retro, voting     ${a}/retro/${CODES.voting}`,
   `  Retro, discussing ${a}/retro/${CODES.discussing}`,

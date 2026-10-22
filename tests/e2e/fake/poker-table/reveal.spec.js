@@ -1,5 +1,5 @@
 import { expect, test } from '../_harness/fixtures.js';
-import { BOB, DOT, GUS, ME, R1, R2, ROOM, lastCommand, openTable, revealed, round, setupPoker, snapshot } from './_poker.js';
+import { BOB, DOT, GUS, ME, R1, R2, ROOM, lastCommand, openTable, revealed, round, seat, setupPoker, snapshot } from './_poker.js';
 
 const OTHERS = {
   [BOB.pid]: { points: 5, locked: true, abstained: false },
@@ -7,7 +7,7 @@ const OTHERS = {
   [DOT.pid]: { points: 5, locked: true, abstained: false },
 };
 
-test('a server auto-reveal flips every card 300 ms later and groups the stacks', async ({ page, fake }) => {
+test('a server auto-reveal flips every seated card 300 ms later and groups the results', async ({ page, fake }) => {
   const votes = setupPoker(fake, { others: OTHERS });
   await openTable(page);
   votes.set(ME.pid, { points: 8, locked: true, abstained: false });
@@ -16,15 +16,20 @@ test('a server auto-reveal flips every card 300 ms later and groups the stacks',
   const stacks = page.locator('.nt-stack');
   await expect(stacks).toHaveCount(3);
   await expect(page.locator('.nt-stack-pill')).toHaveText(['1 x 3–5 pts', '2 x 5 pts', '1 x 8 pts']);
-  await expect(stacks.nth(1).locator('.nt-stack-names')).toHaveText('Bob, Dot');
+  await expect(stacks.nth(1)).toHaveAttribute('aria-label', '2 x 5 pts: Bob, Dot');
   await expect(page.locator('.nt-winner')).toHaveText('Winning Points: 5 pts');
   await expect(page.locator('.nt-hand')).toBeHidden();
 
-  const flips = page.locator('.nt-flip');
-  await expect(flips).toHaveCount(4);
-  await expect(page.locator('.nt-flip.is-flipped')).toHaveCount(4);
-  await expect(page.locator('.nt-flip-fade')).toHaveCount(1);
-  await expect(stacks.nth(1).locator('.nt-flip-inner').first()).toHaveCSS('transform', /matrix3d|matrix\(-1/);
+  // Every seated card flips in place; mine is in the results, not on a seat.
+  const flips = page.locator('.nt-seat .nt-flip');
+  await expect(flips).toHaveCount(3);
+  await expect(page.locator('.nt-seat .nt-flip.is-flipped')).toHaveCount(3);
+  await expect(seat(page, GUS).locator('.nt-flip')).toHaveClass(/nt-flip-fade/);
+  await expect(seat(page, BOB).locator('.nt-flip-inner')).toHaveCSS('transform', /matrix3d|matrix\(-1/);
+  await expect(seat(page, BOB).locator('.nt-flip-front .nt-card')).toHaveAttribute('data-card', '5');
+  await expect(seat(page, BOB)).toHaveAttribute('aria-label', 'Bob, voted 5');
+  await expect(seat(page, GUS)).toHaveAttribute('aria-label', 'Gus (guest), voted 3 to 5');
+  await expect(seat(page, BOB).locator('.nt-seat-vote')).toHaveText('5');
 });
 
 test('the flip waits 300 ms and turns over in 0.6 s', async ({ page, fake }) => {
@@ -64,9 +69,12 @@ test.describe('with reduced motion', () => {
     await expect(page.locator('.nt-flip')).toHaveCount(3);
     expect(await page.locator('.nt-flip:not(.is-flipped)').count()).toBe(0);
     await expect(page.locator('.nt-flip-inner').first()).toHaveCSS('transition-duration', '0s');
+    // The flip becomes a fade.
+    await expect(page.locator('.nt-flip.nt-flip-fade')).toHaveCount(3);
+    await expect(page.locator('.nt-flip-front').first()).toHaveCSS('transition-duration', '0.4s');
     fake.tx(ROOM, [{ k: 'poker.round.replayed', d: { roundId: R1 } }, { k: 'poker.round.updated', d: { round: round(R1, 1, { version: 2, autoReveal: false, ticketKey: 'ABC-1' }) } }]);
     fake.tx(ROOM, [{ k: 'poker.vote.state', d: { roundId: R1, pid: BOB.pid, status: 'locked' } }]);
-    await expect(page.locator('.nt-seat .nt-card[data-card="back"]').first()).toHaveCSS('animation-name', 'none');
+    await expect(page.locator('.nt-seat .nt-card[data-card="back"]').first()).toHaveCSS('animation-name', 'nt-fade-in');
   });
 });
 
@@ -107,7 +115,7 @@ test('Reveal Cards sends reveal; Replay, End and Continue drive the round', asyn
   const next = (await lastCommand(fake, 'poker.round.next')).d;
   expect(next).toEqual({ fromRoundId: R1, newRoundId: expect.stringMatching(/^[0-9a-f-]{14}7/), ticketKey: 'ABC-2' });
   await expect(page).toHaveURL(/[?&]round=2$/);
-  await expect(page.getByRole('heading', { name: 'Your Hand' })).toBeVisible();
+  await expect(page.locator('.nt-hand')).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Ticket key' })).toHaveValue('ABC-2');
 });
 

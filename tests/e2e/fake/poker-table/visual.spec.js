@@ -1,4 +1,4 @@
-// Visual baselines of the Neotro table, hand and reveal (§j) in both themes, on a desktop and a 390×844
+// Visual baselines of the Neotro stage, hand and reveal (§j) in both themes, on a desktop and a 390×844
 // phone viewport. Pixels differ between engines and operating systems, so they are kept for Chromium only;
 // the baselines carry the platform in their file name (see docs/decisions/U31.md). The time zone and locale
 // are pinned for every project in playwright.config.js, so a machine's own settings never change a baseline.
@@ -16,6 +16,12 @@ const OTHERS = {
   [DOT.pid]: { points: 13, locked: false, abstained: false },
 };
 
+/** Waits until every finite animation and transition (seat placement, the flip, the crossfade) has ended. */
+async function settled(page) {
+  await expect.poll(() => page.evaluate(() => document.getAnimations()
+    .filter((a) => a.playState === 'running' && a.effect?.getComputedTiming().iterations !== Infinity).length)).toBe(0);
+}
+
 test.beforeEach(({}, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium', 'visual baselines are Chromium-only');
 });
@@ -25,7 +31,7 @@ for (const [size, viewport] of Object.entries(VIEWPORTS)) {
     test.describe(`${size} ${theme}`, () => {
       test.use({ viewport });
 
-      test('voting: seats, a selected card and the hand', async ({ page, fake }) => {
+      test('voting: seats around the issue, a selected card and the hand', async ({ page, fake }) => {
         setupPoker(fake, { theme, others: OTHERS });
         await openTable(page);
         fake.tx(ROOM, [
@@ -37,10 +43,11 @@ for (const [size, viewport] of Object.entries(VIEWPORTS)) {
         await expect(handCard(page, 8)).toHaveAttribute('aria-pressed', 'true');
         await page.mouse.move(0, 0);
         await page.evaluate(() => document.fonts.ready);
+        await settled(page);
         await expect(page).toHaveScreenshot(`voting-${size}-${theme}.png`, SHOT);
       });
 
-      test('revealed: grouped stacks and the results bar', async ({ page, fake }) => {
+      test('revealed: flipped seats and the results bar', async ({ page, fake }) => {
         const votes = setupPoker(fake, { theme, others: OTHERS });
         await openTable(page);
         votes.set(ME.pid, { points: 5, locked: true, abstained: false });
@@ -49,6 +56,7 @@ for (const [size, viewport] of Object.entries(VIEWPORTS)) {
         await expect(page.locator('.nt-flip.is-flipped')).toHaveCount(3);
         await page.mouse.move(0, 0);
         await page.evaluate(() => document.fonts.ready);
+        await settled(page);
         await expect(page).toHaveScreenshot(`revealed-${size}-${theme}.png`, SHOT);
       });
     });

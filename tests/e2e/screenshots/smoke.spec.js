@@ -17,7 +17,9 @@ test('a vote locked in one window shows as locked in the other', async ({ browse
 
   await demoPage.goto(path);
   await priyaPage.goto(`${path}?as=priya`);
-  await expect(priyaPage.locator(`.nt-seat[data-pid="${PRIYA_PID}"][data-me]`)).toBeVisible();
+  // Nobody has a seat of their own: each window seats the other.
+  await expect(priyaPage.locator('.nt-hand')).toBeVisible();
+  await expect(priyaPage.locator(`.nt-seat[data-pid="${PRIYA_PID}"]`)).toHaveCount(0);
   const demoSeat = priyaPage.locator(`.nt-seat[data-pid="${DEMO_PID}"]`);
   await expect(demoSeat).toHaveAttribute('data-status', 'empty');
 
@@ -36,7 +38,7 @@ test('a vote locked in one window shows as locked in the other', async ({ browse
 test('simulated teammates lock in their votes on the demo session', async ({ page, request }) => {
   const problems = watchConsole(page);
   await page.goto(`/teams/${TEAM}/poker/${CODES.teamPoker}`);
-  const lockedPeers = page.locator('.nt-seat[data-status="locked"]:not([data-me])');
+  const lockedPeers = page.locator('.nt-seat[data-status="locked"]');
   await expect(lockedPeers.first()).toBeVisible();
   // One teammate starts locked in; the others lock in on their own timers.
   await expect.poll(() => lockedPeers.count(), { timeout: 45_000 }).toBeGreaterThanOrEqual(3);

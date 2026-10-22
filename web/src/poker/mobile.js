@@ -16,8 +16,8 @@ export const SWIPE_COMMIT_PX = 50;
 export const SWIPE_SETTLE_MS = 200;
 export const ROUND_SLIDE_MS = 280;
 
-// A swipe starting here belongs to the control under the finger.
-const NO_SWIPE = '.nt-hand, input, textarea, select, [contenteditable]:not([contenteditable="false"]), .nt-drop';
+// A swipe starting here belongs to the control under the finger: the hand and its bar, the scrolling seat row.
+const NO_SWIPE = '.nt-dock, .nt-seats, input, textarea, select, [contenteditable]:not([contenteditable="false"]), .nt-drop';
 
 export function damp(dx) {
   return Math.sign(dx) * Math.abs(dx) ** 0.75;

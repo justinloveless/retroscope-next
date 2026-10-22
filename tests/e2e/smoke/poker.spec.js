@@ -18,7 +18,8 @@ test('two players vote, lock in and both see the same reveal', async ({ browser,
     await page.goto(`/poker/${code}`);
     await page.locator('.nt-table').waitFor();
   }
-  await expect(ann.locator('.nt-seat')).toHaveCount(2);
+  // Each player sees the other's seat; their own vote is in their hand.
+  await expect(ann.locator('.nt-seat')).toHaveCount(1);
 
   await ann.locator('.nt-hand-card[data-points="5"]').click();
   await ann.getByRole('button', { name: 'Lock In' }).click();
@@ -27,7 +28,7 @@ test('two players vote, lock in and both see the same reveal', async ({ browser,
 
   await bob.locator('.nt-hand-card[data-points="8"]').click();
   await bob.getByRole('button', { name: 'Lock In' }).click();
-  await expect(ann.locator('.nt-seat[data-status="locked"]')).toHaveCount(2);
+  await expect(ann.locator('.nt-seat[data-status="locked"]')).toHaveCount(1);
   // A fresh room holds auto-reveal for its 15 s warm-up (§c.7), so the host reveals by hand (R).
   await ann.keyboard.press('r');
 

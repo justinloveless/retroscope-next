@@ -1,6 +1,6 @@
 import { expect, test } from '../_harness/fixtures.js';
 import { BOB } from '../poker-table/_poker.js';
-import { ME, R1, commands, drawer, openBrowse, openTable, round, row, sent, setupJira } from './_jira.js';
+import { ME, R1, commands, drawer, issueView, openBrowse, openTable, round, row, sent, setupJira } from './_jira.js';
 
 const holder = { snap: { spotlight: { holder: ME.pid, roundId: R1 } }, overlay: { own: [], heldByThisTab: true } };
 
@@ -65,8 +65,7 @@ test('without the spotlight, opening an issue only shows its details', async ({ 
 test('an issue already on a round is opened without a preview, even by the holder', async ({ page, fake }) => {
   setupJira(fake, { ...holder, rounds: [round(R1, 1, { ticketKey: 'RS-12' })] });
   await openTable(page);
-  await page.locator('.jira-details').click();
-  await expect(drawer(page)).toHaveAttribute('data-key', 'RS-12');
-  await expect(drawer(page).locator('.jira-preview')).toHaveCount(0);
+  await expect(issueView(page)).toHaveAttribute('data-key', 'RS-12');
+  await expect(issueView(page).locator('.jira-preview')).toHaveCount(0);
   expect(commands(fake, 'poker.round.create')).toHaveLength(0);
 });

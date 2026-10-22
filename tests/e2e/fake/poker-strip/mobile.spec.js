@@ -82,10 +82,10 @@ test('a mostly vertical drag scrolls the page and never changes round', async ({
   await expect(shownRound(page)).toHaveText('Round 6 · ABC-6');
 });
 
-test('a swipe that starts on the hand belongs to drag-to-play', async ({ page, fake }) => {
+test('a swipe that starts on the hand or its bar belongs to them', async ({ page, fake }) => {
   setupStrip(fake);
   await openStrip(page);
-  const hand = page.locator('.nt-hand-title');
+  const hand = page.locator('.nt-dock-bar');
   const box = await hand.boundingBox();
   const from = { x: box.x + 5, y: box.y + 5 };
   await pointer(hand, 'pointerdown', from);

@@ -93,14 +93,14 @@ test('a touch long press on a grip reorders the rounds', async ({ open }) => {
   await expect.poll(() => chipKeys(bob.page)).toEqual(['ORD-2', 'ORD-3', 'ORD-1', 'ORD-4']);
 });
 
-test('an observer leaves the table and does not hold up the auto-reveal', async ({ open }) => {
+test('an observer is dimmed at the table, gets no card and does not hold up the auto-reveal', async ({ open }) => {
   test.setTimeout(60_000);
   const { players } = await table(open, ['Ann Observer', 'Bob Observer']);
   const [ann, bob] = players;
   await ann.page.getByRole('button', { name: 'Observer mode' }).click();
   await expect(ann.page.getByText('You are an observer')).toBeVisible();
   await expect(ann.page.locator('.nt-hand')).toBeHidden();
-  await expect(seat(bob.page, ann.user)).toHaveCount(0);
+  await expect(seat(bob.page, ann.user)).toHaveAttribute('data-observer', '');
 
   await handCard(bob.page, 3).click();
   await bob.page.getByRole('button', { name: 'Lock In' }).click();
@@ -119,8 +119,8 @@ test('a guest names themself and plays in a quick session', async ({ open }) => 
   await guest.page.goto(`/poker/${session.code}`);
   await guest.page.getByRole('textbox', { name: 'Your name' }).fill('Gus Guest');
   await guest.page.getByRole('button', { name: 'Join' }).click();
-  const mine = guest.page.locator('.nt-seat[data-me]');
-  await expect(mine.locator('.nt-badge-guest')).toBeVisible();
+  await expect(guest.page.locator('.nt-hand')).toBeVisible();
+  await expect(guest.page.locator('.nt-seat', { hasText: 'Ann Host' })).toBeVisible();
 
   const seen = ann.page.locator('.nt-seat', { hasText: 'Gus Guest' });
   await expect(seen.locator('.nt-badge-guest')).toBeVisible();
@@ -128,5 +128,5 @@ test('a guest names themself and plays in a quick session', async ({ open }) => 
   await guest.page.getByRole('button', { name: 'Lock In' }).click();
   await expect(seen).toHaveAttribute('data-status', 'locked');
   await openTable(guest.page, session.code);
-  await expect(guest.page.locator('.nt-seat[data-me]')).toHaveAttribute('data-status', 'locked');
+  await expect(handCard(guest.page, 13).locator('.nt-hand-locked')).toBeVisible();
 });

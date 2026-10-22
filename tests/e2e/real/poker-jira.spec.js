@@ -79,7 +79,7 @@ test('the holder previews an issue for everyone, commits it, and a preview left 
   await expect(shownRound(bob.page)).toContainText(ground.key(9));
   await drawer(ann.page).getByRole('button', { name: 'Add to rounds' }).click();
   await expect(drawer(ann.page).getByRole('button', { name: 'Added to the rounds' })).toBeDisabled();
-  await expect(bob.page.getByRole('heading', { name: 'Your Hand' })).toBeVisible();
+  await expect(bob.page.locator('.nt-hand')).toBeVisible();
   await drawer(ann.page).getByRole('button', { name: 'Close' }).click();
   await expect(drawer(ann.page)).toBeHidden();
 

@@ -12,6 +12,7 @@ export const CODES = {
   closed: 'SPR40CL5D1',
   teamPoker: 'PKR41CHKT1',
   quickPoker: 'QCKPKR2026',
+  crowdPoker: 'CRWDPKR012',
 };
 
 /** Every route of web/src/routes.js with a demo path; `ready` is what shows once the page has drawn. */

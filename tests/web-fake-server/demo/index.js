@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { installJira } from '../jira.js';
 import { CODES, DEMO_TEAM, actionItems, boards, pokerSessions, teams } from './data.js';
-import { DEMO, GUESTS, PEOPLE, personByKey, principalInfo } from './people.js';
+import { CROWD, DEMO, GUESTS, PEOPLE, personByKey, principalInfo } from './people.js';
 import { PokerSession } from './poker.js';
 import { RetroBoard } from './retro.js';
 import { installRoutes } from './routes.js';
@@ -36,7 +36,7 @@ export class Demo {
     this.boards = new Map();
     this.sessions = new Map();
     this.extraPeople = new Map();
-    this.guests = new Map(GUESTS.map((g) => [g.pid, g]));
+    this.guests = new Map([...GUESTS, ...CROWD].map((g) => [g.pid, g]));
     this.blobs = new Map();
     this.tokens = new Map();
     this.mentionsSeenAt = new Map();

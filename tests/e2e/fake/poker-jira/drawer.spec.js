@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from '../_harness/fixtures.js';
 import { DEFAULT_JIRA_FIXTURE } from '../../../web-fake-server/jira.js';
-import { R1, SITE, commands, drawer, isPhone, jiraRequests, openBrowse, openTable, round, row, sent, setupJira } from './_jira.js';
+import { R1, SITE, commands, drawer, isPhone, issueView, jiraRequests, openBrowse, openTable, round, row, sent, setupJira } from './_jira.js';
 
 const ISLAND = '[[island:t0b1e5c0ffee]]';
 const issueGets = (fake, key) => jiraRequests(fake, 'GET', new RegExp(`/jira/issues/${key}$`));
@@ -188,14 +188,16 @@ test('a description the server marks read-only, or one without a markup form, of
   });
   await openTable(page);
 
-  await page.locator('.jira-details').click();
-  const sheet = drawer(page);
-  await expect(sheet.locator('.jira-description')).toContainText('Read me only.');
-  await expect(sheet.getByRole('button', { name: 'Edit description' })).toHaveCount(0);
-  await expect(sheet.locator('.jira-summary-edit')).toBeVisible();
+  const view = issueView(page);
+  await expect(view.locator('.jira-description')).toContainText('Read me only.');
+  await expect(view.getByRole('button', { name: 'Edit description' })).toHaveCount(0);
+  await expect(view.locator('.jira-summary-edit')).toBeVisible();
 
-  await sheet.locator('.jira-link[data-key="RS-14"]').getByRole('button', { name: 'RS-14', exact: true }).click();
+  // A linked issue opens in the drawer; the centre keeps the round's own issue.
+  await view.locator('.jira-link[data-key="RS-14"]').getByRole('button', { name: 'RS-14', exact: true }).click();
+  const sheet = drawer(page);
   await expect(sheet).toHaveAttribute('data-key', 'RS-14');
+  await expect(view).toHaveAttribute('data-key', 'RS-13');
   await expect(sheet.locator('.jira-description .panel-info')).toHaveText('A bare panel.');
   await expect(sheet.getByRole('button', { name: 'Edit description' })).toHaveCount(0);
 });
@@ -292,10 +294,10 @@ test('without edit rights the drawer is read-only', async ({ page, fake }) => {
   await expect(sheet.locator('.jira-link-form')).toHaveCount(0);
 });
 
-test('Issue details in the toolbar opens the viewed round’s issue; a missing issue says so', async ({ page, fake }) => {
+test('the centre shows the viewed round’s issue; a missing issue says so', async ({ page, fake }) => {
   setupJira(fake, { rounds: [round(R1, 1, { ticketKey: 'RS-99' })] });
   await openTable(page);
-  await page.locator('.jira-details').click();
-  await expect(drawer(page).locator('.jira-error')).toHaveText('Jira could not find that issue.');
+  await expect(issueView(page).locator('.jira-error')).toHaveText('Jira could not find that issue.');
+  await expect(page.getByRole('button', { name: 'Issue details' })).toHaveCount(0);
   expect(commands(fake, 'poker.round.create')).toHaveLength(0);
 });
