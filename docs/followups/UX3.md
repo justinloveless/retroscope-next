@@ -4,7 +4,9 @@ The owner wants the poker session to feel like a real game of poker. They gave t
 - the felt fills the whole stage, behind the issue too;
 - the issue panel is frosted glass, so the table shows through it, blurred;
 - thick white printed outlines mark each seat, rotated toward the centre: corner seats sit diagonally and the middle seats lie sideways;
-- each side has one printed arc line, bowing toward the centre and following that side's seat curve, inboard of the seats. UX3 owns `web/src/poker/**`, `web/styles/neotro.css`, `web/styles/tokens.css` (the felt tokens only), `tests/web-unit/poker/**`, `tests/e2e/fake/poker-*/**`, the poker states in `tests/e2e/screenshots/**`, the poker visual baselines, `web/budgets.json` (only if the felt needs a few hundred bytes), and `docs/decisions/UX3.md`.
+- each side has one printed arc line, bowing toward the centre and following that side's seat curve, inboard of the seats.
+
+UX3 owns `web/src/poker/**`, `web/styles/neotro.css`, `web/styles/tokens.css` (the felt tokens only), `tests/web-unit/poker/**`, `tests/e2e/fake/poker-*/**`, the poker states in `tests/e2e/screenshots/**`, the poker visual baselines, `web/budgets.json` (only if the felt needs a few hundred bytes), and `docs/decisions/UX3.md`.
 
 1. **Green felt stage.** The stage (the region between the Jira and history panels) becomes a green felt poker table in both themes. The felt spans the whole stage, including the area behind the issue panel.
    - **Generated, not downloaded.** The felt is generated: CSS gradients plus a tiny inline SVG `feTurbulence` noise as a data URI, with a soft darker vignette toward the edges. There are no image downloads and no third-party assets, and it adds well under 2 KB brotli to the CSS.
