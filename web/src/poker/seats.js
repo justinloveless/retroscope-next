@@ -4,14 +4,14 @@
 // card in place. Votes stay secret until the reveal: before it a seat only knows "waiting", "thinking" or
 // "locked in". Narrow stages get one scrolling avatar row instead of the ring. The felt under them carries a
 // printed outline per seat (drawn by the stylesheet around the card slot) and one printed betting line per
-// side (docs/followups/UX3.md), an SVG path recomputed with the layout.
+// side (docs/followups/UX3.md), the two mirror images of each other (UX5.md), SVG paths recomputed with the layout.
 
 import { announce } from '../core/a11y.js';
 import { h, replaceContent, setStyle } from '../core/h.js';
 import { reconcile } from '../core/list.js';
 import { createAvatar } from '../ui/avatar.js';
 import { createPopover } from '../ui/popover.js';
-import { STAGE_PAD_PX, bettingArc, columnShift, extents, outlineReach, planSeats, shiftLayout } from './geometry.js';
+import { STAGE_PAD_PX, columnShift, extents, mirroredArcs, planSeats, shiftLayout } from './geometry.js';
 import { voteLabel } from './model.js';
 import { FLIP_DELAY_MS, cardEl, faceEl, reducedMotion } from './reveal.js';
 
@@ -111,35 +111,43 @@ export function printMetrics(size) {
   return { pad: PRINT_PAD_PX + PRINT_PAD_SCALE * size.card, stroke: 2 + 2.5 * scale };
 }
 
-// One side of a placed ring, measured in from its edge: the seats' outermost and innermost reach, the betting
-// line's path, and how far in the pane must start to keep clear of that line. Null when the side is empty.
+// One side of a placed ring, measured in from its edge: the seats' outermost and innermost reach. Null when the
+// side is empty.
 function sideOf(plan, side, width) {
-  const own = (plan.chip ? [...plan.seats, plan.chip] : plan.seats).filter((slot) => slot.side === side);
+  const own = slotsOf(plan).filter((slot) => slot.side === side);
   if (!own.length) {
     return null;
   }
   const { width: w, height: h } = plan.size;
-  const { pad, stroke } = printMetrics(plan.size);
-  const box = { w: w + 2 * pad, h: h + 2 * pad, width };
-  const offset = outlineReach(own, plan.curve, box) + ARC_GAP_PX;
-  const arc = bettingArc(own, plan.curve, { offset, overhang: ARC_OVERHANG_PX + box.w / 4, width });
   const local = (slot) => (side === 'left' ? slot.x : width - slot.x);
   return {
-    d: arc.d,
     outer: Math.min(...own.map((slot) => local(slot) - extents(w, h, slot.angle).ex)),
     inner: Math.max(...own.map((slot) => local(slot) + extents(w, h, slot.angle).ex)),
-    reach: arc.reach + stroke / 2 + ARC_CLEAR_PX,
   };
 }
 
+function slotsOf(plan) {
+  return plan.chip ? [...plan.seats, plan.chip] : plan.seats;
+}
+
 /**
- * The betting lines for a placed ring: {left, right, reach}: each side's path (null when that side is
- * empty) and how far the lines reach in from the side edges, so the issue can keep clear of them.
+ * The betting lines for a placed ring (docs/followups/UX5.md): {left, right, reach, needs}: the two paths, mirror
+ * images of each other (both null when nobody is seated), how far the lines reach in from the side edges
+ * (with the stroke and clearance), so the issue can keep clear of them, and `needs`: that reach were only
+ * one side's seats placing the lines.
  */
 export function bettingLines(plan, width) {
-  const left = sideOf(plan, 'left', width);
-  const right = sideOf(plan, 'right', width);
-  return { left: left?.d ?? null, right: right?.d ?? null, reach: Math.max(left?.reach ?? 0, right?.reach ?? 0) };
+  const all = slotsOf(plan);
+  const { pad, stroke } = printMetrics(plan.size);
+  const box = { w: plan.size.width + 2 * pad, h: plan.size.height + 2 * pad };
+  const sides = { left: all.filter((slot) => slot.side === 'left'), right: all.filter((slot) => slot.side === 'right') };
+  const arcs = mirroredArcs(sides, plan.curve, { gap: ARC_GAP_PX, overhang: ARC_OVERHANG_PX + box.w / 4, box, width });
+  if (!arcs) {
+    return { left: null, right: null, reach: 0, needs: {} };
+  }
+  const clear = stroke / 2 + ARC_CLEAR_PX;
+  const needs = Object.fromEntries(Object.entries(arcs.needs).map(([side, reach]) => [side, reach + clear]));
+  return { left: arcs.left, right: arcs.right, reach: arcs.reach + clear, needs };
 }
 
 /**
@@ -156,7 +164,7 @@ export function centreInColumns(plan, stage) {
   const most = Math.max(wide, (width * (1 - ISSUE_KEEP)) / 2);
   const measure = (layout, side) => {
     const m = sideOf(layout, side, width);
-    return m && { ...m, reach: m.reach + PANE_INSET_PX };
+    return m && { ...m, reach: bettingLines(layout, width).needs[side] + PANE_INSET_PX };
   };
   // The pane's edge follows the side whose line reaches furthest in; that side is centred with the pane moving
   // along with it, the other within the pane that leaves. Moving a seat also turns it a little further toward
