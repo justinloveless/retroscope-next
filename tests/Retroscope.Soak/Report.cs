@@ -69,6 +69,7 @@ internal sealed record Report(bool Passed, IReadOnlyList<Finding> Findings, IRea
                 ["redeployReconnectMaxMs"] = redeployReconnects.Count == 0 ? null : redeployReconnects.Max(),
                 ["convergence"] = new JsonArray([.. convergence.Select(c => (JsonNode)new JsonObject {
                     ["after"] = c.After, ["ok"] = c.Ok, ["reconnectMs"] = c.ReconnectMs, ["convergedMs"] = c.ConvergedMs,
+                    ["retriedProbes"] = c.RetriedProbes,
                 })]),
                 ["outages"] = new JsonArray([.. outages.Select(o => (JsonNode)new JsonObject {
                     ["name"] = o.Name, ["seconds"] = Math.Round((o.To - o.From).TotalSeconds, 1),

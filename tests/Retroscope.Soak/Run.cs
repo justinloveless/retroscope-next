@@ -10,6 +10,11 @@ internal sealed record Converged(string After, JsonElement Result) {
     public long ConvergedMs => Result.GetProperty("convergedMs").GetInt64();
 
     public long ReconnectMs => Result.GetProperty("reconnectMs").GetInt64();
+
+    /// <summary>The verifier probes that needed more than one attempt, each with why its attempts failed.</summary>
+    public JsonNode? RetriedProbes => Result.TryGetProperty("retriedProbes", out var probes) && probes.GetArrayLength() > 0
+        ? JsonNode.Parse(probes.GetRawText())
+        : null;
 }
 
 /// <summary>
