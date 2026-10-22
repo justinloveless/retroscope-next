@@ -34,3 +34,21 @@ This is the owner's feedback on UX1, after seeing it in the preview. UX2 owns `w
 - `PREVIEW_PORT=5200 ./build.sh screenshots`
 
 Visual baselines are regenerated on macOS and Linux. Before declaring done, look at screenshots at 1440×900, 1920×1080 and 1280×800 with 3, 6 and 12 players, with the votes both locked and revealed, and fix anything cramped, clipped or unbalanced.
+
+## Addendum: results overlay (added by the owner during the build)
+
+5. **Bring back the results view.** This is the card stacks for each point value, as the table showed them before UX1. On reveal, a translucent overlay appears over the issue in the middle of the stage.
+   - **What it shows.**
+     - One stack of face-up cards per point value, with between votes counted on both ends as the scoring does and abstains in their own stack.
+     - The voter names or avatars on each stack.
+     - The winning value highlighted.
+     - The round actions and Jira submit chips that the UX1 results bar carries today.
+   - **Over the issue.** The issue stays visible through the overlay, which uses a translucent backdrop with blur where supported. The seats keep flipping their cards as they do now.
+   - **Minimize and restore.** A **Minimize** button, plus Esc while the overlay has focus, collapses it into the compact UX1 results bar, leaving the issue alone. A **Show results** button in that bar brings it back. The minimized state is remembered per round, per tab. It opens automatically for everyone on reveal, and again when a revealed round is navigated to, unless that tab minimized it for that round.
+   - **Accessibility.** The overlay is a non-modal dialog (`role="dialog"`, `aria-modal="false"`, labelled "Results"). Focus moves to it on reveal only when focus was not in a text field. `prefers-reduced-motion` turns the stack animation into a fade.
+   - **Tests.** Add e2e specs covering:
+     - the overlay appearing on reveal for both peers
+     - stack counts and the winner matching the reveal
+     - minimize, then restore
+     - the per-round memory
+     - no vote values in the DOM before reveal (unchanged)
