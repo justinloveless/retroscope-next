@@ -125,6 +125,7 @@ jobs:
           COOLIFY_APP_UUID: ${{ vars.PROD_APP_UUID }}
           PROD_URL: ${{ vars.PROD_URL }}
           GIT_BRANCH: main
+          GIT_COMMIT: ${{ steps.target.outputs.sha }}
           APP_DIGEST: ${{ steps.images.outputs.app }}
           IMPORTER_DIGEST: ${{ steps.images.outputs.importer }}
         run: HEALTH_URL="${PROD_URL%/}/healthz" deploy/coolify-deploy.sh deploy

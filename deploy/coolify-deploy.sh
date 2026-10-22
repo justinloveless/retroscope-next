@@ -3,20 +3,24 @@
 # Used by .github/workflows/deploy.yml (production) and preview.yml (the preview slot); see COOLIFY_SETUP.md §11.
 #
 #   coolify-deploy.sh check    validate the environment only; makes no network calls
-#   coolify-deploy.sh deploy   set git_branch, APP_DIGEST and IMPORTER_DIGEST, deploy, wait, health-check
+#   coolify-deploy.sh deploy   set git_branch, git_commit_sha, APP_DIGEST and IMPORTER_DIGEST, deploy, wait,
+#                              health-check
 #
 # Environment (all required unless a default is shown):
 #   COOLIFY_URL       https://<coolify host>, without /api/v1
 #   COOLIFY_TOKEN     API token with write and deploy permissions; never printed
 #   COOLIFY_APP_UUID  the application (compose resource) to deploy
-#   GIT_BRANCH        branch Coolify reads deploy/docker-compose.yml from
+#   GIT_BRANCH        branch Coolify clones
+#   GIT_COMMIT        full 40-character commit SHA on GIT_BRANCH; Coolify reads deploy/docker-compose.yml from it, so
+#                     the compose file always matches the images (a rollback gets the old compose file too)
 #   APP_DIGEST        64 hex characters, without "sha256:"
 #   IMPORTER_DIGEST   64 hex characters, without "sha256:"
 #   HEALTH_URL        public https URL that must answer 200 after the deploy (…/healthz)
 #   DEPLOY_TIMEOUT    seconds to wait for the Coolify deployment to finish (default 900)
 #   HEALTH_TIMEOUT    seconds to wait for HEALTH_URL and a running:healthy status (default 300)
 #   POLL_INTERVAL     seconds between polls (default 10)
-# Writes deployment_uuid to $GITHUB_OUTPUT when that is set.
+# Writes deployment_uuid to $GITHUB_OUTPUT when that is set. If the run is cancelled (SIGINT/SIGTERM) while its
+# deployment is still queued in Coolify, the script tries to cancel that deployment so it cannot block the next run.
 set -euo pipefail
 
 die() {
@@ -30,9 +34,9 @@ usage() { echo "usage: $0 check|deploy" >&2; exit 2; }
 
 validate() {
   COOLIFY_URL="${COOLIFY_URL:-}" COOLIFY_TOKEN="${COOLIFY_TOKEN:-}" COOLIFY_APP_UUID="${COOLIFY_APP_UUID:-}"
-  GIT_BRANCH="${GIT_BRANCH:-}" APP_DIGEST="${APP_DIGEST:-}" IMPORTER_DIGEST="${IMPORTER_DIGEST:-}" HEALTH_URL="${HEALTH_URL:-}"
+  GIT_BRANCH="${GIT_BRANCH:-}" GIT_COMMIT="${GIT_COMMIT:-}" APP_DIGEST="${APP_DIGEST:-}" IMPORTER_DIGEST="${IMPORTER_DIGEST:-}" HEALTH_URL="${HEALTH_URL:-}"
   local missing=() v
-  for v in COOLIFY_URL COOLIFY_TOKEN COOLIFY_APP_UUID GIT_BRANCH APP_DIGEST IMPORTER_DIGEST HEALTH_URL; do
+  for v in COOLIFY_URL COOLIFY_TOKEN COOLIFY_APP_UUID GIT_BRANCH GIT_COMMIT APP_DIGEST IMPORTER_DIGEST HEALTH_URL; do
     [[ -n "${!v:-}" ]] || missing+=("$v")
   done
   ((${#missing[@]} == 0)) || die "missing environment: ${missing[*]}"
@@ -41,6 +45,7 @@ validate() {
   COOLIFY_URL="${COOLIFY_URL%/}"
   [[ "$HEALTH_URL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?/[A-Za-z0-9._/-]*$ ]] || die "HEALTH_URL must be an https URL with a path"
   [[ "$COOLIFY_APP_UUID" =~ ^[A-Za-z0-9]{8,64}$ ]] || die "COOLIFY_APP_UUID is not a Coolify uuid"
+  [[ "$GIT_COMMIT" =~ ^[0-9a-f]{40}$ ]] || die "GIT_COMMIT must be a full 40-character lower-case commit SHA"
   [[ "$APP_DIGEST" =~ ^[0-9a-f]{64}$ ]] || die "APP_DIGEST must be 64 lower-case hex characters without sha256:"
   [[ "$IMPORTER_DIGEST" =~ ^[0-9a-f]{64}$ ]] || die "IMPORTER_DIGEST must be 64 lower-case hex characters without sha256:"
   # A conservative subset of git's branch rules; jq builds every JSON body, so this guards Coolify, not the shell.
@@ -83,18 +88,18 @@ api() {
   rm -f "$WORK/body"
 }
 
-ensure_branch() {
-  local current
-  current="$(api GET "/applications/$COOLIFY_APP_UUID" | jq -r '.git_branch // empty')"
-  if [[ "$current" == "$GIT_BRANCH" ]]; then
-    log "git_branch is already $GIT_BRANCH"
+# Coolify clones git_branch and then checks out git_commit_sha (Application::setGitImportSettings) on every deploy.
+ensure_source() {
+  local current want body
+  want="$(jq -nc --arg b "$GIT_BRANCH" --arg c "$GIT_COMMIT" '{git_branch: $b, git_commit_sha: $c}')"
+  current="$(api GET "/applications/$COOLIFY_APP_UUID" | jq -c '{git_branch, git_commit_sha}')"
+  if [[ "$current" == "$want" ]]; then
+    log "source is already $GIT_BRANCH at $GIT_COMMIT"
   else
-    log "switching git_branch from ${current:-<none>} to $GIT_BRANCH"
-    local body
-    body="$(jq -nc --arg b "$GIT_BRANCH" '{git_branch: $b}')"
-    api PATCH "/applications/$COOLIFY_APP_UUID" "$body" >/dev/null
-    current="$(api GET "/applications/$COOLIFY_APP_UUID" | jq -r '.git_branch // empty')"
-    [[ "$current" == "$GIT_BRANCH" ]] || die "git_branch is still ${current:-<none>} after the update"
+    log "switching source from $current to $want"
+    api PATCH "/applications/$COOLIFY_APP_UUID" "$want" >/dev/null
+    current="$(api GET "/applications/$COOLIFY_APP_UUID" | jq -c '{git_branch, git_commit_sha}')"
+    [[ "$current" == "$want" ]] || die "the source is still $current after the update"
   fi
 }
 
@@ -123,6 +128,21 @@ verify_env() {
   esac
 }
 
+# The Coolify deployment this run queued and its last polled status, for on_abort.
+DEPLOYMENT="" DEPLOYMENT_STATUS=""
+
+# A cancelled GitHub run does not cancel its Coolify deployment. One still queued would sit ahead of the next run's
+# deploy, so cancel it. One already in progress is left to finish: stopping it half-way could leave the stack down.
+on_abort() {
+  trap - INT TERM
+  if [[ -n "$DEPLOYMENT" && "$DEPLOYMENT_STATUS" == queued ]]; then
+    log "run cancelled; cancelling queued deployment $DEPLOYMENT"
+    # shellcheck disable=SC2310
+    api POST "/deployments/$DEPLOYMENT/cancel" >/dev/null || log "could not cancel deployment $DEPLOYMENT"
+  fi
+  exit 130
+}
+
 wait_for_deployment() {
   local dep="$1" deadline status
   deadline=$((SECONDS + DEPLOY_TIMEOUT))
@@ -130,6 +150,7 @@ wait_for_deployment() {
     # The deployment record carries build logs; read only its status. A failed poll is retried until the deadline.
     # shellcheck disable=SC2310
     status="$(api GET "/deployments/$dep" | jq -r '.status // empty')" || status="<unreachable>"
+    DEPLOYMENT_STATUS="$status"
     case "$status" in
       finished) log "deployment $dep finished"; return 0 ;;
       failed | cancelled*) die "deployment $dep ended as $status; see the resource's Deployments tab in Coolify" ;;
@@ -163,6 +184,8 @@ wait_for_health() {
     sleep "$POLL_INTERVAL"
   done
   log "application status: running:healthy"
+  # This shows the site is up after Coolify finished the deployment. It cannot tell the old containers from the new:
+  # both answer /healthz, and the status may be from before the deploy. The finished deployment is the evidence.
 }
 
 deploy() {
@@ -170,7 +193,7 @@ deploy() {
   trap 'rm -rf "$WORK"' EXIT
   (umask 077 && printf 'Authorization: Bearer %s\n' "$COOLIFY_TOKEN" >"$WORK/auth")
 
-  ensure_branch
+  ensure_source
 
   fetch_envs
   set_env APP_DIGEST "$APP_DIGEST"
@@ -180,6 +203,7 @@ deploy() {
   verify_env IMPORTER_DIGEST "$IMPORTER_DIGEST"
   rm -f "$WORK/envs"
 
+  trap on_abort INT TERM
   local response dep
   response="$(api GET "/deploy?uuid=$COOLIFY_APP_UUID&force=false")"
   dep="$(jq -r '.deployments[0].deployment_uuid // empty' <<<"$response")"
@@ -187,6 +211,7 @@ deploy() {
     die "Coolify queued no deployment: $(jq -r '.deployments[0].message // .message // "no message"' <<<"$response" || true)"
   fi
   log "queued deployment $dep"
+  DEPLOYMENT="$dep" DEPLOYMENT_STATUS=queued
   if [[ -n "${GITHUB_OUTPUT:-}" ]]; then echo "deployment_uuid=$dep" >>"$GITHUB_OUTPUT"; fi
 
   wait_for_deployment "$dep"

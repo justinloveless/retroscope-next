@@ -110,6 +110,7 @@ jobs:
           COOLIFY_APP_UUID: ${{ vars.PREVIEW_APP_UUID }}
           PREVIEW_URL: ${{ vars.PREVIEW_URL }}
           GIT_BRANCH: ${{ needs.target.outputs.branch }}
+          GIT_COMMIT: ${{ needs.target.outputs.sha }}
           APP_DIGEST: ${{ needs.images.outputs.app_digest }}
           IMPORTER_DIGEST: ${{ needs.images.outputs.importer_digest }}
         run: HEALTH_URL="${PREVIEW_URL%/}/healthz" deploy/coolify-deploy.sh deploy
