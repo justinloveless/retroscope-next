@@ -508,8 +508,6 @@
 }
 
 .nt-seats.is-ring .nt-seat[data-side="right"] .nt-seat-label { translate: -100% 0; }
-.nt-seats.is-ring .nt-seat[data-label="above"] .nt-seat-label { translate: 0 -100%; }
-.nt-seats.is-ring .nt-seat[data-side="right"][data-label="above"] .nt-seat-label { translate: -100% -100%; }
 
 .nt-seats[data-size="avatar"] .nt-seat-label {
   display: none;

@@ -195,13 +195,12 @@ export function createSeats() {
       return;
     }
     const rad = (slot.angle * Math.PI) / 180;
-    // The avatar sits on the card's outer end; the label hangs below it, or above it for seats in the upper
-    // half, where the card points down.
+    // The avatar sits on the card's outer end and the label hangs just below it, over the seat's own card, so
+    // a label never lands on a neighbouring seat.
     const reach = size.height / 2 - size.avatar / 2 - size.inset;
     const ax = -reach * Math.sin(rad);
     const ay = reach * Math.cos(rad);
-    const above = Math.cos(rad) < -0.3;
-    const offset = Math.max(size.avatar / 2, size.width / 2) + LABEL_GAP_PX;
+    const offset = size.avatar / 2 + LABEL_GAP_PX;
     const left = slot.side === 'left';
     const anchor = left
       ? Math.max(STAGE_PAD_PX / 2 - slot.x, ax - size.avatar / 2)
@@ -211,11 +210,10 @@ export function createSeats() {
       '--y': `${slot.y}px`,
       '--a': `${slot.angle}deg`,
       '--lx': `${anchor + size.width / 2}px`,
-      '--ly': `${ay + (above ? -offset : offset) + size.height / 2}px`,
+      '--ly': `${ay + offset + size.height / 2}px`,
       '--label-max': `${LABEL_MAX_PX}px`,
     });
     node.dataset.side = slot.side;
-    node.dataset.label = above ? 'above' : 'below';
     // A seat's first place is taken at once; only later moves glide.
     if (!node.placed) {
       node.placed = true;
