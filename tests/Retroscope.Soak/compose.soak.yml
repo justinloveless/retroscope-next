@@ -1,0 +1,41 @@
+# The soak's overlay on deploy/compose.test.yml (DESIGN §j). Retroscope.Soak runs both files under its own project name:
+#   docker compose -p retroscope-soak -f deploy/compose.test.yml -f tests/Retroscope.Soak/compose.soak.yml …
+# Clients reach Traefik only through Toxiproxy, which publishes the stack's https port, so latency, resets and
+# partitions sit on the client side of the proxy as they would on the internet. The app and db restart as they do in
+# deploy/docker-compose.yml, which a kill, a DB restart and a redeploy all depend on. Images, ports and subnets are
+# the soak's own, so it can run next to an e2e stack on the same machine.
+services:
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.12.0@sha256:9378ed52a28bc50edc1350f936f518f31fa95f0d15917d6eb40b8e376d1a214e
+    ports:
+      - "127.0.0.1:${RS_TEST_HTTPS_PORT:?}:8443"
+      - "127.0.0.1:${RS_SOAK_TOXIPROXY_PORT:?}:8474"
+    networks: [edge]
+
+  proxy:
+    ports: !reset []
+
+  app:
+    image: retroscope-soak:test
+    restart: unless-stopped
+    environment:
+      TRUSTED_PROXY_CIDRS: ${RS_SOAK_EDGE_SUBNET:?}
+
+  db:
+    restart: unless-stopped
+
+  fakejira:
+    image: retroscope-soak-fakes:test
+
+  fakeoidc:
+    image: retroscope-soak-fakes:test
+    ports: !reset []
+
+networks:
+  edge:
+    ipam:
+      config: !override [{ subnet: "${RS_SOAK_EDGE_SUBNET:?}" }]
+  jira:
+    internal: true
+    ipam:
+      config: !override [{ subnet: "${RS_SOAK_JIRA_SUBNET:?}" }]
