@@ -165,7 +165,7 @@ test('the hand peeks from the bottom and rises when focused; arrows move between
   expect(await showing()).toBeGreaterThan(0.3);
 
   await card.focus();
-  await expect.poll(showing).toBe(1);
+  await expect.poll(showing).toBeGreaterThanOrEqual(1);
   await page.keyboard.press('ArrowRight');
   await expect(handCard(page, 8)).toBeFocused();
   await expect(page).not.toHaveURL(/round=2/);

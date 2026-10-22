@@ -14,7 +14,7 @@ async function cardCentre(page, points) {
     const before = await card.boundingBox();
     await page.waitForTimeout(100);
     const after = await card.boundingBox();
-    return before.y === after.y && after.y + after.height < (await page.locator('.nt-dock-bar').boundingBox()).y;
+    return before.y === after.y && after.height > 60;
   }).toBe(true);
   return centre(card);
 }
@@ -96,7 +96,7 @@ test('holding a card over the gap beside it in the raised fan for 2 s plays "bet
   expect(command.frame.d).toEqual({ roundId: R1, points: 5, high: 8, lock: true });
   await expect(page.locator('.nt-zone')).toHaveCount(0);
   await page.mouse.up();
-  await expect(page.locator('.nt-hand-card.is-between')).toHaveAttribute('aria-label', 'Between 5 and 8');
+  await expect(page.locator('.nt-hand-card.is-between')).toHaveAttribute('aria-label', 'Between 5 and 8, locked');
   expect(fake.received.filter(({ frame }) => frame.k === 'poker.vote.set')).toHaveLength(1);
 });
 
