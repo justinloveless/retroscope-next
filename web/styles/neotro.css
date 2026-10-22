@@ -1661,14 +1661,12 @@
 
 .nt-seats.is-row .nt-seat-label {
   position: static;
+  flex-direction: column;
+  gap: 0;
   max-width: 100%;
   padding: 0 0.25rem;
   background: none;
   backdrop-filter: none;
-}
-
-.nt-seats.is-row .nt-badge-guest {
-  display: none;
 }
 
 @media (max-width: 767px) {
