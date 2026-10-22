@@ -113,7 +113,7 @@ export function createTable(actions) {
   const actionSlot = h('div', { class: 'nt-dock-tools' });
   const dockBar = h('div', { class: 'nt-dock-bar' }, actionSlot, bar);
   const dock = h('div', { class: 'nt-dock' }, extra, handSlot, dockBar);
-  const el = h('section', { class: 'nt-table', 'aria-label': 'Table' }, header, seats.el, field, dock);
+  const el = h('section', { class: 'nt-table', 'aria-label': 'Table' }, seats.print, header, seats.el, field, dock);
 
   let round = null;
   let roundId = null;

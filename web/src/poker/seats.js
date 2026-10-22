@@ -2,14 +2,16 @@
 // the stage (geometry.js), turned so its card faces the centre, with the avatar on the card's outer end and an
 // upright name label. A locked vote slides in face down along the seat's axis; a reveal flips every seated
 // card in place. Votes stay secret until the reveal: before it a seat only knows "waiting", "thinking" or
-// "locked in". Narrow stages get one scrolling avatar row instead of the ring.
+// "locked in". Narrow stages get one scrolling avatar row instead of the ring. The felt under them carries a
+// printed outline per seat (drawn by the stylesheet around the card slot) and one printed betting line per
+// side (docs/followups/UX3.md), an SVG path recomputed with the layout.
 
 import { announce } from '../core/a11y.js';
 import { h, replaceContent, setStyle } from '../core/h.js';
 import { reconcile } from '../core/list.js';
 import { createAvatar } from '../ui/avatar.js';
 import { createPopover } from '../ui/popover.js';
-import { STAGE_PAD_PX, planSeats } from './geometry.js';
+import { STAGE_PAD_PX, extents, planSeats, printedArc } from './geometry.js';
 import { voteLabel } from './model.js';
 import { FLIP_DELAY_MS, cardEl, faceEl, reducedMotion } from './reveal.js';
 
@@ -17,6 +19,16 @@ export const ROW_BELOW_PX = 560;
 export const ANNOUNCE_EVERY_MS = 1000;
 const LABEL_GAP_PX = 3;
 const LABEL_MAX_PX = 128;
+// The printed outline stands this far out from the card (px at card scale 1, plus a fixed part); the
+// stylesheet draws it with the same numbers (.nt-seat-slot::before).
+const PRINT_PAD_PX = 4;
+const PRINT_PAD_SCALE = 3;
+// The betting line keeps this gap from the seats' outlines and ends this far past the outer seats.
+const ARC_GAP_PX = 14;
+const ARC_OVERHANG_PX = 22;
+// Room left between the betting line and the issue panel.
+const ARC_CLEAR_PX = 10;
+const SVG_NS = 'http://www.w3.org/2000/svg';
 
 const STATUS_TEXT = { empty: 'waiting', selected: 'thinking', locked: 'locked in' };
 
@@ -88,8 +100,46 @@ function createNode(seat) {
  * size and returns {depth, row}: how far the ring reaches in from either side, and whether the seats are
  * one scrolling row instead.
  */
+/** The printed outline's pad and stroke (px) for a seat size; the stylesheet's formulas, in script. */
+export function printMetrics(size) {
+  const scale = Math.max(size.card, 0.5);
+  return { pad: PRINT_PAD_PX + PRINT_PAD_SCALE * size.card, stroke: 2 + 2.5 * scale };
+}
+
+/**
+ * The betting lines for a placed ring: {left, right, reach}: each side's path (null when that side is
+ * empty) and how far the lines reach in from the side edges, so the issue can keep clear of them.
+ */
+export function bettingLines(plan, width) {
+  const slots = plan.chip ? [...plan.seats, plan.chip] : plan.seats;
+  const { pad, stroke } = printMetrics(plan.size);
+  const w = plan.size.width + 2 * pad;
+  const h = plan.size.height + 2 * pad;
+  const lines = { left: null, right: null, reach: 0 };
+  for (const side of ['left', 'right']) {
+    const own = slots.filter((slot) => slot.side === side);
+    if (!own.length) {
+      continue;
+    }
+    const offset = Math.max(...own.map((slot) => extents(w, h, slot.angle).ex)) + ARC_GAP_PX;
+    lines[side] = printedArc(own, plan.curve, { offset, overhang: ARC_OVERHANG_PX + w / 4, width });
+    const inner = Math.max(...own.map((slot) => (side === 'left' ? slot.x : width - slot.x)));
+    lines.reach = Math.max(lines.reach, inner + offset + stroke / 2 + ARC_CLEAR_PX);
+  }
+  return lines;
+}
+
 export function createSeats() {
   const el = h('ul', { class: 'nt-seats', 'aria-label': 'Players' });
+  const print = document.createElementNS(SVG_NS, 'svg');
+  print.setAttribute('class', 'nt-print');
+  print.setAttribute('aria-hidden', 'true');
+  const lines = ['left', 'right'].map((side) => {
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('class', `nt-print-arc nt-print-${side}`);
+    print.append(path);
+    return path;
+  });
   const moreList = h('ul', { class: 'nt-more-list' });
   const more = h('li', { class: 'nt-seat-more' });
   const moreButton = h('button', { type: 'button', class: 'nt-more-button', 'aria-haspopup': 'dialog' });
@@ -253,6 +303,21 @@ export function createSeats() {
       node.hidden = ring && i >= plan.seats.length;
       position(node, ring ? plan.seats[i] : null, size);
     });
+    let reach = ring ? plan.depth : 0;
+    print.hidden = !ring;
+    if (ring) {
+      const drawn = bettingLines(plan, stage.width);
+      reach = Math.max(reach, drawn.reach);
+      setStyle(print, { '--print-w': `${printMetrics(size).stroke}px` });
+      [drawn.left, drawn.right].forEach((d, i) => {
+        // Where CSS `d` is supported it is what transitions; the attribute serves everyone else.
+        lines[i].toggleAttribute('hidden', d === null);
+        if (d !== null) {
+          lines[i].setAttribute('d', d);
+          lines[i].style.d = `path("${d}")`;
+        }
+      });
+    }
     if (ring && plan.chip) {
       el.append(more);
       setStyle(more, { '--x': `${plan.chip.x}px`, '--y': `${plan.chip.y}px` });
@@ -261,11 +326,12 @@ export function createSeats() {
       more.remove();
       popover.close();
     }
-    return { depth: ring ? plan.depth : 0, row: !ring };
+    return { depth: reach, row: !ring };
   }
 
   return {
     el,
+    print,
     update(next, { revealed = false, animate = true, live = false } = {}) {
       const previousCount = seats.length;
       seats = next.map((seat) => ({ ...seat, revealed }));
@@ -317,6 +383,7 @@ export function createSeats() {
       clearTimeout(flipTimer);
       clearTimeout(announceTimer);
       popover.destroy();
+      print.remove();
       el.remove();
     },
   };
