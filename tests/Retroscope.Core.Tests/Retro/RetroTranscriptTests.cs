@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json.Nodes;
+using Retroscope.Core.Ids;
 using Retroscope.Core.Protocol;
 using Retroscope.Core.Retro;
 using Retroscope.Core.Room;
@@ -131,6 +132,27 @@ public sealed class RetroTranscriptTests {
         driver.Accept(Alice, new RetroTimerReset(TimerState.Running));
 
         Emit("retro-timer-guest", driver, gus);
+    }
+
+    [Fact]
+    public void Posts_in_the_same_millisecond() {
+        var driver = new RetroRoomDriver(new RetroFixture());
+        var fx = driver.Fixture;
+        var alice = driver.Watch(Alice);
+        var higher = new CardId(Guid.Parse("ca000000-0000-4000-8000-0000000000f2"));
+        var lower = new CardId(Guid.Parse("ca000000-0000-4000-8000-0000000000f1"));
+
+        // Both posts share a wire millisecond, but the clock orders them against their ids.
+        fx.Now = Start.AddTicks(2_000);
+        driver.Accept(Alice, new RetroCardAdd(higher, Good, "Posted first", false));
+        fx.Now = Start.AddTicks(7_000);
+        driver.Accept(Bob, new RetroCardAdd(lower, Good, "Posted second", false));
+        fx.Now = Start.AddSeconds(1).AddTicks(2_000);
+        driver.Accept(Alice, new RetroCommentAdd(new CommentId(Guid.Parse("c0000000-0000-4000-8000-0000000000f2")), lower, "First", false));
+        fx.Now = Start.AddSeconds(1).AddTicks(7_000);
+        driver.Accept(Bob, new RetroCommentAdd(new CommentId(Guid.Parse("c0000000-0000-4000-8000-0000000000f1")), lower, "Second", false));
+
+        Emit("retro-same-millisecond-alice", driver, alice);
     }
 
     private static void Emit(string name, RetroRoomDriver driver, RetroRoomDriver.Watcher watcher) {
