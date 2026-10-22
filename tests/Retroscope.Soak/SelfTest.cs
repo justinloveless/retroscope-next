@@ -4,7 +4,7 @@ namespace Retroscope.Soak;
 
 /// <summary>
 /// Proves the oracle has teeth before any run trusts it: a clean synthetic run passes, and each planted bug (a lost
-/// acked card, a phantom card, a stale overwrite, a lost vote, a double reveal, a double timer expiry, a lost dup-acked
+/// acked card, a phantom card, a stale overwrite, a lost vote, a double reveal, a double or missing timer expiry, a lost dup-acked
 /// round, a command never answered) is reported under its own gate.
 /// </summary>
 internal static class SelfTest {
@@ -32,6 +32,11 @@ internal static class SelfTest {
         Expect(failures, "wrong_state", Results(), CleanRows() with { Votes = [new PokerVoteRow(Round1, Ann, 3, false, false)] });
         Expect(failures, "reveal_twice", Results(reveals: 2), CleanRows());
         Expect(failures, "timer_expired_twice", Results(expired: 2), CleanRows());
+        Expect(failures, "timer_missing", Results(expired: 0), CleanRows());
+        var endedInSnap = Oracle.Check(Results(expired: 0, endedInSnap: 1), CleanRows(), [], End);
+        if (endedInSnap.Count > 0) {
+            failures.Add($"a timer that a resuming tab saw ended in its snapshot was flagged: {string.Join("; ", endedInSnap.Select(f => f.Gate))}");
+        }
         Expect(failures, "lost_acked", Results(), CleanRows() with { Rounds = [CleanRows().Rounds[0]] });
         Expect(failures, "unacked", Results(extraBobEdit: Intent(9, "retro.vote.set", "pending", new { cardId = Card, on = true })), CleanRows());
         return failures;
@@ -54,11 +59,11 @@ internal static class SelfTest {
         [],
         [new CardVoteRow(Card, Bob)]);
 
-    private static ClientResults Results(int reveals = 1, int expired = 1, IntentResult? extraBobEdit = null) {
+    private static ClientResults Results(int reveals = 1, int expired = 1, int endedInSnap = 0, IntentResult? extraBobEdit = null) {
         var poker = new RoomResult($"poker:{Session}", "poker", "poker", Session, [Round1],
             new Dictionary<Guid, int> { [Round1] = reveals }, []);
         var board = new RoomResult($"board:{Board}", "board", "retro", Board, [],
-            new Dictionary<Guid, int>(), [new TimerResult(End.AddMinutes(-3).ToUnixTimeMilliseconds(), null, expired)]);
+            new Dictionary<Guid, int>(), [new TimerResult(End.AddMinutes(-3).ToUnixTimeMilliseconds(), null, expired, endedInSnap)]);
         var ann = new List<IntentResult> {
             Intent(1, "poker.vote.set", "ack", new { roundId = Round1, points = 5, @lock = true }, s: 3),
             Intent(2, "poker.round.next", "dup", new { fromRoundId = Round1, newRoundId = Round2, ticketKey = "SOAK-1" }),
