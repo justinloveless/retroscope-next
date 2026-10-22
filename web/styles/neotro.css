@@ -964,6 +964,10 @@
   user-select: none;
 }
 
+.nt-dragging .tooltip {
+  display: none;
+}
+
 /* The hand: about a third of each card peeks above the bar; hovering the dock, focus, a drag or a touch raises
    the fan. */
 .nt-hand {
