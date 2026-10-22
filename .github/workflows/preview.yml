@@ -15,6 +15,19 @@ on:
 
 permissions: {}
 
+# Eligible runs share one group, so a newer preview cancels an older run as a whole and the last one wins. The group is
+# per workflow, not per job: with job-level groups an older run's deploy job could cancel a newer run's images job.
+# Runs that will not deploy (an unlabelled PR, another label added, a fork) get a group of their own and so never
+# cancel a live preview. Keep the condition in step with the target job's if.
+concurrency:
+  group: >-
+    ${{ (github.event_name == 'workflow_dispatch' ||
+         (github.event.pull_request.head.repo.full_name == github.repository &&
+          contains(github.event.pull_request.labels.*.name, 'preview') &&
+          (github.event.action != 'labeled' || github.event.label.name == 'preview')))
+        && 'preview' || format('preview-noop-{0}', github.run_id) }}
+  cancel-in-progress: true
+
 jobs:
   target:
     # Fork pull requests get no secrets, so they are skipped. Adding another label to a preview PR does not redeploy.
@@ -69,10 +82,6 @@ jobs:
 
   images:
     needs: target
-    # Same group as the deploy job: a newer preview cancels an older one wherever it is, so the last one wins.
-    concurrency:
-      group: preview
-      cancel-in-progress: true
     permissions:
       contents: read
       packages: write
@@ -82,9 +91,10 @@ jobs:
 
   deploy:
     needs: [target, images]
-    concurrency:
-      group: preview
-      cancel-in-progress: true
+    # The preview token lives in the 'preview' environment and reaches only the preview resource (COOLIFY_SETUP §11.4).
+    environment:
+      name: preview
+      url: ${{ vars.PREVIEW_URL }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
