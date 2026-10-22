@@ -146,5 +146,5 @@ test('a crowded table hides the rest behind one chip, and the depth covers every
 
 test('a stage too small for any seat hides everyone', () => {
   const layout = seatLayout({ width: 60, height: 60 }, 3, SEAT_SIZES[1]);
-  assert.deepEqual(layout, { seats: [], chip: null, hidden: 3, depth: 0, sagitta: 0 });
+  assert.deepEqual(layout, { seats: [], chip: null, hidden: 3, depth: 0, sagitta: 0, curve: null });
 });

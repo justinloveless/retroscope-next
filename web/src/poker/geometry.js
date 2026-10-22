@@ -168,13 +168,14 @@ function fitSide(frame, count) {
  * seat: {width, height, spacing}; the seat's box before rotation (`width` across its axis, `height` along
  * it) and the smallest distance between neighbouring centres along an arc.
  *
- * Returns {seats: [{x, y, angle, side}], chip, hidden, depth, sagitta}: the seats in player order (player i
- * sits on the left when i is even), the "+N" chip's slot when not everyone fits (the last slot of the right
- * arc, which alternation leaves free, so both arcs hold as many items as fit), how many players that chip
- * stands for, how far the seats reach in from either side edge, and how far the arcs bow in.
+ * Returns {seats: [{x, y, angle, side}], chip, hidden, depth, sagitta, curve}: the seats in player order
+ * (player i sits on the left when i is even), the "+N" chip's slot when not everyone fits (the last slot of
+ * the right arc, which alternation leaves free, so both arcs hold as many items as fit), how many players
+ * that chip stands for, how far the seats reach in from either side edge, how far the arcs bow in, and the
+ * arcs' shared circle: {radius, middle} (radius Infinity for a straight side, middle the chord's height).
  */
 export function seatLayout(stage, count, seat) {
-  const empty = { seats: [], chip: null, hidden: Math.max(0, count), depth: 0, sagitta: 0 };
+  const empty = { seats: [], chip: null, hidden: Math.max(0, count), depth: 0, sagitta: 0, curve: null };
   const { width: W, height: H } = stage;
   const { width: w, height: h, spacing } = seat;
   if (count <= 0 || !(W > 0) || !(H > 0)) {
@@ -220,7 +221,42 @@ export function seatLayout(stage, count, seat) {
   }
   const chip = overflowing ? rightSlots[right - 1] : null;
   const depth = depthOf([...leftSlots, ...rightSlots], frame);
-  return { seats, chip, hidden: count - shown, depth, sagitta: arc.sagitta };
+  return { seats, chip, hidden: count - shown, depth, sagitta: arc.sagitta, curve: { radius: arc.radius, middle: frame.middle } };
+}
+
+const round1 = (n) => Math.round(n * 10) / 10;
+
+/**
+ * The printed betting line of one side (docs/followups/UX3.md): an SVG path concentric with that side's seat
+ * arc, `offset` px further in toward the stage centre, running from `overhang` px above the first slot to
+ * `overhang` px below the last. `slots` are the side's slots (seats and the chip), `curve` is
+ * seatLayout's, `width` the stage's. Null when the side has no slots.
+ */
+export function printedArc(slots, curve, { offset, overhang, width }) {
+  if (!slots.length || !curve) {
+    return null;
+  }
+  const { side } = slots[0];
+  const sorted = [...slots].sort((a, b) => a.y - b.y);
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  // Work as if on the left side, then mirror the x coordinates for the right.
+  const local = (slot) => (side === 'left' ? slot.x : width - slot.x);
+  const out = (x) => round1(side === 'left' ? x : width - x);
+  const { radius, middle } = curve;
+  if (!Number.isFinite(radius)) {
+    const x = out(local(first) + offset);
+    return `M ${x} ${round1(first.y - overhang)} L ${x} ${round1(last.y + overhang)}`;
+  }
+  const angle = (y, r) => Math.asin(Math.max(-1, Math.min(1, (y - middle) / r)));
+  const cx = local(first) - radius * Math.cos(angle(first.y, radius));
+  const r = radius + offset;
+  const from = angle(first.y - overhang, r);
+  const to = angle(last.y + overhang, r);
+  const at = (phi) => [out(cx + r * Math.cos(phi)), round1(middle + r * Math.sin(phi))];
+  const [x1, y1] = at(from);
+  const [x2, y2] = at(to);
+  return `M ${x1} ${y1} A ${round1(r)} ${round1(r)} 0 0 ${side === 'left' ? 1 : 0} ${x2} ${y2}`;
 }
 
 /**
