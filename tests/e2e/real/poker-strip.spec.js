@@ -43,12 +43,20 @@ test('rounds reorder by mouse drag and keyboard, and the others see the new orde
   await expect.poll(() => chipKeys(bob.page)).toEqual(['ORD-1', 'ORD-2', 'ORD-3', 'ORD-4']);
 
   if (!isMobile) {
+    // The strip centres the viewed chip as it settles, so the grip is found again right before the press.
+    await expect.poll(async () => {
+      const before = (await grip(ann.page, 4).boundingBox())?.x;
+      await ann.page.waitForTimeout(300);
+      return before === (await grip(ann.page, 4).boundingBox())?.x;
+    }).toBe(true);
+    await grip(ann.page, 4).hover();
     const from = await centre(grip(ann.page, 4));
     const to = await centre(chip(ann.page, 'ORD-2'));
-    await ann.page.mouse.move(from.x, from.y);
     await ann.page.mouse.down();
     await ann.page.mouse.move(from.x - 20, from.y, { steps: 3 });
+    await expect(chip(ann.page, 'ORD-4')).toHaveClass(/is-dragging/);
     await ann.page.mouse.move(to.x - 10, to.y, { steps: 8 });
+    await expect(ann.page.locator('.nt-strip .nt-chip.is-drop-target')).toHaveCount(1);
     await ann.page.mouse.up();
     // Where the drop lands left of ORD-2 depends on the engine's layout during the drag; that it moved does not.
     await expect.poll(async () => {
