@@ -19,7 +19,11 @@
 # Writes deployment_uuid to $GITHUB_OUTPUT when that is set.
 set -euo pipefail
 
-die() { echo "error: $*" >&2; exit 1; }
+die() {
+  # In GitHub Actions the ::error:: prefix turns the message into an annotation on the run.
+  if [[ "${GITHUB_ACTIONS:-}" == true ]]; then echo "::error::$*" >&2; else echo "error: $*" >&2; fi
+  exit 1
+}
 log() { echo "[coolify-deploy] $*" >&2; }
 
 usage() { echo "usage: $0 check|deploy" >&2; exit 2; }
