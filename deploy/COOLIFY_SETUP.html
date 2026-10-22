@@ -691,8 +691,11 @@
       <li class="nav-h3"><a href="#10-4-smoke-test-in-the-browser">10.4 Smoke test in the browser</a></li>
       <li class="nav-h3"><a href="#10-5-make-yourself-an-app-admin">10.5 Make yourself an app admin</a></li>
       <li class="nav-h2"><a href="#11-release-a-new-version">11. Release a new version</a></li>
-      <li class="nav-h3"><a href="#11-1-by-hand">11.1 By hand</a></li>
-      <li class="nav-h3"><a href="#11-2-by-api-optional-automation">11.2 By API (optional automation)</a></li>
+      <li class="nav-h3"><a href="#11-1-automatic-production-deploys">11.1 Automatic production deploys</a></li>
+      <li class="nav-h3"><a href="#11-2-redeploy-or-roll-back-a-commit">11.2 Redeploy or roll back a commit</a></li>
+      <li class="nav-h3"><a href="#11-3-the-preview-slot">11.3 The preview slot</a></li>
+      <li class="nav-h3"><a href="#11-4-what-the-workflows-need">11.4 What the workflows need</a></li>
+      <li class="nav-h3"><a href="#11-5-by-hand">11.5 By hand</a></li>
       <li class="nav-h2"><a href="#12-back-up-and-restore">12. Back up and restore</a></li>
       <li class="nav-h2"><a href="#13-rotate-keys">13. Rotate keys</a></li>
       <li class="nav-h2"><a href="#14-import-data-from-the-old-supabase-app">14. Import data from the old Supabase app</a></li>
@@ -824,12 +827,12 @@ unset ROOT_USER_PASSWORD</code></pre>
 <p>Your <code>PUBLIC_URL</code> is now <code>https://&lt;your-domain&gt;</code>. The Google and Entra redirect URIs must use exactly this host.</p>
 <h2 id="3-prepare-github-images-digests-and-registry-access">3. Prepare GitHub: images, digests, and registry access</h2>
 <h3 id="3-1-confirm-the-images-build">3.1 Confirm the images build</h3>
-<p><code>.github/workflows/images.yml</code> runs on every push to <code>main</code> and on every <code>v*</code> tag. It:</p>
+<p><code>.github/workflows/images.yml</code> runs on every push to <code>main</code> and on every <code>v*</code> tag. The preview workflow also calls it for a branch&#39;s head commit (section 11.3). It:</p>
 <ol>
 <li>Runs the Native AOT smoke test (<code>./build.sh aot-smoke</code>).</li>
 <li>Builds <code>ghcr.io/justinloveless/retroscope</code> from <code>deploy/Dockerfile</code> and <code>ghcr.io/justinloveless/retroscope-import</code> from <code>deploy/Dockerfile.importer</code>, for <code>linux/amd64</code> only.</li>
-<li>Pushes both, tagged with the commit SHA only. There is no <code>latest</code> tag.</li>
-<li>Prints both digests in the run summary.</li>
+<li>Pushes both. A push to <code>main</code> or a <code>v*</code> tag tags them with the commit SHA. A preview build tags them <code>preview-&lt;sha&gt;</code>, so it never writes a plain-SHA tag. There is no <code>latest</code> tag.</li>
+<li>Prints both digests in the run summary. On a push to <code>main</code> it also uploads them as the <code>image-digests</code> artifact, which the production deploy reads (section 11.1).</li>
 </ol>
 <p>To check it:</p>
 <ol>
@@ -837,8 +840,9 @@ unset ROOT_USER_PASSWORD</code></pre>
 <li>Open the most recent green run on <code>main</code>. If none exists, push to <code>main</code> or run a tagged release, then wait for it.</li>
 </ol>
 <h3 id="3-2-find-the-image-digests">3.2 Find the image digests</h3>
-<p>The run summary of the green run shows two lines:</p>
-<pre><code>app: ghcr.io/justinloveless/retroscope@sha256:&lt;hex&gt;
+<p>The run summary of the green run shows the commit and both images:</p>
+<pre><code>commit: &lt;sha&gt;
+app: ghcr.io/justinloveless/retroscope@sha256:&lt;hex&gt;
 importer: ghcr.io/justinloveless/retroscope-import@sha256:&lt;hex&gt;</code></pre>
 <p>Copy the hex after <code>sha256:</code> on the <code>app</code> line. That is <code>APP_DIGEST</code>. Copy the hex on the <code>importer</code> line. That is <code>IMPORTER_DIGEST</code>. Do not include the <code>sha256:</code> prefix, because the compose file adds it.</p>
 <h3 id="3-3-create-a-token-that-can-pull-the-private-images">3.3 Create a token that can pull the private images</h3>
@@ -907,7 +911,7 @@ unset REGISTRY_TOKEN</code></pre>
 </ol>
 <p>The compose file has only <code>image:</code> entries and no <code>build:</code> sections, so Coolify pulls and never builds. A test in <code>tests/Retroscope.Integration.Tests/Deploy</code> enforces that.</p>
 <p>A fallback is <strong>Docker Compose Empty</strong>, where you paste the YAML into Coolify. It has &quot;no Git source, branch, or pull-request events&quot;, so the pasted file drifts from the repo. Use it only if the Git option fails.</p>
-<p><strong>Auto deploy on push:</strong> a push to <code>main</code> also starts a new image build, but <code>APP_DIGEST</code> does not change until you set it. A Git-triggered redeploy would only restart the same image. In the resource, open <strong>Advanced</strong> &gt; <strong>Deployment</strong> &gt; <strong>Auto deploy</strong> and choose <strong>Manual deployments only</strong> (the other option is <strong>Deploy on push (webhooks)</strong>; source: Coolify <code>resources/views/livewire/project/application/advanced.blade.php</code>). Do not add a GitHub webhook for this resource. A deploy-key resource receives push events only through a webhook you add yourself. Deploy by hand or by API (section 11).</p>
+<p><strong>Auto deploy on push:</strong> a push to <code>main</code> also starts a new image build, but <code>APP_DIGEST</code> does not change until the deploy workflow sets it. A Git-triggered redeploy would only restart the same image. In the resource, open <strong>Advanced</strong> &gt; <strong>Deployment</strong> &gt; <strong>Auto deploy</strong> and choose <strong>Manual deployments only</strong> (the other option is <strong>Deploy on push (webhooks)</strong>; source: Coolify <code>resources/views/livewire/project/application/advanced.blade.php</code>). Do not add a GitHub webhook for this resource. A deploy-key resource receives push events only through a webhook you add yourself. Deploys come from GitHub Actions through the Coolify API (section 11).</p>
 <h3 id="4-4-attach-the-domain">4.4 Attach the domain</h3>
 <p>Source: <a href="https://coolify.io/docs/core/networking/domains">https://coolify.io/docs/core/networking/domains</a></p>
 <ol>
@@ -1120,7 +1124,7 @@ unset REGISTRY_TOKEN</code></pre>
 <h3 id="5-2-ghcr-owner">5.2 <code>GHCR_OWNER</code></h3>
 <p>Set it to <code>justinloveless</code>. It must be lower case, because <code>images.yml</code> lowercases the owner when it names the images.</p>
 <h3 id="5-3-app-digest-and-importer-digest">5.3 <code>APP_DIGEST</code> and <code>IMPORTER_DIGEST</code></h3>
-<p>Copy them from the images run summary (section 3.2). Paste only the hex after <code>sha256:</code>.</p>
+<p>For the first deploy, copy them from the images run summary (section 3.2). Paste only the hex after <code>sha256:</code>. After that, the deploy workflows set them (section 11).</p>
 <p>Set <code>IMPORTER_DIGEST</code> too, even though the compose file does not require it. The <code>importer</code> service is in profile <code>import</code> and should not start, but the Coolify docs do not say whether Coolify honours <code>profiles</code> (<strong>UNVERIFIED</strong>). If Coolify parses or pulls the importer with an empty digest, the image reference <code>…/retroscope-import@sha256:</code> is invalid and the deploy fails. Setting it avoids that.</p>
 <h3 id="5-4-public-url">5.4 <code>PUBLIC_URL</code></h3>
 <p>Set it to <code>https://&lt;your-domain&gt;</code>, with no trailing path, no query, and no <code>user@</code> part. The app refuses to start if the value is not an absolute http or https origin with path <code>/</code> only (<code>src/Retroscope.Server/Hosting/HostingOptions.cs</code>).</p>
@@ -1407,45 +1411,118 @@ curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' https://&lt;your-domain&gt;
 <p>Emails are stored in lower case (a <code>CHECK</code> constraint in <code>db/migrations/0001_init.sql</code>). The change takes effect without signing out: every session lookup reads <code>users.is_admin</code> again (<code>src/Retroscope.Server/Data/Repos/SessionsRepo.cs</code>, <code>LoadAsync</code>).</p>
 <h2 id="11-release-a-new-version">11. Release a new version</h2>
 <p>Coolify redeploys a compose resource by stopping and recreating the containers. There is no rolling update. Clients see a short pause and reconnect.</p>
-<h3 id="11-1-by-hand">11.1 By hand</h3>
+<p>Every migration must be quick and compatible with the previous release, because the old binary stops before the new one starts (<code>deploy/RUNBOOK.md</code> section 11).</p>
+<p>Releases run from GitHub Actions. Only verified work reaches <code>main</code>, and <code>main</code> deploys itself after CI passes. Unverified work stays on a branch and goes to the preview slot (section 11.3). The deploy and preview workflows both call <code>deploy/coolify-deploy.sh</code>, which talks to the Coolify API.</p>
+<h3 id="11-1-automatic-production-deploys">11.1 Automatic production deploys</h3>
+<p><code>.github/workflows/deploy.yml</code> runs when the <code>ci</code> workflow completes. It deploys only when that <code>ci</code> run succeeded on a push to <code>main</code>:</p>
 <ol>
-<li>Wait for the images run on <code>main</code> (or on a <code>v*</code> tag) to go green.</li>
-<li>Copy the new <code>app</code> and <code>importer</code> digests from the run summary (section 3.2).</li>
-<li>In Coolify, set <code>APP_DIGEST</code> and <code>IMPORTER_DIGEST</code>.</li>
+<li>It follows the <code>images.yml</code> run of the same push. If that run fails, the deploy fails at once. If it is slow, the deploy waits up to 75 minutes.</li>
+<li>It reads both digests from that run&#39;s <code>image-digests</code> artifact and checks that GHCR has them. It never resolves a tag: tags can be re-pushed, and a preview build runs branch code that can push packages.</li>
+<li>It skips the deploy if a newer commit on <code>main</code> has a <code>ci</code> run that is still running or has passed, because that run deploys the newer commit. A newer commit whose <code>ci</code> failed or was cancelled does not block an older green one.</li>
+<li>It points the production resource at branch <code>main</code> and that exact commit (<code>git_commit_sha</code>). Coolify checks the commit out after cloning, so <code>deploy/docker-compose.yml</code> always matches the images. It then sets <code>APP_DIGEST</code> and <code>IMPORTER_DIGEST</code>.</li>
+<li>It starts a Coolify deployment and waits up to 15 minutes for it to finish.</li>
+<li>It waits for <code>&lt;production URL&gt;/healthz</code> to answer 200 and for Coolify to report the resource as <code>running:healthy</code>. Both the old and new containers answer <code>/healthz</code>, so this shows that the site is up after the deployment finished, not which build serves it.</li>
+<li>It writes the commit, both digests and the Coolify deployment ID to the run summary.</li>
+</ol>
+<p>Any failure fails the run, with the reason as an annotation. The job runs in the <code>production</code> environment, which holds the production token (section 11.4).</p>
+<p>The <code>production</code> concurrency group is on the job, so a run whose job is skipped never takes the slot. One deploy runs at a time, and none is cancelled half-way. GitHub keeps only the newest pending job in the group: when a third run queues behind a running deploy, the pending one is cancelled. A cancelled pending run shows as <strong>Cancelled</strong> with no summary. If it was a rollback you still want, run it again after the newer deploy.</p>
+<h3 id="11-2-redeploy-or-roll-back-a-commit">11.2 Redeploy or roll back a commit</h3>
+<ol>
+<li>Open <strong>Actions</strong> &gt; <strong>deploy</strong> &gt; <strong>Run workflow</strong>.</li>
+<li>Keep the branch at <code>main</code>. A run started from another branch is skipped, and the <code>production</code> environment refuses it.</li>
+<li>Enter the full 40-character SHA of the commit to deploy.</li>
+</ol>
+<p>The run checks that a <code>ci</code> run on a push to <code>main</code> succeeded for that SHA, then deploys it as in section 11.1, with that commit&#39;s compose file and digests. It does not skip older commits, so this is also the rollback. A rollback must respect the expand/contract rule: the older binary has to work with the newer schema.</p>
+<p>The digests come from the commit&#39;s <code>image-digests</code> artifact, which GitHub keeps for 90 days. A commit whose artifact has expired, or that was built before the artifact existed, cannot be deployed this way. Use section 11.5 for it.</p>
+<h3 id="11-3-the-preview-slot">11.3 The preview slot</h3>
+<p>The preview slot is a second compose resource that shows unverified work before it merges. It has one slot, so the last deploy wins. <code>.github/workflows/preview.yml</code> deploys to it:</p>
+<ul>
+<li><strong>From a pull request.</strong> Add the <code>preview</code> label to a PR. The PR deploys when the label is added, on every push to it, and when it is reopened. PRs from forks are skipped, because they get no secrets.</li>
+<li><strong>By hand.</strong> Open <strong>Actions</strong> &gt; <strong>preview</strong> &gt; <strong>Run workflow</strong> and enter a branch name. If the branch has an open PR, that PR gets the comment.</li>
+</ul>
+<p>GitHub does not run <code>pull_request</code> workflows while a PR has a merge conflict. A labelled PR with conflicts does not preview until you resolve them. Until then, the manual run is the only way to preview it.</p>
+<p>Each run builds the images for the branch&#39;s head commit through <code>images.yml</code>, points the preview resource at that branch and commit, sets the digests, deploys, and checks <code>&lt;preview URL&gt;/healthz</code>. It then posts or updates one comment on the PR with the preview URL, the commit and the time. Coolify reads <code>deploy/docker-compose.yml</code> from that commit, so compose changes are previewed too. Runs that would deploy share one <code>preview</code> concurrency group for the whole workflow, so a newer preview cancels an older run wherever it is. If the older run had already queued a Coolify deployment that has not started, the script cancels it. Other runs, such as adding a different label, never cancel a live preview. Removing the label stops further deploys but leaves the current preview running.</p>
+<p>Set up the preview resource like production (sections 4 and 5), with these differences:</p>
+<ul>
+<li><strong>It runs on a separate Coolify server, not on the production VPS.</strong> Add a second small x86_64 VPS as a server in Coolify (<strong>Servers</strong> &gt; <strong>Add</strong>) and create the preview resource on it. There are two reasons:<ul>
+<li>The branch&#39;s compose file decides what runs on the preview host. Any branch author can add a host-path volume or <code>/var/run/docker.sock</code>, which gives root on that host. On a shared host, that reaches production.</li>
+<li>Memory. Our stack&#39;s limits add up to about 536 MiB (section 0). A preview on the same 2 GB host doubles that to about 1,072 MiB, which leaves under 1 GB for Coolify, Traefik and the OS. That is too little without leaning on swap.</li>
+</ul>
+</li>
+<li><strong>It belongs to a separate Coolify team</strong>, with its own API token (section 11.4). A token carries its team, and the application endpoints only find resources in that team (<code>ApplicationsController</code>, <code>ownedByCurrentTeamAPI</code>), so the preview token cannot change production&#39;s source or variables. Whether <code>/deploy</code> and <code>/deployments/…</code> apply the same team check is not in the source we checked (<strong>UNVERIFIED</strong>).</li>
+<li>It has its own domain (section 4.4) and its own <code>PUBLIC_URL</code>.</li>
+<li>It has its own database and secrets. Generate fresh <code>DB_OWNER_PASSWORD</code>, <code>DB_APP_PASSWORD</code>, <code>APP_KEYS</code> and <code>ANON_TAG_KEY</code>. Never copy production&#39;s values, and never import production data into it.</li>
+<li>Its sign-in providers need the preview URL as an extra redirect URI. They are optional, so you can leave them unset.</li>
+<li>Its auto deploy is off, as in section 4.3.</li>
+</ul>
+<p>If you put the preview on the production host anyway, you accept both risks above: a branch can take over the host, and the two stacks compete for 2 GB.</p>
+<h3 id="11-4-what-the-workflows-need">11.4 What the workflows need</h3>
+<p>A branch can change any workflow and any script, and a <code>pull_request</code> run uses the branch&#39;s versions. A token that a branch can read must therefore never be able to touch production. GitHub environments enforce this.</p>
+<p>In GitHub, under <strong>Settings</strong> &gt; <strong>Environments</strong>:</p>
+<ol>
+<li>Create <code>production</code>. Under <strong>Deployment branches and tags</strong>, choose <strong>Selected branches and tags</strong> and add <code>main</code>. Add the secret <code>COOLIFY_TOKEN</code> with the production token.</li>
+<li>Create <code>preview</code>. Leave its branches unrestricted. Add the secret <code>COOLIFY_TOKEN</code> with the preview team&#39;s token.</li>
+<li>Delete any repository-level <code>COOLIFY_TOKEN</code> under <strong>Settings</strong> &gt; <strong>Secrets and variables</strong> &gt; <strong>Actions</strong>. A repository secret is readable from every branch.</li>
+</ol>
+<p>If an environment does not exist when a workflow first names it, GitHub creates it without protection. Create both before you merge these workflows.</p>
+<p>Under <strong>Settings</strong> &gt; <strong>Secrets and variables</strong> &gt; <strong>Actions</strong> &gt; <strong>Variables</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>COOLIFY_URL</code></td>
+<td><code>https://&lt;coolify-domain&gt;</code>, without <code>/api/v1</code></td>
+</tr>
+<tr>
+<td><code>PROD_APP_UUID</code></td>
+<td>the production resource&#39;s UUID (in its URL in Coolify)</td>
+</tr>
+<tr>
+<td><code>PROD_URL</code></td>
+<td>the production <code>PUBLIC_URL</code></td>
+</tr>
+<tr>
+<td><code>PREVIEW_APP_UUID</code></td>
+<td>the preview resource&#39;s UUID</td>
+</tr>
+<tr>
+<td><code>PREVIEW_URL</code></td>
+<td>the preview <code>PUBLIC_URL</code></td>
+</tr>
+</tbody></table>
+<p>Also in GitHub:</p>
+<ul>
+<li>Create the <code>preview</code> label.</li>
+<li>Protect <code>main</code>: require pull requests and the <code>ci</code> check. A direct push to <code>main</code> still deploys only after <code>ci</code> passes, but protection keeps unverified work off <code>main</code>.</li>
+<li>The workflows read and push the GHCR packages with the built-in <code>GITHUB_TOKEN</code>. If a run cannot read an image, open the package&#39;s <strong>Package settings</strong> &gt; <strong>Manage Actions access</strong> and give this repository access.</li>
+</ul>
+<p>In Coolify:</p>
+<ol>
+<li>Enable API access: <strong>Settings</strong> &gt; <strong>Advanced</strong> &gt; <strong>API and MCP</strong> &gt; <strong>API access</strong>: <strong>Enabled</strong>, then <strong>Save</strong>. An administrator must do this on a self-hosted install.</li>
+<li>Set <strong>Allowed IPs</strong> in the same section. The workflows run on GitHub-hosted runners, which have no small fixed set of addresses, so the list must allow them. Leaving it empty allows every source, and Coolify warns about that. The tokens are then the only protection, so keep them narrow and rotate them if they leak. A self-hosted runner with a fixed address is the stricter alternative.</li>
+<li>Create two API tokens, one in the production resource&#39;s team and one in the preview team. Each is shown only once. The current source labels the page <strong>Security</strong> &gt; <strong>API Tokens</strong>, and the docs say <strong>Keys &amp; Tokens</strong> &gt; <strong>API Tokens</strong>. Each token needs <strong>Write</strong> (for the environment and source updates) and <strong>Deploy</strong> (for <code>/deploy</code> and cancelling a queued deployment), plus read access for the status checks. Only a team admin or owner can create a token with <code>write</code>. Leave <strong>read:sensitive</strong> off. Without it, the script cannot read the digests back after writing them and logs a warning instead.</li>
+</ol>
+<h3 id="11-5-by-hand">11.5 By hand</h3>
+<p>Use this if GitHub Actions or the Coolify API is unavailable.</p>
+<ol>
+<li>Find the green images run for the commit on <code>main</code> and copy the <code>app</code> and <code>importer</code> digests from its summary (section 3.2). Use a run on a push to <code>main</code>, not a preview build.</li>
+<li>In Coolify, set the resource&#39;s git commit to that commit, so the compose file matches the images. The workflows leave it pinned to the last commit they deployed.</li>
+<li>Set <code>APP_DIGEST</code> and <code>IMPORTER_DIGEST</code>.</li>
 <li>Click <strong>Redeploy</strong>. A restart is not enough, because the new image must be pulled.</li>
 </ol>
-<p>Every migration must be quick and compatible with the previous release, because the old binary stops before the new one starts (<code>deploy/RUNBOOK.md</code> section 11).</p>
-<h3 id="11-2-by-api-optional-automation">11.2 By API (optional automation)</h3>
-<p>Sources: <a href="https://coolify.io/docs/knowledge-base/git/github/github-actions">https://coolify.io/docs/knowledge-base/git/github/github-actions</a>, <a href="https://next.coolify.io/docs/core/automation/deploy-webhooks">https://next.coolify.io/docs/core/automation/deploy-webhooks</a>, <a href="https://coolify.io/docs/api-reference/api/operations/deploy-by-tag-or-uuid">https://coolify.io/docs/api-reference/api/operations/deploy-by-tag-or-uuid</a>, <a href="https://coolify.io/docs/api-reference/authorization">https://coolify.io/docs/api-reference/authorization</a></p>
-<p>The repo has no release workflow that sets the digest. To automate it:</p>
-<ol>
-<li><p>Enable API access on the instance: <strong>Settings</strong> &gt; <strong>Advanced</strong> &gt; <strong>API and MCP</strong> &gt; <strong>API access</strong>: <strong>Enabled</strong>, then <strong>Save</strong>. An administrator must do this on a self-hosted install.</p>
-</li>
-<li><p>In the same section, fill in <strong>Allowed IPs</strong>. Empty (or <code>0.0.0.0</code>) allows every source, and Coolify shows a warning for that. List only the addresses that call the API. GitHub-hosted runners have no fixed small set of addresses, so for automation from GitHub prefer a self-hosted runner or a webhook relay with a fixed address over opening the API to everyone.</p>
-</li>
-<li><p>Create an API token. It is shown only once. The current source labels the page <strong>Security</strong> &gt; <strong>API Tokens</strong>, and the docs say <strong>Keys &amp; Tokens</strong> &gt; <strong>API Tokens</strong>. Use whichever your version shows. The token needs both <strong>Write</strong> (for <code>PATCH /applications/{uuid}/envs</code>) and <strong>Deploy</strong> (for <code>POST /deploy</code>) (Coolify <code>routes/api.php</code>). Only a team admin or owner can create a token with <code>write</code>.</p>
-</li>
-<li><p>Set the token in your shell without echoing it:</p>
+<p>To run the deploy script from your own shell instead, set its variables without echoing the token:</p>
 <pre><code>read -rs COOLIFY_TOKEN   # paste the token, press Enter
-export COOLIFY_TOKEN COOLIFY_URL=https://&lt;coolify-domain&gt;</code></pre>
-</li>
-<li><p>Update the digest:</p>
-<pre><code>curl -X PATCH &quot;$COOLIFY_URL/api/v1/applications/&lt;resource-uuid&gt;/envs&quot; \
-  -H &quot;Authorization: Bearer $COOLIFY_TOKEN&quot; -H 'Content-Type: application/json' \
-  -d '{&quot;key&quot;:&quot;APP_DIGEST&quot;,&quot;value&quot;:&quot;&lt;hex&gt;&quot;}'</code></pre>
-<p>For a Docker Compose Empty resource the path is <code>/api/v1/services/&lt;uuid&gt;/envs</code>.</p>
-</li>
-<li><p>Deploy:</p>
-<pre><code>curl -X POST &quot;$COOLIFY_URL/api/v1/deploy&quot; \
-  -H &quot;Authorization: Bearer $COOLIFY_TOKEN&quot; -H 'Content-Type: application/json' \
-  -d '{&quot;uuid&quot;:&quot;&lt;resource-uuid&gt;&quot;,&quot;force&quot;:false}'</code></pre>
-<p>Or call the resource&#39;s <strong>Webhooks</strong> &gt; <strong>Deploy Webhook</strong> URL (<code>…/api/v1/deploy?uuid=&lt;uuid&gt;&amp;force=false</code>) with the same header.</p>
-</li>
-<li><p>Run <code>unset COOLIFY_TOKEN</code> when you are done.</p>
-</li>
-<li><p>To run this from GitHub Actions, store the URL and token as repo secrets (Coolify&#39;s docs name them <code>COOLIFY_WEBHOOK</code> and <code>COOLIFY_TOKEN</code>) under <strong>Settings</strong> &gt; <strong>Secrets and variables</strong> &gt; <strong>Actions</strong>. The Coolify API must be reachable from the runner and allowed by <strong>Allowed IPs</strong> (step 2).</p>
-</li>
-</ol>
+export COOLIFY_TOKEN COOLIFY_URL=https://&lt;coolify-domain&gt; COOLIFY_APP_UUID=&lt;resource-uuid&gt; GIT_BRANCH=main GIT_COMMIT=&lt;sha&gt;
+export APP_DIGEST=&lt;hex&gt; IMPORTER_DIGEST=&lt;hex&gt; HEALTH_URL=https://&lt;domain&gt;/healthz
+deploy/coolify-deploy.sh check    # validates the variables without calling Coolify
+deploy/coolify-deploy.sh deploy
+unset COOLIFY_TOKEN</code></pre>
+<p>The API must accept your address (section 11.4, step 2). The script uses the application endpoints (<code>/api/v1/applications/&lt;uuid&gt;/…</code>). A <strong>Docker Compose Empty</strong> resource is a service instead, with paths under <code>/api/v1/services/&lt;uuid&gt;/</code>, and the script does not support it.</p>
+<p>Sources: <a href="https://coolify.io/docs/knowledge-base/git/github/github-actions">https://coolify.io/docs/knowledge-base/git/github/github-actions</a>, <a href="https://coolify.io/docs/api-reference/api/operations/deploy-by-tag-or-uuid">https://coolify.io/docs/api-reference/api/operations/deploy-by-tag-or-uuid</a>, <a href="https://coolify.io/docs/api-reference/authorization">https://coolify.io/docs/api-reference/authorization</a>, and the Coolify v4.0.0-beta.444 OpenAPI spec and <code>ApplicationsController</code>.</p>
 <h2 id="12-back-up-and-restore">12. Back up and restore</h2>
 <p>Full procedure: <code>deploy/RUNBOOK.md</code> section 8.</p>
 <ul>
@@ -1652,7 +1729,8 @@ rm /root/rs.env      # when the import is done</code></pre>
 <li>Entra&#39;s tenant ID label, the <code>xms_edov</code> picker entry, the Graph email permission prompt, and the API permission labels.</li>
 <li>Mailgun&#39;s username format and all Brevo details.</li>
 <li>Traefik&#39;s compress middleware minimum body size (1024 bytes per Traefik&#39;s docs), which section 10.3 relies on.</li>
-<li>On-screen labels taken from Coolify source rather than docs: <strong>Gzip compression</strong> (section 4.5), <strong>Auto deploy</strong> (section 4.3), and the API token page name (section 11.2).</li>
+<li>On-screen labels taken from Coolify source rather than docs: <strong>Gzip compression</strong> (section 4.5), <strong>Auto deploy</strong> (section 4.3), and the API token page name (section 11.4).</li>
+<li>Whether <code>/deploy</code> and <code>/deployments/…</code> limit a token to its own team&#39;s resources, as the application endpoints do (section 11.3).</li>
 </ol>
 
 <footer>Generated from COOLIFY_SETUP.md</footer>
