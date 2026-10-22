@@ -119,7 +119,7 @@ test('the reveal flips each seat to its vote; before it no vote value is in the 
 
 test('a crowded table shrinks its seats and puts the rest behind a "+N" chip', async ({ page, fake }, testInfo) => {
   desktopOnly(testInfo);
-  await page.setViewportSize({ width: 1024, height: 640 });
+  await page.setViewportSize({ width: 1024, height: 500 });
   setupPoker(fake, { snap: table(12) });
   await openTable(page);
   const chip = page.locator('.nt-more-button');
