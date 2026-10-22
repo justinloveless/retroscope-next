@@ -99,7 +99,8 @@ export function createHand({ onVote, onLock, onAbstain, drag }) {
   function cardButton(item, index, active) {
     const between = item.high != null;
     const selected = view.own && !view.abstained && view.own.points === item.points && (view.own.high ?? null) === item.high;
-    const label = between ? `Between ${item.points} and ${item.high}` : `${item.points} points`;
+    const value = between ? `Between ${item.points} and ${item.high}` : `${item.points} points`;
+    const label = selected && view.locked ? `${value}, locked` : value;
     const button = h('button', {
       type: 'button',
       class: ['nt-hand-card', between && 'is-between', selected && 'is-selected'],
@@ -130,8 +131,8 @@ export function createHand({ onVote, onLock, onAbstain, drag }) {
     // At rest the button is only the strip that peeks out; the face inside it shows the card's top.
     h('span', { class: 'nt-hand-face' },
       between ? betweenEl(item.points, item.high) : cardEl(item.points),
-      selected && view.locked ? h('span', { class: 'nt-hand-locked' }, icon('lock'), h('span', { text: 'Locked' })) : null),
-    selected ? h('span', { class: 'nt-hand-pill', text: voteLabel(item.points, item.high) }) : null);
+      selected && view.locked ? h('span', { class: 'nt-hand-locked', 'aria-hidden': 'true' }, icon('lock'), h('span', { text: 'Locked' })) : null),
+    selected ? h('span', { class: 'nt-hand-pill', 'aria-hidden': 'true', text: voteLabel(item.points, item.high) }) : null);
     setStyle(button, { '--i': index });
     const text = describe(item, view.descriptions);
     if (text) {
