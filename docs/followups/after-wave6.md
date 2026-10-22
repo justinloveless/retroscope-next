@@ -2,7 +2,7 @@
 
 ```
 U43 done verified= True open= []
-   FU: Owner: confirm the card art licence (web/assets/cards, THIRD_PARTY.md, U37 decision 9) before the first production deploy. The RUNBOOK lists this as the release gate.
+   FU: Owner: confirm the card art licence (web/assets/cards, THIRD_PARTY.md, U37 decision 9) before the first production deploy. The RUNBOOK lists this as the release gate. (Done on 2026-10-22: the owner confirmed it and the gate is removed.)
    FU: Operator: work through RUNBOOK section 15 on the VPS: Coolify and Traefik memory, WebSocket idle timeout via ws-idle.mjs, bcrypt hashes/s via HashGateTests.Bcrypt_throughput_is_recorded, throughput and p99 on a staging copy, the TRUSTED_PROXY_CIDRS subnet, whether Coolify adds compression, the swapfile, and off-box backup copies.
    FU: U45: reuse tests/e2e/smoke/_stack.js for real e2e specs. A FakeOidc container can follow the FakeJira pattern (tests/Fakes.Host plus a network alias).
    FU: U44: deploy/drills/tab.mjs already handles outbox resend and resume, so the soak can build on it.

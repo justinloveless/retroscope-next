@@ -1,6 +1,7 @@
 # Third-party material
 
-Everything below ships in the web client under `web/assets/`.
+Everything below ships in the web client under `web/assets/`. The last sections list the assets that are the
+project owner's own work, so every shipped asset has a recorded source.
 
 ## m6x11plus (`web/assets/m6x11plus.woff2`)
 
@@ -65,9 +66,15 @@ SOFTWARE.
 ## Card art (`web/assets/cards/*.png`, `web/assets/cards.png`)
 
 The nine 71×95 pixel-art cards come from the original Retroscope repository (`src/assets/Card_*.png`, added in
-commit `100cb90` "Integrate Neotro"). That repository records no outside author or licence for them. Their origin
-is **unconfirmed**: until the project owner confirms the art is the project's own, treat it as unverified and do not
-release. If it comes from somewhere else, record the source and terms here.
+commit `100cb90` "Integrate Neotro").
+
+- **Owner:** the project owner, who owns the art or holds a licence for it and has confirmed it may ship with this
+  project (confirmed 2026-10-22).
+- **Changes:** the source frames are copied unchanged; `tools/make-sprite.mjs cards` packs them into `cards.png`.
+
+## App icons and logo (`web/assets/icon-192.png`, `web/assets/icon-512.png`, `web/assets/icon-maskable-512.png`, `web/assets/logo.svg`, `web/assets/public/favicon.ico`)
+
+- **Owner:** the project owner's own work. No outside author or licence applies.
 
 ## Retro timer music
 

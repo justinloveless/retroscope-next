@@ -9,7 +9,7 @@ Facts marked **(measured locally)** come from `deploy/compose.test.yml` on a dev
 
 ## Contents
 
-1. [Release gate](#1-release-gate)
+1. [Asset licences](#1-asset-licences)
 2. [Host requirements](#2-host-requirements)
 3. [Deploying with Coolify](#3-deploying-with-coolify)
 4. [Environment variables](#4-environment-variables)
@@ -25,13 +25,11 @@ Facts marked **(measured locally)** come from `deploy/compose.test.yml` on a dev
 14. [Local rehearsal and recorded results](#14-local-rehearsal-and-recorded-results)
 15. [Measure on the target VPS](#15-measure-on-the-target-vps)
 
-## 1. Release gate
+## 1. Asset licences
 
-Do not deploy to production until **the owner has confirmed the card art licence**. The nine pixel-art cards in
-`web/assets/cards/` (and the sprite `web/assets/cards.png`) were copied from the original repository, which records no
-outside source for them (`THIRD_PARTY.md`, "Card art"; `docs/decisions/U37.md`, decision 9). The owner either confirms
-they may ship and updates `THIRD_PARTY.md` with the source and terms, or replaces them. Every other asset in
-`THIRD_PARTY.md` has a recorded licence.
+Every shipped asset has a recorded source in `THIRD_PARTY.md`. The card art (`web/assets/cards/`, `web/assets/cards.png`)
+and the app icons and logo are the project owner's own or licensed work (`THIRD_PARTY.md`; `docs/decisions/U37.md`,
+decision 9). Before shipping any new third-party asset, add a section for it there.
 
 ## 2. Host requirements
 
