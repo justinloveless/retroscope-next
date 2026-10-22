@@ -996,6 +996,17 @@
   display: flex;
   align-items: flex-end;
   margin-left: calc(71px * var(--scale) / -3);
+  transition: translate 0.15s ease-out;
+}
+
+/* While a card is dragged, the cards on either side of it move out by one slot, which doubles the gaps beside it
+   and with them the "between" zones (drag.js). */
+.nt-dragging .nt-fan-slot:has(~ .nt-fan-slot > .is-drag-source) {
+  translate: calc(71px * var(--scale) * -2 / 3) 0;
+}
+
+.nt-dragging .nt-fan-slot:has(> .is-drag-source) ~ .nt-fan-slot {
+  translate: calc(71px * var(--scale) * 2 / 3) 0;
 }
 
 /* The button grows from the peeking strip to the whole card and lifts by growing further, so its bottom edge never
