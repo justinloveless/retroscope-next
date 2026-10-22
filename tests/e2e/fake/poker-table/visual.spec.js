@@ -6,9 +6,10 @@ import { expect, test } from '../_harness/fixtures.js';
 import { BOB, DOT, GUS, ME, R1, ROOM, handCard, openTable, revealed, setupPoker } from './_poker.js';
 
 const VIEWPORTS = { desktop: { width: 1280, height: 900 }, phone: { width: 390, height: 844 } };
-// In the Linux image a seat's name label was seen once to land one pixel over (28 pixels in all); a real
-// change to the table, a card or a glyph moves far more.
-const SHOT = { fullPage: true, maxDiffPixels: 40 };
+// In the Linux image a seat's name label was seen once to land one pixel over (28 pixels in all), and the
+// phone row's small between card sometimes rasterizes its diagonal a pixel apart (66 pixels); a real change
+// to the table, a card or a glyph moves far more.
+const SHOT = { fullPage: true, maxDiffPixels: 80 };
 
 const OTHERS = {
   [BOB.pid]: { points: 5, locked: true, abstained: false },
@@ -54,6 +55,10 @@ for (const [size, viewport] of Object.entries(VIEWPORTS)) {
         fake.tx(ROOM, [revealed(R1, votes, BOB.pid, 5)]);
         // Dot never locked in, so the reveal turns that vote into a hidden abstain.
         await expect(page.locator('.nt-flip.is-flipped')).toHaveCount(3);
+        // Gus's between card crossfades; a frame caught mid-fade differs by a few dozen pixels.
+        for (const face of await page.locator('.nt-flip-fade .nt-flip-front').all()) {
+          await expect(face).toHaveCSS('opacity', '1');
+        }
         await page.mouse.move(0, 0);
         await page.evaluate(() => document.fonts.ready);
         await settled(page);
