@@ -156,6 +156,57 @@ public sealed class RetroPersistenceTests(PostgresFixture postgres) {
     }
 
     [Fact]
+    public async Task A_timer_whose_first_fire_lands_early_is_armed_again_and_expires_exactly_once() {
+        await using var scope = await RetroScope.StartAsync(postgres);
+        var registry = scope.NewRegistry(new EarlyTimers(scope.Time));
+        var alice = await JoinAsync(registry, TeamBoardRoom, Alice);
+        await AckAsync(registry, TeamBoardRoom, alice, 1, new RetroTimerStart(60_000, Alarm: true, Music: false, TimerState.Idle));
+        await SettleAsync(registry, TeamBoardRoom);
+        await alice.DrainAsync();
+
+        scope.Time.Advance(TimeSpan.FromMilliseconds(59_950));
+        await SettleAsync(registry, TeamBoardRoom);
+        var early = await TimerEventsAsync(alice);
+        scope.Time.Advance(TimeSpan.FromMilliseconds(50));
+        await SettleAsync(registry, TeamBoardRoom);
+        var due = await TimerEventsAsync(alice);
+        scope.Time.Advance(TimeSpan.FromMinutes(5));
+        await SettleAsync(registry, TeamBoardRoom);
+
+        Assert.Empty(early);
+        Assert.True(Assert.Single(due).Expired);
+        Assert.Empty(await TimerEventsAsync(alice));
+        Assert.Equal("idle", await scope.ScalarAsync<string>("select timer_state from retro_boards where id = $1", TeamBoard.Value));
+    }
+
+    [Fact]
+    public async Task A_timer_started_before_a_restart_expires_exactly_once_after_the_load() {
+        await using var scope = await RetroScope.StartAsync(postgres);
+        var registry = scope.NewRegistry(new EarlyTimers(scope.Time));
+        var alice = await JoinAsync(registry, TeamBoardRoom, Alice);
+        await AckAsync(registry, TeamBoardRoom, alice, 1, new RetroTimerStart(60_000, Alarm: true, Music: false, TimerState.Idle));
+        scope.Time.Advance(TimeSpan.FromSeconds(10));
+        await registry.ShutdownAsync(Token);
+
+        var restarted = scope.NewRegistry(new EarlyTimers(scope.Time));
+        var bob = await JoinAsync(restarted, TeamBoardRoom, Bob);
+        await SettleAsync(restarted, TeamBoardRoom);
+        scope.Time.Advance(TimeSpan.FromMilliseconds(49_990));
+        await SettleAsync(restarted, TeamBoardRoom);
+        var early = await TimerEventsAsync(bob);
+        scope.Time.Advance(TimeSpan.FromMilliseconds(10));
+        await SettleAsync(restarted, TeamBoardRoom);
+        var due = await TimerEventsAsync(bob);
+        scope.Time.Advance(TimeSpan.FromMinutes(5));
+        await SettleAsync(restarted, TeamBoardRoom);
+
+        Assert.Empty(early);
+        Assert.True(Assert.Single(due).Expired);
+        Assert.Empty(await TimerEventsAsync(bob));
+        Assert.Equal("idle", await scope.ScalarAsync<string>("select timer_state from retro_boards where id = $1", TeamBoard.Value));
+    }
+
+    [Fact]
     public async Task A_card_in_the_action_items_column_creates_the_team_item_in_place_and_keeps_the_team_informed() {
         await using var scope = await RetroScope.StartAsync(postgres);
         var registry = scope.NewRegistry();
@@ -205,6 +256,10 @@ public sealed class RetroPersistenceTests(PostgresFixture postgres) {
         Assert.Equal(Comment, broadcast.Comment.Id);
         Assert.Equal([[Comment.Value, First.Value, Alice.Who.Id.Value]], await scope.RowsAsync("select id, card_id, author_id from retro_comments"));
         Assert.Contains($"comments {item.Value} 1", scope.Notices.Log);
+    }
+
+    private static async Task<List<RetroTimer>> TimerEventsAsync(TestPeer peer) {
+        return (await peer.DrainAsync()).OfType<TxFrame>().SelectMany(tx => tx.Ev.OfType<RetroTimer>()).ToList();
     }
 
     private static async Task<RetroTimer> TimerAsync(TestPeer peer) {

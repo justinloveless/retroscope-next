@@ -32,7 +32,7 @@ internal static class ActorHarness {
 
     public static Guid Id(int n) => new($"00000000-0000-4000-8000-{n:x12}");
 
-    public static ActorRuntime Runtime(FakeTimeProvider time, ActorOptions? options = null) {
+    public static ActorRuntime Runtime(TimeProvider time, ActorOptions? options = null) {
         return new ActorRuntime(options ?? ActorOptions.Default, time, NullLoggerFactory.Instance);
     }
 
@@ -113,6 +113,25 @@ internal sealed class TestPeer(Viewer viewer, long capacityBytes = OutboundBuffe
     }
 
     public void AssertIdle() => Assert.Equal(0, Buffer.PendingBytes);
+}
+
+/// <summary>
+/// The clock of <paramref name="inner"/> with timers that fire a thousandth of their delay early, as a timer on the
+/// monotonic clock can when the wall clock the domain reads runs slow against it.
+/// </summary>
+internal sealed class EarlyTimers(FakeTimeProvider inner) : TimeProvider {
+    public override DateTimeOffset GetUtcNow() => inner.GetUtcNow();
+
+    public override long GetTimestamp() => inner.GetTimestamp();
+
+    public override long TimestampFrequency => inner.TimestampFrequency;
+
+    public override TimeZoneInfo LocalTimeZone => inner.LocalTimeZone;
+
+    public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) {
+        var early = dueTime > TimeSpan.Zero && dueTime != Timeout.InfiniteTimeSpan ? dueTime - (dueTime / 1000) : dueTime;
+        return inner.CreateTimer(callback, state, early, period);
+    }
 }
 
 /// <summary>A store kept in memory: the "database" is a clone of the state that committed events are applied to.</summary>

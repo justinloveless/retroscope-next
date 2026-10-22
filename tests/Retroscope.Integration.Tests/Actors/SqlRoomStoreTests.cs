@@ -36,6 +36,43 @@ public sealed class SqlRoomStoreTests(PostgresFixture postgres) {
         Assert.Equal(new ClientCursor(CursorOwner.None, 0), await scope.Store.LoadCursorAsync(Room, Alice.Client, Alice.Who.Id, Token));
     }
 
+    [Theory]
+    [InlineData("08000")]
+    [InlineData("08003")]
+    [InlineData("08006")]
+    [InlineData("57P01")]
+    [InlineData("57P02")]
+    [InlineData("57P03")]
+    [InlineData("57014")]
+    public async Task Connection_and_operator_intervention_errors_are_an_unknown_outcome_not_a_rejection(string sqlState) {
+        await using var scope = await StoreScope.StartAsync(postgres);
+        scope.Store.Raise = sqlState;
+
+        var error = await Assert.ThrowsAsync<PostgresException>(() => scope.Store.CommitAsync(
+            Room, new Counter(), [Added(1)], new CursorAdvance(Alice.Client, Alice.Who.Id, 7), Token));
+
+        Assert.Equal(sqlState, error.SqlState);
+        Assert.Equal(0, await scope.PrincipalsAsync());
+    }
+
+    [Theory]
+    [InlineData("08006")]
+    [InlineData("57P01")]
+    public async Task An_unknown_outcome_mid_commit_sends_bye_and_never_nacks(string sqlState) {
+        await using var scope = await StoreScope.StartAsync(postgres);
+        var registry = scope.NewRegistry();
+        var alice = new TestPeer(Alice);
+        await registry.SubscribeAsync(Room, alice, Alice, null, null, Token);
+        await alice.NextAsync<SnapFrame>();
+        scope.Store.Raise = sqlState;
+
+        await registry.CommandAsync(Room, alice, Alice, Cmd(3, new PokerVoteSet(Round(1), 1)), Token);
+        await alice.Restarted.WaitAsync(TimeSpan.FromSeconds(10), Token);
+
+        Assert.DoesNotContain(await alice.DrainAsync(), x => x is AckFrame or NackFrame);
+        Assert.Equal(0, await scope.PrincipalsAsync());
+    }
+
     [Fact]
     public async Task Stale_epoch_is_fencing_loss_not_a_rejection() {
         await using var scope = await StoreScope.StartAsync(postgres);
@@ -107,9 +144,14 @@ public sealed class SqlRoomStoreTests(PostgresFixture postgres) {
         }
     }
 
-    /// <summary>Plans one guest principal per counted event, and a failing statement for a "fail" event.</summary>
+    /// <summary>
+    /// Plans one guest principal per counted event, and a failing statement for a "fail" event. With
+    /// <see cref="Raise"/> set, the plan ends with a statement that raises that SQLSTATE.
+    /// </summary>
     private sealed class SqlCounterStore(NpgsqlDataSource dataSource, Leader leader, CursorRepo cursors)
         : SqlRoomStore<Counter, CounterEvent>(dataSource, leader, cursors) {
+        public string? Raise { get; set; }
+
         public override Task<Counter?> LoadAsync(RoomKey room, DateTimeOffset now, CancellationToken cancellationToken) {
             return Task.FromResult<Counter?>(new Counter());
         }
@@ -121,6 +163,9 @@ public sealed class SqlRoomStoreTests(PostgresFixture postgres) {
                     : new NpgsqlBatchCommand("insert into principals (id, kind, display_name) values ($1, 'guest', 'counted')") {
                         Parameters = { new() { Value = Guid.CreateVersion7() } },
                     };
+            }
+            if (Raise is { } sqlState) {
+                yield return new NpgsqlBatchCommand($"do $$ begin raise exception 'injected' using errcode = '{sqlState}'; end $$");
             }
         }
     }

@@ -1376,7 +1376,7 @@ web/src/
          room.js           # RoomStore: confirmed + pending + view; gap detection; snap/replay/tx
   markup/ parse.js render.js doc.js             # markup ⇄ DocNode; DocNode → DOM (cards, comments, Jira)
          editor.js caret.js undo.js            # the shared editor (U34a spike → production); islands for Jira
-  ui/    button.js dialog.js menu.js popover.js tooltip.js toast.js tabs.js switch.js select.js
+  ui/    button.js dialog.js menu.js popover.js tooltip.js toast.js tabs.js switch.js choice.js
          avatar.js resizable.js confirm.js icons.js glyphs.js
   screens/ landing.js auth.js dashboard.js account.js mentions.js invite.js admin.js teams.js
   team/  index.js boards.js poker-list.js members.js action-items.js kudos.js settings.js jira-settings.js templates.js

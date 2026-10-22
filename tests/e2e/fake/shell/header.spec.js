@@ -76,12 +76,12 @@ test('the team switcher lists the user’s teams and opens one', async ({ page, 
   test.skip(narrow(page), 'below 768 px the teams are in the slide-out menu');
   useSession(fake, USER);
   await page.goto('/dashboard');
-  await header(page).getByRole('button', { name: 'Switch team' }).click();
+  await header(page).getByRole('button', { name: 'Teams', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: 'All teams' })).toBeVisible();
   await page.getByRole('menuitem', { name: 'Platform' }).click();
 
   await expect(page).toHaveURL(new RegExp(`/teams/${TEAM_ID}$`));
-  await expect(header(page).getByRole('button', { name: 'Switch team (Platform)' })).toBeVisible();
+  await expect(header(page).getByRole('button', { name: 'Switch team: Platform' })).toBeVisible();
 });
 
 test('the slide-out menu stacks the links, teams, theme and account items on narrow screens', async ({ page, fake }) => {

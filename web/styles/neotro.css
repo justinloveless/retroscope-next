@@ -860,7 +860,8 @@
 .nt-chip-key.is-placeholder {
   font-family: inherit;
   font-weight: 500;
-  color: hsl(var(--muted-foreground));
+  /* --muted-foreground is 4.1:1 on the current chip's tint; this keeps the placeholder quiet but at AA. */
+  color: hsl(var(--foreground) / 0.7);
 }
 
 .nt-chip-pending,

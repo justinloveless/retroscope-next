@@ -98,9 +98,11 @@
   /* Semantic accents (§g.8): fill and the hard "pressable" shadow under it. */
   --indigo: #4f46e5;
   --indigo-shade: #312e81;
-  --green: #16a34a;
+  --green: #15773a;
   --green-shade: #14532d;
   --emerald: #059669;
+  /* A button fill dark enough for white text (4.5:1, also at the hover mix); --emerald stays the accent tint. */
+  --emerald-strong: #04704f;
   --emerald-shade: rgb(5 100 75);
   --purple: #9333ea;
   --purple-shade: rgb(80 30 145);

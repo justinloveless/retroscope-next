@@ -76,10 +76,10 @@ internal sealed class RetroScope : IAsyncDisposable {
         return scope;
     }
 
-    /// <summary>A process: its own runtime and actors over the shared database and clock.</summary>
-    public ActorRegistry NewRegistry() {
+    /// <summary>A process: its own runtime and actors over the shared database and clock, or <paramref name="time"/>.</summary>
+    public ActorRegistry NewRegistry(TimeProvider? time = null) {
         var store = new RetroStore(DataSource, Leader, new CursorRepo(DataSource), Notices, NullLogger<RetroStore>.Instance);
-        var registry = new ActorRegistry(ActorHarness.Runtime(Time), [RoomType.Of(new RetroBinding(Tagger), store, Access)]);
+        var registry = new ActorRegistry(ActorHarness.Runtime(time ?? Time), [RoomType.Of(new RetroBinding(Tagger), store, Access)]);
         _registries.Add(registry);
         return registry;
     }

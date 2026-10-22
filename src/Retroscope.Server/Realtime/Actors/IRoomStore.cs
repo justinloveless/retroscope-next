@@ -20,8 +20,8 @@ public interface IRoomStore<TState, TEvent> where TState : class {
     /// Writes <paramref name="events"/> (and the cursor) in one fenced transaction, against the state before they
     /// apply. Failures are classified for the actor (R2):
     /// <see cref="CommitRejectedException"/> means nothing committed (a constraint, a statement error);
-    /// <see cref="Data.FencingLostException"/> means another instance leads; anything else is an infrastructure
-    /// failure or an unknown outcome.
+    /// <see cref="Data.FencingLostException"/> means another instance leads; anything else (a broken connection,
+    /// SQLSTATE class 08 or 57) is an infrastructure failure or an unknown outcome.
     /// </summary>
     Task CommitAsync(
         RoomKey room,

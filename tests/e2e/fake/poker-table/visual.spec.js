@@ -1,7 +1,7 @@
 // Visual baselines of the Neotro table, hand and reveal (§j) in both themes, on a desktop and a 390×844
 // phone viewport. Pixels differ between engines and operating systems, so they are kept for Chromium only;
 // the baselines carry the platform in their file name (see docs/decisions/U31.md). The time zone and locale
-// are pinned, so a machine's own settings never change a baseline (times and dates on the table).
+// are pinned for every project in playwright.config.js, so a machine's own settings never change a baseline.
 import { expect, test } from '../_harness/fixtures.js';
 import { BOB, DOT, GUS, ME, R1, ROOM, handCard, openTable, revealed, setupPoker } from './_poker.js';
 
@@ -15,8 +15,6 @@ const OTHERS = {
   [GUS.pid]: { points: 3, high: 5, locked: true, abstained: false },
   [DOT.pid]: { points: 13, locked: false, abstained: false },
 };
-
-test.use({ timezoneId: 'UTC', locale: 'en-US' });
 
 test.beforeEach(({}, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium', 'visual baselines are Chromium-only');

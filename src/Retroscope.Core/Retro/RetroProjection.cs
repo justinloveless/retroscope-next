@@ -206,11 +206,12 @@ public sealed class RetroProjection(IAnonTagger tagger) {
             mine);
     }
 
+    // By the wire's millisecond, not the clock's ticks: clients see only the millisecond and break its ties by id.
     private static List<Card> CardsInOrder(RetroState state) {
-        return state.Cards.Values.OrderBy(card => card.CreatedAt).ThenBy(card => card.Id.Value).ToList();
+        return state.Cards.Values.OrderBy(card => card.CreatedAt.ToUnixTimeMilliseconds()).ThenBy(card => card.Id.Value).ToList();
     }
 
     private static List<Comment> CommentsInOrder(RetroState state) {
-        return state.Comments.Values.OrderBy(comment => comment.CreatedAt).ThenBy(comment => comment.Id.Value).ToList();
+        return state.Comments.Values.OrderBy(comment => comment.CreatedAt.ToUnixTimeMilliseconds()).ThenBy(comment => comment.Id.Value).ToList();
     }
 }
