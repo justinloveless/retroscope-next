@@ -996,6 +996,8 @@
 }
 
 .nt-dock-bar {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1006,7 +1008,7 @@
   border: 1px solid rgb(0 0 0 / 0.5);
   border-radius: var(--radius-lg);
   /* The table's rail: padded leather the hand is held over. */
-  background: linear-gradient(to bottom, color-mix(in srgb, var(--nt-rail) 80%, #fff 9%), var(--nt-rail) 55%);
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--nt-rail) 91%, #fff 9%), var(--nt-rail) 55%);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.1), 0 -4px 18px rgb(0 0 0 / 0.25), 0 4px 10px rgb(0 0 0 / 0.3);
   color: hsl(var(--foreground));
   color-scheme: dark;
@@ -1253,20 +1255,25 @@
 }
 
 /* The hand: about a third of each card peeks above the bar; hovering the dock, focus, a drag or a touch raises
-   the fan. */
+   the fan. The cards' feet tuck `--tuck` behind the bar (opaque, and stacked over the hand), so the fan looks held
+   in the rail; every height below adds it back, so as much shows as before and a raised card clears the bar. */
 .nt-hand {
   --scale: 0.9;
   --card-h: calc(95px * var(--scale));
   --peek: calc(var(--card-h) * 0.35);
   --pick: 14px;
+  --tuck: 14px;
+  position: relative;
+  z-index: 0;
   display: flex;
   justify-content: center;
+  margin-bottom: calc(-1 * var(--tuck));
 }
 
 .nt-hand-tray {
   display: flex;
   align-items: flex-end;
-  height: calc(var(--peek) + var(--pick));
+  height: calc(var(--peek) + var(--pick) + var(--tuck));
 }
 
 .nt-fan {
@@ -1301,14 +1308,19 @@
    moves out from under the pointer; the face stays at the top of the button. */
 .nt-hand-card {
   position: relative;
-  display: block;
-  height: var(--peek);
+  /* A flex column, so the face sits at the top: a plain button centres its content. */
+  display: flex;
+  flex-direction: column;
+  height: calc(var(--peek) + var(--tuck));
   padding: 0;
   border: 0;
   background: none;
   touch-action: none;
+  /* A raised card lifts a little more the more it leans, so its lower corner clears the bar too. */
+  --lean: calc(var(--i) * var(--step) - var(--fan) / 2);
+  --clear: calc(71px * var(--scale) / 2 * max(sin(var(--lean)), sin(-1 * var(--lean))));
   transform-origin: 50% 100%;
-  rotate: calc(var(--i) * var(--step) - var(--fan) / 2);
+  rotate: var(--lean);
   transition: height 0.25s ease-out, filter 0.3s ease-out, opacity 0.3s;
 }
 
@@ -1320,7 +1332,7 @@
 }
 
 .nt-hand-card.is-selected {
-  height: calc(var(--peek) + var(--pick));
+  height: calc(var(--peek) + var(--pick) + var(--tuck));
   filter: drop-shadow(0 0 10px var(--nt-glow));
   z-index: 1;
 }
@@ -1328,18 +1340,18 @@
 .nt-dock:hover .nt-hand-card,
 .nt-hand:is(:focus-within, .is-raised) .nt-hand-card,
 .nt-dragging .nt-hand-card {
-  height: calc(var(--card-h) + 12px);
+  height: calc(var(--card-h) + 12px + var(--tuck) + var(--clear));
 }
 
 .nt-dock:hover .nt-hand-card:not([aria-disabled="true"]):hover,
 .nt-hand:is(:focus-within, .is-raised) .nt-hand-card:not([aria-disabled="true"]):is(:hover, :focus-visible) {
-  height: calc(var(--card-h) + 20px);
+  height: calc(var(--card-h) + 20px + var(--tuck) + var(--clear));
 }
 
 .nt-dock:hover .nt-hand-card.is-selected,
 .nt-hand:is(:focus-within, .is-raised) .nt-hand-card.is-selected,
 .nt-dragging .nt-hand-card.is-selected {
-  height: calc(var(--card-h) + 30px);
+  height: calc(var(--card-h) + 30px + var(--tuck) + var(--clear));
 }
 
 .nt-hand-card:focus-visible {
