@@ -219,12 +219,63 @@ public sealed class AdminEndpointTests(PostgresFixture postgres) {
             select string_agg(action || ' ' || target || ' ' || (meta->>'role'), ', ' order by id)
             from audit_log where team_id = $1 and actor_id = $2
             """, team.Value, root.Id.Value);
-        Assert.Equal(
-            $"admin.team.member.add {newcomer.Id} member, admin.team.member.role {owner.Id} admin, "
-            + $"admin.team.member.role {newcomer.Id} owner",
-            audit);
+        Assert.Equal($"admin.team.member.add {newcomer.Id} member, admin.team.owner.transfer {newcomer.Id} owner", audit);
         Assert.Equal(1L, await host.ScalarAsync<long>(
             "select count(*) from audit_log where action = 'admin.team.member.remove' and target = $1", owner.Id.ToString()));
+    }
+
+    [Fact]
+    public async Task Making_a_non_member_the_owner_adds_them_then_transfers_ownership() {
+        await using var host = await StartAsync(postgres);
+        var root = await host.CreateUserAsync("root@example.com", admin: true);
+        var owner = await host.CreateUserAsync("owner@example.com", fullName: "Olive");
+        var outsider = await host.CreateUserAsync("out@example.com", fullName: "Otto");
+        var team = await TeamAsync(host, "Platform", owner.Id);
+
+        var promoted = await host.SendAsync(
+            root, HttpMethod.Post, $"/api/admin/teams/{team.Value}/members", new { userId = outsider.Id.Value, role = "owner" });
+
+        Assert.Equal(HttpStatusCode.NoContent, promoted.StatusCode);
+        Assert.Equal("owner", await RoleAsync(host, team, outsider.Id));
+        Assert.Equal("admin", await RoleAsync(host, team, owner.Id));
+        var audit = await host.ScalarAsync<string>(
+            "select string_agg(action || ' ' || target, ', ' order by id) from audit_log where team_id = $1", team.Value);
+        Assert.Equal($"admin.team.member.add {outsider.Id}, admin.team.owner.transfer {outsider.Id}", audit);
+    }
+
+    [Fact]
+    public async Task An_owner_change_that_fails_to_promote_leaves_the_old_owner_in_place() {
+        await using var host = await StartAsync(postgres);
+        var root = await host.CreateUserAsync("root@example.com", admin: true);
+        var owner = await host.CreateUserAsync("owner@example.com", fullName: "Olive");
+        var member = await host.CreateUserAsync("member@example.com", fullName: "Mia");
+        var team = await TeamAsync(host, "Platform", owner.Id);
+        var path = $"/api/admin/teams/{team.Value}/members";
+        Assert.Equal(HttpStatusCode.NoContent, (await host.SendAsync(root, HttpMethod.Post, path, new { userId = member.Id.Value })).StatusCode);
+        // Every promotion to owner in this team fails, as a crash between a demotion and a promotion would.
+        await host.ExecuteAsync($$"""
+            create function refuse_owner() returns trigger language plpgsql as $$
+            begin
+              if new.role = 'owner' and new.team_id = '{{team.Value}}' then
+                raise exception 'promotion refused';
+              end if;
+              return new;
+            end $$;
+            create trigger refuse_owner before update on team_members for each row execute function refuse_owner();
+            """);
+
+        var promoted = await host.SendAsync(root, HttpMethod.Post, path, new { userId = member.Id.Value, role = "owner" });
+
+        Assert.NotEqual(HttpStatusCode.NoContent, promoted.StatusCode);
+        Assert.Equal("owner", await RoleAsync(host, team, owner.Id));
+        Assert.Equal("member", await RoleAsync(host, team, member.Id));
+        var members = await host.Registry.QueryAsync<Core.Team.TeamState, Core.Team.TeamInput, string>(
+            RoomKey.Team(team),
+            view => ValueTask.FromResult(string.Join(',', view.State!.Members.Values.OrderBy(x => x.Name).Select(x => $"{x.Name}:{x.Role}"))),
+            Token);
+        Assert.Equal("Mia:Member,Olive:Owner", members);
+        Assert.Equal(0L, await host.ScalarAsync<long>(
+            "select count(*) from audit_log where team_id = $1 and action <> 'admin.team.member.add'", team.Value));
     }
 
     [Fact]

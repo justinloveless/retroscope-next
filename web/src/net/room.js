@@ -123,11 +123,17 @@ export function createRoom(key, model, { outbox, net, onNack = () => {}, schedul
 
   function scheduleRetry() {
     stopRetry();
-    const delay = retryDelay(retryAttempt++);
+    cancelRetry = net.setTimer(retrySubscribe, retryDelay(retryAttempt++));
+  }
+
+  // A sub sent while the connection is a burst in rate-limit debt is dropped without an answer (UF13).
+  // Until a snap or replay settles the room, the sub goes out again after each further backoff.
+  function retrySubscribe() {
+    resubscribe();
     cancelRetry = net.setTimer(() => {
-      cancelRetry = null;
-      resubscribe();
-    }, delay);
+      retryAttempt++;
+      retrySubscribe();
+    }, retryDelay(retryAttempt));
   }
 
   function settle(lastQ) {
@@ -381,7 +387,7 @@ export function createRoom(key, model, { outbox, net, onNack = () => {}, schedul
     retryNow() {
       if (cancelRetry !== null) {
         stopRetry();
-        resubscribe();
+        retrySubscribe();
       }
     },
 

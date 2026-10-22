@@ -376,6 +376,7 @@ cmd_e2e() {
   docker compose -f deploy/compose.test.yml up -d --wait
   trap 'docker compose -f deploy/compose.test.yml down -v >/dev/null 2>&1 || true' EXIT
   log "Playwright (compose stack): $glob"
+  export RS_E2E_BASE_URL="https://localhost:${RS_TEST_HTTPS_PORT:-18443}"
   RS_E2E_TARGET=compose npx playwright test ${PW_LIMIT[@]+"${PW_LIMIT[@]}"} --config tests/e2e/playwright.config.js \
     "tests/e2e/$(glob_to_regex "$glob")$"
 }
