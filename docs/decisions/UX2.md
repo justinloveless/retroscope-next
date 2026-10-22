@@ -1,0 +1,54 @@
+# UX2 decisions: bigger seat cards, gentler side curves, wider between zones
+
+Spec: `docs/followups/UX2.md`. UX2 owns `web/src/poker/**`, `web/styles/neotro.css`, the poker specs and baselines
+it lists, and this file.
+
+## Items 1–4: seats and between zones
+
+### Contracts later units rely on
+
+1. **Seat geometry** (`poker/geometry.js`, pure). `seatLayout(stage, count, seat)` keeps its inputs and returns
+   `{seats, chip, hidden, depth, sagitta}`; `sagitta` is how far both arcs bow in. Each side is its own circular
+   arc. Its chord runs between the top and bottom bands (moved in from the stage edges by half the seat's
+   diagonal, so no box leaves the stage), and it bows toward the centre by at most `maxSagitta(width)` =
+   min(56 px, 5 % of the stage width). A side's seats are spread evenly by arc length and centred level with the
+   stage centre where the arc allows. The whole side is then moved in just far enough that every rotated seat
+   clears the 8 px padding, which keeps the arc's shape. Players still alternate left and right, the "+N" chip
+   still takes the right arc's last slot, and `angle` is still `atan2` toward the stage centre.
+2. **Seat sizes.** `SEAT_SIZES` is `large` (1.5×, 107×143), `full` (1×, 71×95), `compact` (0.75×, 54×72) and
+   `avatar`. Each size's box is the card itself, and `inset` says how far the avatar sits in from the card's outer
+   end. `planSeats` picks the first size that seats everyone within `depthLimit(width)` = min(220 px, 15 % of the
+   stage width).
+3. **Seat DOM.** The ring sets `--seat-inset` next to `--seat-w`, `--seat-h`, `--seat-avatar` and `--seat-scale`.
+   `data-label` is gone: every ring label hangs just below its avatar.
+4. **Between zones.** `gapRect` is unchanged (70 % of the distance between the two cards' centres). While a card is
+   dragged, every card to its left moves one slot left and every card to its right one slot right
+   (`.nt-dragging .nt-fan-slot`, a 0.15 s slide). That doubles both gaps beside the dragged card, and the zones in
+   them. The zones and the drop overlay follow the cards every animation frame while the drag lasts, not only on
+   pointer moves, so a zone is never stale after the slide.
+
+### Decisions where the spec was silent or did not fit
+
+1. **The avatar sits on the card.** At 1440×900 the stage between both panels is 800 px wide, so a 560 px issue
+   column leaves each side 120 px. A 1× card is 95 px long, and seats near the top and bottom of a side are turned
+   toward the centre, so they reach further in. With UX1's layout (avatar beyond the card's outer end) a 6-player
+   table could not get 1× cards there. The avatar now sits inside the card's outer end, and the seat's box is the
+   card. It covers part of a revealed face's outer end; the seat's label carries the value as a chip.
+2. **The sagitta gives way first.** When a side would reach deeper than `depthLimit`, the arc flattens (down to
+   a straight column) before the spread shrinks toward the seat's minimum spacing. At 1440×900 with 6 players the
+   arcs are therefore straight. With fewer seats, on wider stages and in the 12-player crowd they bow visibly.
+3. **Seats centre on the stage's middle height**, not the chord's middle. The bottom band (the hand and its labels)
+   is taller than the top band, so the chord's middle sits above the stage centre. Centring there would tilt even
+   a lone seat by about 10°. A side's group still stays on the chord.
+4. **Labels below the avatar, always.** UX1 put upper-half labels above the avatar. With full-size cards on the
+   tighter arcs, those labels landed on the neighbouring seat's card. Hanging every label just below its own
+   avatar keeps it on the seat's own card. A label is up to 128 px wide, as in UX1.
+5. **The depth limit** is 15 % of the stage width (120 px at 1440×900, so the issue column is exactly 560 px), at
+   most 220 px. On a 1920×1080 stage (1280 px) that is 192 px, which fits 1.5× cards for up to 12 players.
+6. **What players get, measured on the demo's stages** (`planSeats`, both panels open, up to 17 players): 1440×900
+   gets 1× cards up to 7 players, then 0.75×; 1920×1080 gets 1.5× up to 13 players, then 1×; 1280×800 (a 640 px
+   stage) gets 0.75× up to 9 players, then avatars. With the Browse Jira panel closed at 1440×900 (1120 px), the 12-player crowd
+   gets 1× cards.
+7. **The crowded-table spec** (`seats.spec.js`) used 1024×640 to force the "+N" chip. The taller chord now seats 11
+   avatar-only players there, so the spec uses 1024×500.
+8. **The table oval and its `--nt-felt` token** are removed. The issue panel keeps its own background.
