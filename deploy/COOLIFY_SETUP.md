@@ -432,9 +432,10 @@ By default the retro timer's background music is a short arpeggio generated in t
    ```
 
 3. In `deploy/docker-compose.yml`, uncomment the `volumes` block of the `app` service. It mounts `MUSIC_DIR` read-only at `/music`. Commit that change; the compose file holds only the variable, never your path.
-4. In Coolify, set `MUSIC_DIR=/data/retroscope-music` and `MUSIC_FILE=/music/track.mp3`, then redeploy.
+   - **This makes `MUSIC_DIR` required everywhere.** Every Coolify resource that deploys this compose file, the preview slot included (section 11.3), then refuses to deploy until `MUSIC_DIR` has a value. Set it on the preview resource before the commit reaches `main`: point it at a folder that exists on the preview server (an empty one is enough) and leave `MUSIC_FILE` empty there. Every branch cut from `main` after that commit needs it too.
+4. In Coolify, set `MUSIC_DIR=/data/retroscope-music` and `MUSIC_FILE=/music/track.mp3` on the production resource, then redeploy.
 5. Check the app log for `Timer music is served from MUSIC_FILE as audio/mpeg`. If you see `Timer music is off: <reason>` instead, fix the reason and restart. The app keeps running either way, with the generated music.
-6. Check the route: `curl -sI -H 'Range: bytes=0-1' https://<your domain>/media/timer-music` answers `206` with the content type above.
+6. Check the route. It serves only callers with a session, so a plain `curl` gets `401`. Open a retro board in a browser, start the timer with music on, and check in the developer tools' network panel that `/media/timer-music` answers `206` with the content type above.
 
 To replace the track with one of the same format, overwrite the file under the same name. The app serves the new file from the next request, and browsers that cached the old one revalidate it within a day. A different format or name needs `MUSIC_FILE` changed and a restart, because the file is checked at startup. To turn the track off, empty `MUSIC_FILE` and restart.
 
@@ -728,6 +729,7 @@ Set up the preview resource like production (sections 4 and 5), with these diffe
 - It has its own database and secrets. Generate fresh `DB_OWNER_PASSWORD`, `DB_APP_PASSWORD`, `APP_KEYS` and `ANON_TAG_KEY`. Never copy production's values, and never import production data into it.
 - Its sign-in providers need the preview URL as an extra redirect URI. They are optional, so you can leave them unset.
 - Its auto deploy is off, as in section 4.3.
+- If production plays a timer track (section 5.12), the committed `volumes` block needs `MUSIC_DIR` here too: set it to a folder that exists on the preview server, which can be empty, and leave `MUSIC_FILE` empty.
 
 If you put the preview on the production host anyway, you accept both risks above: a branch can take over the host, and the two stacks compete for 2 GB.
 
