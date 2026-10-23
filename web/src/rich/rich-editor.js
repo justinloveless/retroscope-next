@@ -69,7 +69,7 @@ function keys(openLink) {
 // A key pressed right after a scripted or fast caret move can arrive before the browser's selectionchange, and
 // ProseMirror would act on the old selection (the design's stale-selection race). Reading the DOM selection first
 // makes the key act where the caret is.
-const selectionFlush = new Plugin({
+export const selectionFlush = new Plugin({
   props: {
     handleDOMEvents: {
       keydown(view) {
@@ -79,6 +79,23 @@ const selectionFlush = new Plugin({
     },
   },
 });
+
+/** The editor's plugins, in order: the selection flush runs before any keymap reads the selection. */
+export function editorPlugins(doc, { openLink, update }) {
+  return [
+    selectionFlush,
+    autoformat(),
+    keys(openLink),
+    keymap(baseKeymap),
+    history(),
+    tableEditing(),
+    gapCursor(),
+    dropCursor(),
+    tokenGuard(doc),
+    blockMarkGuard(),
+    new Plugin({ view: () => ({ update: (v) => update(v.state) }) }),
+  ];
+}
 
 /** The account ids a document mentions: a paste may keep those mentions (the server accepts them). */
 function mentionIds(doc) {
@@ -124,19 +141,7 @@ export function createRichEditor({ host, edit, imageSrc, renderDoc, icon, label 
   const view = new EditorView(content, {
     state: EditorState.create({
       doc,
-      plugins: [
-        selectionFlush,
-        autoformat(),
-        keys(() => toolbar?.openLink()),
-        keymap(baseKeymap),
-        history(),
-        tableEditing(),
-        gapCursor(),
-        dropCursor(),
-        tokenGuard(doc),
-        blockMarkGuard(),
-        new Plugin({ view: () => ({ update: (v) => toolbar?.update(v.state) }) }),
-      ],
+      plugins: editorPlugins(doc, { openLink: () => toolbar?.openLink(), update: (state) => toolbar?.update(state) }),
     }),
     nodeViews: nodeViews(context),
     markViews: markViews(),
