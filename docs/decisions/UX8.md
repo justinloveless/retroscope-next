@@ -14,6 +14,9 @@ markup tests, and the fake Jira fixtures. It revises U6 decisions 3, 6 and 8 and
 1. **The server is still the only allow-list.** Raw ADF never reaches the browser. `AdfReader` keeps the presentation
    it used to drop and emits it as new display-only Doc kinds and optional attributes. `DocJson` writes them, and the
    client re-checks every field before it renders. No Atlassian package is loaded, and none is a dependency.
+   *Revised by UX10 approval 4:* users with `JiraEditIssues` receive projected ADF from `GET issues/{key}/description`
+   when they open the rich editor; everyone else still gets only the Doc.
+
 2. **Display-only means never editable.** The new kinds and attributes appear only in islands, comments and non-editable
    descriptions. `AdfLossiness` already islands every top-level block that carries colour, alignment, a link title or
    a non-text inline node, so the markup grammar, `MarkupParser`, `MarkupToAdf` and the editor do not change. Three
