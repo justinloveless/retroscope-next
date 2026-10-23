@@ -52,7 +52,7 @@
       {"type":"panel","attrs":{"panelType":"custom"},"content":[{"type":"paragraph","content":[{"type":"text","text":"custom panel"}]}]},
       7, "text", null, {"content":[]}, {"type":["paragraph"]}
     ]},
-    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"ok!"}]},{"t":"h","level":1,"c":[{"t":"text","v":"level defaults"}]},{"t":"h","level":6,"c":[{"t":"text","v":"clamped"}]},{"t":"ol","start":1,"c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"from one"}]}]}]},{"t":"panel","kind":"info","c":[{"t":"p","c":[{"t":"text","v":"custom panel"}]}]}]}
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"ok!"}]},{"t":"h","level":1,"c":[{"t":"text","v":"level defaults"}]},{"t":"h","level":6,"c":[{"t":"text","v":"clamped"}]},{"t":"ol","start":1,"c":[{"t":"li","c":[{"t":"p","c":[{"t":"text","v":"from one"}]}]}]},{"t":"panel","kind":"custom","c":[{"t":"p","c":[{"t":"text","v":"custom panel"}]}]}]}
   },
   {
     "name": "inline nodes directly in the doc become a paragraph",
@@ -93,6 +93,23 @@
     "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"bell \u0007 here"}]},{"type":"paragraph","content":[{"type":"text","text":"line\nfeed"}]}]},
     "doc": {"t":"doc","c":[{"t":"island","id":"kbA8VjIG75o_5RE3","c":[{"t":"p","c":[{"t":"text","v":"bell \u0007 here"}]}]},{"t":"island","id":"eNem9-4b19mUbN02","c":[{"t":"p","c":[{"t":"text","v":"line\nfeed"}]}]}]},
     "islands": ["kbA8VjIG75o_5RE3","eNem9-4b19mUbN02"]
+  },
+  {
+    "name": "colours that are not strict #rrggbb are dropped",
+    "mode": "description",
+    "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"a","marks":[{"type":"textColor","attrs":{"color":"#fff; background:url(https://evil.example/x)"}}]},{"type":"text","text":"b","marks":[{"type":"textColor","attrs":{"color":"var(--x)"}}]},{"type":"text","text":"c","marks":[{"type":"backgroundColor","attrs":{"color":"#12345g"}}]},{"type":"text","text":"d","marks":[{"type":"backgroundColor","attrs":{"color":255}}]},{"type":"text","text":"e","marks":[{"type":"textColor","attrs":{"color":"#1234567"}}]}]},{"type":"panel","attrs":{"panelType":"custom","panelColor":"expression(alert(1))","panelIconText":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},"content":[{"type":"paragraph","content":[{"type":"text","text":"panel"}]}]}]},
+    "doc": {"t":"doc","c":[{"t":"island","id":"1RVh9K3MZjFP3PJW","c":[{"t":"p","c":[{"t":"text","v":"abcde"}]}]},{"t":"island","id":"rXQbJKpCQ1qZHtx8","c":[{"t":"panel","kind":"custom","c":[{"t":"p","c":[{"t":"text","v":"panel"}]}]}]}]},
+    "islands": ["1RVh9K3MZjFP3PJW","rXQbJKpCQ1qZHtx8"],
+    "markup": "[[island:1RVh9K3MZjFP3PJW]]\n\n[[island:rXQbJKpCQ1qZHtx8]]"
+  },
+  {
+    "name": "hostile table, media and layout sizes are clamped or dropped",
+    "mode": "description",
+    "attachments": [{"id":"10070","filename":"big.png","mimeType":"image/png","created":"2026-01-02T10:00:00.000+0000"}],
+    "adf": {"type":"doc","version":1,"content":[{"type":"table","attrs":{"width":"wide","layout":"sideways","isNumberColumnEnabled":"yes"},"content":[{"type":"tableRow","content":[{"type":"tableCell","attrs":{"colspan":1000000000,"rowspan":-3,"colwidth":["9",-1,1000000000.0,120.6],"background":"red"},"content":[{"type":"paragraph","content":[{"type":"text","text":"cell"}]}]}]}]},{"type":"mediaSingle","attrs":{"layout":"<script>","width":1000000000.0},"content":[{"type":"media","attrs":{"type":"file","id":"m-big","collection":"","alt":"big.png","width":-5,"height":"tall"}}]},{"type":"layoutSection","content":[{"type":"layoutColumn","attrs":{"width":"half"},"content":[{"type":"paragraph","content":[{"type":"text","text":"left"}]}]},{"type":"paragraph","content":[{"type":"text","text":"stray"}]}]},{"type":"paragraph","content":[{"type":"status","attrs":{"text":"S","color":"#ff0000","style":"<b>"}}]}]},
+    "doc": {"t":"doc","c":[{"t":"island","id":"6sYmWaAZtTma2v-m","c":[{"t":"table","c":[{"t":"tr","c":[{"t":"td","colwidth":[121],"c":[{"t":"p","c":[{"t":"text","v":"cell"}]}]}]}]}]},{"t":"island","id":"qO_5D4uiSlmCbP5C","c":[{"t":"media","c":[{"t":"attachment","id":"10070","alt":"big.png"}]}]},{"t":"island","id":"r1yQVa3bS4NMzjxI","c":[{"t":"layout","c":[{"t":"col","width":0,"c":[{"t":"p","c":[{"t":"text","v":"left"}]}]},{"t":"col","width":0,"c":[{"t":"p","c":[{"t":"text","v":"stray"}]}]}]}]},{"t":"island","id":"Odv-y4XtiMzbAiJG","c":[{"t":"p","c":[{"t":"status","v":"S","color":"neutral"}]}]}]},
+    "islands": ["6sYmWaAZtTma2v-m","qO_5D4uiSlmCbP5C","r1yQVa3bS4NMzjxI","Odv-y4XtiMzbAiJG"],
+    "markup": "[[island:6sYmWaAZtTma2v-m]]\n\n[[island:qO_5D4uiSlmCbP5C]]\n\n[[island:r1yQVa3bS4NMzjxI]]\n\n[[island:Odv-y4XtiMzbAiJG]]"
   }
 ]
 }
