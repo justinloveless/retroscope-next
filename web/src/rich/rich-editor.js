@@ -1,6 +1,6 @@
-// The rich description editor (UX11): its own lazy chunk, loaded by the issue drawer. Phase 5 delivers the core:
-// schema, ADF conversion, token guard and the safe clipboard. Toolbars, node views and the save path come in
-// later phases; createRichEditor is the seam they fill.
+// The rich description editor (UX11, UX12): its own lazy chunk, loaded by the issue drawer for users who can edit.
+// createRichEditor mounts a ProseMirror editor with Jira's toolbar on a description's edit view (GET …/description)
+// and hands back its ADF for the save. The schema, ADF conversion, token guard and clipboard are UX11's core.
 
 import { baseKeymap, chainCommands, exitCode } from 'prosemirror-commands';
 import { dropCursor } from 'prosemirror-dropcursor';
@@ -8,15 +8,17 @@ import { gapCursor } from 'prosemirror-gapcursor';
 import { history, redo, undo } from 'prosemirror-history';
 import { inputRules, textblockTypeInputRule, wrappingInputRule } from 'prosemirror-inputrules';
 import { keymap } from 'prosemirror-keymap';
-import { liftListItem, sinkListItem, splitListItem } from 'prosemirror-schema-list';
-import { EditorState } from 'prosemirror-state';
-import { goToNextCell, tableEditing } from 'prosemirror-tables';
+import { EditorState, Plugin } from 'prosemirror-state';
+import { tableEditing } from 'prosemirror-tables';
 import { EditorView } from 'prosemirror-view';
-import { adfToPm, pmToAdf } from './adf.js';
+import { adfToPm, canonicalAdf, pmToAdf } from './adf.js';
 import { blockMarkGuard } from './block-marks.js';
 import { clipboardHandlers } from './clipboard.js';
+import { clearFormatting, enter, indent, outdent, setHeading, toggle, toggleList } from './commands.js';
 import { schema } from './schema.js';
 import { tokenGuard } from './tokens.js';
+import { createToolbar } from './toolbar.js';
+import { markViews, nodeViews } from './views.js';
 
 export { AdfError, adfToPm, canonicalAdf, pmToAdf } from './adf.js';
 
@@ -34,43 +36,144 @@ function rules() {
   });
 }
 
-function keys() {
-  const item = nodes.listItem;
-  return keymap({
+// Jira's bindings (adf-inventory §7.3) for what this phase offers.
+function keys(openLink) {
+  const link = (state) => {
+    const parent = state.selection.$from.parent;
+    if (!parent.inlineContent || parent.type.spec.code) {
+      return false;
+    }
+    openLink();
+    return true;
+  };
+  const bindings = {
     'Mod-z': undo,
     'Shift-Mod-z': redo,
     'Mod-y': redo,
-    Enter: splitListItem(item),
-    Tab: chainCommands(goToNextCell(1), sinkListItem(item)),
-    'Shift-Tab': chainCommands(goToNextCell(-1), liftListItem(item)),
+    'Mod-b': toggle('strong'),
+    'Mod-i': toggle('em'),
+    'Mod-u': toggle('underline'),
+    'Shift-Mod-s': toggle('strike'),
+    'Shift-Mod-m': toggle('code'),
+    'Mod-\\': clearFormatting,
+    'Mod-k': link,
+    'Shift-Mod-k': link,
+    'Shift-Mod-7': toggleList('orderedList'),
+    'Shift-Mod-8': toggleList('bulletList'),
+    'Mod-Alt-0': setHeading(0),
+    Enter: enter,
+    Tab: indent,
+    'Shift-Tab': outdent,
     'Shift-Enter': chainCommands(exitCode, (state, dispatch) => {
       dispatch?.(state.tr.replaceSelectionWith(nodes.hardBreak.create()).scrollIntoView());
       return true;
     }),
+  };
+  for (let level = 1; level <= 6; level++) {
+    bindings[`Mod-Alt-${level}`] = setHeading(level);
+  }
+  return keymap(bindings);
+}
+
+// A key pressed right after a scripted or fast caret move can arrive before the browser's selectionchange, and
+// ProseMirror would act on the old selection (the design's stale-selection race). Reading the DOM selection first
+// makes the key act where the caret is.
+const selectionFlush = new Plugin({
+  props: {
+    handleDOMEvents: {
+      keydown(view) {
+        view.domObserver?.flush?.();
+        return false;
+      },
+    },
+  },
+});
+
+/** The account ids a document mentions: a paste may keep those mentions (the server accepts them). */
+function mentionIds(doc) {
+  const ids = new Set();
+  doc.descendants((node) => {
+    if (node.type === nodes.mention) {
+      ids.add(node.attrs.id);
+    }
   });
+  return ids;
 }
 
 /**
  * @param {object} options
- * @param {HTMLElement} options.host where the editor mounts
- * @param {object} options.adf the projected description (GET …/description `adf`)
- * @param {{media: Set<string>, mentions: Set<string>}} options.session ids this session may place by paste
- * @returns {{view: EditorView, getAdf: () => object, destroy: () => void}}
+ * @param {HTMLElement} options.host where the editor (toolbar and content) mounts
+ * @param {object} options.edit the edit view (GET …/description): adf, media, opaque, marks
+ * @param {(attachmentId: string) => string} options.imageSrc the attachment proxy URL
+ * @param {(doc: object) => Node} [options.renderDoc] renders an opaque part's read-only preview
+ * @param {(name: string) => Node} [options.icon] a sprite icon
+ * @param {string} [options.label] the editor's accessible name
+ * @param {() => void} [options.onChange] called after each document change
+ * @returns {{el: HTMLElement, view: EditorView, getAdf: () => object, isDirty: () => boolean, focus: () => void, destroy: () => void}}
  */
-export function createRichEditor({ host, adf, session }) {
-  const doc = adfToPm(adf);
-  const state = EditorState.create({
-    doc,
-    plugins: [rules(), keys(), keymap(baseKeymap), history(), tableEditing(), gapCursor(), dropCursor(), tokenGuard(doc), blockMarkGuard()],
-  });
-  const view = new EditorView(host, {
-    state,
+export function createRichEditor({ host, edit, imageSrc, renderDoc, icon, label = 'Description', onChange }) {
+  const doc = adfToPm(edit.adf);
+  const loaded = canonicalAdf(edit.adf);
+  const media = new Map((edit.media ?? []).map((m) => [m.id, m]));
+  const session = { media: new Set(media.keys()), mentions: mentionIds(doc) };
+  const context = {
+    opaque: new Map((edit.opaque ?? []).map((part) => [part.ref, part])),
+    media,
+    imageSrc,
+    renderDoc,
+    icon,
+  };
+
+  const el = document.createElement('div');
+  el.className = 'rich-frame';
+  const content = document.createElement('div');
+  content.className = 'rich-content';
+  let toolbar = null;
+
+  const view = new EditorView(content, {
+    state: EditorState.create({
+      doc,
+      plugins: [
+        selectionFlush,
+        rules(),
+        keys(() => toolbar?.openLink()),
+        keymap(baseKeymap),
+        history(),
+        tableEditing(),
+        gapCursor(),
+        dropCursor(),
+        tokenGuard(doc),
+        blockMarkGuard(),
+        new Plugin({ view: () => ({ update: (v) => toolbar?.update(v.state) }) }),
+      ],
+    }),
+    nodeViews: nodeViews(context),
+    markViews: markViews(),
     handleDOMEvents: clipboardHandlers(session),
-    attributes: { class: 'rich-editor jira-prose' },
+    attributes: { class: 'rich-editor jira-prose', role: 'textbox', 'aria-multiline': 'true', 'aria-label': label },
+    dispatchTransaction(tr) {
+      view.updateState(view.state.apply(tr));
+      if (tr.docChanged) {
+        onChange?.();
+      }
+    },
   });
+  toolbar = createToolbar(view);
+  el.append(toolbar.el, content);
+  host.append(el);
+
+  const getAdf = () => pmToAdf(view.state.doc);
   return {
+    el,
     view,
-    getAdf: () => pmToAdf(view.state.doc),
-    destroy: () => view.destroy(),
+    getAdf,
+    /** False when the document is canonical-equal to the one loaded, so a save can skip the PATCH. */
+    isDirty: () => canonicalAdf(getAdf()) !== loaded,
+    focus: () => view.focus(),
+    destroy() {
+      toolbar.destroy();
+      view.destroy();
+      el.remove();
+    },
   };
 }
