@@ -33,6 +33,28 @@ test('a revealed round suggests the winner; submitting shows pending, then the r
   await expect(submitBox(page).getByRole('status')).toHaveText('RS-12 has 8 pts in Jira · submitted by Ada');
 });
 
+test('minimized results put Show results beside the Submit button', async ({ page, fake }) => {
+  setupJira(fake, { rounds: [revealed()] });
+  await openTable(page);
+  await expect(page.getByRole('dialog', { name: 'Results' })).toBeVisible();
+  await page.getByRole('dialog', { name: 'Results' }).getByRole('button', { name: 'Minimize' }).click();
+
+  const send = submitBox(page).getByRole('button', { name: 'Submit 5 pts to RS-12' });
+  const show = page.getByRole('button', { name: 'Show results' });
+  await expect(show).toBeFocused();
+  await expect(submitBox(page).getByRole('button', { name: 'Show results' })).toBeVisible();
+  const [a, b] = [await send.boundingBox(), await show.boundingBox()];
+  expect(Math.abs((a.y + a.height / 2) - (b.y + b.height / 2))).toBeLessThanOrEqual(2);
+  expect(b.x).toBeGreaterThan(a.x);
+  await expect(page.locator('.nt-dock .nt-winner')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Replay round' })).toHaveCount(0);
+
+  await show.click();
+  await expect(page.getByRole('dialog', { name: 'Results' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Results' }).getByRole('button', { name: 'Replay round' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Show results' })).toHaveCount(0);
+});
+
 test('the suggested chip is the nearest to the winner, the higher one on a tie', async ({ page, fake }) => {
   setupJira(fake, { rounds: [revealed({ winner: 4 }), round(R2, 2, { ticketKey: 'RS-13', state: 'revealed', winner: 34 })] });
   await openTable(page);
