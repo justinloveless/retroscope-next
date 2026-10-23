@@ -257,8 +257,13 @@ internal sealed class JiraHttpHost : IAsyncDisposable {
 
     public Task<HttpResponseMessage> GetAsync(Principal who, string path) => SendAsync(HttpMethod.Get, who, path, null);
 
-    public async Task<HttpResponseMessage> SendAsync(HttpMethod method, Principal who, string path, object? body) {
+    /// <param name="expectContinue">Sends <c>Expect: 100-continue</c>, so a body the server refuses by its declared length
+    /// is never streamed.</param>
+    public async Task<HttpResponseMessage> SendAsync(HttpMethod method, Principal who, string path, object? body, bool expectContinue = false) {
         using var request = new HttpRequestMessage(method, path);
+        if (expectContinue) {
+            request.Headers.ExpectContinue = true;
+        }
         request.Headers.Add(CallerHeader, $"user:{who.Id}:{who.DisplayName}");
         request.Headers.Add(CsrfFilter.HeaderName, "1");
         request.Headers.Add("Origin", Origin);
@@ -276,8 +281,8 @@ internal sealed class JiraHttpHost : IAsyncDisposable {
     }
 
     /// <summary>A problem response: its status and code.</summary>
-    public async Task<(int Status, JsonNode Body)> ProblemAsync(HttpMethod method, Principal who, string path, object? body = null) {
-        using var response = await SendAsync(method, who, path, body);
+    public async Task<(int Status, JsonNode Body)> ProblemAsync(HttpMethod method, Principal who, string path, object? body = null, bool expectContinue = false) {
+        using var response = await SendAsync(method, who, path, body, expectContinue);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
         return ((int)response.StatusCode, JsonNode.Parse(await response.Content.ReadAsStringAsync(Token))!);
     }

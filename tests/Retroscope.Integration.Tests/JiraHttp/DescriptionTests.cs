@@ -139,9 +139,20 @@ public sealed class DescriptionTests(PostgresFixture postgres) {
         var text = new string('x', (int)Server.Endpoints.JiraEndpoints.MaxPatchBytes);
         var body = $$$"""{"descriptionBase":"x","descriptionAdf":{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"{{{text}}}"}]}]}}""";
 
-        var (status, problem) = await host.ProblemAsync(HttpMethod.Patch, ada, JiraHttpHost.Url(team, "/issues/RS-12"), body);
+        var from = host.Jira.Requests.Count;
 
-        Assert.Equal((413, "too_large"), (status, (string)problem["code"]!));
+        // Kestrel refuses the declared length before reading the body, then closes the connection. Streamed, the
+        // megabyte races that close and the send can fail with a broken pipe before the 413 is read; with
+        // Expect: 100-continue the client waits for a go-ahead that never comes and reads the 413 instead. Under load
+        // the client may stop waiting (1 s) and stream anyway; a send the close cuts short is the same refusal.
+        try {
+            var (status, problem) = await host.ProblemAsync(HttpMethod.Patch, ada, JiraHttpHost.Url(team, "/issues/RS-12"), body, expectContinue: true);
+            Assert.Equal((413, "too_large"), (status, (string)problem["code"]!));
+        } catch (HttpRequestException e) when (e.InnerException is IOException) {
+            // The connection closed while the body was still going out.
+        }
+
+        Assert.DoesNotContain(host.JiraRequestsSince(from), r => r.Method == "PUT");
     }
 
     [Fact]
