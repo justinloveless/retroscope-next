@@ -2,14 +2,16 @@
 // edited in place with Jira's toolbar and shortcuts, and the save sends descriptionAdf with descriptionBase. The
 // web fake serves RS-12's real projection (edit-views.gen.json) and restores its tokens on save as the server does.
 // Keys go out with small delays: at 0 ms ProseMirror can act on a selection the browser has not reported yet.
+import { readFileSync } from 'node:fs';
 import { expect, test } from '../_harness/fixtures.js';
-import { setupPoker, snapshot } from '../poker-table/_poker.js';
-import { R1, drawer, issueView, jiraRequests, openBrowse, openTable, round, row, setupJira } from './_jira.js';
+import { BOB, R2, setupPoker, snapshot } from '../poker-table/_poker.js';
+import { R1, ROOM, drawer, issueView, jiraRequests, openBrowse, openTable, round, row, setupJira } from './_jira.js';
 
 const TYPE = { delay: 25 };
 const SETTLE_MS = 80;
 // Past the prefetch's idle-callback timeout (2 s), so a chunk that was going to load has been asked for.
 const PREFETCH_WINDOW_MS = 2500;
+const EDIT_VIEWS = JSON.parse(readFileSync(new URL('../../../web-fake-server/edit-views.gen.json', import.meta.url), 'utf8'));
 
 /** ProseMirror's Mod: Meta where the page reports a Mac or an iPhone, Control elsewhere. */
 async function mod(page) {
@@ -256,7 +258,9 @@ test('a description changed in Jira meanwhile keeps the draft and offers to relo
   await openEditor(page, view);
   await caret(page, 'asks for the CVC');
   await page.keyboard.type(' twice', TYPE);
-  jira.touch('RS-12', { summary: 'Pay with a saved card (edited in Jira)' });
+  const edited = structuredClone(EDIT_VIEWS.issues['RS-12'].adf);
+  edited.content[0].content.push({ type: 'text', text: ' Edited in Jira.' });
+  jira.touch('RS-12', { summary: 'Pay with a saved card (edited in Jira)', tokenAdf: edited });
   await view.getByRole('button', { name: 'Save', exact: true }).click();
 
   const banner = view.locator('.rich-banner.is-conflict');
@@ -272,8 +276,121 @@ test('a description changed in Jira meanwhile keeps the draft and offers to relo
   await page.getByRole('dialog', { name: 'Load the latest description?' }).getByRole('button', { name: 'Discard draft and reload' }).click();
   await expect(view.getByRole('button', { name: /^Edit summary/ })).toHaveText('Pay with a saved card (edited in Jira)');
   await expect(view.locator('.rich-editor li').last()).toHaveText('asks for the CVC');
+  await expect(view.locator('.rich-editor p').first()).toContainText('Edited in Jira.');
   await expect(view.locator('.rich-banner')).toHaveCount(0);
   expect(textOf(jira.issues.get('RS-12').adf)).not.toContain('twice');
+});
+
+test('a change to another field meanwhile does not stop the save', async ({ page, fake }) => {
+  const { jira, view } = await openCentre(page, fake);
+  await openEditor(page, view);
+  await caret(page, 'asks for the CVC');
+  await page.keyboard.type(' once', TYPE);
+  jira.touch('RS-12', { points: 8 });
+  const updated = jira.issues.get('RS-12').updated;
+  await view.getByRole('button', { name: 'Save', exact: true }).click();
+
+  await expect(view.locator('.rich-editor')).toHaveCount(0);
+  await expect(view.locator('.rich-banner')).toHaveCount(0);
+  expect(lastPatch(jira).descriptionBase).toBe(updated);
+  await expect(view.locator('.jira-description .jira-prose li').last()).toHaveText('asks for the CVC once');
+});
+
+test('a spotlight move keeps the draft, and Edit description brings it back', async ({ page, fake }) => {
+  const { jira } = setupJira(fake, {
+    rounds: [round(R1, 1, { ticketKey: 'RS-12' }), round(R2, 2, { ticketKey: 'RS-20' })],
+    snap: { spotlight: { holder: BOB.pid, roundId: R1 } },
+  });
+  await openTable(page);
+  const view = issueView(page);
+  await expect(view).toHaveAttribute('data-key', 'RS-12');
+  await openEditor(page, view);
+  await caret(page, 'asks for the CVC');
+  await page.keyboard.type(' first', TYPE);
+
+  fake.tx(ROOM, [{ k: 'poker.spotlight', d: { holder: BOB.pid, roundId: R2 } }]);
+  await expect(view).toHaveAttribute('data-key', 'RS-20');
+  await expect(page.getByText('Your unsaved changes to the RS-12 description are kept')).toBeVisible();
+  fake.tx(ROOM, [{ k: 'poker.spotlight', d: { holder: BOB.pid, roundId: R1 } }]);
+  await expect(view).toHaveAttribute('data-key', 'RS-12');
+  await expect(view.locator('.rich-draft-note')).toHaveText('Unsaved changes');
+
+  await openEditor(page, view);
+  await expect(view.locator('.rich-banner.is-restored')).toBeVisible();
+  await expect(view.locator('.rich-editor li').last()).toHaveText('asks for the CVC first');
+  await view.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(view.locator('.rich-editor')).toHaveCount(0);
+  await expect(view.locator('.rich-draft-note')).toHaveCount(0);
+  expect(textOf(lastPatch(jira).descriptionAdf)).toContain('asks for the CVC first');
+});
+
+test('closing the drawer keeps the draft, and Cancel then discards it', async ({ page, fake }) => {
+  setupJira(fake);
+  await openBrowse(page);
+  await row(page, 'RS-12').locator('.jira-row-open').click();
+  const sheet = drawer(page);
+  await expect(sheet).toHaveAttribute('data-key', 'RS-12');
+  await openEditor(page, sheet);
+  await caret(page, 'asks for the CVC');
+  await page.keyboard.type(' kept', TYPE);
+  // ProseMirror takes Escape for itself, so it never reaches the drawer.
+  await page.keyboard.press('Escape');
+  await expect(sheet.locator('.rich-editor')).toBeVisible();
+  await sheet.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(sheet).toBeHidden();
+  await expect(page.getByText('Your unsaved changes to the RS-12 description are kept')).toBeVisible();
+
+  await row(page, 'RS-12').locator('.jira-row-open').click();
+  await openEditor(page, sheet);
+  await expect(sheet.locator('.rich-editor li').last()).toHaveText('asks for the CVC kept');
+  await sheet.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Discard your changes?' }).getByRole('button', { name: 'Discard' }).click();
+  await expect(sheet.locator('.rich-editor')).toHaveCount(0);
+  await openEditor(page, sheet);
+  await expect(sheet.locator('.rich-banner')).toHaveCount(0);
+  await expect(sheet.locator('.rich-editor li').last()).toHaveText('asks for the CVC');
+});
+
+test('an expand collapses, ArrowUp leaves the first action item, and Tab stays in the last cell', async ({ page, fake }) => {
+  const cell = (text) => ({ type: 'tableCell', attrs: {}, content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] });
+  const task = (localId, text) => ({ type: 'taskItem', attrs: { localId, state: 'TODO' }, content: [{ type: 'text', text }] });
+  const { jira } = setupJira(fake, { rounds: [round(R1, 1, { ticketKey: 'RS-1' })] });
+  jira.touch('RS-1', {
+    description: null,
+    adf: {
+      type: 'doc',
+      version: 1,
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Above the tasks' }] },
+        { type: 'taskList', attrs: { localId: 'l1' }, content: [task('t1', 'Agree the budget'), task('t2', 'Add the worker')] },
+        { type: 'table', attrs: {}, content: [{ type: 'tableRow', content: [cell('first cell'), cell('last cell')] }] },
+        { type: 'expand', attrs: { title: 'Details' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hidden detail' }] }] },
+      ],
+    },
+  });
+  await openTable(page);
+  const view = issueView(page);
+  await expect(view).toHaveAttribute('data-key', 'RS-1');
+  const editor = await openEditor(page, view);
+
+  const expand = editor.locator('.rich-expand');
+  await expand.getByRole('button', { name: 'Collapse' }).click();
+  await expect(expand).not.toHaveClass(/is-open/);
+  await expect(expand.locator('.rich-expand-toggle')).toHaveAttribute('aria-expanded', 'false');
+  await expect(expand.locator('.expand-body')).toBeHidden();
+  await expand.getByRole('button', { name: 'Expand' }).click();
+  await expect(expand.locator('.expand-body')).toBeVisible();
+
+  await caret(page, 'Agree', { start: true });
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.type('!', TYPE);
+  await expect(editor.locator('p').first()).toHaveText('Above the tasks!');
+
+  await caret(page, 'last cell');
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('+', TYPE);
+  await expect(editor.locator('td').last()).toHaveText('last cell+');
+  await expect(editor.locator('tr')).toHaveCount(1);
 });
 
 test('a save the server refuses shows its code and keeps the draft', async ({ page, fake }) => {
