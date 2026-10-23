@@ -63,6 +63,13 @@ test('the drawer shows the issue: fields, island-rich description, attachments, 
   await expect(sheet.locator('.jira-field-sprint')).toHaveText('Sprint 9');
   await expect(sheet.locator('.jira-description strong')).toHaveText('pay with a saved card');
   await expect(sheet.locator('.jira-description .island td').first()).toHaveText('Visa');
+  await expect(sheet.locator('.jira-description .panel-warning')).toHaveText('Never store the CVC.');
+  await expect(sheet.locator('.jira-description .status-green')).toHaveText('Ready');
+  await expect(sheet.locator('.jira-description .jira-user')).toHaveText('@Ada Fake');
+  await expect(sheet.locator('.jira-description time.date-lozenge')).toHaveAttribute('datetime', '2026-11-02');
+  await expect(sheet.locator('.jira-description figure.media img')).toHaveAttribute('alt', 'screenshot.png');
+  await expect(sheet.locator('.jira-description figure.media figcaption')).toHaveText('Saved cards list');
+  await expect(sheet.locator('.jira-description .island td').nth(1)).toHaveCSS('background-color', 'rgb(220, 255, 241)');
   await expect(sheet.locator('.jira-comment')).toHaveCount(2);
   await expect(sheet.getByRole('heading', { name: 'Comments (2)' })).toBeVisible();
   await expect(sheet.locator('.jira-comment').first()).toContainText('Amex');
@@ -129,7 +136,11 @@ test('editing the description keeps its islands and sends descriptionBase', asyn
 
   await sheet.getByRole('button', { name: 'Edit description' }).click();
   await expect(sheet.locator('.jira-description-editor .island td').first()).toHaveText('Visa');
-  await expect(sheet.locator('.jira-description-editor .island')).toHaveAttribute('contenteditable', 'false');
+  const islands = sheet.locator('.jira-description-editor .island');
+  await expect(islands).toHaveCount(4);
+  for (const island of await islands.all()) {
+    await expect(island).toHaveAttribute('contenteditable', 'false');
+  }
   await caretInLastItem(page);
   await page.keyboard.type('Then ');
   await sheet.getByRole('button', { name: 'Save', exact: true }).click();

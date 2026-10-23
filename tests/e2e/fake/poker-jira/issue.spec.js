@@ -95,7 +95,11 @@ test('the description is edited in place, keeping its islands and sending descri
   const before = jira.issues.get('RS-12').updated;
 
   await view.getByRole('button', { name: 'Edit description' }).click();
-  await expect(view.locator('.jira-description-editor .island')).toHaveAttribute('contenteditable', 'false');
+  const islands = view.locator('.jira-description-editor .island');
+  await expect(islands).toHaveCount(4);
+  for (const island of await islands.all()) {
+    await expect(island).toHaveAttribute('contenteditable', 'false');
+  }
   await caretInLastItem(page);
   await page.keyboard.type('Then ');
   await view.getByRole('button', { name: 'Save', exact: true }).click();
