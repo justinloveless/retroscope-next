@@ -20,6 +20,20 @@ public sealed class AdfCapsTests {
         AssertEndsWithNotice(doc.Blocks);
     }
 
+    [Theory]
+    [InlineData("tasks")]
+    [InlineData("layout tables")]
+    public void Display_only_nesting_stops_below_the_depth_cap(string shape) {
+        var deep = shape == "tasks" ? NestedTasks(AdfToDoc.MaxDepth + 10, "bottom") : NestedLayoutTables(AdfToDoc.MaxDepth / 5 + 3, "bottom");
+        using var adf = Parse(Doc(deep));
+
+        var doc = AdfToDoc.Render(adf.RootElement, []);
+
+        Assert.True(Depth(doc) <= AdfToDoc.MaxDepth + 2, $"depth {Depth(doc)}");
+        Assert.DoesNotContain(doc.Descendants(), node => node is DocText { Value: "bottom" });
+        AssertEndsWithNotice(doc.Blocks);
+    }
+
     [Fact]
     public void A_block_past_the_depth_cap_is_an_island_kept_whole() {
         var deep = NestedQuotes(AdfToDoc.MaxDepth + 10, "bottom");
@@ -112,6 +126,31 @@ public sealed class AdfCapsTests {
         json.Append(Paragraph(text));
         for (var i = 0; i < depth; i++) {
             json.Append("]}");
+        }
+        return json.ToString();
+    }
+
+    private static string NestedTasks(int depth, string text) {
+        var json = new StringBuilder();
+        for (var i = 0; i < depth; i++) {
+            json.Append($$"""{"type":"taskList","attrs":{"localId":"l{{i}}"},"content":[{"type":"taskItem","attrs":{"localId":"t{{i}}","state":"TODO"},"content":[{"type":"text","text":"level {{i}}"}]},""");
+        }
+        json.Append($$"""{"type":"taskItem","attrs":{"localId":"last","state":"DONE"},"content":[{"type":"text","text":"{{text}}"}]}""");
+        for (var i = 0; i < depth; i++) {
+            json.Append("]}");
+        }
+        return json.ToString();
+    }
+
+    // layoutSection > layoutColumn > table > tableRow > tableCell, repeated: five ADF levels per repeat.
+    private static string NestedLayoutTables(int depth, string text) {
+        var json = new StringBuilder();
+        for (var i = 0; i < depth; i++) {
+            json.Append("""{"type":"layoutSection","content":[{"type":"layoutColumn","attrs":{"width":100},"content":[{"type":"table","content":[{"type":"tableRow","content":[{"type":"tableCell","content":[""");
+        }
+        json.Append(Paragraph(text));
+        for (var i = 0; i < depth; i++) {
+            json.Append("]}]}]}]}]}");
         }
         return json.ToString();
     }
