@@ -8,11 +8,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DIALECT_JIRA, DIALECT_JIRA_DESCRIPTION } from '../../web/src/markup/doc.js';
 import { parse } from '../../web/src/markup/parse.js';
-import { adfToDoc, docToAdf, EDIT_LIMITS, EMPTY_DOC, hasTokens, mediaTable } from './adf.js';
+import { adfToDoc, docToAdf, EDIT_LIMITS, EMPTY_DOC, hasTokens, mediaTable, restoreTokens, tokenRefs } from './adf.js';
 import { json, problem } from './http.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_JIRA_FIXTURE = join(here, 'fixtures/jira.json');
+// The real projection of the fixture issues that hold tokens (WebFakeAdfTests writes it).
+const EDIT_VIEWS = JSON.parse(readFileSync(join(here, 'edit-views.gen.json'), 'utf8')).issues;
 
 // 1×1 slate-grey PNG served for every attachment: opaque, so an embedded image shows where it sits.
 const PIXEL = Buffer.from(
@@ -26,7 +28,7 @@ const COMMENT_PAGE = 20;
 function descriptionDoc(issue) {
   // A rich save replaces the markup with ADF.
   if (issue.description === null && issue.adf) {
-    return adfToDoc(issue.adf);
+    return adfToDoc(issue.adf, issue.attachments);
   }
   const doc = parse(issue.description ?? '', { dialect: DIALECT_JIRA_DESCRIPTION });
   for (const node of doc.c) {
@@ -40,6 +42,14 @@ function descriptionDoc(issue) {
 // A clone keeps the source's description form: markup with islands, or the ADF a rich save left.
 function clonedMarkup(source) {
   return source.description === null ? null : `${source.description}\n\nCloned from ${source.key}`;
+}
+
+const canonical = (v) => (Array.isArray(v) ? v.map(canonical)
+  : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canonical(v[k])])) : v);
+const sameAdf = (text, adf) => text !== undefined && JSON.stringify(canonical(JSON.parse(text))) === JSON.stringify(canonical(adf));
+
+function withFooter(adf, key) {
+  return { ...adf, content: [...adf.content, footer(`Cloned from ${key}`)] };
 }
 
 function footer(text) {
@@ -73,6 +83,8 @@ export function installJira(server, { teamId, fixture = DEFAULT_JIRA_FIXTURE, co
     issues,
     sprints: data.sprints,
     calls,
+    // The originals a save of a golden issue restores (edit-views.gen.json), for byte-for-byte checks.
+    originals: (key) => EDIT_VIEWS[key]?.originals ?? null,
     // The next `count` proxy requests answer with this problem, e.g. problem(503, 'jira_unavailable').
     failNext(response, count = 1) {
       for (let i = 0; i < count; i++) {
@@ -85,6 +97,11 @@ export function installJira(server, { teamId, fixture = DEFAULT_JIRA_FIXTURE, co
       Object.assign(requireIssue(key), changes, { updated: tick() });
     },
   };
+
+  // A golden applies to the fixture issue it was generated from: its tokens restored give back the issue's ADF. A
+  // clone of such an issue keeps its tokens, so it shares the source's originals.
+  const goldens = new Set(data.issues.filter((i) => EDIT_VIEWS[i.key] && sameAdf(restoreTokens(EDIT_VIEWS[i.key].adf, EDIT_VIEWS[i.key].originals).text, i.adf)).map((i) => i.key));
+  const goldenOf = (issue) => (goldens.has(issue.goldenKey ?? issue.key) ? EDIT_VIEWS[issue.goldenKey ?? issue.key] : null);
 
   function tick() {
     clock += 60_000;
@@ -146,8 +163,24 @@ export function installJira(server, { teamId, fixture = DEFAULT_JIRA_FIXTURE, co
     };
   }
 
-  // GET issues/:key/description (UX10): the issue's ADF as the rich editor loads it.
+  // GET issues/:key/description (UX10): the issue's ADF as the rich editor loads it. An issue with a golden serves
+  // its projected form; after a rich save, the save's own tokenised ADF stands in for projecting Jira's copy again.
   function editView(issue) {
+    const golden = goldenOf(issue);
+    if (golden && issue.adf !== undefined) {
+      const adf = issue.tokenAdf ?? golden.adf;
+      const refs = tokenRefs(adf);
+      return {
+        key: issue.key,
+        updated: issue.updated,
+        editable: true,
+        adf,
+        media: golden.media,
+        opaque: golden.opaque.filter((part) => refs.has(part.ref)),
+        marks: golden.marks.filter((mark) => refs.has(mark.ref)),
+        limits: golden.limits,
+      };
+    }
     const adf = issue.adf ?? docToAdf(descriptionDoc(issue));
     return {
       key: issue.key,
@@ -161,7 +194,8 @@ export function installJira(server, { teamId, fixture = DEFAULT_JIRA_FIXTURE, co
     };
   }
 
-  // PATCH descriptionAdf: the same precondition and refusals as the server; null clears the description.
+  // PATCH descriptionAdf: the same precondition and refusals as the server; null clears the description. Tokens are
+  // restored from the golden's originals; an issue without one holds no tokens, so a save naming one is stale.
   function writeRich(issue, body) {
     if (body.description !== undefined) {
       return problem(400, 'invalid', { fields: { descriptionAdf: 'conflict' } });
@@ -173,10 +207,24 @@ export function installJira(server, { teamId, fixture = DEFAULT_JIRA_FIXTURE, co
     if (adf?.type !== 'doc' || !Array.isArray(adf.content)) {
       return problem(400, 'invalid', { fields: { descriptionAdf: 'not_doc' } });
     }
-    if (body.descriptionBase !== issue.updated || hasTokens(adf)) {
-      return problem(409, 'stale', { current: { updated: issue.updated } });
+    const stale = () => problem(409, 'stale', { current: { updated: issue.updated } });
+    if (body.descriptionBase !== issue.updated) {
+      return stale();
     }
-    issue.adf = structuredClone(adf);
+    const golden = goldenOf(issue);
+    if (!golden && hasTokens(adf)) {
+      return stale();
+    }
+    const restored = restoreTokens(adf, golden?.originals ?? {});
+    if (restored.stale) {
+      return stale();
+    }
+    if (restored.code) {
+      return problem(400, 'invalid', { fields: { descriptionAdf: restored.code, 'descriptionAdf.at': restored.at } });
+    }
+    issue.adfText = restored.text;
+    issue.adf = JSON.parse(restored.text);
+    issue.tokenAdf = golden ? structuredClone(adf) : undefined;
     issue.description = null;
     issue.islands = undefined;
     return null;
@@ -249,7 +297,9 @@ export function installJira(server, { teamId, fixture = DEFAULT_JIRA_FIXTURE, co
         sprintId: null,
         description: source ? clonedMarkup(source) : body.description ?? '',
         islands: source?.islands,
-        adf: source?.adf ? { ...source.adf, content: [...source.adf.content, footer(`Cloned from ${source.key}`)] } : undefined,
+        adf: source?.adf ? withFooter(source.adf, source.key) : undefined,
+        goldenKey: source && goldenOf(source) ? source.goldenKey ?? source.key : undefined,
+        tokenAdf: source && goldenOf(source) ? withFooter(source.tokenAdf ?? goldenOf(source).adf, source.key) : undefined,
         comments: [],
         attachments: [],
         labels: [],
@@ -276,6 +326,9 @@ export function installJira(server, { teamId, fixture = DEFAULT_JIRA_FIXTURE, co
           return problem(409, 'stale', { current: { updated: issue.updated } });
         }
         issue.description = body.description;
+        // The markup now holds the description; ADF is built from it on the next edit view.
+        issue.adf = undefined;
+        issue.tokenAdf = undefined;
       }
       if (body?.summary !== undefined) {
         issue.summary = body.summary;
