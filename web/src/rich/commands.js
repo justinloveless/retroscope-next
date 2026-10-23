@@ -4,8 +4,8 @@
 
 import { chainCommands, lift, setBlockType, toggleMark, wrapIn } from 'prosemirror-commands';
 import { liftListItem, sinkListItem, splitListItem, wrapInList } from 'prosemirror-schema-list';
-import { TextSelection } from 'prosemirror-state';
-import { goToNextCell } from 'prosemirror-tables';
+import { Selection, TextSelection } from 'prosemirror-state';
+import { goToNextCell, isInTable } from 'prosemirror-tables';
 import { liftTarget } from 'prosemirror-transform';
 import { contextMarks, isAdfColor, isHref } from './rules.js';
 import { schema } from './schema.js';
@@ -359,6 +359,26 @@ export function canOutdent(state) {
 }
 
 export const enter = chainCommands(splitTask, splitListItem(N.listItem));
+
+/** Tab past a table's first or last cell does nothing, so the browser does not move focus out of the document. */
+export const stayInTable = (state) => isInTable(state);
+
+/**
+ * ArrowUp on the first line of a task or decision. The checkbox or icon starts the line, and browsers stop the caret
+ * there, so the caret moves to the end of the block above instead.
+ */
+export function arrowUpFromItem(state, dispatch, view) {
+  const { $from, empty } = state.selection;
+  if (!empty || !view || ($from.parent.type !== N.taskItem && $from.parent.type !== N.decisionItem) || !view.endOfTextblock('up')) {
+    return false;
+  }
+  const above = Selection.findFrom(state.doc.resolve($from.before()), -1, true);
+  if (!above) {
+    return false;
+  }
+  dispatch?.(state.tr.setSelection(above).scrollIntoView());
+  return true;
+}
 
 /** Quote: wrap the selection in a blockquote, or lift it out of one. */
 export function toggleQuote(state, dispatch) {

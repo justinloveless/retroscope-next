@@ -14,7 +14,7 @@ import { EditorView } from 'prosemirror-view';
 import { adfToPm, canonicalAdf, pmToAdf } from './adf.js';
 import { blockMarkGuard } from './block-marks.js';
 import { clipboardHandlers } from './clipboard.js';
-import { clearFormatting, enter, indent, outdent, setHeading, toggle, toggleList } from './commands.js';
+import { arrowUpFromItem, clearFormatting, enter, indent, outdent, setHeading, stayInTable, toggle, toggleList } from './commands.js';
 import { schema } from './schema.js';
 import { tokenGuard } from './tokens.js';
 import { createToolbar } from './toolbar.js';
@@ -62,8 +62,9 @@ function keys(openLink) {
     'Shift-Mod-8': toggleList('bulletList'),
     'Mod-Alt-0': setHeading(0),
     Enter: enter,
-    Tab: indent,
-    'Shift-Tab': outdent,
+    Tab: chainCommands(indent, stayInTable),
+    'Shift-Tab': chainCommands(outdent, stayInTable),
+    ArrowUp: arrowUpFromItem,
     'Shift-Enter': chainCommands(exitCode, (state, dispatch) => {
       dispatch?.(state.tr.replaceSelectionWith(nodes.hardBreak.create()).scrollIntoView());
       return true;
