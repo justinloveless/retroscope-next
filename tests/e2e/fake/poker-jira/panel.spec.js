@@ -1,5 +1,5 @@
 import { expect, test } from '../_harness/fixtures.js';
-import { isPhone, openBrowse, setupJira } from './_jira.js';
+import { isPhone, openBrowse, setupJira, TEAM } from './_jira.js';
 
 const panels = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('rs.panels')));
 
@@ -63,4 +63,18 @@ test('the drawer tabs close and reopen the browse panel, and a closed panel stay
   await expect(page.locator('.jira-browse')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Collapse Jira panel' })).toBeFocused();
   expect((await panels(page)).left.open).toBe(true);
+});
+
+test('a browse chunk that fails to load closes the panel and the next open retries it', async ({ page, fake }) => {
+  setupJira(fake);
+  await page.route(/jira-browse[^/]*\.js/, (route) => route.abort());
+  await page.goto(`/teams/${TEAM}/poker/NEOTRO1234`);
+  const open = page.getByRole('button', { name: 'Open Jira panel' });
+  await expect(open).toBeVisible();
+  await expect(page.locator('.nt-panel-left')).toBeHidden();
+  await expect(page.locator('.toast-error')).toContainText('Could not load the Jira panel');
+
+  await page.unroute(/jira-browse[^/]*\.js/);
+  await open.click();
+  await expect(page.locator('.jira-browse')).toBeVisible();
 });
