@@ -365,6 +365,7 @@ img.ProseMirror-separator {
 .rich-banner p { margin: 0; flex: 1 1 14rem; }
 .rich-banner.is-conflict { background: var(--jp-warning-bg); color: var(--jp-warning-text); }
 .rich-banner.is-invalid { background: var(--jp-error-bg); color: var(--jp-error-text); }
+.rich-banner.is-restored { background: var(--jp-info-bg); color: var(--jp-info-text); }
 .rich-banner code { font-family: var(--font-mono); font-size: 0.75rem; }
 
 /* Touch targets on phones. */

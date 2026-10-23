@@ -80,8 +80,11 @@ export const selectionFlush = new Plugin({
   },
 });
 
-/** The editor's plugins, in order: the selection flush runs before any keymap reads the selection. */
-export function editorPlugins(doc, { openLink, update }) {
+/**
+ * The editor's plugins, in order: the selection flush runs before any keymap reads the selection. `loaded` is the
+ * edit view's document, whose tokens bound what the session may hold.
+ */
+export function editorPlugins(loaded, { openLink, update }) {
   return [
     selectionFlush,
     autoformat(),
@@ -91,7 +94,7 @@ export function editorPlugins(doc, { openLink, update }) {
     tableEditing(),
     gapCursor(),
     dropCursor(),
-    tokenGuard(doc),
+    tokenGuard(loaded),
     blockMarkGuard(),
     new Plugin({ view: () => ({ update: (v) => update(v.state) }) }),
   ];
@@ -112,6 +115,7 @@ function mentionIds(doc) {
  * @param {object} options
  * @param {HTMLElement} options.host where the editor (toolbar and content) mounts
  * @param {object} options.edit the edit view (GET …/description): adf, media, opaque, marks
+ * @param {object} [options.draft] unsaved ADF from an earlier session on the same edit view, to start from instead
  * @param {(attachmentId: string) => string} options.imageSrc the attachment proxy URL
  * @param {(doc: object) => Node} [options.renderDoc] renders an opaque part's read-only preview
  * @param {(name: string) => Node} [options.icon] a sprite icon
@@ -119,11 +123,12 @@ function mentionIds(doc) {
  * @param {() => void} [options.onChange] called after each document change
  * @returns {{el: HTMLElement, view: EditorView, getAdf: () => object, isDirty: () => boolean, focus: () => void, destroy: () => void}}
  */
-export function createRichEditor({ host, edit, imageSrc, renderDoc, icon, label = 'Description', onChange }) {
-  const doc = adfToPm(edit.adf);
+export function createRichEditor({ host, edit, draft = null, imageSrc, renderDoc, icon, label = 'Description', onChange }) {
+  const original = adfToPm(edit.adf);
+  const doc = draft ? adfToPm(draft) : original;
   const loaded = canonicalAdf(edit.adf);
   const media = new Map((edit.media ?? []).map((m) => [m.id, m]));
-  const session = { media: new Set(media.keys()), mentions: mentionIds(doc) };
+  const session = { media: new Set(media.keys()), mentions: mentionIds(original) };
   const context = {
     opaque: new Map((edit.opaque ?? []).map((part) => [part.ref, part])),
     media,
@@ -141,7 +146,7 @@ export function createRichEditor({ host, edit, imageSrc, renderDoc, icon, label 
   const view = new EditorView(content, {
     state: EditorState.create({
       doc,
-      plugins: editorPlugins(doc, { openLink: () => toolbar?.openLink(), update: (state) => toolbar?.update(state) }),
+      plugins: editorPlugins(original, { openLink: () => toolbar?.openLink(), update: (state) => toolbar?.update(state) }),
     }),
     nodeViews: nodeViews(context),
     markViews: markViews(),

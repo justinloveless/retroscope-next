@@ -36,6 +36,10 @@ const PROSE = { 'font-size': '0.875rem', 'line-height': '1.5', 'overflow-wrap': 
 
 // Shared by every drawer of the tab: `${teamId}:${key}` → {at, promise}.
 const cache = new Map();
+// Unsaved description drafts, kept when the view moves to another issue or closes, so that neither the user nor
+// someone else's navigation (a spotlight move, the next round) throws one away: `${teamId}:${key}` → {edit, adf}.
+// Memory only, like every Jira text.
+const drafts = new Map();
 
 /** The rich description editor's chunk (UX11, UX12). */
 export function loadRichEditor() {
@@ -128,7 +132,13 @@ function createIssueView(ctx, host) {
     disposables = [];
   }
 
-  function resetEditors() {
+  function resetEditors({ quiet = false } = {}) {
+    if (rich?.editor?.isDirty()) {
+      drafts.set(rich.id, { edit: rich.edit, adf: rich.editor.getAdf() });
+      if (!quiet) {
+        toast(`Your unsaved changes to the ${rich.key} description are kept. Choose Edit description on ${rich.key} to go on.`, { duration: 8000 });
+      }
+    }
     editor?.destroy();
     rich?.editor?.destroy();
     composer?.destroy();
@@ -183,10 +193,10 @@ function createIssueView(ctx, host) {
     }
   }
 
-  function close() {
+  function close({ quiet = false } = {}) {
     token++;
     dispose();
-    resetEditors();
+    resetEditors({ quiet });
     sheet.hide();
     issue = null;
     key = null;
@@ -474,12 +484,13 @@ function createIssueView(ctx, host) {
   // editor (UX12: the fallback until phase 12).
   async function startRichEdit() {
     const k = key;
+    const draft = drafts.get(`${teamId}:${k}`);
     rich = { opening: true };
     paint();
     let module;
     let edit;
     try {
-      [module, edit] = await Promise.all([loadRichEditor(), http.get(issuePath('/description'))]);
+      [module, edit] = await Promise.all([loadRichEditor(), draft ? draft.edit : http.get(issuePath('/description'))]);
     } catch (error) {
       if (k === key) {
         rich = null;
@@ -492,6 +503,10 @@ function createIssueView(ctx, host) {
       return;
     }
     rich = null;
+    if (draft) {
+      openRich(module, edit, draft.adf);
+      return;
+    }
     if (edit.editable === false) {
       const description = issue.description ?? { t: 'doc', c: [] };
       const markup = descriptionMarkup(description);
@@ -506,29 +521,36 @@ function createIssueView(ctx, host) {
     openRich(module, edit);
   }
 
-  function openRich(module, edit) {
+  function openRich(module, edit, draft = null) {
+    const id = `${teamId}:${key}`;
     const holder = h('div', { class: 'rich-holder' });
     let created;
     try {
       created = module.createRichEditor({
         host: holder,
         edit,
+        draft,
         imageSrc: (id) => imageSrc({ t: 'attachment', id }),
         renderDoc: (doc) => render(doc, { imageSrc, extend }),
         icon,
         label: 'Description',
       });
     } catch {
+      drafts.delete(id);
       paint();
       toast('This description cannot be opened in the editor; edit it in Jira.', { variant: 'error', duration: 6000 });
       return;
     }
-    rich = { edit, editor: created, holder, status: null, busy: false };
+    rich = { id, key, module, edit, editor: created, holder, status: draft ? { kind: 'restored' } : null, busy: false };
     paint();
     created.focus();
   }
 
+  // Ends the session for good: its draft is saved or discarded.
   function closeRich() {
+    if (rich?.id) {
+      drafts.delete(rich.id);
+    }
     rich?.editor?.destroy();
     rich = null;
   }
@@ -544,7 +566,7 @@ function createIssueView(ctx, host) {
     session.status = null;
     paint();
     try {
-      await http.patch(issuePath(), { descriptionAdf: session.editor.getAdf(), descriptionBase: session.edit.updated });
+      await http.patch(`${base}/issues/${encodeURIComponent(session.key)}`, { descriptionAdf: session.editor.getAdf(), descriptionBase: session.edit.updated });
     } catch (error) {
       session.busy = false;
       if (error.code === 'stale') {
@@ -559,11 +581,12 @@ function createIssueView(ctx, host) {
       }
       return;
     }
+    drafts.delete(session.id);
+    cache.delete(session.id);
     if (rich !== session) {
       return;
     }
     closeRich();
-    cache.delete(`${teamId}:${key}`);
     toast(`Updated ${key}`, { variant: 'success' });
     await load(true);
   }
@@ -601,6 +624,10 @@ function createIssueView(ctx, host) {
   }
 
   function richBanner(status) {
+    if (status?.kind === 'restored') {
+      return h('div', { class: 'rich-banner is-restored', role: 'status' },
+        h('p', { text: 'Your unsaved changes are back. Save them, or Cancel to discard them.' }));
+    }
     if (status?.kind === 'stale') {
       return h('div', { class: 'rich-banner is-conflict', role: 'alert' },
         h('p', { text: `${key} changed in Jira after you started editing, so your changes were not saved. Your draft is kept below.` }),
@@ -658,6 +685,9 @@ function createIssueView(ctx, host) {
       return section;
     }
     if (canEdit && issue.editable !== false) {
+      if (drafts.has(`${teamId}:${key}`)) {
+        head.append(h('span', { class: 'rich-draft-note', style: { ...MUTED, 'margin-inline-start': 'auto' }, text: 'Unsaved changes' }));
+      }
       head.append(createButton({
         label: rich?.opening ? 'Opening the editor…' : 'Edit description',
         icon: 'pencil',
@@ -893,7 +923,7 @@ function createIssueView(ctx, host) {
       fetchIssue(k).catch(() => {});
     },
     destroy() {
-      close();
+      close({ quiet: true });
       sheet.el.remove();
     },
   };
