@@ -34,7 +34,7 @@ const TEST_FOLDERS = {
 const WEB_NET = ['outbox', 'room', 'socket', 'supersede', 'fake-server'].map((n) => `tests/web-unit/net/${n}.test.js`);
 const WEB_CORE_DOM = ['a11y', 'h', 'list', 'router', 'ui'].map((n) => `tests/web-unit/core/${n}.test.js`);
 const POKER_LAYOUT = ['geometry', 'avatar-corner', 'column', 'mirror', 'print'].map((n) => `tests/web-unit/poker/${n}.test.js`);
-const RICH = ['adf', 'block-marks', 'clipboard', 'commands', 'rules', 'schema', 'tokens'].map((n) => `tests/web-unit/rich/${n}.test.js`);
+const RICH = ['adf', 'block-marks', 'clipboard', 'commands', 'editor-plugins', 'input-rules', 'rules', 'schema', 'tokens'].map((n) => `tests/web-unit/rich/${n}.test.js`);
 const FAKE_SERVER = ['tests/web-fake-server/self.test.js', 'tests/web-fake-server/demo/demo.test.js', 'tests/web-unit/net/fake-server.test.js'];
 const SIM = true;
 
