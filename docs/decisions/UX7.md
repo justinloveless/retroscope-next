@@ -38,14 +38,18 @@ like the 'Browse Jira' button in the header."
    containing block), so a closed panel gives the stage its full width.
 2. **The collapse tab straddles the panel's edge, and the grip chip sits just above it.** In the original the
    collapse tab covers the grip chip, because both are centred on the same edge. The tab here is centred on the edge,
-   12 px over the panel and 12 px over the stage. That keeps it off the Jira rows' add buttons, the history entries
-   and the seats. The chip moves 2 rem up so both stay visible. Dragging works anywhere on the strip outside the tab.
+   12 px over the panel and 12 px over the stage. That keeps it off the Jira rows' add buttons and the history
+   entries. On its own it still covered the outermost seat's avatar at 1280 and 1440 px, so on desktop the stage keeps
+   a 12 px gutter beside each open panel (padding on `.nt-center`), and the tab's overhang sits in that gutter. The
+   seats are measured inside the gutter, so they move in with it. The chip moves 2 rem up so both stay visible.
+   Dragging works anywhere on the strip outside the tab.
 3. **The panels show their tabs over the stage**, so they no longer clip their overflow (`overflow: visible`). The
    browse list keeps its own clipping, and the history body scrolls as before. Panels sit at `z-index: 7`, above the
    stage's dock (6).
 4. **The Jira panel opens before its chunk loads.** On a click, or at load when it was left open, the panel takes its
    width at once and the browse list fills it when `jira-browse.js` arrives. Before, the slot stayed hidden until
-   then, so the stage moved twice.
+   then, so the stage moved twice. If the chunk fails to load, the panel closes again with an error toast, and the
+   next open retries the import.
 5. **Colours** come from the kit's tokens (`--card` at 90 %, `--border`, `--accent` on hover, `--ring` for focus), so
    both themes follow. The original's tabs had no focus style. These have the kit's focus ring.
 
@@ -96,10 +100,11 @@ replay button when minimized either."
 4. **Phones** put the submit chips on their own row, with Submit and Show results side by side below them. Before,
    the chips were squeezed into a narrow column.
 5. **Focus is unchanged:** Minimize and Esc focus Show results wherever it sits, and Show results focuses the overlay.
-6. **The pills stay in the page.** `.nt-stacks` is no longer shown in either state. It stays inside the overlay,
-   whose hidden part holds it, because the real-stack and smoke specs read exact votes from `.nt-stack-pill`.
-   Those specs could not be run here (see below). Removing the list and moving those specs to the piles is left to the
-   owner.
+6. **The pills stay in the page for now.** `.nt-stacks` is no longer shown in either state. The fake specs now read
+   the revealed votes from what a viewer sees: the piles (`.nt-pile`) and the seats' labels. The list stays inside
+   the overlay's hidden part only because the real-stack and smoke specs still read exact votes from
+   `.nt-stack-pill`, and those specs could not be run here. Moving them and deleting the list is tracked in
+   `docs/followups/UX7.md`.
 
 ### What it overrides
 
@@ -112,12 +117,16 @@ replay button when minimized either."
 
 - The fake table baselines (`tests/e2e/fake/poker-table/visual.spec.js-snapshots`) were regenerated after each unit on
   macOS and in the pinned Linux image (the `docker run` command in UF14 item 3). The final set passed
-  `--repeat-each 3` on both platforms. The phone baselines on `main` were already stale: they still showed the seat
-  row from before the felt. The first regeneration caught them up.
+  `--repeat-each 3` on both platforms. Both the desktop and the phone baselines on `main` were already stale: they
+  were last refreshed before the felt stage (`ea876c6`) and still showed a plain stage. So the first regeneration
+  (`0e25ff3`, "for the drawer handles") also contains the UX6 felt, rail and seat changes, not only the handles. A
+  later regeneration adds the stage gutter beside open panels.
 - `tests/e2e/real/visual.spec.js-snapshots` (`strip`, `reveal`, `table`) were **not** regenerated, because that needs
   the compose stack. The strip no longer ends with the two buttons, and the reveal is centred, so those baselines
   need `./build.sh e2e "real/visual.spec.js"` with `--update-snapshots` (darwin) and the UF16 `run-server` recipe
-  (linux).
+  (linux). They were already red on `main`, though: they were last refreshed (`0b66acd`) before the felt stage, so
+  they show a plain stage. UX7 does not make them fail, but they must be regenerated once for both changes before the
+  real suite can pass. This is tracked in `docs/followups/UX7.md`.
 - `real/_jira.js` and `real/poker-jira.spec.js` now open the browse panel through the new handles and the bottom bar,
   like the fake helpers. They were updated by reading the code, not run.
 - `fake/poker-table/felt.spec.js:68` (all engines), `:94` and `:105` (WebKit) and `seats.spec.js:173` (all engines)
