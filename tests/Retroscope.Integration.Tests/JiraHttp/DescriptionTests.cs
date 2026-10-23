@@ -49,7 +49,7 @@ public sealed class DescriptionTests(PostgresFixture postgres) {
         Assert.Equal((string)content[1]!["attrs"]!["ref"]!, (string)opaque[0]!["ref"]!);
         Assert.Equal("doc", (string)opaque[0]!["preview"]!["t"]!);
         Assert.Equal("annotation", (string)view["marks"]![0]!["kind"]!);
-        Assert.Equal(JsonNode.Parse("""{"nodes":5000,"depth":32,"text":32000,"bytes":1048576}"""), view["limits"], JsonNode.DeepEquals);
+        Assert.Equal(JsonNode.Parse("""{"nodes":5000,"depth":28,"text":32000,"bytes":1048576}"""), view["limits"], JsonNode.DeepEquals);
     }
 
     [Fact]
@@ -145,6 +145,27 @@ public sealed class DescriptionTests(PostgresFixture postgres) {
     }
 
     [Fact]
+    public async Task A_save_as_deep_as_the_view_allows_binds_reaches_Jira_and_reads_back() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (ada, team) = await IssueAsync(host);
+        var view = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, "/issues/RS-12/description"));
+        var updated = (string)view["updated"]!;
+        var depth = (int)view["limits"]!["depth"]!;
+
+        // Lists nest two levels at a time: text at the cap, with a link mark (the deepest JSON a node carries).
+        var deepest = Nested(depth / 2 - 1, """{"type":"paragraph","content":[{"type":"text","text":"deep","marks":[{"type":"link","attrs":{"href":"https://deep.example/"}}]}]}""");
+        var from = host.Jira.Requests.Count;
+        await host.JsonAsync(HttpMethod.Patch, ada, JiraHttpHost.Url(team, "/issues/RS-12"), RawBody(deepest, updated));
+        Assert.Contains("https://deep.example/", Assert.Single(host.JiraRequestsSince(from), r => r.Method == "PUT").Body, StringComparison.Ordinal);
+
+        // One level past the cap is the validator's coded refusal, not a body the binder drops.
+        var past = Nested(depth / 2, """{"type":"paragraph"}""");
+        var current = (string)host.Jira.Issues["RS-12"]["fields"]!["updated"]!;
+        var (status, problem) = await host.ProblemAsync(HttpMethod.Patch, ada, JiraHttpHost.Url(team, "/issues/RS-12"), RawBody(past, current));
+        Assert.Equal((400, "too_deep"), (status, (string)problem["fields"]!["descriptionAdf"]!));
+    }
+
+    [Fact]
     public async Task Null_clears_the_description() {
         await using var host = await JiraHttpHost.StartAsync(postgres);
         var (ada, team) = await IssueAsync(host);
@@ -224,6 +245,17 @@ public sealed class DescriptionTests(PostgresFixture postgres) {
         host.Jira.AddAttachment("RS-12", "30001", "shot.png", "image/png", [0x89, 0x50, 0x4E, 0x47]);
         return (ada, team);
     }
+
+    // A document with the block inside the given number of bullet lists (the block at depth 2 * lists + 1).
+    private static string Nested(int lists, string block) {
+        for (var i = 0; i < lists; i++) {
+            block = $$"""{"type":"bulletList","content":[{"type":"listItem","content":[{{block}}]}]}""";
+        }
+        return $$"""{"type":"doc","version":1,"content":[{{block}}]}""";
+    }
+
+    private static string RawBody(string adf, string descriptionBase) =>
+        $$"""{"descriptionAdf":{{adf}},"descriptionBase":"{{descriptionBase}}"}""";
 
     private static string Body(JsonNode adf, string descriptionBase) =>
         new JsonObject { ["descriptionAdf"] = adf.DeepClone(), ["descriptionBase"] = descriptionBase }.ToJsonString();
