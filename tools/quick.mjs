@@ -34,6 +34,7 @@ const TEST_FOLDERS = {
 const WEB_NET = ['outbox', 'room', 'socket', 'supersede', 'fake-server'].map((n) => `tests/web-unit/net/${n}.test.js`);
 const WEB_CORE_DOM = ['a11y', 'h', 'list', 'router', 'ui'].map((n) => `tests/web-unit/core/${n}.test.js`);
 const POKER_LAYOUT = ['geometry', 'avatar-corner', 'column', 'mirror', 'print'].map((n) => `tests/web-unit/poker/${n}.test.js`);
+const RICH = ['adf', 'clipboard', 'schema', 'tokens'].map((n) => `tests/web-unit/rich/${n}.test.js`);
 const FAKE_SERVER = ['tests/web-fake-server/self.test.js', 'tests/web-fake-server/demo/demo.test.js', 'tests/web-unit/net/fake-server.test.js'];
 const SIM = true;
 
@@ -103,7 +104,7 @@ const RULES = [
   [/^tests\/Retroscope\.(Core|Integration|Importer)\.Tests\//, { fallback: true, testProject: true }],
   [/^tests\/Fakes\//, { integration: ['JiraClient', 'JiraHttp', 'Oidc', 'Email'] }],
   [/^tests\/fixtures\/markup\//, { core: ['Markup', 'Adf'], node: ['tests/web-unit/markup.test.js'] }],
-  [/^tests\/fixtures\/adf\//, { core: ['Adf'] }],
+  [/^tests\/fixtures\/adf\//, { core: ['Adf'], node: ['tests/web-unit/rich/adf.test.js'] }],
   [/^tests\/fixtures\/adf-schema\//, { core: ['Adf'] }],
   [/^tests\/golden\/transcripts\//, { core: ['Poker', 'Retro'], node: ['tests/web-unit/reducers.test.js', 'tests/web-fake-server/self.test.js'] }],
   [/^tests\/golden\//, { golden: true, node: ['tests/web-unit/golden-cli.test.js'], core: ['Poker', 'Retro'], fallback: true }],
@@ -111,6 +112,7 @@ const RULES = [
   [/^tests\/schema\.snapshot\.sql$/, { integration: ['Schema'] }],
   [/^tests\/web-unit\/core\/_dom\.js$/, { node: WEB_CORE_DOM.concat('tests/web-unit/editor.test.js') }],
   [/^tests\/web-unit\/net\/_fakes\.js$/, { node: WEB_NET }],
+  [/^tests\/web-unit\/rich\/_project\.js$/, { node: RICH }],
   [/^tests\/web-fake-server\//, { node: FAKE_SERVER }],
   [/^tests\/web-fake-server\/(fixtures|demo)\/jira\.json$/, { core: ['Adf'] }],
   [/^tests\/e2e\//, { note: 'Run the changed spec alone: ./build.sh fake-e2e "<area>/<file>.spec.js".' }],
@@ -122,6 +124,8 @@ const RULES = [
   [/^web\/src\/ui\//, { node: ['tests/web-unit/core/ui.test.js'] }],
   [/^web\/src\/markup\//, { node: ['tests/web-unit/markup.test.js', 'tests/web-unit/editor.test.js'] }],
   [/^web\/src\/markup\/(doc|parse)\.js$/, { node: ['tests/web-fake-server/self.test.js'] }],
+  [/^web\/src\/markup\/doc\.js$/, { node: RICH }],
+  [/^web\/src\/rich\//, { node: [...RICH, 'tests/web-unit/core/build.test.js'] }],
   [/^web\/src\/net\/outbox\.js$/, { node: WEB_NET }],
   [/^web\/src\/net\/socket\.js$/, { node: ['tests/web-unit/net/fake-server.test.js'] }],
   [/^web\/src\/net\/protocol\.gen\.js$/, {
@@ -133,6 +137,7 @@ const RULES = [
   [/^web\/src\/routes\.js$/, { node: ['tests/web-unit/scaffold/routes.test.js', 'tests/web-unit/core/router.test.js', 'tests/web-fake-server/self.test.js', 'tests/web-unit/core/build.test.js'] }],
   [/^web\/styles\/jira\.css$/, { node: ['tests/web-unit/markup.test.js'] }],
   [/^(web\/styles\/|web\/(build\.mjs|budgets\.json|package\.json)$|package-lock\.json$)/, { node: ['tests/web-unit/core/build.test.js', 'tests/web-unit/core/theme.test.js'] }],
+  [/^(package\.json|package-lock\.json|web\/package\.json)$/, { node: ['tests/web-unit/core/deps.test.js'] }],
   [/^(web\/assets\/|tools\/make-sprite\.mjs$|THIRD_PARTY\.md$)/, { node: ['tests/web-unit/assets.test.js'] }],
 
   [/^deploy\/(docker-compose|compose\.test)\.yml$/, { integration: ['Deploy'] }],
