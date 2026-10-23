@@ -6,6 +6,7 @@
 // falls back to the markup editor, with the issue's opaque islands as read-only atoms.
 
 import { h, replaceContent } from '../core/h.js';
+import { initials } from '../core/fmt.js';
 import { http } from '../core/http.js';
 import { createEditor } from '../markup/editor.js';
 import { jiraRenderer } from '../markup/jira.js';
@@ -80,6 +81,18 @@ function islandsOf(description) {
 function when(iso) {
   const ms = Date.parse(iso);
   return Number.isNaN(ms) ? '' : new Date(ms).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+const SHORT_DAY = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
+const LONG_DAY = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
+
+// A day without its year when it falls in this one, so the record line stays on one line in the narrow centre.
+function day(iso) {
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) {
+    return '';
+  }
+  return (new Date(ms).getFullYear() === new Date().getFullYear() ? SHORT_DAY : LONG_DAY).format(ms);
 }
 
 function heading(text) {
@@ -234,24 +247,27 @@ function createIssueView(ctx, host) {
       toast(explain(error), { variant: 'error', duration: 6000 });
       return;
     }
-    const menu = createMenu({ label, items: entries, onSelect });
+    // The menu opens at a point rather than on the button, so the button's expanded state is kept here.
+    const menu = createMenu({ label, items: entries, onSelect, onClose: () => button.setAttribute('aria-expanded', 'false') });
     disposables.push(menu);
     const rect = button.getBoundingClientRect();
     menu.openAt(rect.left, rect.bottom + 4);
+    button.setAttribute('aria-expanded', 'true');
   }
 
+  // A field as a chip: a menu button for editors, plain text for everyone else.
   function fieldButton(name, label, content, onClick) {
     if (!canEdit) {
-      return h('span', { class: `jira-field-${name}`, style: ROW }, content);
+      return h('span', { class: ['jira-chip', 'is-static', `jira-field-${name}`] }, content);
     }
     const button = h('button', {
       type: 'button',
-      class: ['btn', 'btn-ghost', 'btn-sm', `jira-field-${name}`],
+      class: ['jira-chip', `jira-field-${name}`],
       'aria-label': label,
       'aria-haspopup': 'true',
-      style: { ...ROW, 'justify-content': 'flex-start' },
+      'aria-expanded': 'false',
       on: { click: () => onClick(button) },
-    }, content);
+    }, content, icon('chevron-down', { className: 'jira-chip-caret' }));
     return button;
   }
 
@@ -450,23 +466,39 @@ function createIssueView(ctx, host) {
     replaceContent(sheet.tools, clone, copy.el, external, refresh.el);
   }
 
+  // The fields under the summary (UX14): what people change while pointing as labelled chips, then where the issue
+  // sits (parent, sprint, labels) and its record (reporter, dates) as quieter lines. Every field stays visible when
+  // empty, in words rather than a dash.
   function fields() {
     const f = issue.fields;
-    const rows = [
-      ['Status', fieldButton('status', `Change status: ${f.status}`, statusBadge(f.status, f.statusCategory), changeStatus)],
-      ['Type', fieldButton('type', `Change issue type: ${f.issueType}`, [issueTypeGlyph(f.issueType), h('span', { text: f.issueType ?? '' })], changeIssueType)],
-      ['Priority', fieldButton('priority', `Change priority: ${f.priority ?? 'none'}`, [priorityGlyph(f.priority), h('span', { text: f.priority ?? 'None' })], changePriority)],
-      ['Assignee', fieldButton('assignee', `Change assignee: ${f.assignee?.displayName ?? 'Unassigned'}`, h('span', { text: f.assignee?.displayName ?? 'Unassigned' }), changeAssignee)],
-      ['Story points', fieldButton('points', `Change story points: ${f.points ?? 'none'}`, h('span', { text: f.points == null ? '–' : String(f.points) }), changePoints)],
-      ['Sprint', fieldButton('sprint', `Change sprint: ${f.sprint?.name ?? 'Backlog'}`, h('span', { text: f.sprint?.name ?? 'Backlog' }), changeSprint)],
-      ['Reporter', h('span', { text: f.reporter?.displayName ?? '–' })],
-      ['Parent', f.parent ? h('span', { class: 'badge', text: f.parent.summary ? `${f.parent.key} · ${f.parent.summary}` : f.parent.key }) : h('span', { text: '–' })],
-      ['Labels', f.labels?.length ? h('span', { style: ROW }, f.labels.map((label) => h('span', { class: 'badge', text: label }))) : h('span', { text: '–' })],
-      ['Created', h('span', { text: when(f.created) })],
-      ['Updated', h('span', { text: when(issue.updated) })],
-    ];
-    return h('dl', { class: 'jira-fields', style: { display: 'grid', 'grid-template-columns': 'max-content 1fr', gap: '0.25rem 0.75rem', 'align-items': 'center', 'margin-top': '0.75rem', 'font-size': '0.8125rem' } },
-      rows.map(([label, value]) => [h('dt', { style: MUTED, text: label }), h('dd', { style: { margin: '0', 'min-width': '0' } }, value)]));
+    const item = (name, label, value) => h('div', { class: ['jira-meta-item', `jira-meta-${name}`] },
+      h('dt', { class: 'jira-meta-label', text: label }), h('dd', null, value));
+    const text = (value, empty) => h('span', { class: empty ? 'is-unset' : null, text: value });
+    const assignee = f.assignee?.displayName ?? null;
+    // The initials come from an attribute, so the chip's text stays the name alone.
+    const avatar = h('span', { class: ['jira-avatar', assignee ? null : 'is-empty'], 'data-initials': assignee ? initials(assignee) : null, 'aria-hidden': 'true' });
+    const time = (iso) => h('time', { datetime: iso, title: when(iso), text: day(iso) });
+    const parent = f.parent
+      ? h('button', { type: 'button', class: ['jira-chip', 'jira-parent'], title: f.parent.summary ?? null, on: { click: () => (ctx.openLinked ?? open)(f.parent.key) } },
+        icon('folder-kanban'), h('span', { class: 'jira-parent-key', text: f.parent.key }), f.parent.summary ? h('span', { class: 'jira-parent-summary', text: f.parent.summary }) : null)
+      : text('No parent', true);
+    return h('div', { class: 'jira-fields jira-meta' },
+      // Two groups, so a narrow view breaks the row between the issue's state and its people rather than orphaning one chip.
+      h('div', { class: 'jira-meta-chips' }, h('dl', { class: 'jira-meta-group' },
+        item('status', 'Status', fieldButton('status', `Change status: ${f.status}`, statusBadge(f.status, f.statusCategory), changeStatus)),
+        item('type', 'Type', fieldButton('type', `Change issue type: ${f.issueType}`, [issueTypeGlyph(f.issueType), text(f.issueType ?? '')], changeIssueType)),
+        item('priority', 'Priority', fieldButton('priority', `Change priority: ${f.priority ?? 'none'}`, [priorityGlyph(f.priority), text(f.priority ?? 'None', !f.priority)], changePriority))),
+      h('dl', { class: 'jira-meta-group' },
+        item('assignee', 'Assignee', fieldButton('assignee', `Change assignee: ${assignee ?? 'Unassigned'}`, [avatar, text(assignee ?? 'Unassigned', !assignee)], changeAssignee)),
+        item('points', 'Points', fieldButton('points', `Change story points: ${f.points ?? 'none'}`, f.points == null ? text('Not estimated', true) : h('span', { class: 'jira-points', text: String(f.points) }), changePoints)))),
+      h('dl', { class: 'jira-meta-place' },
+        item('parent', 'Parent', parent),
+        item('sprint', 'Sprint', fieldButton('sprint', `Change sprint: ${f.sprint?.name ?? 'Backlog'}`, [icon('calendar'), h('span', { class: f.sprint ? null : 'is-unset', title: f.sprint?.name ?? null, text: f.sprint?.name ?? 'Backlog' })], changeSprint)),
+        item('labels', 'Labels', f.labels?.length ? h('span', { class: 'jira-label-list' }, f.labels.map((label) => h('span', { class: 'badge', text: label }))) : text('No labels', true))),
+      h('dl', { class: 'jira-meta-record' },
+        f.reporter ? item('reporter', 'Reporter', text(f.reporter.displayName)) : null,
+        f.created ? item('created', 'Created', time(f.created)) : null,
+        issue.updated ? item('updated', 'Updated', time(issue.updated)) : null));
   }
 
   function markupEditor(markup, islands) {

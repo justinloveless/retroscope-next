@@ -403,3 +403,176 @@
   border: 1px dashed var(--jp-border);
   border-radius: 4px;
 }
+
+/* The issue's fields (issue-drawer.js fields(), UX14): labelled chips for what people change while pointing, then
+   where the issue sits and its record as muted lines. It sizes to its own width, so the centre between both panels
+   (about 390 px), the wider centre, the drawer and a phone share one layout that only wraps. */
+.jira-meta {
+  container-type: inline-size;
+  display: grid;
+  gap: 0.625rem;
+  margin-top: 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.jira-meta :is(dl, dd) { margin: 0; }
+
+.jira-meta-label {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.jira-meta-chips,
+.jira-meta-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.625rem;
+  min-width: 0;
+}
+
+.jira-meta-chips .jira-meta-item {
+  display: grid;
+  gap: 0.1875rem;
+  min-width: 0;
+}
+
+.jira-meta-chips .jira-meta-label { padding-inline-start: 0.5rem; }
+
+.jira-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  max-width: 100%;
+  min-height: 1.875rem;
+  padding: 0.125rem 0.3125rem 0.125rem 0.5rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+  background: hsl(var(--background) / 0.5);
+  color: hsl(var(--foreground));
+  font: inherit;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.jira-chip:hover { background: hsl(var(--accent)); }
+.jira-chip:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 1px; }
+.jira-chip.is-static { padding-inline-end: 0.5rem; background: transparent; cursor: default; }
+.jira-chip .icon { flex: none; width: 0.875rem; height: 0.875rem; color: hsl(var(--muted-foreground)); }
+.jira-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.jira-chip.jira-field-status { padding-inline-start: 0.1875rem; }
+
+/* The caret only says "this opens a menu" where that is news: on hover, on keyboard focus and while open. A touch
+   screen has no hover, so there it stays faintly visible. Reduced motion drops the fade through base.css. */
+.jira-chip .jira-chip-caret {
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-inline-start: -0.1875rem;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.jira-chip:is(:hover, :focus-visible, [aria-expanded="true"]) .jira-chip-caret { opacity: 0.8; }
+
+@media (hover: none) {
+  .jira-chip .jira-chip-caret { opacity: 0.45; }
+}
+
+.jira-meta .is-unset { color: hsl(var(--muted-foreground)); font-weight: 400; }
+
+.jira-points {
+  min-width: 1ch;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.jira-avatar {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-inline-start: -0.25rem;
+  border-radius: 50%;
+  background: var(--avatar-bg);
+  color: var(--avatar-fg);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.jira-avatar::before { content: attr(data-initials); }
+
+.jira-avatar.is-empty {
+  border: 1px dashed hsl(var(--muted-foreground));
+  background: transparent;
+}
+
+/* Where the issue sits: a column of label and value pairs whose values line up, and in a wide view one wrapping row. */
+.jira-meta-place {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 0.375rem 0.75rem;
+}
+
+.jira-meta-place .jira-meta-item {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  align-items: center;
+}
+
+@container (min-width: 36rem) {
+  .jira-meta-place {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem 1.25rem;
+  }
+
+  .jira-meta-place .jira-meta-item {
+    display: flex;
+    gap: 0.5rem;
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
+.jira-meta-place .jira-meta-label { font-size: 0.75rem; }
+.jira-meta-place dd { display: flex; min-width: 0; }
+.jira-meta-place .jira-chip { min-height: 1.75rem; }
+
+.jira-parent {
+  padding-inline-end: 0.5rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.jira-parent-key {
+  flex: none;
+  color: hsl(var(--foreground));
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.jira-parent .jira-parent-summary { font-weight: 400; }
+.jira-parent:hover .jira-parent-key { text-decoration: underline; text-underline-offset: 2px; }
+
+.jira-label-list { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
+.jira-label-list .badge { padding: 0.0625rem 0.4375rem; font-weight: 500; }
+
+/* The record: one muted line of label and value pairs that wraps by whole pairs. */
+.jira-meta-record {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+}
+
+.jira-meta-record .jira-meta-item { display: flex; align-items: baseline; gap: 0.25rem; white-space: nowrap; }
+.jira-meta-record .jira-meta-label { font-size: inherit; line-height: inherit; }
+.jira-meta-record dd { color: hsl(var(--foreground) / 0.8); }
