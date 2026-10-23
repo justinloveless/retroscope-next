@@ -41,6 +41,8 @@ public sealed record JiraMetaRequest(IReadOnlyList<string>? Keys);
 /// <param name="Description">Markup that may hold <c>[[island:id]]</c> refs; needs <paramref name="DescriptionBase"/>.</param>
 /// <param name="DescriptionBase">The issue's <c>updated</c> the edit started from.</param>
 /// <param name="AssigneeAccountId">Absent keeps the assignee, null unassigns.</param>
+/// <param name="DescriptionAdf">The rich editor's whole description (UX10), tokens included; null clears it. Exclusive
+/// with <paramref name="Description"/>; needs <paramref name="DescriptionBase"/>.</param>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record JiraIssuePatch(
     string? Summary,
@@ -48,7 +50,8 @@ public sealed record JiraIssuePatch(
     string? DescriptionBase,
     JsonElement AssigneeAccountId,
     string? PriorityId,
-    string? IssueTypeId);
+    string? IssueTypeId,
+    JsonElement DescriptionAdf = default);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record JiraTransitionRequest(string? TransitionId);
@@ -323,7 +326,11 @@ public static partial class JiraEndpoints {
         jira.MapGet("/sprints", SprintsAsync).RequireRoutePolicy(RoutePolicy.TeamMember).RequireRateLimit(Read);
         jira.MapPost("/issues", CreateAsync).RequireRoutePolicy(RoutePolicy.TeamMember).RequireRateLimit(Write);
         jira.MapGet("/issues/{key}", GetIssueAsync).RequireRoutePolicy(RoutePolicy.TeamMember).RequireRateLimit(Read);
-        jira.MapPatch("/issues/{key}", PatchIssueAsync).RequireRoutePolicy(RoutePolicy.TeamMember).RequireRateLimit(Write);
+        jira.MapGet("/issues/{key}/description", DescriptionAsync).RequireRoutePolicy(RoutePolicy.TeamMember).RequireRateLimit(Read);
+        jira.MapPatch("/issues/{key}", PatchIssueAsync)
+            .RequireRoutePolicy(RoutePolicy.TeamMember)
+            .RequireRateLimit(Write)
+            .WithMetadata(new RequestBodyLimit(MaxPatchBytes));
         jira.MapGet("/issues/{key}/comments", CommentsAsync).RequireRoutePolicy(RoutePolicy.TeamMember).RequireRateLimit(Read);
         jira.MapPost("/issues/{key}/comments", AddCommentAsync).RequireRoutePolicy(RoutePolicy.TeamMember).RequireRateLimit(Write);
         jira.MapPost("/issues/{key}/transition", TransitionAsync).RequireRoutePolicy(RoutePolicy.TeamMember).RequireRateLimit(Write);
@@ -783,7 +790,9 @@ public static partial class JiraEndpoints {
                 description = check.Doc ?? Invalid<Doc?>(fields, "description", null, ErrorCode(check.Error));
             }
         }
-        if (summary is null && assignee is null && body.PriorityId is null && body.IssueTypeId is null && body.Description is null && fields.Count == 0) {
+        var rich = RichDescription(body, fields);
+        if (summary is null && assignee is null && body.PriorityId is null && body.IssueTypeId is null && body.Description is null
+            && rich is null && fields.Count == 0) {
             fields["body"] = "empty";
         }
         if (fields.Count > 0) {
@@ -801,6 +810,13 @@ public static partial class JiraEndpoints {
                     return await StaleAsync(team, key, islands, context.RequestAborted);
                 }
                 adf = Parse(written);
+            }
+            if (rich is not null) {
+                var (richAdf, refused) = await WriteRichAsync(team, key, body.DescriptionBase!, rich, islands, context.RequestAborted);
+                if (refused is not null) {
+                    return refused;
+                }
+                adf = richAdf;
             }
             await client.UpdateIssueAsync(team, key, new JiraIssueUpdate(summary, adf, assignee, body.PriorityId, body.IssueTypeId), context.RequestAborted);
             await writes.DoneAsync(call, key, JiraAudit.Update);
