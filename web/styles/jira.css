@@ -447,7 +447,8 @@
   max-width: 100%;
   min-height: 1.875rem;
   padding: 0.125rem 0.3125rem 0.125rem 0.5rem;
-  border: 1px solid hsl(var(--border));
+  /* The resting outline is what marks a chip as editable while its caret is hidden, so it is darker than --border. */
+  border: 1px solid hsl(var(--muted-foreground) / 0.45);
   border-radius: 999px;
   background: hsl(var(--background) / 0.5);
   color: hsl(var(--foreground));
@@ -460,7 +461,7 @@
 
 .jira-chip:hover { background: hsl(var(--accent)); }
 .jira-chip:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 1px; }
-.jira-chip.is-static { padding-inline-end: 0.5rem; background: transparent; cursor: default; }
+.jira-chip.is-static { padding-inline-end: 0.5rem; border-color: transparent; background: transparent; cursor: default; }
 .jira-chip .icon { flex: none; width: 0.875rem; height: 0.875rem; color: hsl(var(--muted-foreground)); }
 .jira-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .jira-chip.jira-field-status { padding-inline-start: 0.1875rem; }
