@@ -325,7 +325,7 @@ export class FakeServer extends EventEmitter {
     const etag = `"${size.toString(16)}-${Math.floor(info.mtimeMs).toString(16)}"`;
     const headers = {
       'Accept-Ranges': 'bytes',
-      'Cache-Control': 'public, max-age=86400',
+      'Cache-Control': 'private, max-age=86400',
       'Content-Type': type,
       ETag: etag,
       'Last-Modified': info.mtime.toUTCString(),
