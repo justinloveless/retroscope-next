@@ -23,7 +23,7 @@ const FAIL_OVER_BUDGET = 1.10;
 // entry's CSS, which would put every screen's styles on every page). kit.css @imports the partials.
 const STYLE_PARTIALS = new Set(['tokens.css', 'base.css']);
 const ROUTE_STYLES = {
-  'poker/index.js': ['neotro.css', 'jira.css'],
+  'poker/index.js': ['neotro.css', 'jira.css', 'rich-editor.css'],
   'retro/index.js': ['retro.css'],
   'team/index.js': ['team.css'],
 };
