@@ -970,7 +970,7 @@ The locked decisions from the user are taken as given and are not re-argued here
     Retroscope.Importer/          # JIT console (not AOT), binary &quot;retroscope-import&quot;; references Core only; AngleSharp for HTML
       Program.cs  Source/  Archive/  Map/  Html/  Storage/  Verify/
   web/
-    package.json                  # devDependencies: esbuild only (exact pin)
+    package.json                  # devDependencies: esbuild; dependencies: the ProseMirror packages (UX11); exact pins, deps.test.js
     build.mjs                     # bundle, split, hash, brotli+gzip, manifest.json, csp.json, budgets, innerHTML ban
     src/ (§g)  styles/  assets/
   tests/
@@ -3191,6 +3191,14 @@ web/assets/ cards.png (9-frame sprite) m6x11plus.woff2 (Latin subset) icons.svg 
 <tr>
 <td>editor (shared markup editor; its own chunk, used by retro and jira-drawer)</td>
 <td>≤ 8 KB</td>
+</tr>
+<tr>
+<td>rich-editor (ProseMirror description editor, UX11; lazy, loaded only for users who can edit, prefetched when the drawer opens for one)</td>
+<td>≤ 90 KB</td>
+</tr>
+<tr>
+<td>css:rich-editor</td>
+<td>≤ 2.5 KB</td>
 </tr>
 <tr>
 <td>retro (board, cards, comments, stages, timer, focus, kudos, actions)</td>

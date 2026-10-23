@@ -114,7 +114,7 @@ retroscope-next/
     Retroscope.Importer/          # JIT console (not AOT), binary "retroscope-import"; references Core only; AngleSharp for HTML
       Program.cs  Source/  Archive/  Map/  Html/  Storage/  Verify/
   web/
-    package.json                  # devDependencies: esbuild only (exact pin)
+    package.json                  # devDependencies: esbuild; dependencies: the ProseMirror packages (UX11); exact pins, deps.test.js
     build.mjs                     # bundle, split, hash, brotli+gzip, manifest.json, csp.json, budgets, innerHTML ban
     src/ (§g)  styles/  assets/
   tests/
@@ -1459,6 +1459,8 @@ web/assets/ cards.png (9-frame sprite) m6x11plus.woff2 (Latin subset) icons.svg 
 | jira-browse (panel, filters, buckets, add single/batch/manual, create; prefetched on idle when Jira is configured) | ≤ 14 KB |
 | jira-drawer (drawer, island-aware editor glue, comments, links, clone, attachments lightbox, submit; prefetched on idle) | ≤ 22 KB |
 | editor (shared markup editor; its own chunk, used by retro and jira-drawer) | ≤ 8 KB |
+| rich-editor (ProseMirror description editor, UX11; lazy, loaded only for users who can edit, prefetched when the drawer opens for one) | ≤ 90 KB |
+| css:rich-editor | ≤ 2.5 KB |
 | retro (board, cards, comments, stages, timer, focus, kudos, actions) | ≤ 32 KB |
 | team / shell pages | ≤ 10 KB each |
 | CSS kit + tokens | ≤ 10 KB |
