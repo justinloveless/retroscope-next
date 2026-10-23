@@ -73,6 +73,9 @@ test('the drawer shows the issue: fields, island-rich description, attachments, 
   await expect(sheet.locator('.jira-comment')).toHaveCount(2);
   await expect(sheet.getByRole('heading', { name: 'Comments (2)' })).toBeVisible();
   await expect(sheet.locator('.jira-comment').first()).toContainText('Amex');
+  await expect(sheet.locator('.jira-comment').nth(1).locator('.status-green')).toHaveText('Done');
+  await expect(sheet.locator('.jira-comment').nth(1).locator('.panel-info')).toHaveText('Amex ships in Sprint 10.');
+  await expect(sheet.locator('.jira-comment').nth(1).locator('.panel-info')).toHaveCSS('background-color', 'rgb(233, 242, 254)');
   await expect(sheet.getByRole('link', { name: 'Open RS-12 in Jira' })).toHaveAttribute('href', `https://${SITE}/browse/RS-12`);
   const thumb = sheet.getByRole('button', { name: 'View screenshot.png' }).locator('img');
   await expect(thumb).toHaveAttribute('src', /^\/api\/teams\/[^/]+\/jira\/issues\/RS-12\/attachments\/20001$/);
@@ -138,6 +141,10 @@ test('editing the description keeps its islands and sends descriptionBase', asyn
   await expect(sheet.locator('.jira-description-editor .island td').first()).toHaveText('Visa');
   const islands = sheet.locator('.jira-description-editor .island');
   await expect(islands).toHaveCount(4);
+  // The table island is 760 px wide: it scrolls inside the editor instead of widening it past the description.
+  const editorBox = await sheet.locator('.jira-description-editor').boundingBox();
+  const sectionBox = await sheet.locator('.jira-description').boundingBox();
+  expect(editorBox.width).toBeLessThanOrEqual(sectionBox.width + 1);
   for (const island of await islands.all()) {
     await expect(island).toHaveAttribute('contenteditable', 'false');
   }
