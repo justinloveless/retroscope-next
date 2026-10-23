@@ -37,7 +37,8 @@ function commentView(comment) {
     id: comment.id,
     author: comment.author,
     created: comment.created,
-    body: parse(comment.body, { dialect: DIALECT_JIRA }),
+    // bodyDoc stands in for a comment whose ADF carries display-only kinds that markup cannot write.
+    body: comment.bodyDoc ?? parse(comment.body, { dialect: DIALECT_JIRA }),
   };
 }
 
