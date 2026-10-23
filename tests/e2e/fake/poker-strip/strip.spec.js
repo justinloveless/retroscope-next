@@ -32,17 +32,21 @@ test('clicking a chip navigates to that round and centres it', async ({ page, fa
   })).toBeLessThan(3);
 });
 
-test('a new round from the + button and the next open round button', async ({ page, fake }) => {
+test('a new round from the + button and the next open round button, both in the toolbar', async ({ page, fake }) => {
   const list = rounds(4).map((r, i) => ({ ...r, active: i === 1 || i === 3 }));
   setupStrip(fake, { snap: { rounds: list, currentRoundId: roundId(4) } });
   await openStrip(page);
+  const toolbar = page.getByRole('navigation', { name: 'Rounds' });
+  await expect(page.getByRole('region', { name: 'Round strip' }).getByRole('button', { name: /^(?:Next open round|New round)$/ })).toHaveCount(0);
+  const names = await toolbar.getByRole('button').evaluateAll((buttons) => buttons.map((b) => b.getAttribute('aria-label')));
+  expect(names).toEqual(['Previous round', 'Next round', 'Next open round', 'New round']);
 
-  await page.getByRole('button', { name: 'Next open round' }).click();
+  await toolbar.getByRole('button', { name: 'Next open round' }).click();
   await expect(shownRound(page)).toHaveText('Round 2 · ABC-2');
-  await page.getByRole('button', { name: 'Next open round' }).click();
+  await toolbar.getByRole('button', { name: 'Next open round' }).click();
   await expect(shownRound(page)).toHaveText('Round 4 · ABC-4');
 
-  await page.getByRole('button', { name: 'New round' }).click();
+  await toolbar.getByRole('button', { name: 'New round' }).click();
   await page.getByRole('textbox', { name: 'Ticket key (optional)' }).fill('XYZ-9');
   await page.keyboard.press('Enter');
   await expect(shownRound(page)).toHaveText('Round 5 · XYZ-9');
