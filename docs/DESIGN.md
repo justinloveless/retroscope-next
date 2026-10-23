@@ -48,7 +48,7 @@ Scores run from 1 to 5 on Correctness, Simplicity, Performance and Security. "Ba
 | Poker chat panel | Chat is dropped (locked). The right-hand panel becomes a **Round panel** with two tabs: "Issue" (the Jira details drawer, inline on wide screens) and "History" (every round's result, with "Revealed by X · 14:02" lines that replace the old system chat messages). | Keeps the layout balanced and gives "history" a home. |
 | Cards moving between columns | Not added. | It is not parity. |
 | Retro "Create JIRA ticket" on action items | Replaced by a real create through the Jira proxy for team boards with Jira configured; the hard-coded employer Jira URL is gone. Owned by U26 (route reuse: `POST issues`) and U36 (button on action-item cards). | Parity of intent without the hard-coded org. |
-| Timer music | Alarm kept. One default background track ships as a static asset **only if** its licence permits redistribution (checked in U37); music uploads are dropped. Track position is derived from `durationMs − remainingMs` so every client plays in sync; pause/resume preserve it. | Locked list says "shared timer", not music uploads. |
+| Timer music | Alarm kept. No track ships: none has a licence that permits redistribution (U37), so the default is music generated in the browser. A deployment may mount its own track and name it in `MUSIC_FILE`; the server streams it at `/media/timer-music` and the page plays it in place of the generated music (UX13). Music uploads are dropped. Track position is derived from `durationMs − remainingMs` so every client plays in sync; pause/resume preserve it. | Locked list says "shared timer", not music uploads. |
 | Endorsement admin "impersonation" | Dropped. | Locked: impersonation dropped. |
 | Jira "split" | Dropped (only caller was the dropped local advisor, F16). Clone stays. | Not parity. |
 | Jira story points | Decimal (`numeric(6,2)`, 0–1000, step 0.5 in the drawer); poker submit chips stay integers. | Drawer parity (F15). |
@@ -1144,6 +1144,7 @@ Notation: **P** public, **G** guest or user, **U** user, **V** user with a verif
 | GET | `/`, `/login`, `/auth/*`, `/dashboard`, `/account`, `/mentions`, `/teams`, `/teams/{id}`, `/teams/{id}/settings`, `/teams/{tid}/poker/{code}`, `/poker/{code}`, `/retro/{code}`, `/invite`, `/admin/*` | P | Shell HTML (~3 KB, `no-store`) with boot JSON (me, theme, build id) and route `modulepreload`s; room routes embed the viewer snapshot (§c.3) via `RoomResolver` |
 | GET | `/api/boot?path=` | P | Same boot JSON for in-app navigation; room paths go through `RoomResolver` |
 | GET | `/assets/*` | P | Hashed, precompressed, `public, max-age=31536000, immutable` |
+| GET | `/media/timer-music` | P | The deploy-time timer track from `MUSIC_FILE` (UX13): streamed from disk with range requests, strong ETag and `Last-Modified`, `public, max-age=86400`, `nosniff`; 404 when not configured or refused at startup; 120/min/IP. The `/retro/{code}` boot JSON carries `timerMusic: true` when it exists |
 | GET | `/blob/{id}` | avatar: P; board_image: board access | `nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, `Cross-Origin-Resource-Policy: same-origin`; avatars `public, immutable`, board images `private, max-age=31536000, immutable` |
 | GET | `/ws` | G | WebSocket; exact Origin; ≤ 20 sockets per IP |
 | POST | `/api/auth/signup` | P | `{email, password, fullName}`; password 10–72 bytes, not in the embedded top-10k list (signup and password change only, **never** login, S30); always 202; an existing email gets an "you already have an account" email; 5/h/IP + email budget. Verification mail says "If you didn't create this account, ignore this email" |
@@ -1386,7 +1387,7 @@ web/src/
   retro/ index.js model.js board.js column.js card.js comments.js composer.js stages.js readiness.js
          timer.js focus.js config.js share.js actions.js prev-actions.js kudos.js
 web/styles/ tokens.css base.css kit.css neotro.css retro.css team.css
-web/assets/ cards.png (9-frame sprite) m6x11plus.woff2 (Latin subset) icons.svg (Lucide subset, ISC) music.mp3 (only if licensed)
+web/assets/ cards.png (9-frame sprite) m6x11plus.woff2 (Latin subset) icons.svg (Lucide subset, ISC); no music track (UX13: MUSIC_FILE at deploy time)
 ```
 
 ### g.2 Routing
@@ -1419,7 +1420,7 @@ web/assets/ cards.png (9-frame sprite) m6x11plus.woff2 (Latin subset) icons.svg 
 
 ### g.5 Clock and timer
 
-`welcome.n` seeds the offset and a ping is sent immediately after `welcome` (R16). Each pong gives RTT and `offset = n − (c + rtt/2)`; the client uses the offset of the minimum-RTT sample among the last 8. A wake/clock step is detected when `Date.now()` and `performance.now()` drift apart by more than 1 s between checks; all samples are then discarded and a ping is sent. Timer display is `endsAt − (Date.now() + offset)`, rendered at 4 Hz while visible and 1 Hz while hidden. The alarm (three 880 Hz square beeps via WebAudio) plays when local time crosses `endsAt`, or on `retro.timer{expired}` if within 5 s, **at most once per `endsAt`** (R16). Music position = `durationMs − remainingMs`. Audio unlocks on the first pointer or key event. Volume and mute are per browser (`localStorage`).
+`welcome.n` seeds the offset and a ping is sent immediately after `welcome` (R16). Each pong gives RTT and `offset = n − (c + rtt/2)`; the client uses the offset of the minimum-RTT sample among the last 8. A wake/clock step is detected when `Date.now()` and `performance.now()` drift apart by more than 1 s between checks; all samples are then discarded and a ping is sent. Timer display is `endsAt − (Date.now() + offset)`, rendered at 4 Hz while visible and 1 Hz while hidden. The alarm (three 880 Hz square beeps via WebAudio) plays when local time crosses `endsAt`, or on `retro.timer{expired}` if within 5 s, **at most once per `endsAt`** (R16). Music position = `durationMs − remainingMs`; a deploy-time track plays from that position modulo its length (UX13). Audio unlocks on the first pointer or key event. Volume and mute are per browser (`localStorage`).
 
 ### g.6 Rich text: one editor for cards, comments, action items and Jira writes
 
@@ -1598,6 +1599,7 @@ services:
       TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS}     # the Coolify proxy network subnet only (RUNBOOK shows how to read it)
       CLIENT_IP_HEADER: ${CLIENT_IP_HEADER:-}         # "CF-Connecting-IP" only when Cloudflare fronts Traefik
       BLOB_BYTES_MAX: ${BLOB_BYTES_MAX:-2147483648}
+      MUSIC_FILE: ${MUSIC_FILE:-}                     # optional timer track inside the container (UX13)
       DOTNET_GCHeapHardLimit: "0x8000000"           # 128 MiB managed heap
       DOTNET_gcServer: "0"
       DOTNET_gcConcurrent: "0"
