@@ -135,24 +135,8 @@ public static partial class JiraEndpoints {
             new JiraEditLimitsView(view.Limits.Nodes, view.Limits.Depth, view.Limits.Text, view.Limits.Bytes));
     }
 
-    // An extension names itself by its fallback text or key; anything else by its type.
     private static JiraOpaqueView OpaqueView(AdfOpaquePart part, IReadOnlyList<AdfAttachment> attachments) {
         using var document = JsonDocument.Parse(part.Raw);
-        var original = document.RootElement;
-        var label = Attr(original, "text") ?? Attr(original, "extensionKey") ?? part.Kind;
-        return new JiraOpaqueView(part.Ref, part.Kind, part.Inline, label, AdfToDoc.Render(original, attachments));
-    }
-
-    private static string? Attr(JsonElement node, string name) {
-        if (node.ValueKind != JsonValueKind.Object
-            || !node.TryGetProperty("attrs", out var attrs) || attrs.ValueKind != JsonValueKind.Object
-            || !attrs.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.String) {
-            return null;
-        }
-        try {
-            return value.GetString() is { Length: > 0 and <= 200 } text ? text : null;
-        } catch (InvalidOperationException) {
-            return null;
-        }
+        return new JiraOpaqueView(part.Ref, part.Kind, part.Inline, part.Label, AdfToDoc.Render(document.RootElement, attachments));
     }
 }

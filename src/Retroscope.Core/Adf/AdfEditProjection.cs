@@ -8,7 +8,28 @@ namespace Retroscope.Core.Adf;
 public sealed record AdfEditMedia(string Id, string? AttachmentId, string? Name, bool Image, double? Width, double? Height);
 
 /// <summary>One distinct opaque node: its token ref, original type and original ADF, as Jira holds it.</summary>
-public sealed record AdfOpaquePart(string Ref, string Kind, bool Inline, string Raw);
+public sealed record AdfOpaquePart(string Ref, string Kind, bool Inline, string Raw) {
+    /// <summary>What the editor calls the part: an extension's fallback text or key, otherwise its type.</summary>
+    public string Label {
+        get {
+            using var document = JsonDocument.Parse(Raw);
+            return LabelAttr(document.RootElement, "text") ?? LabelAttr(document.RootElement, "extensionKey") ?? Kind;
+        }
+    }
+
+    private static string? LabelAttr(JsonElement node, string name) {
+        if (node.ValueKind != JsonValueKind.Object
+            || !node.TryGetProperty("attrs", out var attrs) || attrs.ValueKind != JsonValueKind.Object
+            || !attrs.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.String) {
+            return null;
+        }
+        try {
+            return value.GetString() is { Length: > 0 and <= 200 } text ? text : null;
+        } catch (InvalidOperationException) {
+            return null;
+        }
+    }
+}
 
 /// <summary>One distinct opaque mark (an rsMark token).</summary>
 public sealed record AdfOpaqueMark(string Ref, string Kind);
