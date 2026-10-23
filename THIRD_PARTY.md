@@ -81,3 +81,16 @@ commit `100cb90` "Integrate Neotro").
 `music.mp3` is not shipped. The original app's default track lived only in a Supabase storage bucket
 (`retro-audio`), and neither the bucket nor the repository records where the track came from or under what
 licence. Without a licence that permits redistribution, it stays out (§0.1).
+
+## ADF JSON schema (`tests/fixtures/adf-schema/57.7.2/full.json`), test fixture only
+
+This file is not shipped. `AdfSchemaTests` reads it to pin the editor's ADF allow-list (`Core/Adf/AdfSchema.cs`)
+as a subset of Atlassian's published schema.
+
+- **Source:** `@atlaskit/adf-schema` 57.7.2 (npm), file `dist/json-schema/v1/full.json`, unchanged. Tarball
+  `https://registry.npmjs.org/@atlaskit/adf-schema/-/adf-schema-57.7.2.tgz`, integrity
+  `sha512-BeHx3wcNL6KICDz7MFP2+FX7rBAdX3Xc9NfP6ArvKv/qDt/GLL4Ceamo6ELzv1rslwR/Qu8HRrLsfVAJZGo7HA==`, published
+  2026-10-07, checked against the registry on 2026-10-23.
+- **Licence:** Apache License 2.0, "Copyright 2019 Atlassian Pty Ltd". The package's `LICENSE` file is kept beside the
+  schema as `tests/fixtures/adf-schema/57.7.2/LICENSE`.
+- **Changes:** none. A newer version goes in its own folder, and `AdfSchemaTests` then lists what changed.
