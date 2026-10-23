@@ -180,6 +180,18 @@ test('a small drift that persists nudges the rate, and the rate returns to 1 onc
   assert.equal(t.audio.seeks.length, 1);
 });
 
+test('a lagging currentTime is read as the best of the last samples, so it does not cause a seek', async () => {
+  const t = await playing(10_000);
+  // Stepped reports: the element plays in time, but currentTime only moves every few ticks.
+  tick(t, 250, 11_000, 11);
+  tick(t, 250, 11_250, 11);
+  tick(t, 250, 11_500, 11);
+  tick(t, 250, 11_750, 11.75);
+  tick(t, 250, 12_000, 11.75);
+  assert.equal(t.audio.seeks.length, 1);
+  assert.equal(t.audio.playbackRate, 1);
+});
+
 test('a jump while playing seeks to the shared position, then waits before judging again', async () => {
   const t = await playing(10_000);
   tick(t, 4000, 70_000, 14);
@@ -190,6 +202,16 @@ test('a jump while playing seeks to the shared position, then waits before judgi
   tick(t, 250, 70_750, 70.1);
   assert.equal(t.audio.seeks.length, 2, 'settling after the seek');
   assert.equal(t.audio.playbackRate, 1);
+});
+
+test('a playing element seeks at most once every few seconds and is nudged in between', async () => {
+  const t = await playing(10_000);
+  tick(t, 2000, 12_000, 11.5);
+  tick(t, 250, 12_250, 11.75);
+  assert.equal(t.audio.seeks.length, 1, 'within the interval of the first seek');
+  assert.equal(t.audio.playbackRate, 1.03);
+  tick(t, 1000, 13_250, 12.75);
+  assert.equal(t.audio.seeks.length, 2);
 });
 
 test('a paused element is aligned at once when it resumes', async () => {
