@@ -54,6 +54,7 @@ export function createTrack({ url = TRACK_URL, sound, createAudio = () => new Au
   let audio = null;
   let gain = null;
   let failed = false;
+  let primed = false;
   let playing = false;
   let pending = false;
   let wanted = null;
@@ -161,9 +162,13 @@ export function createTrack({ url = TRACK_URL, sound, createAudio = () => new Au
       return failed;
     },
 
-    /** Inside the unlocking gesture: WebKit lets an element play later only if it was touched in one. */
+    /**
+     * Inside the unlocking gesture: WebKit lets an element play later only if it was touched in one. One touch
+     * is enough, and load() would abort a playing element, so it runs once and never after the element played.
+     */
     prime() {
-      if (!failed) {
+      if (!failed && !primed) {
+        primed = true;
         element().load();
       }
     },
@@ -186,6 +191,7 @@ export function createTrack({ url = TRACK_URL, sound, createAudio = () => new Au
         align(true);
         Promise.resolve(audio.play()).then(() => {
           pending = false;
+          primed = true;
           if (!playing) {
             audio.pause();
           }
