@@ -9,8 +9,8 @@
 //                  which parents allow them is contextMarks (rules.js), kept by the block-mark guard
 //   adfShape    which ADF attribute keys the node arrived with, so an untouched node is written back the same
 //
-// toDOM never writes a `style` attribute: style-src 'self' refuses it. Colours and widths are node and mark
-// views' business (later phases), through the CSSOM.
+// toDOM uses the read view's jira.css classes and never writes a `style` attribute: style-src 'self' refuses it.
+// Colours, widths and the editing chrome are the node and mark views' business (views.js), through the CSSOM.
 
 import { Schema } from 'prosemirror-model';
 import { allowList, compileRule, contextMarks, isRequired } from './rules.js';
@@ -71,9 +71,10 @@ function attrSpecs(owner, rules, extra) {
   return { ...attrs, ...extra, [STASH]: { default: null }, adfShape: { default: null } };
 }
 
+// The read view's classes (jira.css), so an aligned or indented block looks the same while it is edited.
 const blockClass = (node) => [
-  node.attrs.align ? `is-align-${node.attrs.align}` : null,
-  node.attrs.indent ? `is-indent-${node.attrs.indent}` : null,
+  node.attrs.align ? `align-${node.attrs.align}` : null,
+  node.attrs.indent ? `indent-${node.attrs.indent}` : null,
 ].filter(Boolean).join(' ') || null;
 
 const atomLabel = (cls, text) => ['span', { class: cls, contenteditable: 'false' }, text];
@@ -91,21 +92,21 @@ const VIEW = {
   blockquote: { defining: true, toDOM: () => ['blockquote', 0] },
   rule: { toDOM: () => ['hr'] },
   codeBlock: { code: true, defining: true, marks: '', toDOM: () => ['pre', ['code', 0]] },
-  panel: { defining: true, toDOM: (n) => ['div', { class: `jira-panel is-${n.attrs.panelType}` }, ['div', 0]] },
+  panel: { defining: true, toDOM: (n) => ['div', { class: `panel panel-${n.attrs.panelType}` }, ['div', { class: 'panel-body' }, 0]] },
   expand: { defining: true, isolating: true, toDOM: () => ['div', { class: 'jira-expand' }, 0] },
   nestedExpand: { defining: true, isolating: true, toDOM: () => ['div', { class: 'jira-expand' }, 0] },
   table: { tableRole: 'table', isolating: true, toDOM: () => ['table', ['tbody', 0]] },
   tableRow: { tableRole: 'row', toDOM: () => ['tr', 0] },
   tableHeader: { tableRole: 'header_cell', isolating: true, toDOM: (n) => ['th', spans(n), 0] },
   tableCell: { tableRole: 'cell', isolating: true, toDOM: (n) => ['td', spans(n), 0] },
-  layoutSection: { isolating: true, toDOM: () => ['div', { class: 'jira-layout' }, 0] },
-  layoutColumn: { isolating: true, toDOM: () => ['div', { class: 'jira-layout-col' }, 0] },
-  taskList: { toDOM: () => ['ul', { class: 'jira-tasks' }, 0] },
-  taskItem: { defining: true, toDOM: (n) => ['li', { class: 'jira-task', 'data-state': n.attrs.state }, 0] },
-  decisionList: { toDOM: () => ['ul', { class: 'jira-decisions' }, 0] },
-  decisionItem: { defining: true, toDOM: () => ['li', { class: 'jira-decision' }, 0] },
-  mediaSingle: { isolating: true, toDOM: () => ['figure', { class: 'jira-media' }, 0] },
-  mediaGroup: { toDOM: () => ['div', { class: 'jira-files' }, 0] },
+  layoutSection: { isolating: true, toDOM: () => ['div', { class: 'layout' }, 0] },
+  layoutColumn: { isolating: true, toDOM: () => ['div', { class: 'layout-col' }, 0] },
+  taskList: { toDOM: () => ['ul', { class: 'tasks' }, 0] },
+  taskItem: { defining: true, toDOM: (n) => ['li', { class: 'task', 'data-state': n.attrs.state }, 0] },
+  decisionList: { toDOM: () => ['ul', { class: 'decisions' }, 0] },
+  decisionItem: { defining: true, toDOM: () => ['li', { class: 'decision' }, 0] },
+  mediaSingle: { isolating: true, toDOM: () => ['figure', { class: 'media' }, 0] },
+  mediaGroup: { toDOM: () => ['div', { class: 'media-group' }, 0] },
   media: { atom: true, toDOM: (n) => atomLabel('rich-media', n.attrs.alt ?? '') },
   caption: { toDOM: () => ['figcaption', 0] },
   mention: { atom: true, toDOM: (n) => atomLabel('jira-user', n.attrs.text ?? '@') },
