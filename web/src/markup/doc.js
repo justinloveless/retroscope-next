@@ -19,9 +19,6 @@ export const MENTION_PREFIX = '[[mention:';
 export const IMAGE_PREFIX = '](blob:';
 export const ISLAND_PREFIX = '[[island:';
 
-export const PANEL_KINDS = new Set(['info', 'note', 'warning', 'success', 'error']);
-export const STATUS_COLORS = new Set(['neutral', 'purple', 'blue', 'red', 'yellow', 'green']);
-
 export function isWhitespace(c) {
   return c === ' ' || c === '\t' || c === '\n';
 }

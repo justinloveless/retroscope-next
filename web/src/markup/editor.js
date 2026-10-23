@@ -328,6 +328,7 @@ function linearText(items) {
  *   resolving to its blob id; a rejection removes the upload placeholder and calls onError
  * @param {(error: unknown, file: File) => void} [options.onError] an image upload failed; the caller shows a toast
  * @param {(node: object) => string | null} [options.imageSrc] passed to render()
+ * @param {(node: object, api: object) => Node | null | undefined} [options.extend] passed to render()
  * @param {string} [options.placeholder]
  * @param {string} [options.label] accessible name
  * @param {Document} [options.document]
@@ -379,6 +380,7 @@ export function createEditor(options = {}) {
     document: doc,
     islands: props.islands,
     imageSrc: props.imageSrc,
+    extend: props.extend,
     resolveMention: (mentionId) => members().find((m) => m.id === mentionId)?.name,
   });
 

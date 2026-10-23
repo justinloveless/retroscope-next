@@ -7,6 +7,7 @@
 import { h, replaceContent } from '../core/h.js';
 import { http } from '../core/http.js';
 import { createEditor } from '../markup/editor.js';
+import { jiraRenderer } from '../markup/jira.js';
 import { DIALECT_JIRA, DIALECT_JIRA_DESCRIPTION, toMarkup } from '../markup/doc.js';
 import { checkMarkup } from '../markup/parse.js';
 import { render } from '../markup/render.js';
@@ -75,6 +76,8 @@ function createIssueView(ctx, host) {
 
   const issuePath = (path = '') => `${base}/issues/${encodeURIComponent(key)}${path}`;
   const imageSrc = (node) => (node.t === 'attachment' ? `${base}/issues/${encodeURIComponent(key)}/attachments/${encodeURIComponent(node.id)}` : null);
+  // A file the proxy does not serve opens the issue in Jira, where its attachments are.
+  const extend = jiraRenderer({ icon, fileHref: () => (jira.siteHost ? `https://${jira.siteHost}/browse/${encodeURIComponent(key)}` : null) });
 
   function fetchIssue(k, force = false) {
     const id = `${teamId}:${k}`;
@@ -470,7 +473,7 @@ function createIssueView(ctx, host) {
         variant: 'ghost',
         size: 'sm',
         onClick() {
-          editor = createEditor({ value: markup, dialect: DIALECT_JIRA_DESCRIPTION, islands, imageSrc, label: 'Description', placeholder: 'Describe the issue' });
+          editor = createEditor({ value: markup, dialect: DIALECT_JIRA_DESCRIPTION, islands, imageSrc, extend, label: 'Description', placeholder: 'Describe the issue' });
           editor.el.classList.add('jira-description-editor');
           editor.input.style.setProperty('min-height', '8rem');
           editor.input.style.setProperty('padding', '0.5rem');
@@ -482,7 +485,7 @@ function createIssueView(ctx, host) {
       }).el);
     }
     const body = h('div', { class: 'jira-prose', style: PROSE });
-    body.append(render(description, { islands, imageSrc }));
+    body.append(render(description, { islands, imageSrc, extend }));
     if (!body.hasChildNodes()) {
       body.append(h('p', { style: MUTED, text: 'No description.' }));
     }
@@ -591,7 +594,7 @@ function createIssueView(ctx, host) {
     const list = h('ul', { class: 'jira-comments', style: { 'list-style': 'none', margin: '0', padding: '0', display: 'grid', gap: '0.75rem' } },
       comments.map((c) => h('li', { class: 'jira-comment', dataset: { id: c.id } },
         h('p', { style: MUTED }, h('strong', { text: c.author ?? 'Someone' }), ` · ${when(c.created)}`),
-        h('div', { class: 'jira-prose', style: PROSE }, render(c.body, { imageSrc })))));
+        h('div', { class: 'jira-prose', style: PROSE }, render(c.body, { imageSrc, extend })))));
     const section = h('section', { class: 'jira-comments-section', 'aria-label': 'Comments', style: SECTION }, heading(`Comments (${commentTotal})`));
     if (canEdit) {
       composer ??= createEditor({ dialect: DIALECT_JIRA, label: 'Add a comment', placeholder: 'Add a comment…', onSubmit: postComment });
