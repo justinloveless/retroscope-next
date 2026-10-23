@@ -75,3 +75,13 @@ test('the lockfile holds no package outside the lists, and runtime packages at t
   }
   assert.deepEqual(runtime, RUNTIME);
 });
+
+test('THIRD_PARTY.md credits every runtime package at its pinned version, with the MIT text', () => {
+  const notice = readFileSync(`${repo}THIRD_PARTY.md`, 'utf8');
+  for (const [name, version] of Object.entries(RUNTIME)) {
+    // Names are letters and hyphens, versions digits and dots; a line may wrap between the two.
+    assert.match(notice, new RegExp(`\\b${name}\\s+${version.replaceAll('.', '\\.')}\\b`), `${name} ${version}`);
+  }
+  assert.match(notice, /Permission is hereby granted, free of charge, to any person obtaining a copy/);
+  assert.match(notice, /THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND/);
+});

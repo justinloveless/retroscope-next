@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import * as esbuild from 'esbuild';
-import { bannedSinksPlugin, budgetName, buildWeb, checkBudgets, findBannedSinks, measureChunks, rewriteVendor } from '../../../web/build.mjs';
+import { bannedSinksPlugin, budgetName, buildWeb, checkBudgets, findBannedSinks, measureChunks, rewriteVendor, scanBuiltScripts } from '../../../web/build.mjs';
 
 const web = fileURLToPath(new URL('../../../web', import.meta.url));
 const repo = fileURLToPath(new URL('../../..', import.meta.url));
@@ -336,4 +336,16 @@ test('the rich editor is a lazy chunk with its own budgets, inside them', async 
   assert.ok(!built.manifest.entry.some((file) => file.includes('rich-editor')), 'not in the entry');
   const drawer = built.sizes.find((s) => s.name === 'jira-drawer');
   assert.ok(drawer.bytes < 22528, 'the drawer does not absorb the editor');
+});
+
+test('a sink in a built script fails the output scan, which buildWeb runs on every emitted script', async () => {
+  const dir = join(work, 'planted-output');
+  await mkdir(join(dir, 'chunks'), { recursive: true });
+  await writeFile(join(dir, 'chunks', 'ok.js'), 'export const a = 1;\n');
+  await writeFile(join(dir, 'chunks', 'bad.js'), 'export function f(x, y) {\n  x.innerHTML = y;\n}\n');
+  await writeFile(join(dir, 'chunks', 'style.css'), '.innerHTML {}\n');
+  await scanBuiltScripts(dir, ['chunks/ok.js', 'chunks/style.css']);
+  await assert.rejects(scanBuiltScripts(dir, ['chunks/ok.js', 'chunks/bad.js']), /banned DOM sink "innerHTML" in the built chunks\/bad\.js/);
+  const source = await readFile(join(web, 'build.mjs'), 'utf8');
+  assert.match(source, /await scanBuiltScripts\(root, Object\.keys\(outputs\)\);/);
 });
