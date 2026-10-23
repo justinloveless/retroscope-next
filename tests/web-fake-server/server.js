@@ -5,7 +5,8 @@
 // against web/src/net/protocol.gen.js, and every client frame is checked the same way.
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { readFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -41,6 +42,17 @@ const CONTENT_TYPES = {
 // Root files (favicon, web manifest, robots.txt) are the manifest's `public` map, cached for a day and
 // revalidated by ETag, as the real server's StaticAssets serves them.
 const ROOT_CACHE = 'public, max-age=86400';
+
+// The timer track (UX13): the real server's TimerMusic allow-list, plus WAV, which a spec can write in a
+// few lines and every browser decodes.
+export const TIMER_MUSIC_PATH = '/media/timer-music';
+const MUSIC_TYPES = {
+  '.mp3': 'audio/mpeg',
+  '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg',
+  '.m4a': 'audio/mp4',
+  '.wav': 'audio/wav',
+};
 
 export function newEpoch() {
   return randomBytes(8).toString('hex');
@@ -132,8 +144,9 @@ export class FakeConnection {
 export class FakeServer extends EventEmitter {
   // `aliases` are other host names (e.g. 'localhost') a browser may use for this server's port; each is its
   // own origin, so a demo can keep two cookie jars apart. `shellHeaders(req)` adds headers to shell pages.
-  constructor({ dist = DEFAULT_DIST, boot, me = DEFAULT_ME, helloTimeoutMs = 5000, clockOffsetMs = 0, aliases = [], shellHeaders = null } = {}) {
+  constructor({ dist = DEFAULT_DIST, boot, me = DEFAULT_ME, helloTimeoutMs = 5000, clockOffsetMs = 0, aliases = [], shellHeaders = null, musicFile = null } = {}) {
     super();
+    this.musicFile = musicFile;
     this.distDir = dist;
     this.aliases = aliases;
     this.shellHeaders = shellHeaders;
@@ -202,7 +215,12 @@ export class FakeServer extends EventEmitter {
   }
 
   bootFor(path, req) {
-    return resolve(this.boot, path, req);
+    const boot = resolve(this.boot, path, req);
+    // As the real server's TimerMusicBootContributor: only retro boards hear about the track.
+    if (this.musicFile && boot && typeof boot === 'object' && /^\/retro\/[^/?#]+/.test(path)) {
+      return { ...boot, timerMusic: true };
+    }
+    return boot;
   }
 
   async onRequest(req, res) {
@@ -236,6 +254,10 @@ export class FakeServer extends EventEmitter {
       return;
     }
 
+    if (req.method === 'GET' && url.pathname === TIMER_MUSIC_PATH) {
+      await this.serveMusic(req, res);
+      return;
+    }
     if (req.method === 'GET' && url.pathname === '/api/boot') {
       await writeResponse(res, { body: this.bootFor(url.searchParams.get('path') ?? '/', req) });
       return;
@@ -288,6 +310,54 @@ export class FakeServer extends EventEmitter {
     const bytes = await readFile(join(this.dist.dir, publicPath));
     res.writeHead(200, { ...headers, 'Content-Type': CONTENT_TYPES[extname(publicPath)] ?? 'application/octet-stream', 'Content-Length': bytes.length });
     res.end(req.method === 'HEAD' ? null : bytes);
+  }
+
+  // The real server streams the track with ASP.NET Core's range processing; this covers what browsers use:
+  // a single `bytes=a-b`, `bytes=a-` or `bytes=-n` range, If-Range, If-None-Match and 416.
+  async serveMusic(req, res) {
+    const type = this.musicFile ? MUSIC_TYPES[extname(this.musicFile).toLowerCase()] : undefined;
+    const info = type ? await stat(this.musicFile).catch(() => null) : null;
+    if (!info?.isFile()) {
+      await writeResponse(res, problem(404, 'not_found'));
+      return;
+    }
+    const size = info.size;
+    const etag = `"${size.toString(16)}-${Math.floor(info.mtimeMs).toString(16)}"`;
+    const headers = {
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'public, max-age=86400',
+      'Content-Type': type,
+      ETag: etag,
+      'Last-Modified': info.mtime.toUTCString(),
+      'X-Content-Type-Options': 'nosniff',
+    };
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, headers);
+      res.end();
+      return;
+    }
+    const ifRange = req.headers['if-range'];
+    const range = ifRange === undefined || ifRange === etag ? /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '') : null;
+    let start = 0;
+    let end = size - 1;
+    let status = 200;
+    if (range && (range[1] !== '' || range[2] !== '')) {
+      if (range[1] === '') {
+        start = Math.max(0, size - Number(range[2]));
+      } else {
+        start = Number(range[1]);
+        end = range[2] === '' ? size - 1 : Math.min(Number(range[2]), size - 1);
+      }
+      if (start >= size || start > end) {
+        res.writeHead(416, { ...headers, 'Content-Range': `bytes */${size}` });
+        res.end();
+        return;
+      }
+      status = 206;
+      headers['Content-Range'] = `bytes ${start}-${end}/${size}`;
+    }
+    res.writeHead(status, { ...headers, 'Content-Length': end - start + 1 });
+    createReadStream(this.musicFile, { start, end }).pipe(res);
   }
 
   // ---- WebSocket: rooms and scripting ------------------------------------------------------------
