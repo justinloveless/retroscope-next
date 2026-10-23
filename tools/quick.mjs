@@ -75,6 +75,7 @@ const RULES = [
   [/^src\/Retroscope\.Server\/Endpoints\/(Poker|Retro|Dashboard|Mentions|Templates|Endorsements)Endpoints/, { integration: ['RoomHttp'] }],
   [/^src\/Retroscope\.Server\/Endpoints\/(Teams|Invites)Endpoints/, { integration: ['TeamHttp'] }],
   [/^src\/Retroscope\.Server\/Endpoints\/JiraEndpoints/, { integration: ['JiraHttp'] }],
+  [/^src\/Retroscope\.Server\/Json\/JiraHttpJsonContext\.cs$/, { integration: ['JiraHttp'] }],
   [/^src\/Retroscope\.Server\/(Endpoints\/AdminEndpoints|Jobs\/(Retention|TeamPurge|TokenSweep)Job)/, { integration: ['Admin'] }],
   [/^src\/Retroscope\.Server\/Endpoints\/BlobEndpoints/, { integration: ['Blobs'] }],
   [/^src\/Retroscope\.Server\/Jira\/PokerJiraPort/, { integration: ['PokerRoom'] }],
@@ -96,6 +97,7 @@ const RULES = [
 
   [/^tests\/Retroscope\.Sim\//, { sim: SIM }],
   [/^tests\/Retroscope\.Core\.Tests\/(Poker\/ViewerModel|Retro\/RetroViewerModel)\.cs$/, { core: ['Poker', 'Retro'], sim: SIM }],
+  [/^tests\/Retroscope\.Integration\.Tests\/JiraHttp\/(JiraHttpHost|JiraSocket)\.cs$/, { integration: ['JiraHttp'] }],
   [/^tests\/Retroscope\.(Core|Integration|Importer)\.Tests\//, { fallback: true, testProject: true }],
   [/^tests\/Fakes\//, { integration: ['JiraClient', 'JiraHttp', 'Oidc', 'Email'] }],
   [/^tests\/fixtures\/markup\//, { core: ['Markup', 'Adf'], node: ['tests/web-unit/markup.test.js'] }],
@@ -108,6 +110,7 @@ const RULES = [
   [/^tests\/web-unit\/core\/_dom\.js$/, { node: WEB_CORE_DOM.concat('tests/web-unit/editor.test.js') }],
   [/^tests\/web-unit\/net\/_fakes\.js$/, { node: WEB_NET }],
   [/^tests\/web-fake-server\//, { node: FAKE_SERVER }],
+  [/^tests\/web-fake-server\/(fixtures|demo)\/jira\.json$/, { core: ['Adf'] }],
   [/^tests\/e2e\//, { note: 'Run the changed spec alone: ./build.sh fake-e2e "<area>/<file>.spec.js".' }],
 
   [/^web\//, { web: true }],
