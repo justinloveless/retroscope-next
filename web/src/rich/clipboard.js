@@ -99,7 +99,7 @@ export function clipboardHandlers(session) {
         return true;
       }
       const inCode = view.state.selection.$from.parent.type.spec.code === true;
-      const slice = (!inCode && parseClipboard(data.getData(CLIPBOARD_TYPE), session))
+      const slice = (inCode ? null : parseClipboard(data.getData(CLIPBOARD_TYPE), session))
         ?? plainTextSlice(data.getData('text/plain'), inCode);
       if (slice) {
         view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView().setMeta('uiEvent', 'paste'));
