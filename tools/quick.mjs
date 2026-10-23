@@ -114,7 +114,8 @@ const RULES = [
   [/^tests\/web-unit\/net\/_fakes\.js$/, { node: WEB_NET }],
   [/^tests\/web-unit\/rich\/_project\.js$/, { node: RICH }],
   [/^tests\/web-fake-server\//, { node: FAKE_SERVER }],
-  [/^tests\/web-fake-server\/(fixtures|demo)\/jira\.json$/, { core: ['Adf'] }],
+  // WebFakeAdfTests renders the fixtures' ADF and regenerates edit-views.gen.json from their projection.
+  [/^tests\/web-fake-server\/((fixtures|demo)\/jira|edit-views\.gen)\.json$/, { core: ['Adf'] }],
   [/^tests\/e2e\//, { note: 'Run the changed spec alone: ./build.sh fake-e2e "<area>/<file>.spec.js".' }],
 
   [/^web\//, { web: true }],
@@ -126,8 +127,10 @@ const RULES = [
   [/^web\/src\/markup\/(doc|parse)\.js$/, { node: ['tests/web-fake-server/self.test.js'] }],
   [/^web\/src\/markup\/doc\.js$/, { node: RICH }],
   [/^web\/src\/rich\//, { node: [...RICH, 'tests/web-unit/core/build.test.js'] }],
-  // AdfSchemaWebMirrorTests holds the editor's allow-list to Core/Adf/AdfSchema.cs.
-  [/^web\/src\/rich\/adf-schema\.json$/, { core: ['Adf'] }],
+  // AdfSchemaWebMirrorTests and AdfColorWebMirrorTests hold the editor's allow-list and palette to Core/Adf.
+  [/^web\/src\/rich\/(adf-schema|palette)\.json$/, { core: ['Adf'] }],
+  // The fake's read view maps colours through the editor's palette.
+  [/^web\/src\/rich\/palette\.json$/, { node: FAKE_SERVER }],
   [/^web\/src\/net\/outbox\.js$/, { node: WEB_NET }],
   [/^web\/src\/net\/socket\.js$/, { node: ['tests/web-unit/net/fake-server.test.js'] }],
   [/^web\/src\/net\/protocol\.gen\.js$/, {
