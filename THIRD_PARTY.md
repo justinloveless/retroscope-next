@@ -81,3 +81,7 @@ commit `100cb90` "Integrate Neotro").
 `music.mp3` is not shipped. The original app's default track lived only in a Supabase storage bucket
 (`retro-audio`), and neither the bucket nor the repository records where the track came from or under what
 licence. Without a licence that permits redistribution, it stays out (§0.1).
+
+A deployment may play its own track instead: the server serves the file named by `MUSIC_FILE`, mounted
+into the container at deploy time (`docs/decisions/UX13.md`). That file is never part of this repository
+or its images, and its licence is the deployer's responsibility.

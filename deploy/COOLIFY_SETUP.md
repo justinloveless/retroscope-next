@@ -299,6 +299,7 @@ Required means the compose file marks it `${VAR:?}`. Defaults come from the comp
 | `ENTRA_TENANT_DOMAINS` | no (empty) | `<tid>=example.com\|example.org` | Email domains trusted per tenant when the token lacks `xms_edov`. |
 | `JIRA_HOST_ALLOWLIST` | no (empty) | `jira.example.com` | Extra exact Jira host names beyond `*.atlassian.net`. |
 | `BLOB_BYTES_MAX` | no (`2147483648`) | `2147483648` | Ceiling on all board images together, in bytes. |
+| `MUSIC_FILE` | no (empty) | `/music/track.mp3` | Optional retro timer track, as a path inside the container. Empty plays the generated music (section 5.12). |
 
 Fixed values in the compose file that you do not set: `ASPNETCORE_URLS`, `DATABASE_URL`, `DATABASE_OWNER_URL`, `DOTNET_GCHeapHardLimit`, `DOTNET_gcServer`, `DOTNET_gcConcurrent`, and `DOTNET_GCConserveMemory`. Leave them alone.
 
@@ -414,6 +415,30 @@ Leave `CLIENT_IP_HEADER` empty unless Cloudflare proxies your domain (orange clo
 
 - `JIRA_HOST_ALLOWLIST`: leave it empty if your teams use Jira Cloud (`*.atlassian.net`). For self-hosted Jira, list the exact host names, comma-separated. A malformed entry stops the app.
 - `BLOB_BYTES_MAX`: leave the default (2 GiB) unless disk space is short. It must be a positive whole number of bytes.
+
+### 5.12 `MUSIC_FILE`: a timer track (optional)
+
+By default the retro timer's background music is a short arpeggio generated in the browser. To play a recorded track instead, put an audio file on the VPS and point `MUSIC_FILE` at it. The file never goes into the repository or the image.
+
+**The licence is yours.** Retroscope ships no track. Use only a file you have the right to play to your users, and keep a record of that right. Do not commit the file, its path on your machine, or its name to this repository.
+
+1. Choose a file in one of these formats: `.mp3` (`audio/mpeg`), `.ogg` or `.oga` (`audio/ogg`), or `.m4a` (`audio/mp4`). It can be up to 32 MiB. A 128 kbps MP3 of four to five minutes is about 4 to 5 MB.
+2. Copy it to a folder of its own on the VPS, and make it readable by the app container, which runs as UID 1654:
+
+   ```sh
+   ssh <vps> 'sudo mkdir -p /data/retroscope-music'
+   scp track.mp3 <vps>:/tmp/track.mp3
+   ssh <vps> 'sudo mv /tmp/track.mp3 /data/retroscope-music/track.mp3 && sudo chmod 755 /data/retroscope-music && sudo chmod 644 /data/retroscope-music/track.mp3'
+   ```
+
+3. In `deploy/docker-compose.yml`, uncomment the `volumes` block of the `app` service. It mounts `MUSIC_DIR` read-only at `/music`. Commit that change; the compose file holds only the variable, never your path.
+4. In Coolify, set `MUSIC_DIR=/data/retroscope-music` and `MUSIC_FILE=/music/track.mp3`, then redeploy.
+5. Check the app log for `Timer music is served from MUSIC_FILE as audio/mpeg`. If you see `Timer music is off: <reason>` instead, fix the reason and restart. The app keeps running either way, with the generated music.
+6. Check the route: `curl -sI -H 'Range: bytes=0-1' https://<your domain>/media/timer-music` answers `206` with the content type above.
+
+To replace the track with one of the same format, overwrite the file under the same name. The app serves the new file from the next request, and browsers that cached the old one revalidate it within a day. A different format or name needs `MUSIC_FILE` changed and a restart, because the file is checked at startup. To turn the track off, empty `MUSIC_FILE` and restart.
+
+If the log says the file does not exist, check that `MUSIC_DIR` is the folder on the VPS and that the name in `MUSIC_FILE` matches. If `MUSIC_DIR` did not exist when the container started, Docker created it empty; copy the file into it and restart.
 
 ## 6. Set up Google sign-in (optional)
 
