@@ -5,7 +5,7 @@
     "poker": 40960,
     "jira-browse": 14336,
     "jira-drawer": 22528,
-    "rich-editor": 92160,
+    "rich-editor": 89600,
     "editor": 8192,
     "retro": 32768,
     "team": 10240,
@@ -18,6 +18,6 @@
     "admin": 10240,
     "teams": 10240,
     "css": 10240,
-    "css:rich-editor": 2560
+    "css:rich-editor": 2048
   }
 }
