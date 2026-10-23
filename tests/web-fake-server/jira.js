@@ -13,9 +13,9 @@ import { json, problem } from './http.js';
 const here = dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_JIRA_FIXTURE = join(here, 'fixtures/jira.json');
 
-// 1×1 transparent PNG served for every attachment.
+// 1×1 slate-grey PNG served for every attachment: opaque, so an embedded image shows where it sits.
 const PIXEL = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mM4ffUhAATwAoLs9l8mAAAAAElFTkSuQmCC',
   'base64',
 );
 
