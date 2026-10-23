@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { baseKeymap } from 'prosemirror-commands';
 import { history, redo, undo } from 'prosemirror-history';
 import { EditorState, TextSelection } from 'prosemirror-state';
 import { adfToPm, canonicalAdf, pmToAdf } from '../../../web/src/rich/adf.js';
@@ -214,6 +215,14 @@ test('links: typed addresses are normalised, refused schemes stay out, and edits
 
   state = exec(caret(state, 'the gu'), removeLink);
   assert.deepEqual(content(state), [p('read the guide today')]);
+});
+
+test('Backspace at the start of a panel leaves it and the panel before it apart', () => {
+  const panel = (panelType, text) => ({ type: 'panel', attrs: { panelType }, content: [p(text)] });
+  const loaded = doc(panel('info', 'first'), panel('note', 'second'));
+  const state = caret(open(loaded), 'second', false);
+  baseKeymap.Backspace(state, () => assert.fail('nothing is joined'));
+  assert.deepEqual(content(state), loaded.content);
 });
 
 test('undo and redo walk back to the loaded document and forward again', () => {
