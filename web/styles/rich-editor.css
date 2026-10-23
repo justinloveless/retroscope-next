@@ -139,6 +139,15 @@ img.ProseMirror-separator {
   background: hsl(var(--background));
 }
 
+/* The centre view pads and fades the top of its scroller (neotro.css .nt-issue), so text would show above a toolbar
+   stuck below that padding. While the editor is open the toolbar sticks flush to the top, and only the bottom fades. */
+.nt-issue:has(.rich-toolbar) {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--nt-dock-h) - 1rem), transparent calc(100% - var(--nt-dock-h) * 0.4));
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--nt-dock-h) - 1rem), transparent calc(100% - var(--nt-dock-h) * 0.4));
+}
+
+.nt-issue .rich-toolbar { top: -0.75rem; }
+
 .rich-toolbar .rich-tool {
   flex: none;
   width: 1.875rem;
@@ -368,9 +377,10 @@ img.ProseMirror-separator {
 .rich-banner.is-restored { background: var(--jp-info-bg); color: var(--jp-info-text); }
 .rich-banner code { font-family: var(--font-mono); font-size: 0.75rem; }
 
-/* Touch targets on phones. */
+/* Touch targets on phones, narrow enough that the toolbar keeps to two rows on a 390 px phone. */
 @media (max-width: 40rem) {
-  .rich-toolbar .rich-tool { width: 2.125rem; height: 2.25rem; }
+  .rich-toolbar { column-gap: 0.25rem; }
+  .rich-toolbar .rich-tool { width: 2rem; height: 2.25rem; }
   .rich-toolbar .rich-block-type { width: 7.5rem; }
   .rich-content .rich-editor { max-height: none; }
 }
