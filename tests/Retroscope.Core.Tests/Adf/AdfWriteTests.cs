@@ -293,6 +293,90 @@ public sealed partial class AdfWriteTests {
         Assert.Equal(AdfWriteCodes.NotDoc, Write(view, Empty).Errors[0].Code);
     }
 
+    [Fact]
+    public void Tokens_and_stashes_cannot_amplify_a_save_past_the_caps() {
+        var huge = new string('a', 50_000);
+        var marked = Project(Doc($$$"""{"type":"paragraph","content":[{"type":"text","text":"x","marks":[{"type":"annotation","attrs":{"annotationType":"inlineComment","id":"{{{huge}}}"}}]}]}"""));
+        var mark = JsonNode.Parse(marked.Adf)!["content"]![0]!["content"]![0]!["marks"]![0]!.ToJsonString();
+        var texts = string.Join(',', Enumerable.Repeat($$$"""{"type":"text","text":"x","marks":[{{{mark}}}]}""", 4_000));
+        var marks = Doc($$$"""{"type":"paragraph","content":[{{{texts}}}]}""");
+
+        var stashed = Project(Doc($$$"""{"type":"paragraph","attrs":{"futureAttr":"{{{huge}}}"}}"""));
+        var keep = (string)JsonNode.Parse(stashed.Adf)!["content"]![0]!["attrs"]!["rsKeep"]!;
+        var stashes = Doc(string.Join(',', Enumerable.Repeat($$$"""{"type":"paragraph","attrs":{"rsKeep":"{{{keep}}}"}}""", 4_000)));
+
+        foreach (var (view, save) in (ReadOnlySpan<(AdfEditView, string)>)[(marked, marks), (stashed, stashes)]) {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            var (ok, _, errors, _) = Write(view, save);
+            var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+            Assert.False(ok);
+            Assert.Equal(AdfWriteCodes.TooLarge, errors[^1].Code);
+            Assert.True(allocated < 64L * 1024 * 1024, $"allocated {allocated} bytes");
+        }
+    }
+
+    [Fact]
+    public void An_original_may_not_be_moved_so_deep_that_the_description_could_not_be_read_back() {
+        var deep = "1";
+        for (var i = 0; i < 12; i++) {
+            deep = $$$"""{"a":{{{deep}}}}""";
+        }
+        var view = Project(Doc($$$"""{"type":"paragraph","attrs":{"futureAttr":{{{deep}}}}}"""));
+        var keep = (string)JsonNode.Parse(view.Adf)!["content"]![0]!["attrs"]!["rsKeep"]!;
+        var nested = $$$"""{"type":"paragraph","attrs":{"rsKeep":"{{{keep}}}"}}""";
+        for (var i = 0; i < 13; i++) {
+            nested = $$$"""{"type":"bulletList","content":[{"type":"listItem","content":[{"type":"paragraph"},{{{nested}}}]}]}""";
+        }
+
+        Assert.True(Write(view, view.Adf).Ok);
+        Assert.Equal([AdfWriteCodes.TooDeep], Write(view, Doc(nested)).Errors.Select(error => error.Code));
+    }
+
+    [Fact]
+    public void A_mark_token_counts_as_a_mark_of_its_kind_unless_Jira_paired_it() {
+        var view = Project(Doc("""{"type":"paragraph","content":[{"type":"text","text":"x","marks":[{"type":"link","attrs":{"href":"https://ok.example/","occurrenceKey":"k"}}]}]}"""));
+        var token = JsonNode.Parse(view.Adf)!["content"]![0]!["content"]![0]!["marks"]![0]!.ToJsonString();
+        string Text(string marks) => Doc($$$"""{"type":"paragraph","content":[{"type":"text","text":"x","marks":[{{{marks}}}]}]}""");
+
+        Assert.True(Write(view, view.Adf).Ok);
+        Assert.Equal(AdfWriteCodes.InvalidMark, Write(view, Text($$$"""{{{token}}},{{{token}}}""")).Errors[0].Code);
+        Assert.Equal(AdfWriteCodes.InvalidMark, Write(view, Text($$$"""{{{token}}},{"type":"link","attrs":{"href":"https://x.example/"}}""")).Errors[0].Code);
+        Assert.Equal(AdfWriteCodes.InvalidMark, Write(view, Text($$$"""{"type":"link","attrs":{"href":"https://x.example/"}},{{{token}}}""")).Errors[0].Code);
+
+        var paired = Project(Doc("""{"type":"paragraph","content":[{"type":"text","text":"x","marks":[{"type":"textColor","attrs":{"color":"#ff5630"}},{"type":"textColor","attrs":{"color":"#ff5630"}}]}]}"""));
+        Assert.True(Write(paired, paired.Adf).Ok);
+    }
+
+    [Fact]
+    public void A_ragged_table_Jira_wrote_excuses_only_one_table() {
+        const string Ragged = """{"type":"table","attrs":{"localId":"jira"},"content":[{"type":"tableRow","content":[{"type":"tableCell","content":[{"type":"paragraph"}]},{"type":"tableCell","content":[{"type":"paragraph"}]}]},{"type":"tableRow","content":[{"type":"tableCell","content":[{"type":"paragraph"}]}]}]}""";
+        var view = Project(Doc(Ragged));
+
+        Assert.Equal(new AdfWriteError(AdfWriteCodes.TableShape, "content.1.content"), Write(view, Doc(Ragged, Ragged)).Errors[0]);
+    }
+
+    [Fact]
+    public void The_mention_and_upload_hooks_never_write_a_member_twice() {
+        var mention = Project(Doc($$$"""{"type":"paragraph","content":[{"type":"mention","attrs":{"id":"5b10ac8d82e05b22cc7d4ef5","text":"@{{{new string('n', 151)}}}"}}]}"""));
+        var mentionKeep = (string)JsonNode.Parse(mention.Adf)!["content"]![0]!["content"]![0]!["attrs"]!["rsKeep"]!;
+        var known = new AdfWriteContext(mention) { KnownAccount = id => id == "5b10ac8d82e05b22cc7d4ef6" ? "Bob" : null };
+        var save = Doc($$$"""{"type":"paragraph","content":[{"type":"mention","attrs":{"id":"5b10ac8d82e05b22cc7d4ef6","rsKeep":"{{{mentionKeep}}}"}}]}""");
+        Assert.True(AdfWrite.TryWrite(Encoding.UTF8.GetBytes(save), known, out var written, out var errors, out _), Describe(errors));
+        AssertUniqueMembers(written!);
+
+        var media = Project(Doc($$$"""{"type":"mediaSingle","attrs":{"layout":"center"},"content":[{"type":"media","attrs":{"type":"file","id":"m-1","collection":"{{{new string('c', 300)}}}"}}]}"""));
+        var mediaKeep = (string)JsonNode.Parse(media.Adf)!["content"]![0]!["content"]![0]!["attrs"]!["rsKeep"]!;
+        var upload = new AdfWriteContext(media) { Upload = id => id == "new-1" ? new AdfUpload("paste.png", 640, 480) : null };
+        save = Doc($$$"""{"type":"mediaSingle","attrs":{"layout":"center"},"content":[{"type":"media","attrs":{"type":"file","id":"new-1","rsKeep":"{{{mediaKeep}}}"}}]}""");
+        Assert.True(AdfWrite.TryWrite(Encoding.UTF8.GetBytes(save), upload, out written, out errors, out _), Describe(errors));
+        AssertUniqueMembers(written!);
+    }
+
+    private static void AssertUniqueMembers(byte[] adf) {
+        using var document = JsonDocument.Parse(adf, new JsonDocumentOptions { AllowDuplicateProperties = false });
+    }
+
     private static string Cell(string content) =>
         $$"""{"type":"table","content":[{"type":"tableRow","content":[{"type":"tableCell","content":[{{content}}]}]}]}""";
 
