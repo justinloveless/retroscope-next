@@ -137,29 +137,23 @@
       "sprintId": 141,
       "assignee": "demo-acc-2",
       "labels": ["payments", "reliability"],
-      "description": "When the payment provider answers **503** or times out, retry the charge instead of showing an error.\n\n[[island:d3e0b1a7c0de]]\n\nAcceptance criteria:\n\n- at most 3 retries, with jitter\n- the same idempotency key on every retry\n- a declined card is **never** retried",
+      "description": "When the payment provider answers **503** or times out, retry the charge instead of showing an error.\n\n[[island:demoStatusLine]]\n\n[[island:demoColours]]\n\n[[island:d3e0b1a7c0de]]\n\n[[island:demoPanelInfo]]\n\n[[island:demoPanelNote]]\n\n[[island:demoPanelTip]]\n\n[[island:demoPanelOk]]\n\n[[island:demoPanelWarn]]\n\n[[island:demoPanelError]]\n\n[[island:demoPanelCustom]]\n\n[[island:demoLayout]]\n\n[[island:demoExpand]]\n\n[[island:demoChart]]\n\n[[island:demoTasks]]\n\n[[island:demoDecisions]]\n\nAcceptance criteria:\n\n- at most 3 retries, with jitter\n- the same idempotency key on every retry\n- a declined card is **never** retried",
       "islands": {
-        "d3e0b1a7c0de": {
-          "t": "table",
-          "c": [
-            { "t": "tr", "c": [
-              { "t": "th", "c": [{ "t": "p", "c": [{ "t": "text", "v": "Attempt" }] }] },
-              { "t": "th", "c": [{ "t": "p", "c": [{ "t": "text", "v": "Wait" }] }] }
-            ] },
-            { "t": "tr", "c": [
-              { "t": "td", "c": [{ "t": "p", "c": [{ "t": "text", "v": "1" }] }] },
-              { "t": "td", "c": [{ "t": "p", "c": [{ "t": "text", "v": "200 ms" }] }] }
-            ] },
-            { "t": "tr", "c": [
-              { "t": "td", "c": [{ "t": "p", "c": [{ "t": "text", "v": "2" }] }] },
-              { "t": "td", "c": [{ "t": "p", "c": [{ "t": "text", "v": "800 ms" }] }] }
-            ] },
-            { "t": "tr", "c": [
-              { "t": "td", "c": [{ "t": "p", "c": [{ "t": "text", "v": "3" }] }] },
-              { "t": "td", "c": [{ "t": "p", "c": [{ "t": "text", "v": "3.2 s" }] }] }
-            ] }
-          ]
-        }
+        "demoStatusLine": { "t": "p", "c": [{ "t": "text", "v": "Status " }, { "t": "status", "v": "In progress", "color": "blue" }, { "t": "text", "v": " · due " }, { "t": "date", "v": "2026-10-30" }, { "t": "text", "v": " · owner " }, { "t": "user", "v": "@Priya Raman" }, { "t": "text", "v": " · reviewed by " }, { "t": "user", "v": "@Marcus Chen" }, { "t": "text", "v": " 🚀" }] },
+        "demoColours": { "t": "p", "c": [{ "t": "text", "v": "Retries are " }, { "t": "fg", "color": "red-bold", "c": [{ "t": "b", "c": [{ "t": "text", "v": "never" }] }] }, { "t": "text", "v": " shown to the shopper; " }, { "t": "bg", "color": "yellow-subtler", "c": [{ "t": "text", "v": "log every attempt" }] }, { "t": "text", "v": " with " }, { "t": "fg", "color": "green-bolder", "c": [{ "t": "text", "v": "its idempotency key" }] }, { "t": "text", "v": " and keep p" }, { "t": "sub", "c": [{ "t": "text", "v": "95" }] }, { "t": "text", "v": " latency under 2 s." }] },
+        "d3e0b1a7c0de": { "t": "table", "numbered": true, "c": [{ "t": "tr", "c": [{ "t": "th", "colwidth": [110], "c": [{ "t": "p", "c": [{ "t": "text", "v": "Attempt" }] }] }, { "t": "th", "colwidth": [110], "c": [{ "t": "p", "c": [{ "t": "text", "v": "Wait" }] }] }, { "t": "th", "colwidth": [260], "c": [{ "t": "p", "c": [{ "t": "text", "v": "Outcome" }] }] }] }, { "t": "tr", "c": [{ "t": "td", "c": [{ "t": "p", "c": [{ "t": "text", "v": "1" }] }] }, { "t": "td", "c": [{ "t": "p", "c": [{ "t": "text", "v": "200 ms" }] }] }, { "t": "td", "rowspan": 2, "bg": "green-subtlest", "c": [{ "t": "p", "c": [{ "t": "text", "v": "Succeeds for most 503s" }] }] }] }, { "t": "tr", "c": [{ "t": "td", "c": [{ "t": "p", "c": [{ "t": "text", "v": "2" }] }] }, { "t": "td", "c": [{ "t": "p", "c": [{ "t": "text", "v": "800 ms" }] }] }] }, { "t": "tr", "c": [{ "t": "td", "c": [{ "t": "p", "c": [{ "t": "text", "v": "3" }] }] }, { "t": "td", "c": [{ "t": "p", "c": [{ "t": "text", "v": "3.2 s" }] }] }, { "t": "td", "bg": "red-subtlest", "c": [{ "t": "p", "c": [{ "t": "text", "v": "Give up and show the error" }] }] }] }, { "t": "tr", "c": [{ "t": "td", "colspan": 3, "bg": "gray-subtlest", "c": [{ "t": "p", "c": [{ "t": "text", "v": "Every wait gets ±20 % jitter." }] }] }] }] },
+        "demoPanelInfo": { "t": "panel", "kind": "info", "c": [{ "t": "p", "c": [{ "t": "text", "v": "The provider's sandbox answers 503 for card numbers ending in 0002." }] }] },
+        "demoPanelNote": { "t": "panel", "kind": "note", "c": [{ "t": "p", "c": [{ "t": "text", "v": "Retries reuse the original idempotency key, so the provider never charges twice." }] }] },
+        "demoPanelTip": { "t": "panel", "kind": "tip", "c": [{ "t": "p", "c": [{ "t": "text", "v": "Use the 0002 card in staging to watch the retries in the logs." }] }] },
+        "demoPanelOk": { "t": "panel", "kind": "success", "c": [{ "t": "p", "c": [{ "t": "text", "v": "Load test: 99.2 % of retried charges succeeded on attempt 2." }] }] },
+        "demoPanelWarn": { "t": "panel", "kind": "warning", "c": [{ "t": "p", "c": [{ "t": "text", "v": "A 429 must wait for the Retry-After header before the next attempt." }] }] },
+        "demoPanelError": { "t": "panel", "kind": "error", "c": [{ "t": "p", "c": [{ "t": "text", "v": "Never retry a declined card: the bank may block the shopper." }] }] },
+        "demoPanelCustom": { "t": "panel", "kind": "custom", "color": "purple-subtlest", "icon": "🧭", "c": [{ "t": "p", "c": [{ "t": "text", "v": "Owned by the payments squad." }] }] },
+        "demoLayout": { "t": "layout", "c": [{ "t": "col", "width": 50, "c": [{ "t": "h", "level": 4, "c": [{ "t": "text", "v": "Client" }] }, { "t": "ul", "c": [{ "t": "li", "c": [{ "t": "p", "c": [{ "t": "text", "v": "Keep the Pay button busy" }] }] }, { "t": "li", "c": [{ "t": "p", "c": [{ "t": "text", "v": "No duplicate taps" }] }] }] }] }, { "t": "col", "width": 50, "c": [{ "t": "h", "level": 4, "c": [{ "t": "text", "v": "Server" }] }, { "t": "ul", "c": [{ "t": "li", "c": [{ "t": "p", "c": [{ "t": "text", "v": "Backoff with jitter" }] }] }, { "t": "li", "c": [{ "t": "p", "c": [{ "t": "text", "v": "Same idempotency key" }] }] }] }] }] },
+        "demoExpand": { "t": "expand", "title": "Why exponential backoff?", "c": [{ "t": "p", "c": [{ "t": "text", "v": "A fixed delay retries in lockstep and keeps an overloaded provider down. Doubling the wait, with jitter, spreads the load:" }] }, { "t": "pre", "lang": "ts", "v": "const wait = base * 2 ** attempt * (0.8 + Math.random() * 0.4);" }] },
+        "demoChart": { "t": "media", "layout": "center", "width": 80, "unit": "%", "caption": [{ "t": "text", "v": "Provider error rates during last week's incident" }], "c": [{ "t": "attachment", "id": "20001", "alt": "provider-error-rates.png", "w": 1200, "h": 600}] },
+        "demoTasks": { "t": "tasks", "c": [{ "t": "task", "done": true, "c": [{ "t": "text", "v": "Agree the retry budget with the provider" }] }, { "t": "task", "done": false, "c": [{ "t": "text", "v": "Add the retry worker" }] }, { "t": "tasks", "c": [{ "t": "task", "done": true, "c": [{ "t": "text", "v": "Backoff schedule" }] }, { "t": "task", "done": false, "c": [{ "t": "text", "v": "Jitter" }] }] }] },
+        "demoDecisions": { "t": "decisions", "c": [{ "t": "decision", "done": true, "c": [{ "t": "text", "v": "Three attempts at most" }] }, { "t": "decision", "done": false, "c": [{ "t": "text", "v": "Retry 429s too?" }] }] }
       },
       "attachments": [
         { "id": "20001", "filename": "provider-error-rates.png", "mimeType": "image/png", "size": 48213 },

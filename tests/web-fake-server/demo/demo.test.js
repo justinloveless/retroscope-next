@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { isAllowedDoc } from '../../../web/src/markup/allow.js';
 import { TestClient } from '../client.js';
 import { startFakeServer } from '../server.js';
 import { connectWebSocket } from '../ws.js';
@@ -412,7 +413,8 @@ describe('HTTP', () => {
     assert.deepEqual(browse.buckets.map((b) => b.name), ['Sprint 41 · Checkout polish', 'Sprint 42 · Onboarding', 'Backlog']);
     const issue = await get(`/api/teams/${DEMO_TEAM}/jira/issues/DEMO-123`);
     assert.equal(issue.fields.summary, 'Retry failed payments with exponential backoff');
-    assert.equal(issue.islandIds.length, 1);
+    assert.equal(issue.islandIds.length, 15);
+    assert.ok(isAllowedDoc(issue.description), 'the demo islands use the DocNode wire shape');
     assert.equal(issue.comments.length, 3);
     assert.equal(issue.links.length, 2);
     assert.equal(issue.attachments.length, 2);

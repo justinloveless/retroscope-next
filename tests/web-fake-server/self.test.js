@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isAllowedDoc } from '../../web/src/markup/allow.js';
 import { TestClient } from './client.js';
 import { json, problem } from './http.js';
 import { checkClientFrame, checkServerFrame } from './protocol.js';
@@ -562,7 +563,8 @@ describe('fake Jira proxy', () => {
     const meta = await (await write('POST', '/meta', { keys: ['RS-12', 'RS-404'] })).json();
     assert.deepEqual(meta.items.map((i) => [i.key, i.parentSummary]), [['RS-12', 'Checkout epic']]);
     const detail = await (await fetch(`${base()}/issues/RS-12`)).json();
-    assert.deepEqual(detail.islandIds, ['t0b1e5c0ffee']);
+    assert.deepEqual(detail.islandIds, ['t0b1e5c0ffee', 'r1chL1ne0001', 'pane1Warn001', 'shotMedia001']);
+    assert.ok(isAllowedDoc(detail.description), 'the fixture islands use the DocNode wire shape');
     const island = detail.description.c.find((n) => n.t === 'island');
     assert.equal(island.c[0].t, 'table');
     assert.equal(detail.comments[0].body.t, 'doc');
@@ -599,7 +601,7 @@ describe('fake Jira proxy', () => {
     const created = await (await write('POST', '/issues', { summary: 'From retro', description: 'Do it' })).json();
     assert.equal(created.key, 'RS-32');
     const clone = await (await write('POST', '/issues', { summary: 'Clone', cloneFrom: 'RS-12' })).json();
-    assert.deepEqual((await (await fetch(`${base()}/issues/${clone.key}`)).json()).islandIds, ['t0b1e5c0ffee']);
+    assert.deepEqual((await (await fetch(`${base()}/issues/${clone.key}`)).json()).islandIds, ['t0b1e5c0ffee', 'r1chL1ne0001', 'pane1Warn001', 'shotMedia001']);
     assert.equal((await write('POST', '/issues/RS-13/transition', { transitionId: '31' })).status, 204);
     assert.equal(jira.issues.get('RS-13').statusCategory, 'done');
     const link = await (await write('POST', '/issues/RS-13/links', { typeId: '10000', targetKey: 'RS-12' })).json();
