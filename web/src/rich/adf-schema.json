@@ -1,0 +1,209 @@
+{
+  "about": "The ADF allow-list the description editor mirrors (docs/decisions/UX11.md). The server's Core/Adf/AdfSchema.cs is the authority; once it exists, a Core test regenerates this file from it and CI fails on any drift. Patterns are full-match.",
+  "adfSchema": "57.7.2",
+  "rules": {
+    "localId": { "type": "string", "pattern": "[A-Za-z0-9_-]{1,64}" },
+    "color": { "type": "color" },
+    "href": { "type": "href" },
+    "valign": { "type": "enum", "values": ["top", "middle", "bottom"] },
+    "mediaLayout": { "type": "enum", "values": ["wide", "full-width", "center", "wrap-right", "wrap-left", "align-end", "align-start"] },
+    "pixels": { "type": "number", "min": 0, "max": 10000 }
+  },
+  "groups": {
+    "block": ["paragraph", "heading", "bulletList", "orderedList", "taskList", "decisionList", "blockquote", "codeBlock", "panel", "rule", "table", "mediaSingle", "mediaGroup", "blockCard", "embedCard", "expand", "rsOpaque"],
+    "nonNestable": ["paragraph", "heading", "bulletList", "orderedList", "taskList", "decisionList", "blockquote", "codeBlock", "panel", "rule", "table", "mediaSingle", "mediaGroup", "blockCard", "embedCard", "nestedExpand", "rsOpaque"],
+    "cell": ["paragraph", "heading", "bulletList", "orderedList", "taskList", "decisionList", "blockquote", "codeBlock", "panel", "rule", "mediaSingle", "mediaGroup", "blockCard", "embedCard", "nestedExpand", "rsOpaque"],
+    "nestedExpand": ["paragraph", "heading", "bulletList", "orderedList", "taskList", "decisionList", "blockquote", "codeBlock", "panel", "rule", "mediaSingle", "mediaGroup", "rsOpaque"],
+    "panel": ["paragraph", "heading", "bulletList", "orderedList", "taskList", "decisionList", "codeBlock", "rule", "mediaSingle", "mediaGroup", "blockCard", "rsOpaque"],
+    "quote": ["paragraph", "bulletList", "orderedList", "codeBlock", "mediaSingle", "mediaGroup", "rsOpaque"],
+    "listItem": ["paragraph", "bulletList", "orderedList", "taskList", "codeBlock", "mediaSingle", "rsOpaque"],
+    "inline": ["text", "hardBreak", "mention", "emoji", "date", "status", "inlineCard", "rsOpaqueInline"]
+  },
+  "nodes": {
+    "doc": { "attrs": { "version": { "type": "enum", "values": [1], "required": true } }, "children": ["@block", "layoutSection"] },
+    "paragraph": { "attrs": { "localId": "localId" }, "children": ["@inline"], "blockMarks": ["alignment", "indentation"] },
+    "heading": {
+      "attrs": { "level": { "type": "int", "min": 1, "max": 6, "required": true }, "localId": "localId" },
+      "children": ["@inline"],
+      "blockMarks": ["alignment", "indentation"]
+    },
+    "text": { "attrs": {} },
+    "hardBreak": { "attrs": { "text": { "type": "enum", "values": ["\n"] } }, "inline": true },
+    "bulletList": { "attrs": { "localId": "localId" }, "children": ["listItem"], "min": 1 },
+    "orderedList": { "attrs": { "order": { "type": "int", "min": 0, "max": 2147483647 }, "localId": "localId" }, "children": ["listItem"], "min": 1 },
+    "listItem": { "attrs": { "localId": "localId" }, "first": ["paragraph", "codeBlock", "mediaSingle", "rsOpaque"], "children": ["@listItem"], "min": 1 },
+    "blockquote": { "attrs": { "localId": "localId" }, "children": ["@quote"], "min": 1 },
+    "rule": { "attrs": { "localId": "localId" } },
+    "codeBlock": {
+      "attrs": {
+        "language": { "type": "string", "pattern": "[A-Za-z0-9+#._-]{1,32}" },
+        "uniqueId": { "type": "string", "max": 64 },
+        "wrap": { "type": "bool" },
+        "hideLineNumbers": { "type": "bool" },
+        "localId": "localId"
+      },
+      "children": ["text"],
+      "code": true
+    },
+    "panel": {
+      "attrs": {
+        "panelType": { "type": "enum", "values": ["info", "note", "tip", "warning", "error", "success", "custom"], "required": true },
+        "panelColor": "color",
+        "panelIcon": { "type": "string", "max": 64 },
+        "panelIconId": { "type": "string", "max": 64 },
+        "panelIconText": { "type": "string", "max": 16 },
+        "localId": "localId"
+      },
+      "children": ["@panel"],
+      "min": 1
+    },
+    "expand": { "attrs": { "title": { "type": "string", "max": 255, "singleLine": true }, "localId": "localId" }, "children": ["@nonNestable"], "min": 1 },
+    "nestedExpand": { "attrs": { "title": { "type": "string", "max": 255, "singleLine": true }, "localId": "localId" }, "children": ["@nestedExpand"], "min": 1 },
+    "table": {
+      "attrs": {
+        "layout": { "type": "enum", "values": ["wide", "full-width", "center", "align-end", "align-start", "default"] },
+        "width": "pixels",
+        "isNumberColumnEnabled": { "type": "bool" },
+        "displayMode": { "type": "enum", "values": ["default", "fixed"] },
+        "localId": "localId"
+      },
+      "children": ["tableRow"],
+      "min": 1
+    },
+    "tableRow": { "attrs": { "localId": "localId" }, "children": ["tableHeader", "tableCell"], "min": 1 },
+    "tableHeader": {
+      "attrs": {
+        "colspan": { "type": "int", "min": 1, "max": 64 },
+        "rowspan": { "type": "int", "min": 1, "max": 64 },
+        "colwidth": { "type": "numberList", "min": 0, "max": 10000, "lengthOf": "colspan" },
+        "background": "color",
+        "valign": "valign",
+        "localId": "localId"
+      },
+      "children": ["@cell"],
+      "min": 1
+    },
+    "tableCell": {
+      "attrs": {
+        "colspan": { "type": "int", "min": 1, "max": 64 },
+        "rowspan": { "type": "int", "min": 1, "max": 64 },
+        "colwidth": { "type": "numberList", "min": 0, "max": 10000, "lengthOf": "colspan" },
+        "background": "color",
+        "valign": "valign",
+        "localId": "localId"
+      },
+      "children": ["@cell"],
+      "min": 1
+    },
+    "layoutSection": { "attrs": { "localId": "localId" }, "children": ["layoutColumn"], "min": 2, "max": 3 },
+    "layoutColumn": {
+      "attrs": { "width": { "type": "number", "min": 0, "max": 100, "required": true }, "valign": "valign", "localId": "localId" },
+      "children": ["@block"],
+      "min": 1
+    },
+    "taskList": { "attrs": { "localId": { "type": "string", "pattern": "[A-Za-z0-9_-]{1,64}", "required": true } }, "first": ["taskItem", "rsOpaque"], "children": ["taskItem", "taskList", "rsOpaque"], "min": 1 },
+    "taskItem": {
+      "attrs": {
+        "localId": { "type": "string", "pattern": "[A-Za-z0-9_-]{1,64}", "required": true },
+        "state": { "type": "enum", "values": ["TODO", "DONE"], "required": true }
+      },
+      "children": ["@inline"]
+    },
+    "decisionList": { "attrs": { "localId": { "type": "string", "pattern": "[A-Za-z0-9_-]{1,64}", "required": true } }, "children": ["decisionItem"], "min": 1 },
+    "decisionItem": {
+      "attrs": {
+        "localId": { "type": "string", "pattern": "[A-Za-z0-9_-]{1,64}", "required": true },
+        "state": { "type": "enum", "values": ["DECIDED", "UNDECIDED"], "required": true }
+      },
+      "children": ["@inline"]
+    },
+    "mediaSingle": {
+      "attrs": {
+        "layout": "mediaLayout",
+        "width": "pixels",
+        "widthType": { "type": "enum", "values": ["percentage", "pixel"] },
+        "localId": "localId"
+      },
+      "first": ["media", "rsOpaque"],
+      "children": ["caption"],
+      "min": 1,
+      "max": 2,
+      "blockMarks": ["link"]
+    },
+    "mediaGroup": { "attrs": {}, "children": ["media", "rsOpaque"], "min": 1 },
+    "media": {
+      "attrs": {
+        "type": { "type": "enum", "values": ["file", "link", "external"], "required": true },
+        "id": { "type": "string", "max": 256 },
+        "collection": { "type": "string", "max": 256 },
+        "url": "href",
+        "alt": { "type": "string", "max": 1024 },
+        "occurrenceKey": { "type": "string", "max": 256 },
+        "width": { "type": "number", "min": 1, "max": 10000 },
+        "height": { "type": "number", "min": 1, "max": 10000 },
+        "localId": "localId"
+      },
+      "blockMarks": ["link"]
+    },
+    "caption": { "attrs": { "localId": "localId" }, "children": ["@inline"] },
+    "mention": {
+      "attrs": {
+        "id": { "type": "string", "pattern": "[A-Za-z0-9:_-]{1,128}", "required": true },
+        "text": { "type": "string", "max": 100, "singleLine": true },
+        "accessLevel": { "type": "string", "max": 64 },
+        "userType": { "type": "enum", "values": ["DEFAULT", "SPECIAL", "APP"] },
+        "localId": "localId"
+      },
+      "inline": true
+    },
+    "emoji": {
+      "attrs": {
+        "shortName": { "type": "string", "pattern": ":[A-Za-z0-9_+-]{1,64}:", "required": true },
+        "id": { "type": "string", "pattern": "[A-Za-z0-9_-]{1,64}" },
+        "text": { "type": "string", "maxCodePoints": 16, "singleLine": true },
+        "localId": "localId"
+      },
+      "inline": true
+    },
+    "date": { "attrs": { "timestamp": { "type": "timestamp", "required": true }, "localId": "localId" }, "inline": true },
+    "status": {
+      "attrs": {
+        "text": { "type": "string", "min": 1, "max": 64, "singleLine": true, "required": true },
+        "color": { "type": "enum", "values": ["neutral", "purple", "blue", "red", "yellow", "green"], "orColor": true, "required": true },
+        "style": { "type": "enum", "values": ["bold", "subtle"] },
+        "localId": "localId"
+      },
+      "inline": true
+    },
+    "inlineCard": { "attrs": { "url": { "type": "href", "schemes": ["http", "https"], "required": true }, "localId": "localId" }, "inline": true },
+    "blockCard": { "attrs": { "url": { "type": "href", "schemes": ["http", "https"], "required": true }, "localId": "localId" } },
+    "embedCard": {
+      "attrs": {
+        "url": { "type": "href", "schemes": ["http", "https"], "required": true },
+        "layout": { "type": "enum", "values": ["wide", "full-width", "center", "wrap-right", "wrap-left", "align-end", "align-start"], "required": true },
+        "width": { "type": "number", "min": 0, "max": 100 },
+        "originalWidth": "pixels",
+        "originalHeight": "pixels",
+        "localId": "localId"
+      }
+    },
+    "rsOpaque": { "attrs": { "ref": { "type": "string", "pattern": "[A-Za-z0-9_-]{16}", "required": true } }, "token": true },
+    "rsOpaqueInline": { "attrs": { "ref": { "type": "string", "pattern": "[A-Za-z0-9_-]{16}", "required": true } }, "token": true, "inline": true }
+  },
+  "marks": {
+    "strong": { "attrs": {} },
+    "em": { "attrs": {} },
+    "strike": { "attrs": {} },
+    "underline": { "attrs": {} },
+    "code": { "attrs": {} },
+    "link": { "attrs": { "href": { "type": "href", "required": true }, "title": { "type": "string", "max": 512, "singleLine": true } } },
+    "textColor": { "attrs": { "color": { "type": "color", "required": true } } },
+    "backgroundColor": { "attrs": { "color": { "type": "color", "required": true } } },
+    "subsup": { "attrs": { "type": { "type": "enum", "values": ["sub", "sup"], "required": true } } },
+    "alignment": { "attrs": { "align": { "type": "enum", "values": ["center", "end"], "required": true } }, "block": true },
+    "indentation": { "attrs": { "level": { "type": "int", "min": 1, "max": 6, "required": true } }, "block": true },
+    "rsMark": { "attrs": { "ref": { "type": "string", "pattern": "[A-Za-z0-9_-]{16}", "required": true } }, "token": true }
+  },
+  "codeCombinesWith": ["link", "rsMark"],
+  "stash": "rsKeep"
+}
