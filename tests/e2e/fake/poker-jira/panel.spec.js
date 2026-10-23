@@ -78,3 +78,25 @@ test('a browse chunk that fails to load closes the panel and the next open retri
   await open.click();
   await expect(page.locator('.jira-browse')).toBeVisible();
 });
+
+for (const [width, height] of [[1280, 800], [1440, 900]]) {
+  test(`the collapse tabs stay clear of the seats at ${width} px`, async ({ page, fake }) => {
+    setupJira(fake);
+    await page.setViewportSize({ width, height });
+    await openBrowse(page);
+    const openRounds = page.getByRole('button', { name: 'Open round panel' });
+    if (await openRounds.isVisible()) {
+      await openRounds.click();
+    }
+    await expect(page.getByRole('button', { name: 'Collapse round panel' })).toBeVisible();
+    await expect(page.locator('.nt-seats > .nt-seat').first()).toBeVisible();
+    // Polled: the seats slide to their new places (0.45 s) after the round panel takes its width.
+    await expect.poll(() => page.evaluate(() => {
+      const tabs = [...document.querySelectorAll('.drawer-collapse')].map((tab) => tab.getBoundingClientRect());
+      return [...document.querySelectorAll('.nt-seats > .nt-seat:not([hidden]), .nt-seats > .nt-seat:not([hidden]) *')]
+        .map((el) => el.getBoundingClientRect())
+        .filter((b) => b.width > 0 && tabs.some((t) => b.left < t.right && b.right > t.left && b.top < t.bottom && b.bottom > t.top))
+        .length;
+    })).toBe(0);
+  });
+}
