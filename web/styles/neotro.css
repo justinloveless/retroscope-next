@@ -112,6 +112,7 @@
 
 /* Body: the panels and, between them, the stage */
 .nt-body {
+  position: relative;
   display: flex;
   flex: 1;
   min-height: 0;
@@ -1760,35 +1761,129 @@
   color: var(--red);
 }
 
-/* Jira browse panel (left), resizable like the Round panel */
-.jira-panel {
+/* Side panel drawer handles (ui/side-panel.js), after the original's: a resize strip with a grip chip on the
+   panel's inner edge, a small chevron tab on that edge while open, a taller tab on the screen edge while closed.
+   The panel stays in the flow; its tabs float over the stage, so the panel lets them overflow. */
+.drawer-panel {
   position: relative;
+  z-index: 7;
   min-width: 240px;
   max-width: 480px;
-  overflow: hidden;
+  overflow: visible;
 }
 
-.jira-panel > .resize-handle {
+.drawer-panel > .resize-handle {
   position: absolute;
   top: 0;
-  right: 0;
   bottom: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.5rem;
+}
+
+.drawer-panel-left > .resize-handle { right: -0.25rem; }
+.drawer-panel-right > .resize-handle { left: -0.25rem; }
+
+.resize-grip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.75rem;
+  height: 1rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-sm);
+  background: hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+}
+
+.resize-grip .icon {
+  width: 0.625rem;
+  height: 0.625rem;
+}
+
+.resize-handle:hover .resize-grip,
+.resize-handle:focus-visible .resize-grip,
+.resize-handle.resizing .resize-grip {
+  color: hsl(var(--foreground));
+}
+
+.drawer-tab {
+  position: absolute;
+  top: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid hsl(var(--border));
+  background: color-mix(in srgb, hsl(var(--card)) 90%, transparent);
+  color: hsl(var(--card-foreground));
+  box-shadow: var(--shadow-sm);
+  translate: 0 -50%;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.drawer-tab:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+.drawer-tab:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.drawer-tab .icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+/* Collapse: 24×40 px, straddling the panel's edge so it covers neither the panel's rows nor the seats; the
+   grip chip sits just above it. */
+.drawer-collapse {
+  z-index: 2;
+  width: 1.5rem;
+  height: 2.5rem;
+  border-radius: var(--radius-md);
+}
+
+.drawer-collapse.drawer-left { left: calc(100% - 0.75rem); }
+.drawer-collapse.drawer-right { right: calc(100% - 0.75rem); }
+
+.drawer-panel > .resize-handle .resize-grip {
+  translate: 0 -2rem;
+}
+
+/* Open: 32×96 px, flush with the screen edge (.nt-body is its containing block). */
+.drawer-open {
+  z-index: 7;
+  width: 2rem;
+  height: 6rem;
+}
+
+.drawer-open.drawer-left {
+  left: 0;
+  border-left: 0;
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.drawer-open.drawer-right {
+  right: 0;
+  border-right: 0;
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+/* Jira browse panel (left) */
+.jira-panel > .jira-browse {
+  overflow: hidden;
 }
 
 /* Round panel (History tab) */
 .nt-round-panel {
-  position: relative;
   display: flex;
   flex-direction: column;
-  min-width: 240px;
-  max-width: 480px;
-}
-
-.nt-round-panel > .resize-handle {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -3px;
 }
 
 .nt-round-panel-head {
@@ -1807,19 +1902,6 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-}
-
-.nt-panel-tab {
-  align-self: center;
-  width: 2rem;
-  height: 6rem;
-  padding: 0;
-  border: 1px solid hsl(var(--border));
-  border-right: 0;
-  border-radius: var(--radius-md) 0 0 var(--radius-md);
-  background: hsl(var(--card));
-  writing-mode: vertical-rl;
-  font-size: 0.8125rem;
 }
 
 .nt-history {
@@ -1898,6 +1980,10 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.nt-bottom-extras {
+  display: contents;
 }
 
 .nt-bottom-sep {
@@ -2014,7 +2100,7 @@
     padding: 0.25rem 0.5rem;
   }
 
-  .nt-panel-tab {
+  .drawer-tab {
     display: none;
   }
 
