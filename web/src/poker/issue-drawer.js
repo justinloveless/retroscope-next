@@ -1,8 +1,9 @@
 // The Jira issue drawer (§f, §g.7 chunk jira-drawer; parity: original JiraIssueDrawer). Details come from
 // the proxy's 60 s detail cache and a 60 s client cache that a 600 ms hover prefetch fills. Every field
-// edit is a proxy write followed by a reload. The description is edited as markup with the issue's
-// opaque islands (tables, screenshots, panels…) as read-only atoms, and saved with `descriptionBase`, so
-// a concurrent edit in Jira answers `stale` instead of being overwritten.
+// edit is a proxy write followed by a reload. The description is edited in the rich editor (UX12, its own
+// lazy chunk) on the edit view's ADF and saved as `descriptionAdf` with `descriptionBase`, so a concurrent
+// edit in Jira answers `stale` instead of being overwritten. A description the edit view marks not editable
+// falls back to the markup editor, with the issue's opaque islands as read-only atoms.
 
 import { h, replaceContent } from '../core/h.js';
 import { http } from '../core/http.js';
@@ -12,6 +13,7 @@ import { DIALECT_JIRA, DIALECT_JIRA_DESCRIPTION, toMarkup } from '../markup/doc.
 import { checkMarkup } from '../markup/parse.js';
 import { render } from '../markup/render.js';
 import { createButton } from '../ui/button.js';
+import { confirmDialog } from '../ui/confirm.js';
 import { createDialog } from '../ui/dialog.js';
 import { icon } from '../ui/icons.js';
 import { issueTypeGlyph, priorityGlyph, statusBadge } from '../ui/glyphs.js';
@@ -22,6 +24,8 @@ import { toast } from '../ui/toast.js';
 export const CACHE_MS = 60_000;
 const ASSIGNEE_DEBOUNCE_MS = 280;
 const KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_]*-\d+$/;
+// How long after the drawer opens the editor chunk may start downloading where requestIdleCallback is missing.
+const PREFETCH_FALLBACK_MS = 300;
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 
 const ROW = { display: 'flex', 'align-items': 'center', gap: '0.375rem', 'flex-wrap': 'wrap' };
@@ -33,9 +37,26 @@ const PROSE = { 'font-size': '0.875rem', 'line-height': '1.5', 'overflow-wrap': 
 // Shared by every drawer of the tab: `${teamId}:${key}` → {at, promise}.
 const cache = new Map();
 
-/** The rich description editor's chunk (UX11). Nothing calls it until the editor UI ships (phase 6). */
+/** The rich description editor's chunk (UX11, UX12). */
 export function loadRichEditor() {
   return import('../rich/rich-editor.js');
+}
+
+// Users who can edit get the editor chunk while the drawer sits idle, so "Edit description" opens at once.
+let editorPrefetched = false;
+function prefetchRichEditor() {
+  if (editorPrefetched) {
+    return;
+  }
+  editorPrefetched = true;
+  const start = () => loadRichEditor().catch(() => {
+    editorPrefetched = false;
+  });
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(start, { timeout: 2000 });
+  } else {
+    setTimeout(start, PREFETCH_FALLBACK_MS);
+  }
 }
 
 /** The description as editable markup (islands as `[[island:id]]` refs), or null when it has no markup form. */
@@ -76,6 +97,8 @@ function createIssueView(ctx, host) {
   let preview = null;
   let token = 0;
   let editor = null;
+  // The rich editor's session: {edit, editor, holder, status, busy}, or {opening: true} while it loads.
+  let rich = null;
   let composer = null;
   let disposables = [];
 
@@ -107,8 +130,10 @@ function createIssueView(ctx, host) {
 
   function resetEditors() {
     editor?.destroy();
+    rich?.editor?.destroy();
     composer?.destroy();
     editor = null;
+    rich = null;
     composer = null;
   }
 
@@ -125,6 +150,9 @@ function createIssueView(ctx, host) {
     }
     sheet.title.textContent = k;
     sheet.open();
+    if (canEdit) {
+      prefetchRichEditor();
+    }
     if (switched && sheet.inline) {
       sheet.scroller.scrollTop = 0;
     }
@@ -431,13 +459,171 @@ function createIssueView(ctx, host) {
       rows.map(([label, value]) => [h('dt', { style: MUTED, text: label }), h('dd', { style: { margin: '0', 'min-width': '0' } }, value)]));
   }
 
+  function markupEditor(markup, islands) {
+    editor = createEditor({ value: markup, dialect: DIALECT_JIRA_DESCRIPTION, islands, imageSrc, extend, label: 'Description', placeholder: 'Describe the issue' });
+    editor.el.classList.add('jira-description-editor');
+    editor.input.style.setProperty('min-height', '8rem');
+    editor.input.style.setProperty('padding', '0.5rem');
+    editor.input.style.setProperty('border', '1px solid hsl(var(--input))');
+    editor.input.style.setProperty('border-radius', 'var(--radius-sm)');
+    paint();
+    editor.focus();
+  }
+
+  // The edit view and the editor chunk load together; a description Jira does not hold as ADF keeps the markup
+  // editor (UX12: the fallback until phase 12).
+  async function startRichEdit() {
+    const k = key;
+    rich = { opening: true };
+    paint();
+    let module;
+    let edit;
+    try {
+      [module, edit] = await Promise.all([loadRichEditor(), http.get(issuePath('/description'))]);
+    } catch (error) {
+      if (k === key) {
+        rich = null;
+        paint();
+        toast(explain(error), { variant: 'error', duration: 6000 });
+      }
+      return;
+    }
+    if (k !== key || !rich?.opening) {
+      return;
+    }
+    rich = null;
+    if (edit.editable === false) {
+      const description = issue.description ?? { t: 'doc', c: [] };
+      const markup = descriptionMarkup(description);
+      if (markup !== null && issue.editable !== false) {
+        markupEditor(markup, islandsOf(description));
+      } else {
+        paint();
+        toast('This description can only be edited in Jira.', { variant: 'error', duration: 6000 });
+      }
+      return;
+    }
+    openRich(module, edit);
+  }
+
+  function openRich(module, edit) {
+    const holder = h('div', { class: 'rich-holder' });
+    let created;
+    try {
+      created = module.createRichEditor({
+        host: holder,
+        edit,
+        imageSrc: (id) => imageSrc({ t: 'attachment', id }),
+        renderDoc: (doc) => render(doc, { imageSrc, extend }),
+        icon,
+        label: 'Description',
+      });
+    } catch {
+      paint();
+      toast('This description cannot be opened in the editor; edit it in Jira.', { variant: 'error', duration: 6000 });
+      return;
+    }
+    rich = { edit, editor: created, holder, status: null, busy: false };
+    paint();
+    created.focus();
+  }
+
+  function closeRich() {
+    rich?.editor?.destroy();
+    rich = null;
+  }
+
+  async function saveRich() {
+    const session = rich;
+    if (!session.editor.isDirty()) {
+      closeRich();
+      paint();
+      return;
+    }
+    session.busy = true;
+    session.status = null;
+    paint();
+    try {
+      await http.patch(issuePath(), { descriptionAdf: session.editor.getAdf(), descriptionBase: session.edit.updated });
+    } catch (error) {
+      session.busy = false;
+      if (error.code === 'stale') {
+        session.status = { kind: 'stale' };
+      } else if (error.code === 'invalid' && typeof error.fields?.descriptionAdf === 'string') {
+        session.status = { kind: 'invalid', code: error.fields.descriptionAdf, at: error.fields['descriptionAdf.at'] ?? null };
+      } else {
+        toast(explain(error), { variant: 'error', duration: 6000 });
+      }
+      if (rich === session) {
+        paint();
+      }
+      return;
+    }
+    if (rich !== session) {
+      return;
+    }
+    closeRich();
+    cache.delete(`${teamId}:${key}`);
+    toast(`Updated ${key}`, { variant: 'success' });
+    await load(true);
+  }
+
+  async function cancelRich() {
+    if (rich.editor.isDirty() && !(await confirmDialog({
+      title: 'Discard your changes?',
+      message: 'Your edits to the description have not been saved.',
+      confirmLabel: 'Discard',
+      cancelLabel: 'Keep editing',
+      destructive: true,
+    }))) {
+      rich?.editor?.focus();
+      return;
+    }
+    closeRich();
+    paint();
+  }
+
+  // After a stale save: the draft stays until its author chooses to load Jira's version over it.
+  async function reloadRich() {
+    if (!(await confirmDialog({
+      title: 'Load the latest description?',
+      message: `Your draft is replaced by the description as it is in Jira now. Copy anything you want to keep first.`,
+      confirmLabel: 'Discard draft and reload',
+      cancelLabel: 'Keep my draft',
+      destructive: true,
+    }))) {
+      return;
+    }
+    closeRich();
+    cache.delete(`${teamId}:${key}`);
+    await load(true);
+    await startRichEdit();
+  }
+
+  function richBanner(status) {
+    if (status?.kind === 'stale') {
+      return h('div', { class: 'rich-banner is-conflict', role: 'alert' },
+        h('p', { text: `${key} changed in Jira after you started editing, so your changes were not saved. Your draft is kept below.` }),
+        createButton({ label: 'Reload', icon: 'refresh-cw', variant: 'secondary', size: 'sm', className: 'rich-reload', onClick: reloadRich }).el);
+    }
+    if (status?.kind === 'invalid') {
+      return h('div', { class: 'rich-banner is-invalid', role: 'alert' },
+        h('p', null, 'Jira did not accept the description: ', h('code', { text: status.code }), status.at ? [' at ', h('code', { text: status.at })] : null, '.'));
+    }
+    return null;
+  }
+
   function descriptionSection() {
     const description = issue.description ?? { t: 'doc', c: [] };
     const islands = islandsOf(description);
-    const markup = descriptionMarkup(description);
-    const editable = canEdit && issue.editable !== false && markup !== null;
     const section = h('section', { class: 'jira-description', 'aria-label': 'Description', style: SECTION });
     const head = h('header', { style: { ...ROW, 'justify-content': 'space-between' } }, heading('Description'));
+    if (rich?.editor) {
+      const save = createButton({ label: 'Save', variant: 'primary', size: 'sm', className: 'rich-save', busy: rich.busy, disabled: rich.busy, onClick: saveRich });
+      const cancel = createButton({ label: 'Cancel', variant: 'secondary', size: 'sm', className: 'rich-cancel', disabled: rich.busy, onClick: cancelRich });
+      section.append(...[head, richBanner(rich.status), rich.holder, h('div', { style: ROW }, save.el, cancel.el)].filter(Boolean));
+      return section;
+    }
     if (editor) {
       const save = createButton({
         label: 'Save',
@@ -471,22 +657,16 @@ function createIssueView(ctx, host) {
       section.append(head, editor.el, h('div', { style: ROW }, save.el, cancel.el));
       return section;
     }
-    if (editable) {
+    if (canEdit && issue.editable !== false) {
       head.append(createButton({
-        label: 'Edit description',
+        label: rich?.opening ? 'Opening the editor…' : 'Edit description',
         icon: 'pencil',
         variant: 'ghost',
         size: 'sm',
-        onClick() {
-          editor = createEditor({ value: markup, dialect: DIALECT_JIRA_DESCRIPTION, islands, imageSrc, extend, label: 'Description', placeholder: 'Describe the issue' });
-          editor.el.classList.add('jira-description-editor');
-          editor.input.style.setProperty('min-height', '8rem');
-          editor.input.style.setProperty('padding', '0.5rem');
-          editor.input.style.setProperty('border', '1px solid hsl(var(--input))');
-          editor.input.style.setProperty('border-radius', 'var(--radius-sm)');
-          paint();
-          editor.focus();
-        },
+        className: 'jira-edit-description',
+        busy: rich?.opening === true,
+        disabled: rich?.opening === true,
+        onClick: startRichEdit,
       }).el);
     }
     const body = h('div', { class: 'jira-prose', style: PROSE });
