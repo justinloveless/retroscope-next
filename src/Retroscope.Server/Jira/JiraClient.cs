@@ -358,7 +358,7 @@ public sealed partial class JiraClient : IDisposable {
             if (update.Description is { } description) {
                 // The description's own bytes: opaque parts of a rich save reach Jira exactly as Jira wrote them.
                 writer.WritePropertyName("description"u8);
-                writer.WriteRawValue(description.GetRawText(), skipInputValidation: true);
+                writer.WriteRawValue(description.GetRawText());
             }
             if (update.Assignee is { } assignee) {
                 writer.WritePropertyName("assignee"u8);
