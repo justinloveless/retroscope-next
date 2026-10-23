@@ -378,7 +378,7 @@
 /* Media: Jira's layouts. Wrapped images float beside the text only where there is room for both. */
 :where(.jira-prose, .jira-description-editor) .media { max-width: 100%; margin-inline: auto; }
 :where(.jira-prose, .jira-description-editor) .media:not([style*="width"]) { width: fit-content; }
-:where(.jira-prose, .jira-description-editor) .media img { width: 100%; height: auto; border-radius: 3px; cursor: zoom-in; }
+:where(.jira-prose, .jira-description-editor) .media img { width: 100%; height: auto; border-radius: 3px; }
 :where(.jira-prose, .jira-description-editor) .media.layout-align-start { margin-inline: 0 auto; }
 :where(.jira-prose, .jira-description-editor) .media.layout-align-end { margin-inline: auto 0; }
 :where(.jira-prose, .jira-description-editor) .media:is(.layout-wide, .layout-full-width) { width: 100% !important; }
@@ -391,8 +391,10 @@
 }
 
 :where(.jira-prose, .jira-description-editor) .media-group { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
-:where(.jira-prose, .jira-description-editor) .media-group img { height: 6rem; width: auto; border-radius: 3px; border: 1px solid var(--jp-border); object-fit: cover; cursor: zoom-in; }
-:where(.jira-prose, .jira-description-editor) p img { display: inline-block; vertical-align: bottom; max-height: 20rem; width: auto; cursor: zoom-in; }
+:where(.jira-prose, .jira-description-editor) .media-group img { height: 6rem; width: auto; border-radius: 3px; border: 1px solid var(--jp-border); object-fit: cover; }
+:where(.jira-prose, .jira-description-editor) p img { display: inline-block; vertical-align: bottom; max-height: 20rem; width: auto; }
+/* Only the description body opens the lightbox; comments and islands in the editor do not. */
+.jira-description > .jira-prose img { cursor: zoom-in; }
 
 /* Islands in the editor: read-only atoms, framed so they read as "kept from Jira". */
 .jira-description-editor .island {
