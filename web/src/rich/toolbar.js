@@ -11,6 +11,7 @@ import { createPopover, pointAnchor } from '../ui/popover.js';
 import {
   blockTypeOf,
   canOutdent,
+  canRelabel,
   clearFormatting,
   indent,
   insertRule,
@@ -251,6 +252,10 @@ export function createToolbar(view) {
     }
     const url = h('input', { class: 'input', name: 'href', type: 'text', inputmode: 'url', autocomplete: 'off', placeholder: 'Paste or type a link', 'aria-label': 'Link address', value: existing?.href ?? '' });
     const text = h('input', { class: 'input', name: 'text', type: 'text', autocomplete: 'off', placeholder: 'Text to display', 'aria-label': 'Text to display', value: existing?.text ?? state.doc.textBetween(from, to, ' ') });
+    if (!canRelabel(state, from, to)) {
+      text.disabled = true;
+      text.title = 'This text holds more than words, so change it in the editor.';
+    }
     const error = h('p', { class: 'rich-link-error', role: 'alert', hidden: true, text: 'Enter a web or email address (https://… or name@example.com).' });
     const close = () => {
       linkPopover?.destroy();

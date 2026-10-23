@@ -441,9 +441,20 @@ export function normalizeHref(input) {
   return isHref(withScheme) ? withScheme : null;
 }
 
+/** Whether [from, to) holds only text, so its text can be replaced without losing a chip, token or line break. */
+export function canRelabel(state, from, to) {
+  let plain = true;
+  state.doc.nodesBetween(from, to, (node) => {
+    plain &&= !(node.isInline && !node.isText);
+    return plain;
+  });
+  return plain;
+}
+
 /**
  * Sets the link over [from, to) (the selection when omitted), replacing its text when `text` differs, or inserts
- * `text` linked at a caret. Refused when the href is not one the save would accept.
+ * `text` linked at a caret. A range holding more than text keeps its content and only takes the link. Refused when
+ * the href is not one the save would accept.
  */
 export function setLink({ href, text, from, to }) {
   return (state, dispatch) => {
@@ -461,13 +472,14 @@ export function setLink({ href, text, from, to }) {
     const label = text && text.trim() !== '' ? text : current || href;
     if (dispatch) {
       const tr = state.tr;
-      if (label !== current) {
+      let after = end;
+      if (label !== current && canRelabel(state, start, end)) {
         const marks = $start.marks().filter((m) => m.type !== M.link);
         tr.replaceWith(start, end, schema.text(label, mark.addToSet(marks)));
+        after = start + label.length;
       } else {
         tr.removeMark(start, end, M.link).addMark(start, end, mark);
       }
-      const after = start + label.length;
       tr.setSelection(TextSelection.create(tr.doc, after)).removeStoredMark(M.link);
       dispatch(tr.scrollIntoView());
     }
