@@ -33,6 +33,11 @@ const PROSE = { 'font-size': '0.875rem', 'line-height': '1.5', 'overflow-wrap': 
 // Shared by every drawer of the tab: `${teamId}:${key}` → {at, promise}.
 const cache = new Map();
 
+/** The rich description editor's chunk (UX11). Nothing calls it until the editor UI ships (phase 6). */
+export function loadRichEditor() {
+  return import('../rich/rich-editor.js');
+}
+
 /** The description as editable markup (islands as `[[island:id]]` refs), or null when it has no markup form. */
 export function descriptionMarkup(description) {
   try {
