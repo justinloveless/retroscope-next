@@ -2074,17 +2074,17 @@
     padding: 0.5rem;
   }
 
+  /* Back and the account controls share the first row; the round arrows and tools get the second to themselves,
+     so the round's name keeps its room. */
   .nt-toolbar-center {
-    justify-content: flex-end;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: center;
     gap: 0.375rem;
   }
 
   .nt-round-tools {
     margin-left: 0;
-  }
-
-  .nt-toolbar-extras {
-    grid-column: 1 / -1;
   }
 
   .nt-code {
