@@ -161,6 +161,8 @@ test('a description without an ADF edit view is edited as markup, keeping its is
   await page.keyboard.type('Then ');
   await sheet.getByRole('button', { name: 'Save', exact: true }).click();
 
+  // The editor sits inside the description section, so its own list would match the text below before the save.
+  await expect(sheet.locator('.jira-description-editor')).toHaveCount(0);
   await expect(sheet.locator('.jira-description li').last()).toHaveText('Then asks for the CVC');
   const patch = jira.calls.filter((c) => c.method === 'PATCH').at(-1).body;
   expect(patch.descriptionBase).toBe(before);

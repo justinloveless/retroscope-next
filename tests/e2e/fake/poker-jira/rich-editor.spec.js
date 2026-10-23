@@ -332,6 +332,8 @@ test('the editor chunk is prefetched for someone who can edit, and the drawer ed
   await caret(page, 'asks for the CVC');
   await page.keyboard.type(' at checkout', TYPE);
   await sheet.getByRole('button', { name: 'Save', exact: true }).click();
+  // The editor is a .jira-prose inside .jira-description too, so wait for it to close before reading the view.
+  await expect(sheet.locator('.rich-editor')).toHaveCount(0);
   await expect(sheet.locator('.jira-description .jira-prose li').last()).toHaveText('asks for the CVC at checkout');
   expect(jiraRequests(fake, 'GET', /\/issues\/RS-12\/description$/)).toHaveLength(1);
   expect(lastPatch(jira).descriptionAdf.type).toBe('doc');

@@ -138,7 +138,9 @@ test('the drawer prefetches on hover and edits the summary and a description wit
   await sheet.getByRole('button', { name: 'Save', exact: true }).click();
   // The stack keeps FakeJira's state between runs, so the item grows by one "Then " per run.
   const item = `Then ${lastItem}`;
-  await expect(sheet.locator('.jira-description li').last()).toHaveText(item);
+  // The open editor's own list matches .jira-description li too, so read the view only once the editor has closed.
+  await expect(sheet.locator('.rich-editor')).toHaveCount(0);
+  await expect(sheet.locator('.jira-description .jira-prose li').last()).toHaveText(item);
   await expect(sheet.locator('.jira-description .island td').first()).toHaveText('Visa');
 
   const summary = `Pay with a stored card at ${Date.now()}`;
