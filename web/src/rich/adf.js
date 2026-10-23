@@ -45,6 +45,8 @@ const MARK_ATTRS = compileAttrs(allowList.marks);
 const CHILDREN = Object.fromEntries(Object.keys(allowList.nodes).map((name) => [name, new Set(childTypes(name))]));
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+// Input names index these tables, so an inherited name (constructor, __proto__) must not count as listed.
+const own = (table, key) => (Object.hasOwn(table, key) ? table[key] : undefined);
 
 function freshId() {
   return globalThis.crypto.randomUUID();
@@ -67,7 +69,7 @@ class Reader {
   }
 
   attrs(type, raw, path) {
-    const table = NODE_ATTRS[type] ?? MARK_ATTRS[type];
+    const table = own(NODE_ATTRS, type) ?? own(MARK_ATTRS, type);
     const out = {};
     if (raw === undefined) {
       return { out, keys: null };
@@ -89,7 +91,7 @@ class Reader {
         keys.push(key);
         continue;
       }
-      const rule = table[key];
+      const rule = own(table, key);
       if (!rule) {
         if (this.fail('unknown_attr', at) === null) {
           continue;
@@ -138,7 +140,7 @@ class Reader {
     if (name === TOKEN_MARK && this.paste) {
       return null;
     }
-    if (!MARK_ATTRS[name] || inCode) {
+    if (!own(MARK_ATTRS, name) || inCode) {
       return this.fail(inCode ? 'invalid_mark' : 'unknown_mark', path);
     }
     for (const key of Object.keys(raw)) {
@@ -169,9 +171,14 @@ class Reader {
       return this.fail('invalid_mark', `${path}.marks`) ?? [];
     }
     const marks = [];
+    const seen = new Set();
     for (let i = 0; i < list.length; i++) {
       const mark = this.mark(list[i], `${path}.marks.${i}`, { inCode });
+      if (mark && this.paste && mark.name !== TOKEN_MARK && seen.has(mark.name)) {
+        continue;
+      }
       if (mark) {
+        seen.add(mark.name);
         marks.push(mark);
       }
     }
@@ -397,7 +404,7 @@ export function adfFragmentToPm(list, { session = null } = {}) {
 }
 
 function attrsOut(node) {
-  const table = NODE_ATTRS[node.type.name] ?? MARK_ATTRS[node.type.name];
+  const table = own(NODE_ATTRS, node.type.name) ?? own(MARK_ATTRS, node.type.name);
   const shape = node.attrs.adfShape;
   const out = {};
   for (const key of Object.keys(table)) {
