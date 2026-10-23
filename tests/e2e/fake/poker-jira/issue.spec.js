@@ -3,7 +3,7 @@
 // spotlight.
 import { expect, test } from '../_harness/fixtures.js';
 import { BOB, R2 } from '../poker-table/_poker.js';
-import { R1, ROOM, issueView, openTable, round, setupJira } from './_jira.js';
+import { R1, ROOM, drawer, isPhone, issueView, openTable, round, setupJira } from './_jira.js';
 
 const detail = (key, extra) => ({
   key,
@@ -92,4 +92,43 @@ test('the centre’s fields keep every empty field in words, leave out a missing
   const right = await view.locator('.jira-meta').evaluate((el) => el.getBoundingClientRect().right);
   const widest = await view.locator('.jira-meta :is(.jira-chip, .jira-meta-item)').evaluateAll((els) => Math.max(...els.map((el) => el.getBoundingClientRect().right)));
   expect(widest).toBeLessThanOrEqual(right + 0.5);
+});
+
+test('the centre’s parent chip opens the parent in the drawer and keeps the round’s issue at the centre', async ({ page, fake }) => {
+  setupJira(fake, { rounds: [round(R1, 1, { ticketKey: 'RS-12' })] });
+  await openTable(page);
+  await expect(issueView(page)).toHaveAttribute('data-key', 'RS-12');
+
+  await issueView(page).locator('.jira-meta-parent').getByRole('button').click();
+  await expect(drawer(page)).toHaveAttribute('data-key', 'RS-1');
+  await expect(issueView(page)).toHaveAttribute('data-key', 'RS-12');
+});
+
+test('a wide centre lays parent, sprint and labels out in one row, a narrow one in a column', async ({ page, fake }) => {
+  test.skip(isPhone(page), 'phones have no side panels to collapse');
+  setupJira(fake, { rounds: [round(R1, 1, { ticketKey: 'RS-12' })] });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openTable(page);
+  const place = issueView(page).locator('.jira-meta-place .jira-meta-item');
+  // Items of one row are centred on it, so a row is told by its middle, not its top.
+  const rows = () => place.evaluateAll((els) => els
+    .map((el) => { const { top, bottom } = el.getBoundingClientRect(); return (top + bottom) / 2; })
+    .sort((a, b) => a - b)
+    .filter((middle, i, all) => i === 0 || middle - all[i - 1] > 6).length);
+  const width = () => issueView(page).locator('.jira-meta').evaluate((el) => el.getBoundingClientRect().width);
+  await expect(place).toHaveCount(3);
+
+  for (const name of ['Collapse Jira panel', 'Collapse round panel']) {
+    const tab = page.getByRole('button', { name });
+    if (await tab.isVisible()) {
+      await tab.click();
+    }
+  }
+  await expect.poll(width).toBeGreaterThanOrEqual(576);
+  await expect.poll(rows).toBe(1);
+
+  await page.getByRole('button', { name: 'Open Jira panel' }).click();
+  await page.getByRole('button', { name: 'Open round panel' }).click();
+  await expect.poll(width).toBeLessThan(576);
+  await expect.poll(rows).toBe(3);
 });

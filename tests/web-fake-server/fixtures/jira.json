@@ -123,6 +123,7 @@
       "points": null,
       "sprintId": 102,
       "description": "",
+      "reporter": "fake-acc-2",
       "created": "2025-06-30T08:39:00.000Z",
       "updated": "2026-10-15T12:00:00.000Z"
     },

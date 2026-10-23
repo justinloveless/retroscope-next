@@ -99,6 +99,9 @@ test('the fields read at a glance: visible labels, the assignee’s initials, th
   await expect(updated).toHaveAttribute('datetime', '2026-10-13T09:30:00.000Z');
   await expect(updated).toHaveAttribute('title', /^Oct 13, 2026.*9:30\sAM$/);
   await expect(updated).toHaveText(new Date().getUTCFullYear() === 2026 ? 'Oct 13' : 'Oct 13, 2026');
+  // The short date is hidden from screen readers, which read the full date and time instead.
+  await expect(updated).toHaveAttribute('aria-hidden', 'true');
+  await expect(sheet.locator('.jira-meta-updated .sr-only')).toHaveText(/^Oct 13, 2026.*9:30\sAM$/);
 
   const parent = sheet.locator('.jira-meta-parent').getByRole('button');
   await expect(parent).toContainText('RS-1');
@@ -121,6 +124,7 @@ test('empty fields stay visible and say so in words', async ({ page, fake }) => 
   await expect(sheet.locator('.jira-meta-parent dd')).toHaveText('No parent');
   await expect(sheet.locator('.jira-meta-labels dd')).toHaveText('No labels');
   await expect(sheet.locator('.jira-meta-parent .is-unset, .jira-meta-labels .is-unset')).toHaveCount(2);
+  await expect(sheet.locator('.jira-meta-reporter dd')).toHaveText('Grace Fixture');
   // A past year's date keeps its year.
   await expect(sheet.locator('.jira-meta-created time')).toHaveText('Jun 30, 2025');
   await expect(sheet.locator('.jira-meta-created time')).toHaveAttribute('datetime', '2025-06-30T08:39:00.000Z');
@@ -144,13 +148,16 @@ test('a chip’s caret shows on hover, on focus and while its menu is open, and 
   await expect.poll(opacity).toBeGreaterThan(0.5);
   await page.mouse.move(0, 0);
   await expect.poll(opacity).toBe(0);
-  await chip.click();
-  await expect(page.getByRole('menuitem', { name: 'Highest' })).toBeVisible();
+  // Opened from the keyboard, so every engine has the chip as the menu's opener.
+  await chip.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('menuitem', { name: 'Highest' })).toBeFocused();
   await page.mouse.move(0, 0);
   await expect(chip).toHaveAttribute('aria-expanded', 'true');
   await expect.poll(opacity).toBeGreaterThan(0.5);
   await page.keyboard.press('Escape');
   await expect(chip).toHaveAttribute('aria-expanded', 'false');
+  await expect(chip).toBeFocused();
   // Tab from the chip before it; Safari's Tab skips buttons, and there focus after a key press is keyboard focus.
   if (browserName === 'webkit') {
     await chip.focus();
@@ -406,6 +413,8 @@ test('without edit rights the drawer is read-only', async ({ page, fake }) => {
   await expect(sheet.locator('span.jira-field-status')).toContainText('To Do');
   await expect(sheet.locator('.jira-meta-label')).toHaveText(['Status', 'Type', 'Priority', 'Assignee', 'Points', 'Parent', 'Sprint', 'Labels', 'Reporter', 'Created', 'Updated']);
   await expect(sheet.locator('.jira-chip-caret')).toHaveCount(0);
+  // Without a caret or an outline, a field that cannot be changed does not look like one that can.
+  await expect.poll(() => sheet.locator('span.jira-field-status').evaluate((el) => getComputedStyle(el).borderTopColor)).toBe('rgba(0, 0, 0, 0)');
   await expect(sheet.locator('.jira-meta-parent').getByRole('button')).toBeEnabled();
   await expect(sheet.getByRole('button', { name: 'Edit description' })).toHaveCount(0);
   await expect(sheet.getByRole('button', { name: 'Clone' })).toHaveCount(0);
