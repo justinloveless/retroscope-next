@@ -77,8 +77,8 @@
   margin-block: 0.75rem 0;
 }
 
-/* The prose sits in grid sections: without this a wide table would widen the whole description. */
-.jira-prose { min-width: 0; max-width: 100%; }
+/* The prose and the editor sit in grid sections: without this a wide table would widen the whole description. */
+:is(.jira-prose, .jira-description-editor) { min-width: 0; max-width: 100%; }
 
 :where(.jira-prose, .jira-description-editor) > :first-child,
 :where(.jira-prose) > .island:first-child > :first-child,
