@@ -394,6 +394,16 @@ async function styleEntries() {
   return names.sort().map((n) => `styles/${n}`);
 }
 
+// The inputs were scanned; this checks what ships, in case a plugin or esbuild itself ever put a sink back.
+export async function scanBuiltScripts(dir, files) {
+  for (const file of files.filter((f) => f.endsWith('.js'))) {
+    const found = findBannedSinks(await readFile(join(dir, file), 'utf8'));
+    if (found.length > 0) {
+      throw new Error(`banned DOM sink "${found[0].sink}" in the built ${relative(dir, join(dir, file))}`);
+    }
+  }
+}
+
 export async function buildWeb({ dist = join(root, 'dist'), budgetsFile = join(root, 'budgets.json'), log = console.log } = {}) {
   const { routes } = await import(pathToFileURL(join(root, 'src/routes.js')).href);
   const assetsDir = join(dist, 'assets');
@@ -434,13 +444,7 @@ export async function buildWeb({ dist = join(root, 'dist'), budgetsFile = join(r
   });
 
   const outputs = js.metafile.outputs;
-  // The inputs were scanned; this checks what ships, in case a plugin or esbuild itself ever put a sink back.
-  for (const file of Object.keys(outputs).filter((f) => f.endsWith('.js'))) {
-    const found = findBannedSinks(await readFile(join(root, file), 'utf8'));
-    if (found.length > 0) {
-      throw new Error(`banned DOM sink "${found[0].sink}" in the built ${relative(root, join(root, file))}`);
-    }
-  }
+  await scanBuiltScripts(root, Object.keys(outputs));
   const fromJs = Object.entries(outputs).filter(([file]) => file.endsWith('.css')).map(([file]) => file);
   if (fromJs.length > 0) {
     throw new Error(`stylesheets imported from scripts (${fromJs.join(', ')}); put them in web/styles and list them in ROUTE_STYLES`);
