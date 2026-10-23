@@ -6,7 +6,7 @@ import { baseKeymap, chainCommands, exitCode } from 'prosemirror-commands';
 import { dropCursor } from 'prosemirror-dropcursor';
 import { gapCursor } from 'prosemirror-gapcursor';
 import { history, redo, undo } from 'prosemirror-history';
-import { inputRules, textblockTypeInputRule, wrappingInputRule } from 'prosemirror-inputrules';
+import { undoInputRule } from 'prosemirror-inputrules';
 import { keymap } from 'prosemirror-keymap';
 import { EditorState, Plugin } from 'prosemirror-state';
 import { tableEditing } from 'prosemirror-tables';
@@ -15,6 +15,7 @@ import { adfToPm, canonicalAdf, pmToAdf } from './adf.js';
 import { blockMarkGuard } from './block-marks.js';
 import { clipboardHandlers } from './clipboard.js';
 import { arrowUpFromItem, clearFormatting, enter, indent, outdent, setHeading, stayInTable, toggle, toggleList } from './commands.js';
+import { autoformat } from './input-rules.js';
 import { schema } from './schema.js';
 import { tokenGuard } from './tokens.js';
 import { createToolbar } from './toolbar.js';
@@ -23,18 +24,6 @@ import { markViews, nodeViews } from './views.js';
 export { AdfError, adfToPm, canonicalAdf, pmToAdf } from './adf.js';
 
 const { nodes } = schema;
-
-function rules() {
-  return inputRules({
-    rules: [
-      textblockTypeInputRule(/^(#{1,6})\s$/, nodes.heading, (m) => ({ level: m[1].length })),
-      wrappingInputRule(/^\s*>\s$/, nodes.blockquote),
-      wrappingInputRule(/^\s*([-*])\s$/, nodes.bulletList),
-      wrappingInputRule(/^(\d+)[.)]\s$/, nodes.orderedList, (m) => ({ order: Number(m[1]) === 1 ? null : Number(m[1]) })),
-      textblockTypeInputRule(/^```$/, nodes.codeBlock),
-    ],
-  });
-}
 
 // Jira's bindings (adf-inventory §7.3) for what this phase offers.
 function keys(openLink) {
@@ -62,6 +51,7 @@ function keys(openLink) {
     'Shift-Mod-8': toggleList('bulletList'),
     'Mod-Alt-0': setHeading(0),
     Enter: enter,
+    Backspace: undoInputRule,
     Tab: chainCommands(indent, stayInTable),
     'Shift-Tab': chainCommands(outdent, stayInTable),
     ArrowUp: arrowUpFromItem,
@@ -136,7 +126,7 @@ export function createRichEditor({ host, edit, imageSrc, renderDoc, icon, label 
       doc,
       plugins: [
         selectionFlush,
-        rules(),
+        autoformat(),
         keys(() => toolbar?.openLink()),
         keymap(baseKeymap),
         history(),
