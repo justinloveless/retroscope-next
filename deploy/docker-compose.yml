@@ -34,6 +34,8 @@ services:
       TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:?}
       CLIENT_IP_HEADER: ${CLIENT_IP_HEADER:-}
       BLOB_BYTES_MAX: ${BLOB_BYTES_MAX:-2147483648}
+      # Optional retro timer track: a path inside the container, e.g. /music/track.mp3 (COOLIFY_SETUP §5.12).
+      MUSIC_FILE: ${MUSIC_FILE:-}
       DOTNET_GCHeapHardLimit: "0x8000000"
       DOTNET_gcServer: "0"
       DOTNET_gcConcurrent: "0"
@@ -48,6 +50,9 @@ services:
     stop_grace_period: 8s
     read_only: true
     tmpfs: ["/tmp:size=16m"]
+    # To play a timer track, uncomment this and set MUSIC_DIR to the VPS folder that holds the file.
+    # volumes:
+    #   - ${MUSIC_DIR:?}:/music:ro
     mem_limit: 200m
     cpus: 0.6
     restart: unless-stopped
