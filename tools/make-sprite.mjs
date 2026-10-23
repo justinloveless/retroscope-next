@@ -21,12 +21,12 @@ export const ICONS = [
   'circle-check', 'circle-check-big', 'circle-x', 'clipboard-list', 'clock', 'copy', 'corner-up-left',
   'credit-card', 'crosshair', 'crown', 'dot', 'download', 'ellipsis', 'external-link', 'eye', 'eye-off',
   'face-slightly-smiling', 'face-slightly-smiling-plus', 'folder-kanban', 'folder-open', 'funnel',
-  'gallery-horizontal-end', 'grip-vertical', 'hash', 'house', 'image', 'info', 'layers', 'layout-dashboard',
+  'gallery-horizontal-end', 'grip-vertical', 'hash', 'house', 'image', 'info', 'layers', 'layout-dashboard', 'lightbulb',
   'link', 'link-2', 'list-ordered', 'list-plus', 'loader-circle', 'lock', 'log-in', 'log-out', 'mail',
-  'maximize-2', 'menu', 'message-circle', 'message-square', 'moon', 'music', 'palette', 'panel-left', 'pause',
+  'maximize-2', 'menu', 'message-circle', 'message-square', 'moon', 'music', 'palette', 'panel-left', 'paperclip', 'pause',
   'pen', 'pencil', 'play', 'plus', 'power', 'power-off', 'refresh-cw', 'rotate-ccw', 'save', 'scan-search',
   'search', 'send', 'settings', 'settings-2', 'share-2', 'shield', 'shield-alert', 'spade', 'sparkles',
-  'spotlight', 'square-pen', 'star', 'sun', 'tag', 'thumbs-up', 'timer', 'trash', 'triangle-alert', 'trophy',
+  'split', 'spotlight', 'square-pen', 'star', 'sun', 'tag', 'thumbs-up', 'timer', 'trash', 'triangle-alert', 'trophy',
   'undo-2', 'upload', 'user', 'user-check', 'user-minus', 'user-plus', 'users', 'volume-x', 'vote', 'x', 'zap',
 ];
 

@@ -37,7 +37,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 Some Lucide icons come from the Feather project. Among those in the subset are `arrow-left`, `arrow-right`,
 `calendar`, `check`, `chevron-*`, `circle`, `clock`, `corner-up-left`, `crosshair`, `download`, `external-link`,
-`hash`, `info`, `link`, `link-2`, `lock`, `log-in`, `log-out`, `moon`, `music`, `plus`, `power`, `search`, `upload` and `x`:
+`hash`, `info`, `link`, `link-2`, `lock`, `log-in`, `log-out`, `moon`, `music`, `paperclip`, `plus`, `power`, `search`, `upload` and `x`:
 
 ```
 The MIT License (MIT)
