@@ -8,6 +8,7 @@ import { adfToPm, canonicalAdf, pmToAdf } from '../../../web/src/rich/adf.js';
 import {
   blockTypeOf,
   canOutdent,
+  canRelabel,
   clearFormatting,
   indent,
   insertRule,
@@ -223,6 +224,19 @@ test('Backspace at the start of a panel leaves it and the panel before it apart'
   const state = caret(open(loaded), 'second', false);
   baseKeymap.Backspace(state, () => assert.fail('nothing is joined'));
   assert.deepEqual(content(state), loaded.content);
+});
+
+test('a link over text holding a token or a break keeps them when the text to display changes', () => {
+  const token = { type: 'rsOpaqueInline', attrs: { ref: 'AAAAAAAAAAAAAAAA' } };
+  const loaded = doc({ type: 'paragraph', content: [{ type: 'text', text: 'see ' }, token, { type: 'hardBreak' }, { type: 'text', text: ' here' }] });
+  let state = open(loaded);
+  const from = find(state, 'see');
+  const to = find(state, 'here', true);
+  assert.equal(canRelabel(state, from, to), false);
+  state = exec(state, setLink({ href: 'https://example.com/', text: 'renamed', from, to }));
+  const kept = content(state)[0].content;
+  assert.deepEqual(kept.map((n) => n.type), ['text', 'rsOpaqueInline', 'hardBreak', 'text']);
+  assert.deepEqual(kept.filter((n) => n.type === 'text').map((n) => n.marks), [[{ type: 'link', attrs: { href: 'https://example.com/' } }], [{ type: 'link', attrs: { href: 'https://example.com/' } }]]);
 });
 
 test('undo and redo walk back to the loaded document and forward again', () => {
