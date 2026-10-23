@@ -176,7 +176,7 @@ test('quick sessions and teams without Jira get no Jira UI and no Jira requests'
   await expect(jiraEntry(page)).toHaveCount(0);
   await expect(page.locator('.nt-panel-left')).toBeHidden();
   await expect(submitBox(page)).toHaveCount(0);
-  // Jira API calls only: the poker route's jira.css stylesheet loads either way.
-  expect(fake.requests.filter((r) => r.path.startsWith('/api/') && r.path.includes('/jira'))).toEqual([]);
+  // No Jira call and no Jira chunk; only the poker route's jira.css stylesheet loads either way.
+  expect(fake.requests.filter((r) => r.path.includes('/jira') && !/^\/assets\/jira-[A-Z0-9]+\.css$/.test(r.path))).toEqual([]);
   expect(commands(fake, 'poker.jira.submitPoints')).toHaveLength(0);
 });
