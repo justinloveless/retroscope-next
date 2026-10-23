@@ -292,6 +292,10 @@ export function jiraFeature(ctx) {
         }
       }
       return browse;
+    }, (error) => {
+      // Forget the failed chunk so the next open retries it.
+      browseLoad = null;
+      throw error;
     });
     return browseLoad;
   }
@@ -327,7 +331,17 @@ export function jiraFeature(ctx) {
     if (!mobile()) {
       side?.setOpen(true, { focus: remember });
     }
-    const panel = await loadBrowse();
+    let panel;
+    try {
+      panel = await loadBrowse();
+    } catch {
+      if (panelOpen) {
+        panelOpen = false;
+        side?.setOpen(false);
+        toast('Could not load the Jira panel. Try again.', { variant: 'error' });
+      }
+      return;
+    }
     if (!panel || !panelOpen) {
       return;
     }
