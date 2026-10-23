@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { checkMarkup, parse } from '../../web/src/markup/parse.js';
+import { isAllowedDoc } from '../../web/src/markup/allow.js';
 import { render } from '../../web/src/markup/render.js';
 import {
   DIALECT_JIRA,
   DIALECT_JIRA_DESCRIPTION,
   DIALECT_RETRO,
   imageBlobIds,
-  isAllowedDoc,
   islandIds,
   mentionIds,
   toMarkup,
