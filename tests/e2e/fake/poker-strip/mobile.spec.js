@@ -36,6 +36,10 @@ test('on a phone the controls sit in a bottom bar with the history button', asyn
     await expect(rounds.getByRole('button', { name })).toBeInViewport({ ratio: 1 });
   }
   expect(await page.locator('.nt-toolbar').evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  // The name ellipsizes rather than overflowing, so check it is shown whole.
+  const name = rounds.locator('.nt-round-name');
+  await expect(name).toHaveText('Round 6 · ABC-6');
+  expect(await name.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 });
 
 test('widening the window moves the controls back to the toolbar', async ({ page, fake }) => {
