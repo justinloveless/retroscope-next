@@ -30,7 +30,7 @@ test('on a phone the controls sit in a bottom bar with the history button', asyn
   // Browse Jira joins the bar only for teams with Jira (poker-jira's specs open the sheet from it).
   await expect(bar(page).getByRole('button', { name: 'Browse Jira' })).toHaveCount(0);
 
-  // The round tools share the toolbar's first row with Back and still fit beside the round's name.
+  // On a phone the round arrows and tools get the toolbar's second row to themselves.
   const rounds = page.getByRole('navigation', { name: 'Rounds' });
   for (const name of ['Previous round', 'Next round', 'Next open round', 'New round']) {
     await expect(rounds.getByRole('button', { name })).toBeInViewport({ ratio: 1 });
