@@ -555,6 +555,22 @@ function createIssueView(ctx, host) {
     rich = null;
   }
 
+  // A stale answer means only that the issue changed. When its description is still the one the draft started from
+  // (the change was another field: a points submit, the drawer's own edits, someone else's), the draft moves onto
+  // the new version, as Jira itself would take it.
+  async function rebase(session) {
+    try {
+      const fresh = await http.get(`${base}/issues/${encodeURIComponent(session.key)}/description`);
+      if (fresh.editable === false || session.module.canonicalAdf(fresh.adf) !== session.module.canonicalAdf(session.edit.adf)) {
+        return false;
+      }
+      session.edit = { ...session.edit, updated: fresh.updated };
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function saveRich() {
     const session = rich;
     if (!session.editor.isDirty()) {
@@ -565,8 +581,17 @@ function createIssueView(ctx, host) {
     session.busy = true;
     session.status = null;
     paint();
+    const adf = session.editor.getAdf();
+    const send = () => http.patch(`${base}/issues/${encodeURIComponent(session.key)}`, { descriptionAdf: adf, descriptionBase: session.edit.updated });
     try {
-      await http.patch(`${base}/issues/${encodeURIComponent(session.key)}`, { descriptionAdf: session.editor.getAdf(), descriptionBase: session.edit.updated });
+      try {
+        await send();
+      } catch (error) {
+        if (error.code !== 'stale' || !(await rebase(session))) {
+          throw error;
+        }
+        await send();
+      }
     } catch (error) {
       session.busy = false;
       if (error.code === 'stale') {
