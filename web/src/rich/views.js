@@ -316,7 +316,8 @@ export function nodeViews(context) {
         return true;
       },
       stopEvent: (event) => head.contains(event.target),
-      ignoreMutation: (mutation) => head.contains(mutation.target),
+      // The open state lives on dom's class: ProseMirror would otherwise redraw the node to undo a collapse.
+      ignoreMutation: (mutation) => head.contains(mutation.target) || (mutation.type === 'attributes' && mutation.target === dom),
     };
   }
 
