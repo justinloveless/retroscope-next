@@ -74,7 +74,8 @@ const RULES = [
   [/^src\/Retroscope\.Server\/(Auth\/|Endpoints\/(Auth|Guest|Me)Endpoints)/, { integration: ['AuthCore'], fallback: true }],
   [/^src\/Retroscope\.Server\/Endpoints\/(Poker|Retro|Dashboard|Mentions|Templates|Endorsements)Endpoints/, { integration: ['RoomHttp'] }],
   [/^src\/Retroscope\.Server\/Endpoints\/(Teams|Invites)Endpoints/, { integration: ['TeamHttp'] }],
-  [/^src\/Retroscope\.Server\/Endpoints\/JiraEndpoints/, { integration: ['JiraHttp'] }],
+  // RouteInventoryTests (Hosting) holds every route to a policy and a rate limit.
+  [/^src\/Retroscope\.Server\/Endpoints\/JiraEndpoints/, { integration: ['JiraHttp', 'Hosting'] }],
   [/^src\/Retroscope\.Server\/Json\/JiraHttpJsonContext\.cs$/, { integration: ['JiraHttp'] }],
   [/^src\/Retroscope\.Server\/(Endpoints\/AdminEndpoints|Jobs\/(Retention|TeamPurge|TokenSweep)Job)/, { integration: ['Admin'] }],
   [/^src\/Retroscope\.Server\/Endpoints\/BlobEndpoints/, { integration: ['Blobs'] }],
@@ -98,6 +99,7 @@ const RULES = [
   [/^tests\/Retroscope\.Sim\//, { sim: SIM }],
   [/^tests\/Retroscope\.Core\.Tests\/(Poker\/ViewerModel|Retro\/RetroViewerModel)\.cs$/, { core: ['Poker', 'Retro'], sim: SIM }],
   [/^tests\/Retroscope\.Integration\.Tests\/JiraHttp\/(JiraHttpHost|JiraSocket)\.cs$/, { integration: ['JiraHttp'] }],
+  [/^tests\/Retroscope\.Core\.Tests\/Adf\/AdfGen\.cs$/, { core: ['Adf'] }],
   [/^tests\/Retroscope\.(Core|Integration|Importer)\.Tests\//, { fallback: true, testProject: true }],
   [/^tests\/Fakes\//, { integration: ['JiraClient', 'JiraHttp', 'Oidc', 'Email'] }],
   [/^tests\/fixtures\/markup\//, { core: ['Markup', 'Adf'], node: ['tests/web-unit/markup.test.js'] }],
