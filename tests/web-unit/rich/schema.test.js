@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { allowList } from '../../../web/src/rich/rules.js';
+import { allowList, contextMarks } from '../../../web/src/rich/rules.js';
 import { BLOCK_MARKS, STASH, childTypes, isComplete, schema } from '../../../web/src/rich/schema.js';
 
 const OWN_ATTRS = [STASH, 'adfShape'];
@@ -39,7 +39,7 @@ test('each node and mark carries exactly its allow-listed attributes plus the ed
       continue;
     }
     const expected = [...Object.keys(spec.attrs), ...OWN_ATTRS, 'blockMarks'];
-    if (spec.blockMarks?.includes('alignment')) {
+    if (['paragraph', 'heading'].includes(name)) {
       expected.push('align', 'indent');
     }
     assert.deepEqual(Object.keys(schema.nodes[name].spec.attrs).sort(), expected.sort(), name);

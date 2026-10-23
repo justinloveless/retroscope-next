@@ -81,3 +81,38 @@ test('typing beside tokens is unaffected by the guard', () => {
   const after = state.apply(state.tr.insertText('x', start));
   assert.equal(after.doc.child(1).textContent, 'xhello world');
 });
+
+test('a copy of a stashed block inserted before the original leaves the stash on the original', () => {
+  const state = open([
+    { type: 'paragraph', attrs: { rsKeep: R2 }, marks: [{ type: 'rsMark', attrs: { ref: R3 } }], content: [{ type: 'text', text: 'orig' }] },
+    { type: 'paragraph', content: [{ type: 'text', text: 'other' }] },
+  ]);
+  const original = state.doc.firstChild;
+  const after = state.apply(state.tr.insert(0, original.copy(original.content)));
+  const [copy, kept, other] = after.doc.content.content;
+  assert.equal(copy.textContent, 'orig');
+  assert.equal(copy.attrs.rsKeep, null);
+  assert.equal(copy.attrs.blockMarks, null);
+  assert.equal(kept.attrs.rsKeep, R2, 'the original keeps its stash');
+  assert.deepEqual(kept.attrs.blockMarks, [{ type: 'rsMark', attrs: { ref: R3 } }]);
+  assert.equal(other.attrs.rsKeep, null);
+});
+
+test('a copy inserted after the original leaves the stash on the original too', () => {
+  const state = open([{ type: 'paragraph', attrs: { rsKeep: R2 }, content: [{ type: 'text', text: 'orig' }] }]);
+  const original = state.doc.firstChild;
+  const after = state.apply(state.tr.insert(state.doc.content.size, original.copy(original.content)));
+  assert.deepEqual(after.doc.content.content.map((n) => n.attrs.rsKeep), [R2, null]);
+});
+
+test('a moved stashed block keeps its stash', () => {
+  const state = open([
+    { type: 'paragraph', content: [{ type: 'text', text: 'first' }] },
+    { type: 'paragraph', attrs: { rsKeep: R2 }, content: [{ type: 'text', text: 'moved' }] },
+  ]);
+  const moved = state.doc.child(1);
+  const tr = state.tr.delete(state.doc.child(0).nodeSize, state.doc.content.size);
+  tr.insert(0, moved);
+  const after = state.apply(tr);
+  assert.deepEqual(after.doc.content.content.map((n) => [n.textContent, n.attrs.rsKeep]), [['moved', R2], ['first', null]]);
+});

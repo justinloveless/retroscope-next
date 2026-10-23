@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EditorState, TextSelection } from 'prosemirror-state';
 import { adfToPm, nodeToAdf, pmToAdf } from '../../../web/src/rich/adf.js';
-import { parseClipboard, plainTextSlice, serializeSlice } from '../../../web/src/rich/clipboard.js';
+import { CLIPBOARD_TYPE, clipboardHandlers, parseClipboard, plainTextSlice, serializeSlice } from '../../../web/src/rich/clipboard.js';
+import { PASTE_LIMITS } from '../../../web/src/rich/adf.js';
 import { tokenRefs } from './_project.js';
 
 const R1 = 'AAAAAAAAAAAAAAAA';
@@ -111,8 +112,40 @@ test('a copy from the editor pastes back the same content, without its tokens', 
 });
 
 test('garbage and oversized payloads paste nothing', () => {
-  for (const text of ['', 'not json', '[]', '{"rsClip":2,"content":[]}', '{"rsClip":1,"content":{}}', payload([]), 'x'.repeat(1024 * 1024 + 1)]) {
+  for (const text of ['', 'not json', '[]', '{"rsClip":2,"content":[]}', '{"rsClip":1,"content":{}}', payload([])]) {
     assert.equal(parseClipboard(text, session()), null, text.slice(0, 30));
+  }
+  const text = (n) => payload([{ type: 'paragraph', content: [{ type: 'text', text: 'x'.repeat(n) }] }]);
+  const fits = 1024 * 1024 - text(0).length;
+  assert.ok(parseClipboard(text(fits), session()), 'a payload of exactly 1 MiB pastes');
+  assert.equal(parseClipboard(text(fits + 1), session()), null, 'one character more pastes nothing');
+});
+
+test('a payload over the paste node cap pastes nothing', () => {
+  const paragraphs = (n) => payload(Array.from({ length: n }, () => ({ type: 'paragraph' })));
+  assert.ok(parseClipboard(paragraphs(PASTE_LIMITS.nodes), session()));
+  assert.equal(parseClipboard(paragraphs(PASTE_LIMITS.nodes + 1), session()), null);
+});
+
+test('a pasted text keeps one mark of each type', () => {
+  const link = (href) => ({ type: 'link', attrs: { href } });
+  const slice = parseClipboard(payload([{ type: 'paragraph', content: [
+    { type: 'text', text: 'x', marks: [link('https://a.example'), link('https://b.example'), { type: 'strong' }, { type: 'strong' }] },
+  ] }]), session());
+  const [paragraph] = adfOf(slice);
+  assert.deepEqual(paragraph.content[0].marks, [{ type: 'strong' }, link('https://a.example')]);
+  assert.doesNotThrow(() => adfToPm({ type: 'doc', version: 1, content: [paragraph] }), 'the strict reader accepts what a paste made');
+});
+
+test('a name inherited from Object.prototype drops only its own mark or attribute', () => {
+  for (const name of ['constructor', '__proto__', 'toString']) {
+    const text = `{"rsClip":1,"content":[{"type":"paragraph","attrs":{${JSON.stringify(name)}:1},"content":[{"type":"text","text":"a","marks":[{"type":${JSON.stringify(name)}}]}]},{"type":"paragraph","content":[{"type":"text","text":"b"}]}]}`;
+    const slice = parseClipboard(text, session());
+    assert.ok(slice, name);
+    assert.deepEqual(adfOf(slice), [
+      { type: 'paragraph', content: [{ type: 'text', text: 'a' }] },
+      { type: 'paragraph', content: [{ type: 'text', text: 'b' }] },
+    ], name);
   }
 });
 
@@ -136,4 +169,97 @@ test('plain text becomes paragraphs, or raw text in code', () => {
   const code = plainTextSlice('x\ny', true);
   assert.equal(code.content.firstChild.text, 'x\ny');
   assert.equal(plainTextSlice('', false), null);
+});
+
+// A stand-in for the EditorView: the handlers only read the state, dispatch and the drag in progress.
+function fakeView(content, from, to) {
+  const doc = adfToPm({ type: 'doc', version: 1, content });
+  const view = {
+    state: EditorState.create({ doc, selection: TextSelection.create(doc, from, to ?? from) }),
+    dragging: null,
+    dispatch(tr) {
+      view.state = view.state.apply(tr);
+    },
+  };
+  return view;
+}
+
+function fakeEvent(type, data = {}) {
+  const store = new Map(Object.entries(data));
+  const set = [];
+  return {
+    type,
+    prevented: false,
+    set,
+    preventDefault() {
+      this.prevented = true;
+    },
+    clipboardData: {
+      clearData: () => store.clear(),
+      setData: (key, value) => {
+        set.push(key);
+        store.set(key, value);
+      },
+      getData: (key) => store.get(key) ?? '',
+    },
+    store,
+  };
+}
+
+const para = (text) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+
+test('copy and cut write plain text and the private type only, and cut deletes', () => {
+  const handlers = clipboardHandlers(session());
+  for (const type of ['copy', 'cut']) {
+    const view = fakeView([para('hello'), { type: 'rsOpaque', attrs: { ref: R1 } }, para('world')], 1, 6);
+    const event = fakeEvent(type, { 'text/html': '<b>stale</b>' });
+    assert.equal(handlers[type](view, event), true);
+    assert.ok(event.prevented);
+    assert.deepEqual(event.set.sort(), [CLIPBOARD_TYPE, 'text/plain'].sort());
+    assert.equal(event.store.has('text/html'), false, 'nothing else stays on the clipboard');
+    assert.equal(event.store.get('text/plain'), 'hello');
+    assert.equal(JSON.parse(event.store.get(CLIPBOARD_TYPE)).rsClip, 1);
+    assert.equal(view.state.doc.firstChild.textContent, type === 'cut' ? '' : 'hello');
+  }
+});
+
+test('an empty selection leaves the copy to the browser', () => {
+  const view = fakeView([para('hello')], 2);
+  const event = fakeEvent('copy');
+  assert.equal(clipboardHandlers(session()).copy(view, event), false);
+  assert.equal(event.prevented, false);
+});
+
+test('a paste reads the private type, and plain text when it is hostile or absent', () => {
+  const { paste } = clipboardHandlers(session());
+  let view = fakeView([para('ab')], 2);
+  paste(view, fakeEvent('paste', { [CLIPBOARD_TYPE]: payload([para('X')], 1, 1), 'text/plain': 'plain' }));
+  assert.equal(view.state.doc.textContent, 'aXb');
+
+  view = fakeView([para('ab')], 2);
+  const hostile = payload([{ type: 'extension', attrs: { extensionKey: 'x', extensionType: 'y' } }]);
+  const event = fakeEvent('paste', { [CLIPBOARD_TYPE]: hostile, 'text/plain': 'plain', 'text/html': '<img src=x onerror=alert(1)>' });
+  assert.equal(paste(view, event), true);
+  assert.ok(event.prevented);
+  assert.equal(view.state.doc.textContent, 'aplainb');
+});
+
+test('a paste into a code block takes plain text, never the private type', () => {
+  const { paste } = clipboardHandlers(session());
+  const view = fakeView([{ type: 'codeBlock', content: [{ type: 'text', text: 'ab' }] }], 2);
+  paste(view, fakeEvent('paste', { [CLIPBOARD_TYPE]: payload([para('X')], 1, 1), 'text/plain': 'one\ntwo' }));
+  assert.equal(view.state.doc.firstChild.type.name, 'codeBlock');
+  assert.equal(view.state.doc.firstChild.textContent, 'aone\ntwob');
+});
+
+test('a drop from outside the editor is refused; a drag inside passes to ProseMirror', () => {
+  const { drop } = clipboardHandlers(session());
+  const view = fakeView([para('ab')], 1);
+  const outside = fakeEvent('drop');
+  assert.equal(drop(view, outside), true);
+  assert.ok(outside.prevented);
+  view.dragging = { slice: view.state.doc.slice(1, 2), move: true };
+  const inside = fakeEvent('drop');
+  assert.equal(drop(view, inside), false);
+  assert.equal(inside.prevented, false);
 });
