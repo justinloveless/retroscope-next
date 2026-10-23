@@ -1,7 +1,7 @@
 // The server's tokens stand for content the editor cannot read, and the save restores each from the issue as Jira
 // holds it. A second copy of a token would be a second copy of that content, which the server refuses
 // (opaque_duplicated). So no transaction may raise a token's count above what the document opened with, and an
-// attribute stash or node mark that a split copied stays on the first node only.
+// attribute stash or node mark that a split or a copy repeated stays on the node that held it before.
 
 import { Plugin } from 'prosemirror-state';
 import { STASH, TOKEN_MARK, TOKEN_NODES } from './schema.js';
@@ -44,40 +44,74 @@ function withinBase(doc, base) {
   return true;
 }
 
-// Keeps the first node that carries a given stash or node-mark ref and clears it from the copies.
-function dropCopies(state) {
-  const seen = new Set();
-  let tr = null;
-  state.doc.descendants((node, pos) => {
-    if (node.isText) {
-      return true;
+// The stash and node-mark refs a node carries, as keys.
+function refKeys(node) {
+  const keys = [];
+  if (node.isText) {
+    return keys;
+  }
+  if (node.attrs[STASH] != null) {
+    keys.push(`k:${node.attrs[STASH]}`);
+  }
+  for (const m of node.attrs.blockMarks ?? []) {
+    if (m.type === TOKEN_MARK) {
+      keys.push(`m:${m.attrs.ref}`);
     }
-    const attrs = {};
-    const stash = node.attrs[STASH];
-    if (stash != null) {
-      if (seen.has(`k:${stash}`)) {
-        attrs[STASH] = null;
+  }
+  return keys;
+}
+
+// Where each ref sat before `trs`, mapped into the new document; null when that node was deleted (a move).
+function owners(old, trs) {
+  const at = new Map();
+  old.descendants((node, pos) => {
+    for (const key of refKeys(node)) {
+      let mapped = pos;
+      for (const tr of trs) {
+        const result = mapped === null ? null : tr.mapping.mapResult(mapped, 1);
+        mapped = result && !result.deletedAfter ? result.pos : null;
       }
-      seen.add(`k:${stash}`);
-    }
-    const marks = node.attrs.blockMarks;
-    if (marks?.some((m) => m.type === TOKEN_MARK)) {
-      const kept = marks.filter((m) => m.type !== TOKEN_MARK || !seen.has(`m:${m.attrs.ref}`));
-      for (const m of marks) {
-        if (m.type === TOKEN_MARK) {
-          seen.add(`m:${m.attrs.ref}`);
-        }
-      }
-      if (kept.length !== marks.length) {
-        attrs.blockMarks = kept.length > 0 ? kept : null;
-      }
-    }
-    if (Object.keys(attrs).length > 0) {
-      tr ??= state.tr;
-      tr.setNodeMarkup(pos, undefined, { ...node.attrs, ...attrs }, node.marks);
+      at.set(key, mapped);
     }
     return true;
   });
+  return at;
+}
+
+// A ref carried by several nodes stays on the one that held it before (mapped forward: a copy inserted before the
+// original does not take it), or on the first when that node is gone, and is cleared from the others.
+function dropCopies(old, trs, state) {
+  const carriers = new Map();
+  state.doc.descendants((node, pos) => {
+    for (const key of refKeys(node)) {
+      carriers.set(key, [...(carriers.get(key) ?? []), pos]);
+    }
+    return true;
+  });
+  const before = owners(old, trs);
+  const clear = new Map();
+  for (const [key, positions] of carriers) {
+    if (positions.length > 1) {
+      const owner = positions.includes(before.get(key)) ? before.get(key) : positions[0];
+      for (const pos of positions.filter((p) => p !== owner)) {
+        clear.set(pos, [...(clear.get(pos) ?? []), key]);
+      }
+    }
+  }
+  if (clear.size === 0) {
+    return null;
+  }
+  const tr = state.tr;
+  for (const [pos, keys] of clear) {
+    const node = state.doc.nodeAt(pos);
+    const attrs = { ...node.attrs };
+    if (keys.includes(`k:${attrs[STASH]}`)) {
+      attrs[STASH] = null;
+    }
+    const kept = (attrs.blockMarks ?? []).filter((m) => m.type !== TOKEN_MARK || !keys.includes(`m:${m.attrs.ref}`));
+    attrs.blockMarks = kept.length > 0 ? kept : null;
+    tr.setNodeMarkup(pos, undefined, attrs, node.marks);
+  }
   return tr;
 }
 
@@ -88,8 +122,8 @@ export function tokenGuard(base) {
     filterTransaction(tr) {
       return !tr.docChanged || !mayAddTokens(tr) || withinBase(tr.doc, counts);
     },
-    appendTransaction(trs, _old, state) {
-      return trs.some((tr) => tr.docChanged && mayAddTokens(tr)) ? dropCopies(state) : null;
+    appendTransaction(trs, old, state) {
+      return trs.some((tr) => tr.docChanged && mayAddTokens(tr)) ? dropCopies(old.doc, trs, state) : null;
     },
   });
 }
