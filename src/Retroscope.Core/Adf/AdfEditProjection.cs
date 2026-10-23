@@ -94,6 +94,9 @@ internal sealed class AdfBase {
 
         /// <summary>"text", or the type of the node the mark sat on.</summary>
         public HashSet<string> On { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>Jira's copy had it beside another mark of its kind, or another block mark, which a save may keep.</summary>
+        public bool Shared { get; set; }
     }
 
     public sealed class KeepEntry(IReadOnlyList<KeyValuePair<string, string>> members) {
@@ -589,6 +592,8 @@ public static class AdfEditProjection {
 
         private void Marks(Utf8JsonWriter json, Node node) {
             json.WriteStartArray("marks");
+            var kinds = node.Marks!.Select(mark => AdfJson.Type(mark.Source)).ToList();
+            var blocks = kinds.Count(kind => AdfSchema.Mark(kind) is { Block: true });
             foreach (var mark in node.Marks!) {
                 if (!mark.Opaque) {
                     mark.Source.WriteTo(json);
@@ -601,6 +606,8 @@ public static class AdfEditProjection {
                 }
                 entry.Raws.Add(mark.Source.GetRawText());
                 entry.On.Add(node.Type == "text" ? "text" : node.Type);
+                var kind = AdfJson.Type(mark.Source);
+                entry.Shared |= kinds.Count(other => other == kind) > 1 || (blocks > 1 && AdfSchema.Mark(kind) is { Block: true });
                 WriteToken(json, AdfSchema.OpaqueMark, id);
             }
             json.WriteEndArray();

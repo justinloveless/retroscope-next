@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 
@@ -88,6 +89,8 @@ public static class AdfWrite {
         private readonly Dictionary<string, int> _markUsed = new(StringComparer.Ordinal);
         private readonly HashSet<string> _itemIds = new(StringComparer.Ordinal);
         private readonly HashSet<string> _missing = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _irregularClaimed = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _rawDepths = new(StringComparer.Ordinal);
         private Utf8JsonWriter? _json;
         private int _nodes;
         private int _text;
@@ -122,11 +125,13 @@ public static class AdfWrite {
             using (document) {
                 // Only what JSON itself needs is escaped, so text costs Jira's size cap what it costs in the base.
                 _json = new Utf8JsonWriter(_buffer, new JsonWriterOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
-                Root(document.RootElement);
-                Json.Flush();
-                if (_nodes > _limits.Nodes) {
-                    Error(AdfWriteCodes.TooManyNodes);
+                try {
+                    Root(document.RootElement);
+                } catch (CapExceeded) {
+                    // Tokens and stashes expand to their originals, so a small save can name far more than the caps.
+                    return null;
                 }
+                Json.Flush();
                 if (_text > _limits.Text) {
                     Error(AdfWriteCodes.TooLong);
                 }
@@ -173,7 +178,10 @@ public static class AdfWrite {
         }
 
         private void Node(JsonElement node, AdfContext context, int depth) {
-            _nodes++;
+            if (++_nodes > _limits.Nodes) {
+                Error(AdfWriteCodes.TooManyNodes);
+                throw new CapExceeded();
+            }
             if (depth > _limits.Depth) {
                 if (!_tooDeep) {
                     _tooDeep = true;
@@ -264,7 +272,7 @@ public static class AdfWrite {
                 || !(context.Types.Contains(entry.Kind) || entry.Contexts.Contains(context.Name))) {
                 Error(AdfWriteCodes.OpaqueMisplaced);
             }
-            Json.WriteRawValue(entry.Raws[Math.Min(used, entry.Raws.Count - 1)], skipInputValidation: true);
+            WriteRaw(entry.Raws[Math.Min(used, entry.Raws.Count - 1)]);
         }
 
         private Dictionary<string, JsonElement> Attrs(JsonElement node, AdfNodeSpec spec) {
@@ -365,11 +373,14 @@ public static class AdfWrite {
                     }
                 }
             } else if (upload is not null) {
-                written["type"] = typeValue;
                 Json.WriteString("type", "file");
                 Json.WriteString("id", id);
                 Json.WriteString("collection", "");
                 Json.WriteString("alt", upload.Name);
+                written["type"] = typeValue;
+                foreach (var name in (ReadOnlySpan<string>)["id", "collection", "alt"]) {
+                    written[name] = default;
+                }
             }
             foreach (var name in (ReadOnlySpan<string>)["width", "height", "localId"]) {
                 if (!attrs.TryGetProperty(name, out var value)) {
@@ -418,6 +429,7 @@ public static class AdfWrite {
             }
             if (display is not null) {
                 Json.WriteString("text", "@" + display);
+                written["text"] = default;
             }
         }
 
@@ -441,7 +453,7 @@ public static class AdfWrite {
             foreach (var (name, raw) in entry.Members) {
                 if (!written.ContainsKey(name)) {
                     Json.WritePropertyName(name);
-                    Json.WriteRawValue(raw, skipInputValidation: true);
+                    WriteRaw(raw);
                 }
             }
         }
@@ -482,7 +494,9 @@ public static class AdfWrite {
                     break;
                 case "table":
                     var grid = AdfTableGrid.Check(content.EnumerateArray().Select(row => AdfJson.Children(row).Select(Spans)));
-                    var grandfathered = attrs.TryGetValue("localId", out var localId) && _base.IrregularTables.Contains(localId.GetString()!);
+                    // Each ragged table Jira wrote may stay ragged, once: a localId cannot excuse a second table.
+                    var grandfathered = attrs.TryGetValue("localId", out var localId) && _base.IrregularTables.Contains(localId.GetString()!)
+                        && _irregularClaimed.Add(localId.GetString()!);
                     if (grid != true && !grandfathered) {
                         At("content", AdfWriteCodes.TableShape);
                     }
@@ -512,6 +526,8 @@ public static class AdfWrite {
                 _ => AdfSchema.Node(type)!.Marks.ToHashSet(StringComparer.Ordinal),
             };
             var seen = new HashSet<string>(StringComparer.Ordinal);
+            var tokenKinds = new HashSet<string>(StringComparer.Ordinal);
+            var tokenRefs = new HashSet<string>(StringComparer.Ordinal);
             var blockMarks = 0;
             Json.WriteStartArray("marks");
             var index = 0;
@@ -519,10 +535,18 @@ public static class AdfWrite {
                 _path.Add(index++.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 var markType = AdfJson.Type(mark);
                 if (markType == AdfSchema.OpaqueMark) {
-                    MarkToken(mark, type, context);
+                    // A token counts as a mark of its kind (never twice the same, never beside a client mark of its kind)
+                    // unless Jira's copy itself had it beside one.
+                    var token = MarkToken(mark, type, context);
+                    if (token is { Shared: false } entry && (!tokenRefs.Add(entry.Ref) || seen.Contains(entry.Kind))) {
+                        Error(AdfWriteCodes.InvalidMark);
+                    } else if (token is { Shared: false } placed) {
+                        tokenKinds.Add(placed.Kind);
+                        blockMarks += AdfSchema.Mark(placed.Kind) is { Block: true } ? 1 : 0;
+                    }
                 } else if (markType is not null && AdfSchema.IsReserved(markType)) {
                     Error(AdfWriteCodes.ReservedName);
-                } else if (AdfSchema.Mark(markType) is not { } spec || !allowed.Contains(markType!) || !seen.Add(markType!)) {
+                } else if (AdfSchema.Mark(markType) is not { } spec || !allowed.Contains(markType!) || tokenKinds.Contains(markType!) || !seen.Add(markType!)) {
                     Error(AdfWriteCodes.InvalidMark);
                 } else {
                     blockMarks += spec.Block ? 1 : 0;
@@ -573,14 +597,14 @@ public static class AdfWrite {
             Json.WriteEndObject();
         }
 
-        private void MarkToken(JsonElement mark, string type, AdfContext context) {
+        private (string Ref, string Kind, bool Shared)? MarkToken(JsonElement mark, string type, AdfContext context) {
             if (!TokenRef(mark, out var id)) {
                 Error(AdfWriteCodes.ReservedName);
-                return;
+                return null;
             }
             if (!_base.Marks.TryGetValue(id, out var entry)) {
                 Miss(id);
-                return;
+                return null;
             }
             var placed = type == "text" ? entry.On.Contains("text") && context.Name != "codeBlock" : entry.On.Contains(type);
             if (!placed) {
@@ -588,7 +612,33 @@ public static class AdfWrite {
             }
             var used = _markUsed.GetValueOrDefault(id);
             _markUsed[id] = used + 1;
-            Json.WriteRawValue(entry.Raws[Math.Min(used, entry.Raws.Count - 1)], skipInputValidation: true);
+            WriteRaw(entry.Raws[Math.Min(used, entry.Raws.Count - 1)]);
+            return (id, entry.Kind, entry.Shared);
+        }
+
+        // An original from the base, held to the caps before it is written: it may be far larger than its token.
+        private void WriteRaw(string raw) {
+            if (Json.BytesCommitted + Json.BytesPending + raw.Length > _limits.Bytes) {
+                Error(AdfWriteCodes.TooLarge);
+                throw new CapExceeded();
+            }
+            if (Json.CurrentDepth + RawDepth(raw) > AdfSchema.MaxJsonDepth) {
+                Error(AdfWriteCodes.TooDeep);
+                Json.WriteNullValue();
+                return;
+            }
+            Json.WriteRawValue(raw, skipInputValidation: true);
+        }
+
+        private int RawDepth(string raw) {
+            if (!_rawDepths.TryGetValue(raw, out var depth)) {
+                var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(raw), new JsonReaderOptions { MaxDepth = 1024 });
+                while (reader.Read()) {
+                    depth = Math.Max(depth, reader.CurrentDepth + (reader.TokenType is JsonTokenType.StartObject or JsonTokenType.StartArray ? 1 : 0));
+                }
+                _rawDepths[raw] = depth;
+            }
+            return depth;
         }
 
         // {"type": rs…, "attrs": {"ref": "…"}} and nothing else.
@@ -647,8 +697,9 @@ public static class AdfWrite {
             Json.WriteNullValue();
         }
 
+        // A member the allow-list does not know is the client's own text, so the path names it only as "?".
         private void At(string member, string code) {
-            _path.Add(member);
+            _path.Add(AdfSchema.MemberNames.Contains(member) ? member : "?");
             Error(code);
             _path.RemoveAt(_path.Count - 1);
         }
@@ -659,4 +710,6 @@ public static class AdfWrite {
             }
         }
     }
+
+    private sealed class CapExceeded : Exception;
 }

@@ -107,7 +107,18 @@ internal static partial class AdfSchema {
     public const string Keep = "rsKeep";
     public const string Ref = "ref";
 
-    public const int MaxDepth = AdfToDoc.MaxDepth;
+    /// <summary>
+    /// The deepest ADF level the editor edits; deeper nodes become tokens. A PATCH body holds the description two JSON
+    /// levels down, each ADF level adds two (node, content array) and a text node's link mark four more (marks, mark,
+    /// attrs); ASP.NET binds at most 64, so even a node one past the cap must stay within that.
+    /// </summary>
+    public const int MaxDepth = 28;
+
+    /// <summary>
+    /// The JSON nesting a written description may reach, its doc object counting 1: Jira's issue JSON holds it two
+    /// levels down and the server reads issues at the default 64, so a save past this could never be read back.
+    /// </summary>
+    public const int MaxJsonDepth = 62;
     public const int MaxNodes = AdfToDoc.MaxNodes;
     public const int MaxText = Markup.MarkupLimits.JiraTextLength;
     public const int MaxBytes = 1024 * 1024;
@@ -124,6 +135,12 @@ internal static partial class AdfSchema {
     public static FrozenDictionary<string, AdfNodeSpec> Nodes { get; } = BuildNodes();
 
     public static FrozenDictionary<string, AdfMarkSpec> Marks { get; } = BuildMarks();
+
+    /// <summary>Every member name the allow-list knows: what an error path may name.</summary>
+    public static FrozenSet<string> MemberNames { get; } = Nodes.Values.SelectMany(node => node.Attrs.Select(attr => attr.Name))
+        .Concat(Marks.Values.SelectMany(mark => mark.Attrs.Select(attr => attr.Name)))
+        .Concat(["type", "version", "attrs", "content", "marks", "text", Keep, Ref])
+        .ToFrozenSet(StringComparer.Ordinal);
 
     /// <summary>Marks a formatted text node may carry.</summary>
     public static FrozenSet<string> TextMarks { get; } =
