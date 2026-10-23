@@ -8,7 +8,7 @@
 
 export const EMPTY_DOC = Object.freeze({ type: 'doc', version: 1, content: [] });
 
-export const EDIT_LIMITS = Object.freeze({ nodes: 5000, depth: 32, text: 32000, bytes: 1048576 });
+export const EDIT_LIMITS = Object.freeze({ nodes: 5000, depth: 28, text: 32000, bytes: 1048576 });
 
 const STYLE_MARKS = { b: 'strong', i: 'em', s: 'strike', u: 'underline' };
 const MARK_STYLES = { strong: 'b', em: 'i', strike: 's', underline: 'u' };
