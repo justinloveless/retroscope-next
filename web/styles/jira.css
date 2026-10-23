@@ -1,0 +1,375 @@
+/* Jira issue descriptions, islands and comments (UX8; web/src/markup/jira.js builds the classes). The colours are
+   the Atlassian design tokens Jira itself renders ADF with (@atlaskit/tokens 20.7.0, atlassian-light and
+   atlassian-dark), so palette text, highlights, panels and lozenges match Jira in both themes. --jc-* are the
+   editor palette (Core/Adf/AdfColor names); --jp-* are the panel and lozenge roles. */
+
+:root,
+:root[data-theme="light"] {
+  --jc-gray-subtlest: #f0f1f2; --jc-gray-subtler: #dddee1; --jc-gray-subtle: #8c8f97; --jc-gray-bold: #7d818a; --jc-gray-bolder: #505258;
+  --jc-blue-subtlest: #e9f2fe; --jc-blue-subtler: #cfe1fd; --jc-blue-subtle: #669df1; --jc-blue-bold: #357de8; --jc-blue-bolder: #1558bc;
+  --jc-teal-subtlest: #e7f9ff; --jc-teal-subtler: #c6edfb; --jc-teal-subtle: #6cc3e0; --jc-teal-bold: #2898bd; --jc-teal-bolder: #206a83;
+  --jc-green-subtlest: #dcfff1; --jc-green-subtler: #baf3db; --jc-green-subtle: #4bce97; --jc-green-bold: #22a06b; --jc-green-bolder: #216e4e;
+  --jc-lime-subtlest: #efffd6; --jc-lime-subtler: #d3f1a7; --jc-lime-subtle: #94c748; --jc-lime-bold: #6a9a23; --jc-lime-bolder: #4c6b1f;
+  --jc-yellow-subtlest: #fef7c8; --jc-yellow-subtler: #f5e989; --jc-yellow-subtle: #eed12b; --jc-yellow-bold: #b38600; --jc-yellow-bolder: #7f5f01;
+  --jc-orange-subtlest: #fff5db; --jc-orange-subtler: #fce4a6; --jc-orange-subtle: #fca700; --jc-orange-bold: #e06c00; --jc-orange-bolder: #9e4c00;
+  --jc-red-subtlest: #ffeceb; --jc-red-subtler: #ffd5d2; --jc-red-subtle: #f87168; --jc-red-bold: #c9372c; --jc-red-bolder: #ae2e24;
+  --jc-magenta-subtlest: #ffecf8; --jc-magenta-subtler: #fdd0ec; --jc-magenta-subtle: #e774bb; --jc-magenta-bold: #cd519d; --jc-magenta-bolder: #943d73;
+  --jc-purple-subtlest: #f8eefe; --jc-purple-subtler: #eed7fc; --jc-purple-subtle: #c97cf4; --jc-purple-bold: #af59e1; --jc-purple-bolder: #803fa5;
+  --jc-text: #292a2e; --jc-inverse: #ffffff; --jc-surface: #ffffff;
+
+  --jp-info-bg: #e9f2fe; --jp-info-icon: #357de8; --jp-info-text: #1558bc; --jp-info-bold: #1868db;
+  --jp-note-bg: #f8eefe; --jp-note-icon: #af59e1; --jp-note-text: #803fa5; --jp-note-bold: #964ac0;
+  --jp-success-bg: #efffd6; --jp-success-icon: #6a9a23; --jp-success-text: #4c6b1f; --jp-success-bold: #5b7f24;
+  --jp-warning-bg: #fff5db; --jp-warning-icon: #e06c00; --jp-warning-text: #9e4c00; --jp-warning-bold: #fbc828; --jp-warning-on-bold: #292a2e;
+  --jp-error-bg: #ffeceb; --jp-error-icon: #c9372c; --jp-error-text: #ae2e24; --jp-error-bold: #c9372c;
+  --jp-neutral-bg: #0515240f; --jp-neutral-text: #505258; --jp-neutral-bold: #292a2e; --jp-on-bold: #ffffff;
+  --jp-border: #0b120e24; --jp-subtle: #6b6e76; --jp-link: #1868db; --jp-code-bg: #0515240f;
+}
+
+:root[data-theme="dark"] {
+  --jc-gray-subtlest: #303134; --jc-gray-subtler: #4b4d51; --jc-gray-subtle: #63666b; --jc-gray-bold: #7e8188; --jc-gray-bolder: #a9abaf;
+  --jc-blue-subtlest: #1c2b42; --jc-blue-subtler: #123263; --jc-blue-subtle: #1558bc; --jc-blue-bold: #4688ec; --jc-blue-bolder: #8fb8f6;
+  --jc-teal-subtlest: #1e3137; --jc-teal-subtler: #164555; --jc-teal-subtle: #206a83; --jc-teal-bold: #42b2d7; --jc-teal-bolder: #9dd9ee;
+  --jc-green-subtlest: #1c3329; --jc-green-subtler: #164b35; --jc-green-subtle: #216e4e; --jc-green-bold: #2abb7f; --jc-green-bolder: #7ee2b8;
+  --jc-lime-subtlest: #28311b; --jc-lime-subtler: #37471f; --jc-lime-subtle: #4c6b1f; --jc-lime-bold: #82b536; --jc-lime-bolder: #b3df72;
+  --jc-yellow-subtlest: #332e1b; --jc-yellow-subtler: #533f04; --jc-yellow-subtle: #7f5f01; --jc-yellow-bold: #eed12b; --jc-yellow-bolder: #eed12b;
+  --jc-orange-subtlest: #3a2c1f; --jc-orange-subtler: #693200; --jc-orange-subtle: #9e4c00; --jc-orange-bold: #f68909; --jc-orange-bolder: #fbc828;
+  --jc-red-subtlest: #42221f; --jc-red-subtler: #5d1f1a; --jc-red-subtle: #ae2e24; --jc-red-bold: #e2483d; --jc-red-bolder: #fd9891;
+  --jc-magenta-subtlest: #3d2232; --jc-magenta-subtler: #50253f; --jc-magenta-subtle: #943d73; --jc-magenta-bold: #da62ac; --jc-magenta-bolder: #f797d2;
+  --jc-purple-subtlest: #35243f; --jc-purple-subtler: #48245d; --jc-purple-subtle: #803fa5; --jc-purple-bold: #bf63f3; --jc-purple-bolder: #d8a0f7;
+  --jc-text: #cecfd2; --jc-inverse: #1f1f21; --jc-surface: #1f1f21;
+
+  --jp-info-bg: #1c2b42; --jp-info-icon: #4688ec; --jp-info-text: #8fb8f6; --jp-info-bold: #669df1;
+  --jp-note-bg: #35243f; --jp-note-icon: #bf63f3; --jp-note-text: #d8a0f7; --jp-note-bold: #c97cf4;
+  --jp-success-bg: #28311b; --jp-success-icon: #82b536; --jp-success-text: #b3df72; --jp-success-bold: #94c748;
+  --jp-warning-bg: #3a2c1f; --jp-warning-icon: #fbc828; --jp-warning-text: #fbc828; --jp-warning-bold: #fbc828; --jp-warning-on-bold: #1f1f21;
+  --jp-error-bg: #42221f; --jp-error-icon: #f15b50; --jp-error-text: #fd9891; --jp-error-bold: #f87168;
+  --jp-neutral-bg: #ceced912; --jp-neutral-text: #a9abaf; --jp-neutral-bold: #cecfd2; --jp-on-bold: #1f1f21;
+  --jp-border: #e3e4f21f; --jp-subtle: #96999e; --jp-link: #669df1; --jp-code-bg: #ceced912;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --jc-gray-subtlest: #303134; --jc-gray-subtler: #4b4d51; --jc-gray-subtle: #63666b; --jc-gray-bold: #7e8188; --jc-gray-bolder: #a9abaf;
+    --jc-blue-subtlest: #1c2b42; --jc-blue-subtler: #123263; --jc-blue-subtle: #1558bc; --jc-blue-bold: #4688ec; --jc-blue-bolder: #8fb8f6;
+    --jc-teal-subtlest: #1e3137; --jc-teal-subtler: #164555; --jc-teal-subtle: #206a83; --jc-teal-bold: #42b2d7; --jc-teal-bolder: #9dd9ee;
+    --jc-green-subtlest: #1c3329; --jc-green-subtler: #164b35; --jc-green-subtle: #216e4e; --jc-green-bold: #2abb7f; --jc-green-bolder: #7ee2b8;
+    --jc-lime-subtlest: #28311b; --jc-lime-subtler: #37471f; --jc-lime-subtle: #4c6b1f; --jc-lime-bold: #82b536; --jc-lime-bolder: #b3df72;
+    --jc-yellow-subtlest: #332e1b; --jc-yellow-subtler: #533f04; --jc-yellow-subtle: #7f5f01; --jc-yellow-bold: #eed12b; --jc-yellow-bolder: #eed12b;
+    --jc-orange-subtlest: #3a2c1f; --jc-orange-subtler: #693200; --jc-orange-subtle: #9e4c00; --jc-orange-bold: #f68909; --jc-orange-bolder: #fbc828;
+    --jc-red-subtlest: #42221f; --jc-red-subtler: #5d1f1a; --jc-red-subtle: #ae2e24; --jc-red-bold: #e2483d; --jc-red-bolder: #fd9891;
+    --jc-magenta-subtlest: #3d2232; --jc-magenta-subtler: #50253f; --jc-magenta-subtle: #943d73; --jc-magenta-bold: #da62ac; --jc-magenta-bolder: #f797d2;
+    --jc-purple-subtlest: #35243f; --jc-purple-subtler: #48245d; --jc-purple-subtle: #803fa5; --jc-purple-bold: #bf63f3; --jc-purple-bolder: #d8a0f7;
+    --jc-text: #cecfd2; --jc-inverse: #1f1f21; --jc-surface: #1f1f21;
+
+    --jp-info-bg: #1c2b42; --jp-info-icon: #4688ec; --jp-info-text: #8fb8f6; --jp-info-bold: #669df1;
+    --jp-note-bg: #35243f; --jp-note-icon: #bf63f3; --jp-note-text: #d8a0f7; --jp-note-bold: #c97cf4;
+    --jp-success-bg: #28311b; --jp-success-icon: #82b536; --jp-success-text: #b3df72; --jp-success-bold: #94c748;
+    --jp-warning-bg: #3a2c1f; --jp-warning-icon: #fbc828; --jp-warning-text: #fbc828; --jp-warning-bold: #fbc828; --jp-warning-on-bold: #1f1f21;
+    --jp-error-bg: #42221f; --jp-error-icon: #f15b50; --jp-error-text: #fd9891; --jp-error-bold: #f87168;
+    --jp-neutral-bg: #ceced912; --jp-neutral-text: #a9abaf; --jp-neutral-bold: #cecfd2; --jp-on-bold: #1f1f21;
+    --jp-border: #e3e4f21f; --jp-subtle: #96999e; --jp-link: #669df1; --jp-code-bg: #ceced912;
+  }
+}
+
+/* Flow: Jira's renderer spacing (0.75rem between blocks), headings sized as Jira sizes them at 14 px. */
+:where(.jira-prose, .jira-description-editor) :is(p, ul, ol, pre, blockquote, .panel, .table-wrap, details, .layout, .media, .media-group, hr) {
+  margin-block: 0.75rem 0;
+}
+
+:where(.jira-prose, .jira-description-editor) > :first-child,
+:where(.jira-prose) .island > :first-child,
+:where(.jira-prose) :is(li, td, th, .panel-body, .expand-body, .layout-col) > :first-child {
+  margin-top: 0;
+}
+
+:where(.jira-prose, .jira-description-editor) :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1.5rem 0 0;
+  line-height: 1.25;
+  font-weight: 600;
+}
+
+:where(.jira-prose, .jira-description-editor) h1 { font-size: 1.714em; font-weight: 500; letter-spacing: -0.01em; }
+:where(.jira-prose, .jira-description-editor) h2 { font-size: 1.43em; font-weight: 500; letter-spacing: -0.008em; }
+:where(.jira-prose, .jira-description-editor) h3 { font-size: 1.143em; }
+:where(.jira-prose, .jira-description-editor) h4 { font-size: 1em; }
+:where(.jira-prose, .jira-description-editor) h5 { font-size: 0.857em; }
+:where(.jira-prose, .jira-description-editor) h6 { font-size: 0.785em; color: var(--jp-subtle); }
+
+:where(.jira-prose) .align-center { text-align: center; }
+:where(.jira-prose) .align-end { text-align: right; }
+:where(.jira-prose) .indent-1 { margin-inline-start: 30px; }
+:where(.jira-prose) .indent-2 { margin-inline-start: 60px; }
+:where(.jira-prose) .indent-3 { margin-inline-start: 90px; }
+:where(.jira-prose) .indent-4 { margin-inline-start: 120px; }
+:where(.jira-prose) .indent-5 { margin-inline-start: 150px; }
+:where(.jira-prose) .indent-6 { margin-inline-start: 180px; }
+
+:where(.jira-prose, .jira-description-editor) :is(ul, ol) { padding-inline-start: 1.5rem; }
+:where(.jira-prose, .jira-description-editor) li + li { margin-top: 0.25rem; }
+:where(.jira-prose, .jira-description-editor) li > :is(ul, ol) { margin-top: 0.25rem; }
+
+:where(.jira-prose, .jira-description-editor) a { color: var(--jp-link); text-decoration: none; }
+:where(.jira-prose, .jira-description-editor) a:hover { text-decoration: underline; }
+
+:where(.jira-prose, .jira-description-editor) blockquote {
+  padding-inline-start: 1rem;
+  border-inline-start: 2px solid var(--jp-border);
+  color: inherit;
+}
+
+:where(.jira-prose, .jira-description-editor) hr {
+  height: 2px;
+  border: 0;
+  border-radius: 1px;
+  background: var(--jp-border);
+  margin-block: 1.5rem;
+}
+
+:where(.jira-prose, .jira-description-editor) :not(pre) > code {
+  padding: 0.125em 0.25em;
+  border-radius: 3px;
+  background: var(--jp-code-bg);
+  overflow-wrap: anywhere;
+}
+
+:where(.jira-prose, .jira-description-editor) pre {
+  position: relative;
+  padding: 0.5rem 0.75rem;
+  border-radius: 3px;
+  background: var(--jp-code-bg);
+  overflow-x: auto;
+  white-space: pre;
+  overflow-wrap: normal;
+  line-height: 1.5;
+}
+
+:where(.jira-prose, .jira-description-editor) pre > code[data-lang]::before {
+  content: attr(data-lang);
+  display: block;
+  margin-bottom: 0.25rem;
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--jp-subtle);
+}
+
+:where(.jira-prose, .jira-description-editor) sub,
+:where(.jira-prose, .jira-description-editor) sup { font-size: 0.75em; line-height: 0; }
+
+:where(.jira-prose, .jira-description-editor) .highlight { border-radius: 2px; padding-inline: 0.0625em; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+
+/* Panels: tinted block with the kind's icon (Jira panel colours). */
+:where(.jira-prose, .jira-description-editor) .panel {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 3px;
+  background: var(--panel-bg, var(--jp-info-bg));
+  color: inherit;
+}
+
+:where(.jira-prose, .jira-description-editor) .panel-icon {
+  flex: none;
+  display: inline-flex;
+  width: 1.25rem;
+  height: 1.5em;
+  align-items: center;
+  justify-content: center;
+  color: var(--panel-icon, var(--jp-info-icon));
+}
+
+:where(.jira-prose, .jira-description-editor) .panel-icon .icon { width: 1rem; height: 1rem; }
+:where(.jira-prose, .jira-description-editor) .panel-emoji { font-size: 1rem; }
+:where(.jira-prose, .jira-description-editor) .panel-body { flex: 1; min-width: 0; }
+
+:where(.jira-prose, .jira-description-editor) .panel-info { --panel-bg: var(--jp-info-bg); --panel-icon: var(--jp-info-icon); }
+:where(.jira-prose, .jira-description-editor) .panel-note { --panel-bg: var(--jp-note-bg); --panel-icon: var(--jp-note-icon); }
+:where(.jira-prose, .jira-description-editor) .panel-tip,
+:where(.jira-prose, .jira-description-editor) .panel-success { --panel-bg: var(--jp-success-bg); --panel-icon: var(--jp-success-icon); }
+:where(.jira-prose, .jira-description-editor) .panel-warning { --panel-bg: var(--jp-warning-bg); --panel-icon: var(--jp-warning-icon); }
+:where(.jira-prose, .jira-description-editor) .panel-error { --panel-bg: var(--jp-error-bg); --panel-icon: var(--jp-error-icon); }
+:where(.jira-prose, .jira-description-editor) .panel-custom { --panel-bg: var(--jp-neutral-bg); }
+
+/* Tables: Jira's bordered grid, scrolling sideways inside the drawer rather than squeezing the cells. */
+:where(.jira-prose, .jira-description-editor) .table-wrap { overflow-x: auto; max-width: 100%; }
+
+:where(.jira-prose, .jira-description-editor) table {
+  border-collapse: collapse;
+  min-width: 100%;
+  overflow-wrap: normal;
+  font-size: inherit;
+}
+
+:where(.jira-prose, .jira-description-editor) :is(th, td) {
+  min-width: 3rem;
+  padding: 0.375rem 0.625rem;
+  border: 1px solid var(--jp-border);
+  text-align: start;
+  vertical-align: top;
+}
+
+:where(.jira-prose, .jira-description-editor) th { font-weight: 600; background: var(--jp-neutral-bg); }
+
+:where(.jira-prose, .jira-description-editor) :is(th, td).number {
+  min-width: 0;
+  width: 42px;
+  text-align: center;
+  color: var(--jp-subtle);
+  background: var(--jp-neutral-bg);
+}
+
+/* Expand: Jira's collapsed section with a chevron. */
+:where(.jira-prose, .jira-description-editor) details.expand {
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+}
+
+:where(.jira-prose, .jira-description-editor) details.expand[open],
+:where(.jira-prose, .jira-description-editor) details.expand:hover { border-color: var(--jp-border); }
+
+:where(.jira-prose, .jira-description-editor) details.expand > summary {
+  display: flex;
+  gap: 0.375rem;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 500;
+}
+
+:where(.jira-prose, .jira-description-editor) details.expand > summary::-webkit-details-marker { display: none; }
+
+:where(.jira-prose, .jira-description-editor) details.expand > summary::before {
+  content: "";
+  flex: none;
+  width: 0.4rem;
+  height: 0.4rem;
+  margin: 0 0.25rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s;
+  opacity: 0.7;
+}
+
+:where(.jira-prose, .jira-description-editor) details.expand[open] > summary::before { transform: rotate(45deg); }
+:where(.jira-prose, .jira-description-editor) .expand-body { padding: 0.25rem 0 0.25rem 1.25rem; }
+
+/* Layouts: side-by-side columns that stack when the drawer is narrow. */
+:where(.jira-prose, .jira-description-editor) .layout { display: flex; flex-wrap: wrap; gap: 1rem; }
+:where(.jira-prose, .jira-description-editor) .layout-col { flex: 1 1 12rem; min-width: 0; }
+
+/* Task and decision lists. */
+:where(.jira-prose, .jira-description-editor) :is(ul.tasks, ul.decisions) { list-style: none; padding-inline-start: 0; }
+:where(.jira-prose, .jira-description-editor) ul.tasks ul.tasks { margin-top: 0.25rem; padding-inline-start: 1.5rem; }
+:where(.jira-prose, .jira-description-editor) li.task { display: flex; gap: 0.5rem; align-items: baseline; }
+:where(.jira-prose, .jira-description-editor) li.task > input { flex: none; margin: 0; transform: translateY(0.125em); accent-color: var(--jp-info-bold); }
+
+:where(.jira-prose, .jira-description-editor) li.decision {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.375rem 0.5rem;
+  border-radius: 3px;
+  background: var(--jp-neutral-bg);
+}
+
+:where(.jira-prose, .jira-description-editor) .decision-icon { flex: none; display: inline-flex; color: var(--jp-subtle); transform: translateY(0.15em); }
+:where(.jira-prose, .jira-description-editor) .decision-icon .icon { width: 1rem; height: 1rem; }
+:where(.jira-prose, .jira-description-editor) li.decision.is-decided .decision-icon { color: var(--jp-success-icon); }
+
+/* Lozenges: status (Jira's subtle style by default, bold when ADF asks), date, mention. */
+:where(.jira-prose, .jira-description-editor) .status {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0 0.25rem;
+  border-radius: 3px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1.45;
+  text-transform: uppercase;
+  vertical-align: 0.1em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: var(--jp-neutral-bg);
+  color: var(--jp-neutral-text);
+}
+
+:where(.jira-prose, .jira-description-editor) .status-blue { background: var(--jp-info-bg); color: var(--jp-info-text); }
+:where(.jira-prose, .jira-description-editor) .status-purple { background: var(--jp-note-bg); color: var(--jp-note-text); }
+:where(.jira-prose, .jira-description-editor) .status-green { background: var(--jp-success-bg); color: var(--jp-success-text); }
+:where(.jira-prose, .jira-description-editor) .status-yellow { background: var(--jp-warning-bg); color: var(--jp-warning-text); }
+:where(.jira-prose, .jira-description-editor) .status-red { background: var(--jp-error-bg); color: var(--jp-error-text); }
+:where(.jira-prose, .jira-description-editor) .status.is-bold { background: var(--jp-neutral-bold); color: var(--jp-on-bold); }
+:where(.jira-prose, .jira-description-editor) .status-blue.is-bold { background: var(--jp-info-bold); }
+:where(.jira-prose, .jira-description-editor) .status-purple.is-bold { background: var(--jp-note-bold); }
+:where(.jira-prose, .jira-description-editor) .status-green.is-bold { background: var(--jp-success-bold); }
+:where(.jira-prose, .jira-description-editor) .status-yellow.is-bold { background: var(--jp-warning-bold); color: var(--jp-warning-on-bold); }
+:where(.jira-prose, .jira-description-editor) .status-red.is-bold { background: var(--jp-error-bold); }
+
+:where(.jira-prose, .jira-description-editor) .date-lozenge {
+  display: inline-block;
+  padding: 0 0.3rem;
+  border-radius: 3px;
+  background: var(--jp-neutral-bg);
+  white-space: nowrap;
+}
+
+:where(.jira-prose, .jira-description-editor) .jira-user {
+  display: inline-block;
+  padding: 0 0.3rem;
+  border-radius: 20px;
+  background: var(--jp-neutral-bg);
+  color: var(--jp-neutral-text);
+  white-space: nowrap;
+}
+
+/* Cards and file chips: a bordered link with its icon (Jira's previews need its servers, U6/UX8). */
+:where(.jira-prose, .jira-description-editor) :is(.smart-card, .file-chip) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 100%;
+  padding: 0 0.375rem;
+  border: 1px solid var(--jp-border);
+  border-radius: 4px;
+  color: var(--jp-link);
+  vertical-align: bottom;
+  overflow-wrap: anywhere;
+}
+
+:where(.jira-prose, .jira-description-editor) .smart-card.is-block { display: flex; padding: 0.5rem 0.75rem; }
+:where(.jira-prose, .jira-description-editor) span.file-chip { color: inherit; }
+:where(.jira-prose, .jira-description-editor) :is(.card-icon, .file-icon) { flex: none; display: inline-flex; }
+:where(.jira-prose, .jira-description-editor) :is(.card-icon, .file-icon) .icon { width: 0.875rem; height: 0.875rem; }
+
+/* Media: Jira's layouts. Wrapped images float beside the text only where there is room for both. */
+:where(.jira-prose, .jira-description-editor) .media { max-width: 100%; margin-inline: auto; }
+:where(.jira-prose, .jira-description-editor) .media:not([style*="width"]) { width: fit-content; }
+:where(.jira-prose, .jira-description-editor) .media img { width: 100%; height: auto; border-radius: 3px; cursor: zoom-in; }
+:where(.jira-prose, .jira-description-editor) .media.layout-align-start { margin-inline: 0 auto; }
+:where(.jira-prose, .jira-description-editor) .media.layout-align-end { margin-inline: auto 0; }
+:where(.jira-prose, .jira-description-editor) .media:is(.layout-wide, .layout-full-width) { width: 100% !important; }
+:where(.jira-prose, .jira-description-editor) .media figcaption { margin-top: 0.25rem; text-align: center; font-size: 0.75rem; color: var(--jp-subtle); }
+
+@media (min-width: 40rem) {
+  :where(.jira-prose, .jira-description-editor) .media.layout-wrap-left { float: left; max-width: 50%; margin: 0.25rem 1rem 0.5rem 0; }
+  :where(.jira-prose, .jira-description-editor) .media.layout-wrap-right { float: right; max-width: 50%; margin: 0.25rem 0 0.5rem 1rem; }
+  :where(.jira-prose, .jira-description-editor)::after { content: ""; display: block; clear: both; }
+}
+
+:where(.jira-prose, .jira-description-editor) .media-group { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+:where(.jira-prose, .jira-description-editor) .media-group img { height: 6rem; width: auto; border-radius: 3px; border: 1px solid var(--jp-border); object-fit: cover; cursor: zoom-in; }
+:where(.jira-prose, .jira-description-editor) p img { display: inline-block; vertical-align: bottom; max-height: 20rem; width: auto; cursor: zoom-in; }
+
+/* Islands in the editor: read-only atoms, framed so they read as "kept from Jira". */
+.jira-description-editor .island {
+  margin-block: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px dashed var(--jp-border);
+  border-radius: 4px;
+}
