@@ -143,6 +143,14 @@ class Node extends Target {
     this.parentNode?.removeChild(this);
   }
 
+  after(...nodes) {
+    const parent = this.parentNode;
+    const next = this.nextSibling;
+    for (const node of nodes) {
+      parent.insertBefore(node, next);
+    }
+  }
+
   replaceWith(node) {
     const parent = this.parentNode;
     parent.insertBefore(node, this);

@@ -26,6 +26,9 @@ test('on a phone the controls sit in a bottom bar with the history button', asyn
   }
   await expect(page.locator('.nt-toolbar-extras .nt-control')).toHaveCount(0);
   await expect(page.locator('.nt-panel-right')).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Open round panel' })).toBeHidden();
+  // Browse Jira joins the bar only for teams with Jira (poker-jira's specs open the sheet from it).
+  await expect(bar(page).getByRole('button', { name: 'Browse Jira' })).toHaveCount(0);
 });
 
 test('widening the window moves the controls back to the toolbar', async ({ page, fake }) => {

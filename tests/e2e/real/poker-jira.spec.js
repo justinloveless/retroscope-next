@@ -3,7 +3,7 @@
 // the holder disconnects), the drawer (hover prefetch, a description edit that keeps its table and screenshot) and
 // submitted points that everyone sees.
 import { expect, test } from './_real.js';
-import { bucket, drawer, isPhone, jiraTable, openBrowse, row } from './_jira.js';
+import { bucket, drawer, isPhone, jiraTable, openBrowse, openSheet, row } from './_jira.js';
 import { chooseSpotlight, handCard, shownRound } from './_poker.js';
 
 test('browse buckets and filters, add one issue and a bucket, and see Pointing and Pointed', async ({ open }, testInfo) => {
@@ -67,7 +67,7 @@ test('the holder previews an issue for everyone, commits it, and a preview left 
   await chooseSpotlight(ann.page, 'Spotlight this round');
   await expect(bob.page.locator('.nt-spotlight')).toHaveAttribute('data-role', 'other');
   if (isPhone(ann.page)) {
-    await ann.page.locator('.jira-toggle').click();
+    await openSheet(ann.page);
   }
 
   await row(ann.page, ground.key(9)).locator('.jira-row-open').click();

@@ -29,7 +29,8 @@ test('the browse panel resizes between 240 and 480 px and keeps its width', asyn
 test('the browse panel resizes with the pointer down to its 240 px minimum', async ({ page, fake }) => {
   setupJira(fake);
   await openBrowse(page);
-  const box = await page.getByRole('separator', { name: 'Resize Jira panel' }).boundingBox();
+  // The grip chip on the strip (the middle of the strip is the collapse tab).
+  const box = await page.getByRole('separator', { name: 'Resize Jira panel' }).locator('.resize-grip').boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
   await page.mouse.move(box.x - 300, box.y + box.height / 2, { steps: 5 });
@@ -38,14 +39,28 @@ test('the browse panel resizes with the pointer down to its 240 px minimum', asy
   expect((await panels(page)).left.width).toBe(240);
 });
 
-test('a closed browse panel stays closed after a reload', async ({ page, fake }) => {
+test('the drawer tabs close and reopen the browse panel, and a closed panel stays closed after a reload', async ({ page, fake }) => {
   setupJira(fake);
   await openBrowse(page);
-  await page.locator('.jira-toggle').click();
+  await expect(page.locator('.jira-toggle')).toHaveCount(0);
+  const collapse = page.getByRole('button', { name: 'Collapse Jira panel' });
+  await expect(collapse).toHaveAttribute('aria-expanded', 'true');
+  await expect(collapse).toHaveAttribute('aria-controls', 'nt-panel-left');
+  await collapse.click();
   await expect(page.locator('.nt-panel-left')).toBeHidden();
+  const open = page.getByRole('button', { name: 'Open Jira panel' });
+  await expect(open).toBeFocused();
+  await expect(open).toHaveAttribute('aria-expanded', 'false');
+  // The open tab sits on the screen's left edge, over the stage.
+  expect(Math.round((await open.boundingBox()).x)).toBe(0);
   expect((await panels(page)).left.open).toBe(false);
 
   await page.reload();
-  await expect(page.locator('.jira-toggle')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open Jira panel' })).toBeVisible();
   await expect(page.locator('.nt-panel-left')).toBeHidden();
+
+  await page.getByRole('button', { name: 'Open Jira panel' }).click();
+  await expect(page.locator('.jira-browse')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Collapse Jira panel' })).toBeFocused();
+  expect((await panels(page)).left.open).toBe(true);
 });
