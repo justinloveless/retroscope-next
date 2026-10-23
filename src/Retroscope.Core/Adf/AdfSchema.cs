@@ -48,6 +48,9 @@ internal sealed record AdfAttrRule(string Name, AdfAttrType Type) {
     public double Max { get; init; } = double.MaxValue;
 
     /// <summary>In Unicode code points.</summary>
+    public int MinLength { get; init; }
+
+    /// <summary>In Unicode code points.</summary>
     public int MaxLength { get; init; } = 2048;
 
     public AdfCheck Check { get; init; }
@@ -168,7 +171,8 @@ internal static partial class AdfSchema {
     }
 
     public static bool ValidString(AdfAttrRule rule, string text, bool write) {
-        if (CodePoints(text) > rule.MaxLength || HasControl(text)) {
+        var length = CodePoints(text);
+        if (length < rule.MinLength || length > rule.MaxLength || HasControl(text)) {
             return false;
         }
         return rule.Check switch {
@@ -393,8 +397,8 @@ internal static partial class AdfSchema {
                 Enum("widthType", "percentage", "pixel"), localId) with { Marks = ["link"] },
             Block("mediaGroup", "mediaGroup", required: true),
             Leaf("media", inline: false,
-                Enum("type", "file", "link", "external") with { Required = true }, Str("id", 255), Str("collection", 255),
-                Str("alt", 1024), Num("width", 0, MaxPixels), Num("height", 0, MaxPixels), Str("occurrenceKey", 255),
+                Enum("type", "file", "link", "external") with { Required = true }, Str("id", 255) with { MinLength = 1 }, Str("collection", 255),
+                Str("alt", 1024), Num("width", 0, MaxPixels), Num("height", 0, MaxPixels), Str("occurrenceKey", 255) with { MinLength = 1 },
                 Str("url", 4096), localId) with { AttrsRequired = true, Marks = ["link"] },
             Block("caption", "caption", required: false, localId),
             Leaf("mention", inline: true,
@@ -405,7 +409,7 @@ internal static partial class AdfSchema {
                 Str("text", 16), localId) with { AttrsRequired = true },
             Leaf("date", inline: true, Str("timestamp", 15, AdfCheck.Timestamp) with { Required = true }, localId) with { AttrsRequired = true },
             Leaf("status", inline: true,
-                Str("text", 64) with { Required = true },
+                Str("text", 64) with { Required = true, MinLength = 1 },
                 Str("color", 7, AdfCheck.StatusColor) with { Required = true, Values = ["neutral", "purple", "blue", "red", "yellow", "green"] },
                 Enum("style", "bold", "subtle"), localId) with { AttrsRequired = true },
             Leaf("inlineCard", inline: true, Str("url", 4096, AdfCheck.CardUrl) with { Required = true }, Refused("data"), localId)
