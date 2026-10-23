@@ -48,6 +48,9 @@ public static partial class JiraEndpoints {
 
     private const string EmptyDoc = """{"type":"doc","version":1,"content":[]}""";
 
+    // A projected or rebuilt description is two JSON levels per ADF level, past the default 64 at the depth cap.
+    private static readonly JsonDocumentOptions DeepDocument = new() { MaxDepth = 256 };
+
     private sealed record RichSave(byte[]? Adf);
 
     // Only editors receive the editable ADF (UX10 approval 4); viewers keep the Doc of GET issues/{key}.
@@ -106,7 +109,7 @@ public static partial class JiraEndpoints {
             return (Parse(EmptyDoc), null);
         }
         if (AdfWrite.TryWrite(save.Adf, new AdfWriteContext(view), out var written, out var errors, out var missing)) {
-            using var document = JsonDocument.Parse(written);
+            using var document = JsonDocument.Parse(written, DeepDocument);
             return (document.RootElement.Clone(), null);
         }
         if (missing.Count > 0) {
@@ -121,7 +124,7 @@ public static partial class JiraEndpoints {
     private static JiraDescriptionEditView EditView(IssueDetail detail, AdfEditView view) {
         JsonElement? adf = null;
         if (view.Editable) {
-            using var document = JsonDocument.Parse(view.Adf);
+            using var document = JsonDocument.Parse(view.Adf, DeepDocument);
             adf = document.RootElement.Clone();
         }
         return new JiraDescriptionEditView(
