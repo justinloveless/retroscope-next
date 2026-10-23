@@ -477,7 +477,8 @@ function createIssueView(ctx, host) {
     const assignee = f.assignee?.displayName ?? null;
     // The initials come from an attribute, so the chip's text stays the name alone.
     const avatar = h('span', { class: ['jira-avatar', assignee ? null : 'is-empty'], 'data-initials': assignee ? initials(assignee) : null, 'aria-hidden': 'true' });
-    const time = (iso) => h('time', { datetime: iso, title: when(iso), text: day(iso) });
+    // The short date is for the eye; a screen reader gets the full date and time, which hover alone would hide.
+    const time = (iso) => [h('time', { datetime: iso, title: when(iso), 'aria-hidden': 'true', text: day(iso) }), h('span', { class: 'sr-only', text: when(iso) })];
     const parent = f.parent
       ? h('button', { type: 'button', class: ['jira-chip', 'jira-parent'], title: f.parent.summary ?? null, on: { click: () => (ctx.openLinked ?? open)(f.parent.key) } },
         icon('folder-kanban'), h('span', { class: 'jira-parent-key', text: f.parent.key }), f.parent.summary ? h('span', { class: 'jira-parent-summary', text: f.parent.summary }) : null)
