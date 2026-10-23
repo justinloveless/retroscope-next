@@ -139,7 +139,7 @@ export function jiraRenderer({ icon, fileHref } = {}) {
   const table = (node, api) => {
     const rows = Array.isArray(node.c) ? node.c.filter((r) => r?.t === 'tr') : [];
     const numbered = node.numbered === true;
-    const t = api.el('table', ...(MEDIA_LAYOUTS.has(node.layout) ? [`layout-${node.layout}`] : []));
+    const t = api.el('table');
     const widths = columnWidths(rows);
     if (widths) {
       const colgroup = api.el('colgroup');
@@ -148,6 +148,8 @@ export function jiraRenderer({ icon, fileHref } = {}) {
       }
       t.append(colgroup);
       style(t, 'width', `${widths.reduce((sum, w) => sum + w, numbered ? NUMBER_COLUMN_PX : 0)}px`);
+    } else if (isInt(node.width, 1, MAX_PIXELS)) {
+      style(t, 'width', `${node.width}px`);
     }
     const body = api.el('tbody');
     let number = 0;
