@@ -10,6 +10,7 @@ import {
   canOutdent,
   canRelabel,
   clearFormatting,
+  enter,
   indent,
   insertRule,
   linkAt,
@@ -21,6 +22,7 @@ import {
   setColor,
   setHeading,
   setLink,
+  stayInTable,
   toggle,
   toggleCodeBlock,
   toggleList,
@@ -165,14 +167,44 @@ test('a task list made from paragraphs gets fresh local ids, ticks, nests and tu
   assert.equal(content(state)[1].type, 'taskList');
 });
 
+const task = (id, text) => ({ type: 'taskItem', attrs: { localId: id, state: 'TODO' }, content: text ? [{ type: 'text', text }] : [] });
+const tasks = (id, ...items) => ({ type: 'taskList', attrs: { localId: id }, content: items });
+
 test('a task in the middle of its list becomes a paragraph between two lists', () => {
-  const task = (id, text) => ({ type: 'taskItem', attrs: { localId: id, state: 'TODO' }, content: [{ type: 'text', text }] });
   let state = caret(open(doc({ type: 'taskList', attrs: { localId: 'l1' }, content: [task('a', 'one'), task('b', 'two'), task('c', 'three')] })), 'two');
   state = exec(state, toggleTaskList);
   const out = content(state);
   assert.deepEqual(out.map((n) => n.type), ['taskList', 'paragraph', 'taskList']);
   assert.equal(out[1].content[0].text, 'two');
   assert.notEqual(out[2].attrs.localId, out[0].attrs.localId);
+});
+
+test('Enter in a task starts a fresh one, and Enter in an empty one leaves the list', () => {
+  let state = exec(caret(open(doc(tasks('l1', task('a', 'one'), task('c', 'three')))), 'one'), enter);
+  let list = content(state)[0];
+  assert.deepEqual(list.content.map((t) => t.content?.[0]?.text ?? ''), ['one', '', 'three']);
+  assert.equal(list.content[1].attrs.state, 'TODO');
+  assert.ok(!['a', 'c'].includes(list.content[1].attrs.localId));
+  assert.equal(state.selection.$from.parent.type.name, 'taskItem');
+
+  state = exec(state, enter);
+  const out = content(state);
+  assert.deepEqual(out.map((n) => n.type), ['taskList', 'paragraph', 'taskList']);
+  assert.equal(state.selection.$from.parent.type.name, 'paragraph');
+});
+
+test('Enter in an empty nested task moves it out a level, and Tab joins a nested list above', () => {
+  let state = exec(caret(open(doc(tasks('l1', task('a', 'one'), tasks('l2', task('b', 'two'))))), 'two'), enter);
+  state = exec(state, enter);
+  const list = content(state)[0];
+  assert.deepEqual(list.content.map((n) => n.type), ['taskItem', 'taskList', 'taskItem']);
+  assert.equal(state.selection.$from.depth, 2);
+
+  state = exec(caret(open(doc(tasks('l1', task('a', 'one'), tasks('l2', task('b', 'two')), task('c', 'three')))), 'three'), indent);
+  const joined = content(state)[0];
+  assert.deepEqual(joined.content.map((n) => n.type), ['taskItem', 'taskList']);
+  assert.deepEqual(joined.content[1].content.map((t) => [t.attrs.localId, t.content[0].text]), [['b', 'two'], ['c', 'three']]);
+  assert.equal(state.selection.$from.parent.textContent, 'three');
 });
 
 test('quote, code block and divider', () => {
@@ -237,6 +269,17 @@ test('a link over text holding a token or a break keeps them when the text to di
   const kept = content(state)[0].content;
   assert.deepEqual(kept.map((n) => n.type), ['text', 'rsOpaqueInline', 'hardBreak', 'text']);
   assert.deepEqual(kept.filter((n) => n.type === 'text').map((n) => n.marks), [[{ type: 'link', attrs: { href: 'https://example.com/' } }], [{ type: 'link', attrs: { href: 'https://example.com/' } }]]);
+});
+
+test('Tab and Shift-Tab past the edge cells of a table stay in the table', () => {
+  const cell = (text) => ({ type: 'tableCell', attrs: {}, content: [p(text)] });
+  const loaded = doc({ type: 'table', attrs: {}, content: [{ type: 'tableRow', content: [cell('first'), cell('last')] }] }, p('after'));
+  const last = caret(open(loaded), 'last');
+  assert.equal(indent(last), false);
+  assert.equal(stayInTable(last), true);
+  assert.equal(outdent(caret(open(loaded), 'first')), false);
+  assert.equal(stayInTable(caret(open(loaded), 'first')), true);
+  assert.equal(stayInTable(caret(open(loaded), 'after')), false);
 });
 
 test('undo and redo walk back to the loaded document and forward again', () => {
