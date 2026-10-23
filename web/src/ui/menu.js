@@ -81,7 +81,8 @@ export function createMenu({ items, onSelect, label, placement = 'bottom-start',
     },
     openAt(x, y) {
       trigger = document.activeElement;
-      popover.open(pointAnchor(x, y));
+      // A point cannot take focus, so Escape hands it back to whatever held it when the menu opened.
+      popover.open({ ...pointAnchor(x, y), focus: () => trigger?.focus?.() });
       focusFirst();
     },
     close: popover.close,
