@@ -1,7 +1,48 @@
 # Third-party material
 
-Everything below ships in the web client under `web/assets/`. The last sections list the assets that are the
-project owner's own work, so every shipped asset has a recorded source.
+Everything below ships in the web client: assets under `web/assets/`, and the ProseMirror packages bundled into
+the rich description editor's chunk. The last sections list the assets that are the project owner's own work, so
+every shipped asset has a recorded source.
+
+## ProseMirror (the `rich-editor` chunk)
+
+- **Source:** npm, exact versions pinned in `web/package.json` and checked by `tests/web-unit/core/deps.test.js`:
+  prosemirror-model 1.25.12, prosemirror-state 1.4.4, prosemirror-view 1.42.6, prosemirror-transform 1.12.2,
+  prosemirror-commands 1.7.2, prosemirror-keymap 1.2.3, prosemirror-history 1.5.1, prosemirror-inputrules 1.5.1,
+  prosemirror-tables 1.8.5, prosemirror-schema-list 1.5.1, prosemirror-gapcursor 1.4.1, prosemirror-dropcursor
+  1.8.4, orderedmap 2.1.1, rope-sequence 1.3.4 and w3c-keyname 2.2.8. https://prosemirror.net
+- **Changes:** `web/build.mjs` rewrites `prosemirror-view/dist/index.js` at build time so it parses no HTML and
+  holds no `innerHTML` (docs/decisions/UX11.md). `web/styles/rich-editor.css` adapts the rules of
+  `prosemirror-view/style/prosemirror.css`, `prosemirror-gapcursor/style/gapcursor.css` and
+  `prosemirror-tables/style/tables.css` to the app's colour tokens.
+- **Copyright lines**, one per package licence:
+  - prosemirror-model, -state, -view, -transform, -commands, -keymap, -history, -inputrules, -schema-list,
+    -gapcursor and -dropcursor: Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+  - prosemirror-tables: Copyright (C) 2015-2016 by Marijn Haverbeke <marijnh@gmail.com> and others
+  - orderedmap and w3c-keyname: Copyright (C) 2016 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+  - rope-sequence: Copyright (C) 2016 by Marijn Haverbeke <marijn@haverbeke.berlin>
+
+Every package carries the same MIT licence text below its copyright line:
+
+```
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
 
 ## m6x11plus (`web/assets/m6x11plus.woff2`)
 
