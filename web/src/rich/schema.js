@@ -5,14 +5,15 @@
 // Besides the ADF attributes each type carries a few the editor owns, never sent as such:
 //   rsKeep      the server's stash of attributes this allow-list does not know (a ref; restored on save)
 //   blockMarks  the ADF marks of a non-text node (rsMark tokens, a link on media), as plain ADF mark objects
-//   align, indent  paragraph and heading `alignment` / `indentation` marks, as attributes the editor can set
+//   align, indent  paragraph and heading `alignment` / `indentation` marks, as attributes the editor can set;
+//                  which parents allow them is contextMarks (rules.js), kept by the block-mark guard
 //   adfShape    which ADF attribute keys the node arrived with, so an untouched node is written back the same
 //
 // toDOM never writes a `style` attribute: style-src 'self' refuses it. Colours and widths are node and mark
 // views' business (later phases), through the CSSOM.
 
 import { Schema } from 'prosemirror-model';
-import { allowList, compileRule, isRequired } from './rules.js';
+import { allowList, compileRule, contextMarks, isRequired } from './rules.js';
 
 export const STASH = allowList.stash;
 export const TOKEN_NODES = new Set(Object.entries(allowList.nodes).filter(([, n]) => n.token).map(([name]) => name));
@@ -151,7 +152,7 @@ function nodeSpecs() {
       continue;
     }
     const extra = { blockMarks: { default: null } };
-    if (spec.blockMarks?.includes('alignment')) {
+    if (contextMarks(null, name).length > 0) {
       extra.align = { default: null };
       extra.indent = { default: null };
     }

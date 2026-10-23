@@ -13,6 +13,7 @@ import { EditorState } from 'prosemirror-state';
 import { goToNextCell, tableEditing } from 'prosemirror-tables';
 import { EditorView } from 'prosemirror-view';
 import { adfToPm, pmToAdf } from './adf.js';
+import { blockMarkGuard } from './block-marks.js';
 import { clipboardHandlers } from './clipboard.js';
 import { schema } from './schema.js';
 import { tokenGuard } from './tokens.js';
@@ -60,7 +61,7 @@ export function createRichEditor({ host, adf, session }) {
   const doc = adfToPm(adf);
   const state = EditorState.create({
     doc,
-    plugins: [rules(), keys(), keymap(baseKeymap), history(), tableEditing(), gapCursor(), dropCursor(), tokenGuard(doc)],
+    plugins: [rules(), keys(), keymap(baseKeymap), history(), tableEditing(), gapCursor(), dropCursor(), tokenGuard(doc), blockMarkGuard()],
   });
   const view = new EditorView(host, {
     state,

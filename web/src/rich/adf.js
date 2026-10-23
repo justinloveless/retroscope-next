@@ -11,7 +11,7 @@
 // text nodes with the same marks are the only differences ProseMirror introduces, and none has a meaning in ADF.
 
 import { Fragment } from 'prosemirror-model';
-import { compileRule, isRequired, isWellFormed, lengthOf, allowList } from './rules.js';
+import { compileRule, contextMarks, isRequired, isWellFormed, lengthOf, allowList } from './rules.js';
 import { BLOCK_MARKS, CELL_DEFAULTS, STASH, TOKEN_MARK, TOKEN_NODES, childTypes, isComplete, schema } from './schema.js';
 
 export class AdfError extends Error {
@@ -29,6 +29,10 @@ const STASH_RULE = compileRule({ type: 'string', pattern: '[A-Za-z0-9_-]{16}' })
 const REQUIRED_LOCAL_ID = new Set(['taskList', 'taskItem', 'decisionList', 'decisionItem']);
 const PASTE_STATUS = new Set(['neutral', 'purple', 'blue', 'red', 'yellow', 'green']);
 const CODE_ONLY_WITH = new Set(allowList.codeCombinesWith);
+const MENTION_NAME = compileRule({ type: 'string', max: 100 });
+// AdfSchema.ValidText: no control character but tab, and a line break only in a code block.
+const BAD_TEXT = /[\u0000-\u0008\u000a-\u001f\u007f-\u009f]/;
+const BAD_CODE_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/;
 
 // Compiled once: per type, attribute name -> { test, required, lengthOf }.
 function compileAttrs(table) {
@@ -126,7 +130,7 @@ class Reader {
     return { out, keys };
   }
 
-  mark(raw, path, { inCode, onNode }) {
+  mark(raw, path, { inCode, onNode, parent }) {
     if (!isObject(raw) || typeof raw.type !== 'string') {
       return this.fail('invalid_mark', path);
     }
@@ -146,7 +150,8 @@ class Reader {
     if (dropped) {
       return null;
     }
-    if (onNode && name !== TOKEN_MARK && !(allowList.nodes[onNode].blockMarks ?? []).includes(name)) {
+    if (onNode && name !== TOKEN_MARK
+      && !(BLOCK_MARKS.has(name) ? contextMarks(parent, onNode) : allowList.nodes[onNode].marks ?? []).includes(name)) {
       return this.fail('invalid_mark', path);
     }
     if (!onNode && BLOCK_MARKS.has(name)) {
@@ -194,7 +199,7 @@ class Reader {
     if (typeof text !== 'string' || !isWellFormed(text)) {
       return this.fail('invalid_text', path);
     }
-    const bad = inCode ? /[\u0000-\u0008\u000b-\u001f\u007f]/ : /[\u0000-\u0008\u000a-\u001f\u007f]/;
+    const bad = inCode ? BAD_CODE_TEXT : BAD_TEXT;
     if (bad.test(text)) {
       if (this.fail('invalid_text', path) === null) {
         text = text.replace(new RegExp(bad.source, 'g'), ' ');
@@ -229,7 +234,7 @@ class Reader {
     if (type === 'mention' && this.paste && !this.session?.mentions?.has(raw.attrs?.id)) {
       // Every new mention notifies someone; only ids picked in this editing session may be pasted.
       const name = raw.attrs?.text;
-      return typeof name === 'string' && name !== '' && compileRule({ type: 'string', max: 100, singleLine: true })(name)
+      return typeof name === 'string' && name !== '' && MENTION_NAME(name)
         ? schema.text(name)
         : null;
     }
@@ -254,7 +259,7 @@ class Reader {
       if (!Array.isArray(raw.marks)) {
         return this.fail('invalid_mark', `${path}.marks`);
       }
-      const read = raw.marks.map((m, i) => this.mark(m, `${path}.marks.${i}`, { onNode: type })).filter(Boolean);
+      const read = raw.marks.map((m, i) => this.mark(m, `${path}.marks.${i}`, { onNode: type, parent })).filter(Boolean);
       const seen = new Set();
       const blockMarks = [];
       for (const mark of read) {

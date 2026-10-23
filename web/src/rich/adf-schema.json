@@ -1,38 +1,36 @@
 {
-  "about": "The ADF allow-list the description editor mirrors (docs/decisions/UX11.md). The server's Core/Adf/AdfSchema.cs is the authority; once it exists, a Core test regenerates this file from it and CI fails on any drift. Patterns are full-match.",
+  "about": "The ADF allow-list the description editor mirrors (docs/decisions/UX11.md). The server's Core/Adf/AdfSchema.cs is the authority and this file follows it one for one: groups are its contexts, contextMarks its ParagraphMarks and HeadingMarks, a node's marks its Marks. Lengths count code points, every string refuses control characters, and patterns are full-match.",
   "adfSchema": "57.7.2",
   "rules": {
     "localId": { "type": "string", "pattern": "[A-Za-z0-9_-]{1,64}" },
     "color": { "type": "color" },
     "href": { "type": "href" },
     "valign": { "type": "enum", "values": ["top", "middle", "bottom"] },
-    "mediaLayout": { "type": "enum", "values": ["wide", "full-width", "center", "wrap-right", "wrap-left", "align-end", "align-start"] },
     "pixels": { "type": "number", "min": 0, "max": 10000 }
   },
   "groups": {
     "block": ["paragraph", "heading", "bulletList", "orderedList", "taskList", "decisionList", "blockquote", "codeBlock", "panel", "rule", "table", "mediaSingle", "mediaGroup", "blockCard", "embedCard", "expand", "rsOpaque"],
-    "nonNestable": ["paragraph", "heading", "bulletList", "orderedList", "taskList", "decisionList", "blockquote", "codeBlock", "panel", "rule", "table", "mediaSingle", "mediaGroup", "blockCard", "embedCard", "nestedExpand", "rsOpaque"],
+    "expand": ["paragraph", "heading", "bulletList", "orderedList", "taskList", "decisionList", "blockquote", "codeBlock", "panel", "rule", "table", "mediaSingle", "mediaGroup", "blockCard", "embedCard", "nestedExpand", "rsOpaque"],
     "cell": ["paragraph", "heading", "bulletList", "orderedList", "taskList", "decisionList", "blockquote", "codeBlock", "panel", "rule", "mediaSingle", "mediaGroup", "blockCard", "embedCard", "nestedExpand", "rsOpaque"],
     "nestedExpand": ["paragraph", "heading", "bulletList", "orderedList", "taskList", "decisionList", "blockquote", "codeBlock", "panel", "rule", "mediaSingle", "mediaGroup", "rsOpaque"],
     "panel": ["paragraph", "heading", "bulletList", "orderedList", "taskList", "decisionList", "codeBlock", "rule", "mediaSingle", "mediaGroup", "blockCard", "rsOpaque"],
-    "quote": ["paragraph", "bulletList", "orderedList", "codeBlock", "mediaSingle", "mediaGroup", "rsOpaque"],
+    "blockquote": ["paragraph", "bulletList", "orderedList", "codeBlock", "mediaSingle", "mediaGroup", "rsOpaque"],
     "listItem": ["paragraph", "bulletList", "orderedList", "taskList", "codeBlock", "mediaSingle", "rsOpaque"],
     "inline": ["text", "hardBreak", "mention", "emoji", "date", "status", "inlineCard", "rsOpaqueInline"]
   },
   "nodes": {
     "doc": { "attrs": { "version": { "type": "enum", "values": [1], "required": true } }, "children": ["@block", "layoutSection"] },
-    "paragraph": { "attrs": { "localId": "localId" }, "children": ["@inline"], "blockMarks": ["alignment", "indentation"] },
+    "paragraph": { "attrs": { "localId": "localId" }, "children": ["@inline"] },
     "heading": {
       "attrs": { "level": { "type": "int", "min": 1, "max": 6, "required": true }, "localId": "localId" },
-      "children": ["@inline"],
-      "blockMarks": ["alignment", "indentation"]
+      "children": ["@inline"]
     },
     "text": { "attrs": {} },
-    "hardBreak": { "attrs": { "text": { "type": "enum", "values": ["\n"] } }, "inline": true },
+    "hardBreak": { "attrs": { "text": { "type": "enum", "values": ["\n"] }, "localId": "localId" }, "inline": true },
     "bulletList": { "attrs": { "localId": "localId" }, "children": ["listItem"], "min": 1 },
     "orderedList": { "attrs": { "order": { "type": "int", "min": 0, "max": 2147483647 }, "localId": "localId" }, "children": ["listItem"], "min": 1 },
-    "listItem": { "attrs": { "localId": "localId" }, "first": ["paragraph", "codeBlock", "mediaSingle", "rsOpaque"], "children": ["@listItem"], "min": 1 },
-    "blockquote": { "attrs": { "localId": "localId" }, "children": ["@quote"], "min": 1 },
+    "listItem": { "attrs": { "localId": "localId" }, "children": ["@listItem"], "min": 1 },
+    "blockquote": { "attrs": { "localId": "localId" }, "children": ["@blockquote"], "min": 1 },
     "rule": { "attrs": { "localId": "localId" } },
     "codeBlock": {
       "attrs": {
@@ -57,8 +55,8 @@
       "children": ["@panel"],
       "min": 1
     },
-    "expand": { "attrs": { "title": { "type": "string", "max": 255, "singleLine": true }, "localId": "localId" }, "children": ["@nonNestable"], "min": 1 },
-    "nestedExpand": { "attrs": { "title": { "type": "string", "max": 255, "singleLine": true }, "localId": "localId" }, "children": ["@nestedExpand"], "min": 1 },
+    "expand": { "attrs": { "title": { "type": "string", "max": 255 }, "localId": "localId" }, "children": ["@expand"], "min": 1 },
+    "nestedExpand": { "attrs": { "title": { "type": "string", "max": 255 }, "localId": "localId" }, "children": ["@nestedExpand"], "min": 1 },
     "table": {
       "attrs": {
         "layout": { "type": "enum", "values": ["wide", "full-width", "center", "align-end", "align-start", "default"] },
@@ -70,7 +68,7 @@
       "children": ["tableRow"],
       "min": 1
     },
-    "tableRow": { "attrs": { "localId": "localId" }, "children": ["tableHeader", "tableCell"], "min": 1 },
+    "tableRow": { "attrs": { "localId": "localId" }, "children": ["tableHeader", "tableCell"] },
     "tableHeader": {
       "attrs": {
         "colspan": { "type": "int", "min": 1, "max": 64 },
@@ -101,7 +99,7 @@
       "children": ["@block"],
       "min": 1
     },
-    "taskList": { "attrs": { "localId": { "type": "string", "pattern": "[A-Za-z0-9_-]{1,64}", "required": true } }, "first": ["taskItem", "rsOpaque"], "children": ["taskItem", "taskList", "rsOpaque"], "min": 1 },
+    "taskList": { "attrs": { "localId": { "type": "string", "pattern": "[A-Za-z0-9_-]{1,64}", "required": true } }, "children": ["taskItem", "taskList", "rsOpaque"], "min": 1 },
     "taskItem": {
       "attrs": {
         "localId": { "type": "string", "pattern": "[A-Za-z0-9_-]{1,64}", "required": true },
@@ -119,38 +117,38 @@
     },
     "mediaSingle": {
       "attrs": {
-        "layout": "mediaLayout",
+        "layout": { "type": "enum", "values": ["wide", "full-width", "center", "wrap-right", "wrap-left", "align-end", "align-start"], "required": true },
         "width": "pixels",
         "widthType": { "type": "enum", "values": ["percentage", "pixel"] },
         "localId": "localId"
       },
-      "first": ["media", "rsOpaque"],
+      "first": ["media"],
       "children": ["caption"],
       "min": 1,
       "max": 2,
-      "blockMarks": ["link"]
+      "marks": ["link"]
     },
-    "mediaGroup": { "attrs": {}, "children": ["media", "rsOpaque"], "min": 1 },
+    "mediaGroup": { "attrs": {}, "children": ["media"], "min": 1 },
     "media": {
       "attrs": {
         "type": { "type": "enum", "values": ["file", "link", "external"], "required": true },
-        "id": { "type": "string", "max": 256 },
-        "collection": { "type": "string", "max": 256 },
-        "url": "href",
+        "id": { "type": "string", "min": 1, "max": 255 },
+        "collection": { "type": "string", "max": 255 },
+        "url": { "type": "string", "max": 4096 },
         "alt": { "type": "string", "max": 1024 },
-        "occurrenceKey": { "type": "string", "max": 256 },
-        "width": { "type": "number", "min": 1, "max": 10000 },
-        "height": { "type": "number", "min": 1, "max": 10000 },
+        "occurrenceKey": { "type": "string", "min": 1, "max": 255 },
+        "width": "pixels",
+        "height": "pixels",
         "localId": "localId"
       },
-      "blockMarks": ["link"]
+      "marks": ["link"]
     },
     "caption": { "attrs": { "localId": "localId" }, "children": ["@inline"] },
     "mention": {
       "attrs": {
         "id": { "type": "string", "pattern": "[A-Za-z0-9:_-]{1,128}", "required": true },
-        "text": { "type": "string", "max": 100, "singleLine": true },
-        "accessLevel": { "type": "string", "max": 64 },
+        "text": { "type": "string", "max": 100 },
+        "accessLevel": { "type": "string", "max": 32 },
         "userType": { "type": "enum", "values": ["DEFAULT", "SPECIAL", "APP"] },
         "localId": "localId"
       },
@@ -160,7 +158,7 @@
       "attrs": {
         "shortName": { "type": "string", "pattern": ":[A-Za-z0-9_+-]{1,64}:", "required": true },
         "id": { "type": "string", "pattern": "[A-Za-z0-9_-]{1,64}" },
-        "text": { "type": "string", "maxCodePoints": 16, "singleLine": true },
+        "text": { "type": "string", "max": 16 },
         "localId": "localId"
       },
       "inline": true
@@ -168,7 +166,7 @@
     "date": { "attrs": { "timestamp": { "type": "timestamp", "required": true }, "localId": "localId" }, "inline": true },
     "status": {
       "attrs": {
-        "text": { "type": "string", "min": 1, "max": 64, "singleLine": true, "required": true },
+        "text": { "type": "string", "min": 1, "max": 64, "required": true },
         "color": { "type": "enum", "values": ["neutral", "purple", "blue", "red", "yellow", "green"], "orColor": true, "required": true },
         "style": { "type": "enum", "values": ["bold", "subtle"] },
         "localId": "localId"
@@ -182,8 +180,8 @@
         "url": { "type": "href", "schemes": ["http", "https"], "required": true },
         "layout": { "type": "enum", "values": ["wide", "full-width", "center", "wrap-right", "wrap-left", "align-end", "align-start"], "required": true },
         "width": { "type": "number", "min": 0, "max": 100 },
-        "originalWidth": "pixels",
-        "originalHeight": "pixels",
+        "originalWidth": { "type": "number", "min": 0, "max": 100000 },
+        "originalHeight": { "type": "number", "min": 0, "max": 100000 },
         "localId": "localId"
       }
     },
@@ -196,13 +194,19 @@
     "strike": { "attrs": {} },
     "underline": { "attrs": {} },
     "code": { "attrs": {} },
-    "link": { "attrs": { "href": { "type": "href", "required": true }, "title": { "type": "string", "max": 512, "singleLine": true } } },
+    "link": { "attrs": { "href": { "type": "href", "required": true }, "title": { "type": "string", "max": 512 } } },
     "textColor": { "attrs": { "color": { "type": "color", "required": true } } },
     "backgroundColor": { "attrs": { "color": { "type": "color", "required": true } } },
     "subsup": { "attrs": { "type": { "type": "enum", "values": ["sub", "sup"], "required": true } } },
     "alignment": { "attrs": { "align": { "type": "enum", "values": ["center", "end"], "required": true } }, "block": true },
     "indentation": { "attrs": { "level": { "type": "int", "min": 1, "max": 6, "required": true } }, "block": true },
     "rsMark": { "attrs": { "ref": { "type": "string", "pattern": "[A-Za-z0-9_-]{16}", "required": true } }, "token": true }
+  },
+  "contextMarks": {
+    "doc": { "paragraph": ["alignment", "indentation"], "heading": ["alignment", "indentation"] },
+    "layoutColumn": { "paragraph": ["alignment", "indentation"], "heading": ["alignment", "indentation"] },
+    "tableCell": { "paragraph": ["alignment"], "heading": ["alignment", "indentation"] },
+    "tableHeader": { "paragraph": ["alignment"], "heading": ["alignment", "indentation"] }
   },
   "codeCombinesWith": ["link", "rsMark"],
   "stash": "rsKeep"

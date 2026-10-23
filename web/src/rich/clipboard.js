@@ -53,7 +53,7 @@ export function parseClipboard(text, session) {
   return new Slice(fragment, openable(fragment, -1, open(payload.openStart)), openable(fragment, 1, open(payload.openEnd)));
 }
 
-const CONTROLS = /[\u0000-\u0008\u000b-\u001f\u007f]/g;
+const CONTROLS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
 
 /** Plain text -> a Slice: one paragraph per line, or raw text inside a code block. */
 export function plainTextSlice(text, inCode) {
