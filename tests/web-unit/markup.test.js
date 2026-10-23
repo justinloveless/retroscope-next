@@ -4,7 +4,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { checkMarkup, parse } from '../../web/src/markup/parse.js';
 import { isAllowedDoc } from '../../web/src/markup/allow.js';
-import { colorValue, formatDay, jiraRenderer } from '../../web/src/markup/jira.js';
+import { colorValue, formatDay, isDocColor, jiraRenderer } from '../../web/src/markup/jira.js';
 import { render } from '../../web/src/markup/render.js';
 import {
   DIALECT_JIRA,
@@ -402,6 +402,24 @@ test('Jira colour marks, sub/sup, link titles, alignment and indentation', () =>
   }
 });
 
+test('every palette token Core sends is accepted by the client and themed by jira.css', () => {
+  const tokens = new Set([...readFileSync(`${ROOT}src/Retroscope.Core/Adf/AdfColor.cs`, 'utf8').matchAll(/\] = "([a-z-]+)",/g)].map((m) => m[1]));
+  assert.ok(tokens.size > 20, `found ${tokens.size} tokens in AdfColor.cs`);
+  const css = readFileSync(`${ROOT}web/styles/jira.css`, 'utf8');
+  const block = (selector) => {
+    const start = css.indexOf(`${selector} {`);
+    assert.ok(start >= 0, selector);
+    return css.slice(start, css.indexOf('}', start));
+  };
+  const themes = { light: block(':root[data-theme="light"]'), dark: block(':root[data-theme="dark"]'), system: block(':root:not([data-theme])') };
+  for (const token of tokens) {
+    assert.ok(isDocColor(token), `${token} is not a client palette token`);
+    for (const [theme, body] of Object.entries(themes)) {
+      assert.match(body, new RegExp(`--jc-${token}:`), `${theme} theme lacks --jc-${token}`);
+    }
+  }
+});
+
 test('Jira panels of every kind, custom colour and emoji', () => {
   const kinds = ['info', 'note', 'tip', 'success', 'warning', 'error'];
   const icons = ['info', 'clipboard-list', 'lightbulb', 'circle-check', 'triangle-alert', 'circle-x'];
@@ -423,7 +441,7 @@ test('Jira panels of every kind, custom colour and emoji', () => {
   );
 });
 
-test('Jira tables keep spans, widths, cell colours, layout and the number column', () => {
+test('Jira tables keep spans, widths, cell colours and the number column', () => {
   const cell = (kind, text, extra = {}) => ({ t: kind, ...extra, c: [p(t(text))] });
   const table = {
     t: 'table', layout: 'center', numbered: true, width: 400,
@@ -436,7 +454,7 @@ test('Jira tables keep spans, widths, cell colours, layout and the number column
   assert.ok(isAllowedDoc(doc({ ...table, c: table.c.slice(0, 2) })));
   assert.equal(
     jiraHtml(doc(table)),
-    '<div class="table-wrap"><table class="layout-center" cssom="width: 342px">'
+    '<div class="table-wrap"><table cssom="width: 342px">'
       + '<colgroup><col cssom="width: 42px"><col cssom="width: 100px"><col cssom="width: 80px"><col cssom="width: 120px"></colgroup><tbody>'
       + '<tr><th class="number"></th><th><p>A</p></th><th colspan="2" cssom="background-color: var(--jc-blue-subtlest)"><p>B</p></th></tr>'
       + '<tr><td class="number">1</td><th rowspan="2"><p>r</p></th><td cssom="background-color: #fafafa"><p>x</p></td><td><p>y</p></td></tr>'
@@ -446,6 +464,16 @@ test('Jira tables keep spans, widths, cell colours, layout and the number column
     jiraHtml(doc({ t: 'table', c: [{ t: 'tr', c: [cell('td', 'a', { colwidth: [50, 60] })] }] })),
     '<div class="table-wrap"><table><tbody><tr><td><p>a</p></td></tr></tbody></table></div>',
     'column widths that do not match the spans leave the table to size itself',
+  );
+  assert.equal(
+    jiraHtml(doc({ t: 'table', width: 900, c: [{ t: 'tr', c: [cell('td', 'a')] }] })),
+    '<div class="table-wrap"><table cssom="width: 900px"><tbody><tr><td><p>a</p></td></tr></tbody></table></div>',
+    'without column widths the table width applies',
+  );
+  assert.equal(
+    jiraHtml(doc({ t: 'table', width: 1e9, c: [{ t: 'tr', c: [cell('td', 'a')] }] })),
+    '<div class="table-wrap"><table><tbody><tr><td><p>a</p></td></tr></tbody></table></div>',
+    'an out-of-range table width is ignored',
   );
 });
 
