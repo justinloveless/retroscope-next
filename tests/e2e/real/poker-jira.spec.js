@@ -119,12 +119,13 @@ test('the drawer prefetches on hover and edits the summary and a description wit
   await expect(sheet.getByRole('button', { name: 'View screenshot.png' }).locator('img')).toBeVisible();
 
   const lastItem = await sheet.locator('.jira-description li').last().textContent();
+  // The rich editor (UX12) edits the table in place; the save goes out as descriptionAdf.
   await sheet.getByRole('button', { name: 'Edit description' }).click();
-  await expect(sheet.locator('.jira-description-editor .island').first()).toHaveAttribute('contenteditable', 'false');
+  await expect(sheet.locator('.rich-editor td').first()).toHaveText('Visa');
+  await ann.page.evaluate(() => document.querySelector('.rich-editor').focus());
+  await ann.page.waitForTimeout(80);
   await ann.page.evaluate(() => {
-    const input = document.querySelector('.jira-description-editor [contenteditable="true"]');
-    input.focus();
-    const item = [...input.querySelectorAll('li')].at(-1);
+    const item = [...document.querySelectorAll('.rich-editor li')].at(-1);
     const text = document.createTreeWalker(item, NodeFilter.SHOW_TEXT).nextNode();
     const range = document.createRange();
     range.setStart(text, 0);
@@ -132,7 +133,8 @@ test('the drawer prefetches on hover and edits the summary and a description wit
     getSelection().removeAllRanges();
     getSelection().addRange(range);
   });
-  await ann.page.keyboard.type('Then ');
+  await ann.page.waitForTimeout(80);
+  await ann.page.keyboard.type('Then ', { delay: 25 });
   await sheet.getByRole('button', { name: 'Save', exact: true }).click();
   // The stack keeps FakeJira's state between runs, so the item grows by one "Then " per run.
   const item = `Then ${lastItem}`;

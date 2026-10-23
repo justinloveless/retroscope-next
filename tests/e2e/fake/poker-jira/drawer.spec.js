@@ -131,8 +131,17 @@ test('field edits go through the proxy and the drawer reloads', async ({ page, f
   expect(call('PUT', '/issues/:key/sprint').body).toEqual({ sprintId: null });
 });
 
-test('editing the description keeps its islands and sends descriptionBase', async ({ page, fake }) => {
+// The rich editor (rich-editor.spec.js) edits descriptions; the markup editor with islands stays only for an edit
+// view Jira does not hold as ADF, until phase 12 removes it.
+function markupOnly(fake, jira) {
+  fake.route('GET', '/api/teams/:teamId/jira/issues/RS-12/description', () => ({
+    body: { key: 'RS-12', updated: jira.issues.get('RS-12').updated, editable: false, adf: null, media: [], opaque: [], marks: [], limits: { nodes: 5000, depth: 28, text: 32000, bytes: 1048576 } },
+  }));
+}
+
+test('a description without an ADF edit view is edited as markup, keeping its islands and sending descriptionBase', async ({ page, fake }) => {
   const { jira } = setupJira(fake);
+  markupOnly(fake, jira);
   await openBrowse(page);
   const sheet = await openIssue(page, 'RS-12');
   const before = jira.issues.get('RS-12').updated;
@@ -161,13 +170,15 @@ test('editing the description keeps its islands and sends descriptionBase', asyn
   await expect(sheet.locator('.jira-description .island td').first()).toHaveText('Visa');
 });
 
-test('a description edited in Jira meanwhile is refused as stale and the drawer reloads', async ({ page, fake }) => {
+test('a markup description edited in Jira meanwhile is refused as stale and the drawer reloads', async ({ page, fake }) => {
   const { jira } = setupJira(fake);
+  markupOnly(fake, jira);
   await openBrowse(page);
   const sheet = await openIssue(page, 'RS-12');
   const original = jira.issues.get('RS-12').description;
 
   await sheet.getByRole('button', { name: 'Edit description' }).click();
+  await expect(sheet.locator('.jira-description-editor')).toBeVisible();
   await caretInLastItem(page);
   await page.keyboard.type('Later ');
   jira.touch('RS-12', { summary: 'Pay with a saved card (edited in Jira)' });
@@ -192,7 +203,7 @@ const detail = (key, extra) => ({
   ...extra,
 });
 
-test('a description the server marks read-only, or one without a markup form, offers no editing', async ({ page, fake }) => {
+test('a description the server marks read-only offers no editing; one without a markup form opens in the rich editor', async ({ page, fake }) => {
   setupJira(fake, { rounds: [round(R1, 1, { ticketKey: 'RS-13' })] });
   fake.route('GET', '/api/teams/:teamId/jira/issues/RS-13', {
     body: detail('RS-13', {
@@ -217,7 +228,7 @@ test('a description the server marks read-only, or one without a markup form, of
   await expect(sheet).toHaveAttribute('data-key', 'RS-14');
   await expect(view).toHaveAttribute('data-key', 'RS-13');
   await expect(sheet.locator('.jira-description .panel-info')).toHaveText('A bare panel.');
-  await expect(sheet.getByRole('button', { name: 'Edit description' })).toHaveCount(0);
+  await expect(sheet.getByRole('button', { name: 'Edit description' })).toBeVisible();
 });
 
 test('comments page in 20s and a new comment goes to the top', async ({ page, fake }) => {
