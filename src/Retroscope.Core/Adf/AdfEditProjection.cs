@@ -64,8 +64,8 @@ internal sealed class AdfBase {
     /// <summary>Editable external media by url.</summary>
     public Dictionary<string, JsonElement> ExternalMedia { get; } = new(StringComparer.Ordinal);
 
-    /// <summary>Mentioned account ids and the accessLevel the first mention of each carried.</summary>
-    public Dictionary<string, JsonElement?> Mentions { get; } = new(StringComparer.Ordinal);
+    /// <summary>Account ids the editable mentions name.</summary>
+    public HashSet<string> Mentions { get; } = new(StringComparer.Ordinal);
 
     /// <summary>Every href and card url in the description, which a save may keep as Jira wrote it.</summary>
     public HashSet<string> Hrefs { get; } = new(StringComparer.Ordinal);
@@ -609,13 +609,13 @@ public static class AdfEditProjection {
         private void Remember(Node node) {
             switch (node.Type) {
                 case "media" when AdfJson.Attr(node.Source, "type") is "file" or "link" && AdfJson.Attr(node.Source, "id") is { } id:
-                    Base.Media.TryAdd(id, node.Source);
+                    Base.Media.TryAdd(id, node.Source.Clone());
                     break;
                 case "media" when AdfJson.Attr(node.Source, "url") is { } url:
-                    Base.ExternalMedia.TryAdd(url, node.Source);
+                    Base.ExternalMedia.TryAdd(url, node.Source.Clone());
                     break;
                 case "mention" when AdfJson.Attr(node.Source, "id") is { } account:
-                    Base.Mentions.TryAdd(account, AdfJson.TryAttr(node.Source, "accessLevel", out var level) ? level : null);
+                    Base.Mentions.Add(account);
                     break;
                 case "status" when AdfJson.Attr(node.Source, "color") is { } color && AdfSchema.IsColor(color):
                     Base.StatusColors.Add(color);
