@@ -77,9 +77,12 @@
   margin-block: 0.75rem 0;
 }
 
+/* The prose sits in grid sections: without this a wide table would widen the whole description. */
+.jira-prose { min-width: 0; max-width: 100%; }
+
 :where(.jira-prose, .jira-description-editor) > :first-child,
-:where(.jira-prose) .island > :first-child,
-:where(.jira-prose) :is(li, td, th, .panel-body, .expand-body, .layout-col) > :first-child {
+:where(.jira-prose) > .island:first-child > :first-child,
+:where(.jira-prose) :is(li, td, th, .panel-body, .expand-body, .layout-col, figure) > :first-child {
   margin-top: 0;
 }
 
@@ -266,7 +269,32 @@
 :where(.jira-prose, .jira-description-editor) :is(ul.tasks, ul.decisions) { list-style: none; padding-inline-start: 0; }
 :where(.jira-prose, .jira-description-editor) ul.tasks ul.tasks { margin-top: 0.25rem; padding-inline-start: 1.5rem; }
 :where(.jira-prose, .jira-description-editor) li.task { display: flex; gap: 0.5rem; align-items: baseline; }
-:where(.jira-prose, .jira-description-editor) li.task > input { flex: none; margin: 0; transform: translateY(0.125em); accent-color: var(--jp-info-bold); }
+/* Drawn rather than native: a disabled native checkbox greys out, while Jira shows read-only tasks in full colour. */
+:where(.jira-prose, .jira-description-editor) li.task > input {
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin: 0;
+  border: 2px solid var(--jp-subtle);
+  border-radius: 3px;
+  transform: translateY(0.125em);
+}
+
+:where(.jira-prose, .jira-description-editor) li.task > input:checked { border-color: var(--jp-info-bold); background: var(--jp-info-bold); }
+
+:where(.jira-prose, .jira-description-editor) li.task > input:checked::after {
+  content: "";
+  position: absolute;
+  left: 0.15rem;
+  top: 0;
+  width: 0.25rem;
+  height: 0.45rem;
+  border: solid var(--jp-on-bold);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
 
 :where(.jira-prose, .jira-description-editor) li.decision {
   display: flex;
