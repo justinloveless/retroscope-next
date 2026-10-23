@@ -55,6 +55,41 @@ test('minimized results put Show results beside the Submit button', async ({ pag
   await expect(page.getByRole('button', { name: 'Show results' })).toHaveCount(0);
 });
 
+test('a round minimized before the team’s Jira settings arrive moves Show results beside Submit when they do', async ({ page, fake }) => {
+  setupJira(fake, { rounds: [revealed()] });
+  await openTable(page);
+  await page.getByRole('dialog', { name: 'Results' }).getByRole('button', { name: 'Minimize' }).click();
+  await expect(submitBox(page).getByRole('button', { name: 'Show results' })).toBeVisible();
+
+  // The reload restores the minimized round from this tab's memory; the team's settings are held back.
+  let release;
+  const held = new Promise((resolve) => {
+    release = resolve;
+  });
+  await page.route(`**/api/teams/${TEAM}`, async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.reload();
+  await page.locator('.nt-table').waitFor();
+  const bar = page.locator('.nt-dock .nt-actions');
+  await expect(bar.getByRole('button', { name: 'Show results' })).toBeVisible();
+  await expect(submitBox(page)).toBeHidden();
+
+  release();
+  await expect(submitBox(page).getByRole('button', { name: 'Show results' })).toBeVisible();
+  await expect(bar.getByRole('button', { name: 'Show results' })).toHaveCount(0);
+});
+
+test('a minimized ended round with Jira keeps only the submit row, and the empty bar goes', async ({ page, fake }) => {
+  setupJira(fake, { rounds: [revealed({ active: false })] });
+  await openTable(page);
+  await page.getByRole('dialog', { name: 'Results' }).getByRole('button', { name: 'Minimize' }).click();
+  await expect(submitBox(page).getByRole('button', { name: 'Show results' })).toBeFocused();
+  await expect(submitBox(page).getByRole('button', { name: 'Submit 5 pts to RS-12' })).toBeVisible();
+  await expect(page.locator('.nt-dock-bar')).toBeHidden();
+});
+
 test('the suggested chip is the nearest to the winner, the higher one on a tie', async ({ page, fake }) => {
   setupJira(fake, { rounds: [revealed({ winner: 4 }), round(R2, 2, { ticketKey: 'RS-13', state: 'revealed', winner: 34 })] });
   await openTable(page);
