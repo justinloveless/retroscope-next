@@ -34,6 +34,8 @@ public sealed record FakeJiraResponse(
 public sealed partial class FakeJiraServer : IAsyncDisposable {
     public const string MediaHost = "api.media.atlassian.com";
 
+    private const string RawPlaceholder = "fake-jira-raw-description";
+
     private static readonly JsonObject[] LinkTypes = [
         new JsonObject { ["id"] = "10000", ["name"] = "Blocks", ["inward"] = "is blocked by", ["outward"] = "blocks" },
     ];
@@ -75,6 +77,12 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
     public List<JsonObject> Sprints { get; } = [];
 
     public ConcurrentDictionary<string, (string ContentType, byte[] Bytes)> Attachments { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Descriptions served exactly as written (formatting and escapes included), by issue key, in place of the issue's
+    /// parsed description: what a byte-for-byte check compares against. A PUT of the description replaces it.
+    /// </summary>
+    public ConcurrentDictionary<string, string> RawDescriptions { get; } = new(StringComparer.Ordinal);
 
     public string PointsFieldId { get; set; } = "customfield_10016";
 
@@ -241,6 +249,13 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
         var (status, json) = Route(request.Method, request.Path.Value ?? "", request.Query, body);
         if (status == 0) {
             await ServeAttachmentAsync(context);
+            return;
+        }
+        if (request.Method == "GET" && status == 200 && IssuePath().Match(request.Path.Value ?? "") is { Success: true } issuePath
+            && RawDescriptions.TryGetValue(issuePath.Groups[1].Value, out var raw)) {
+            json!["fields"]!["description"] = RawPlaceholder;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync(json.ToJsonString().Replace($"\"{RawPlaceholder}\"", raw, StringComparison.Ordinal), context.RequestAborted);
             return;
         }
 
@@ -417,13 +432,46 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
             return (400, new JsonObject { ["errorMessages"] = new JsonArray(), ["errors"] = errors });
         }
 
+        if (update["description"] is JsonNode description && ReservedNode(description) is { } reserved) {
+            // Jira's REST validator refuses unknown node types; the fake is never more lenient than Jira.
+            return (400, new JsonObject {
+                ["errorMessages"] = new JsonArray(),
+                ["errors"] = new JsonObject { ["description"] = $"INVALID_INPUT: unknown node or attribute {reserved}" },
+            });
+        }
+
         var fields = issue["fields"]!.AsObject();
         foreach (var (name, value) in update) {
             fields[name] = value?.DeepClone();
         }
+        if (update.ContainsKey("description")) {
+            RawDescriptions.TryRemove(key, out _);
+        }
         fields["updated"] = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'+0000'", CultureInfo.InvariantCulture);
         return (204, null);
     }
+
+    // The server's own token names (rsOpaque, rsMark, rsKeep…) must never reach Jira.
+    private static string? ReservedNode(JsonNode? node) {
+        switch (node) {
+            case JsonObject obj:
+                foreach (var (name, value) in obj) {
+                    if (IsReserved(name) || name == "type" && value is JsonValue type && type.TryGetValue<string>(out var text) && IsReserved(text)) {
+                        return name == "type" ? (string)value! : name;
+                    }
+                    if (ReservedNode(value) is { } found) {
+                        return found;
+                    }
+                }
+                return null;
+            case JsonArray array:
+                return array.Select(ReservedNode).FirstOrDefault(found => found is not null);
+            default:
+                return null;
+        }
+    }
+
+    private static bool IsReserved(string name) => name.Length > 2 && name.StartsWith("rs", StringComparison.Ordinal) && char.IsAsciiLetterUpper(name[2]);
 
     private (int, JsonNode?) MoveIssues(string body, JsonObject? sprint) {
         foreach (var key in JsonNode.Parse(body)!["issues"]!.AsArray()) {
