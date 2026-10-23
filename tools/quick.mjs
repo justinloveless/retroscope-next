@@ -100,6 +100,7 @@ const RULES = [
   [/^tests\/Fakes\//, { integration: ['JiraClient', 'JiraHttp', 'Oidc', 'Email'] }],
   [/^tests\/fixtures\/markup\//, { core: ['Markup', 'Adf'], node: ['tests/web-unit/markup.test.js'] }],
   [/^tests\/fixtures\/adf\//, { core: ['Adf'] }],
+  [/^tests\/fixtures\/adf-schema\//, { core: ['Adf'] }],
   [/^tests\/golden\/transcripts\//, { core: ['Poker', 'Retro'], node: ['tests/web-unit/reducers.test.js', 'tests/web-fake-server/self.test.js'] }],
   [/^tests\/golden\//, { golden: true, node: ['tests/web-unit/golden-cli.test.js'], core: ['Poker', 'Retro'], fallback: true }],
   [/^tests\/authz-matrix\.csv$/, { core: ['Authz'] }],
