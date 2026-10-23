@@ -1,10 +1,11 @@
 // The stage (docs/followups/UX1.md): the round header with the debounced ticket-key editor on top, the
 // viewed round's issue at the centre (the stage's scroll container), the other players seated around it,
-// and a dock floating at the bottom with the hand and its bar (Lock In, Abstain, Reveal) or the results of
-// a revealed round (winner, grouped votes, Replay and End/Continue/Next Round, the Jira submit chips).
-// The issue keeps clear of both: its side padding is the seat ring's depth and its bottom padding the
-// dock's height plus 24 px, both measured live. While a revealed round's results overlay is open
-// (results.js), the winner, the round actions and the submit chips move into it from the dock.
+// and a dock floating at the bottom with the hand and its bar (Lock In, Abstain, Reveal) or a revealed
+// round's actions. The issue keeps clear of both: its side padding is the seat ring's depth and its bottom
+// padding the dock's height plus 24 px, both measured live. A revealed round's results overlay
+// (results.js) holds the winner, the piles and Replay; while it is open, End/Continue/Next Round and the
+// Jira submit chips move into it from the dock. Minimized, the dock keeps only those and Show results,
+// which sits beside the Submit button when there is one (docs/decisions/UX7.md).
 
 import { h, replaceContent, setStyle } from '../core/h.js';
 import { createButton } from '../ui/button.js';
@@ -22,6 +23,8 @@ const LABEL_ROOM_TOP_PX = 52;
 const LABEL_ROOM_BOTTOM_PX = 28;
 // Below this much room between the ring's labels, the results overlay deals smaller piles.
 const RESULTS_NARROW_PX = 480;
+// A feature that adds to the results marks the row Show results joins while they are minimized.
+const INLINE_ROW = '[data-results-inline]';
 
 function roundLabel(round) {
   return round ? `Round ${round.number}` : '';
@@ -167,6 +170,13 @@ export function createTable(actions) {
   observer?.observe(header);
   observer?.observe(dock);
 
+  // Features fill and show their part of the results after the table has placed them (and again when a
+  // team's Jira settings arrive), so Show results follows the inline row as it appears and goes.
+  const inlineWatch = typeof MutationObserver === 'function'
+    ? new MutationObserver(() => placeShowResults())
+    : null;
+  inlineWatch?.observe(extra, { subtree: true, childList: true, attributes: true, attributeFilter: ['hidden'] });
+
   function flushTicket() {
     clearTimeout(debounce);
     debounce = 0;
@@ -226,7 +236,7 @@ export function createTable(actions) {
         : others
           ? [button('Next Round', 'purple', () => actions.nextActive(round))]
           : [button('End', 'default', () => actions.end(round)), button('Continue', 'purple', () => actions.continueRound(round))];
-      revealedParts = { winner, roundActions: h('div', { class: 'nt-round-actions' }, replay, ...next) };
+      revealedParts = { winner, replay, next, roundActions: h('div', { class: 'nt-round-actions' }) };
     } else if (phase === 'pending') {
       replaceContent(bar, h('p', { class: 'nt-note', text: 'Preview: this round has not been added yet.' }));
     } else if (phase === 'inactive') {
@@ -243,15 +253,39 @@ export function createTable(actions) {
       overlay.hide();
       overlay.showResults.remove();
       dock.insertBefore(extra, handSlot);
-    } else if (open) {
+      return;
+    }
+    const { winner, replay, next, roundActions } = revealedParts;
+    if (open) {
       overlay.showResults.remove();
-      overlay.show(revealedParts.winner, [results.el, revealedParts.roundActions, extra]);
+      roundActions.replaceChildren(replay, ...next);
+      overlay.fill(winner, [results.el, roundActions, extra]);
+      overlay.show();
       replaceContent(bar);
     } else {
+      // The winner, the vote pills and Replay stay in the hidden overlay; the dock keeps the round going.
       overlay.hide();
-      revealedParts.roundActions.prepend(overlay.showResults);
-      replaceContent(bar, revealedParts.winner, results.el, revealedParts.roundActions);
+      overlay.fill(winner, [results.el, replay]);
+      roundActions.replaceChildren(...next);
+      replaceContent(bar, roundActions);
       dock.insertBefore(extra, handSlot);
+      placeShowResults();
+    }
+  }
+
+  function placeShowResults() {
+    if (!revealedParts || !overlay.minimized) {
+      return;
+    }
+    const row = extra.querySelector(INLINE_ROW);
+    const target = row && !row.closest('[hidden]') ? row : revealedParts.roundActions;
+    if (overlay.showResults.parentNode === target) {
+      return;
+    }
+    if (target === row) {
+      target.append(overlay.showResults);
+    } else {
+      target.prepend(overlay.showResults);
     }
   }
 
@@ -341,6 +375,7 @@ export function createTable(actions) {
       clearTimeout(debounce);
       cancelAnimationFrame(frame);
       observer?.disconnect();
+      inlineWatch?.disconnect();
       seats.destroy();
       el.remove();
     },

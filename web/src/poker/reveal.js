@@ -44,8 +44,8 @@ export function namesText(voters) {
 }
 
 /**
- * The revealed votes grouped by value ("2 x 5 pts" and who), shown next to the winner while the seats
- * hold the flipped cards themselves.
+ * The revealed votes grouped by exact value ("2 x 5 pts" and who). Not shown since UX7 (the overlay's piles
+ * and the seats carry the votes); the list stays in the hidden part of the overlay.
  */
 export function createResults() {
   const el = h('ul', { class: 'nt-stacks', 'aria-label': 'Revealed votes' });

@@ -133,11 +133,13 @@ function createSubmit({ onSubmit }) {
   const chips = h('div', { class: 'jira-submit-chips', role: 'group', 'aria-label': 'Points to submit' });
   const send = createButton({ label: 'Submit to Jira', icon: 'send', variant: 'emerald', press: true, size: 'sm', onClick: () => onSubmit(chosen) });
   const status = h('p', { class: 'jira-submit-status', role: 'status' });
+  // While the results are minimized, the table puts Show results in this row, beside Submit.
+  const sendRow = h('div', { class: 'jira-submit-send', dataset: { resultsInline: '' } }, send.el);
   const el = h('section', {
     class: 'jira-submit',
     'aria-label': 'Submit points to Jira',
     hidden: true,
-  }, chips, send.el, status);
+  }, chips, sendRow, status);
   const buttons = SUBMIT_CHIPS.map((points) => createButton({
     label: String(points),
     variant: 'default',
