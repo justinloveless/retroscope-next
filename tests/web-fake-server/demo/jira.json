@@ -106,7 +106,9 @@
       "parentKey": "DEMO-100",
       "sprintId": 141,
       "assignee": "demo-acc-4",
+      "reporter": "demo-acc-2",
       "labels": ["payments", "ios"],
+      "created": "2026-09-29T13:20:00.000Z",
       "description": "Show the Apple Pay button above the fold on the cart page when the device supports it.\n\n- hide it for gift cards\n- log a `checkout_wallet_shown` event",
       "updated": "2026-10-18T10:30:00.000Z"
     },
@@ -135,8 +137,8 @@
       "points": null,
       "parentKey": "DEMO-100",
       "sprintId": 141,
-      "assignee": "demo-acc-2",
-      "labels": ["payments", "reliability"],
+      "reporter": "demo-acc-5",
+      "created": "2025-06-30T08:39:00.000Z",
       "description": "When the payment provider answers **503** or times out, retry the charge instead of showing an error.\n\n[[island:demoStatusLine]]\n\n[[island:demoColours]]\n\n[[island:d3e0b1a7c0de]]\n\n[[island:demoPanelInfo]]\n\n[[island:demoPanelNote]]\n\n[[island:demoPanelTip]]\n\n[[island:demoPanelOk]]\n\n[[island:demoPanelWarn]]\n\n[[island:demoPanelError]]\n\n[[island:demoPanelCustom]]\n\n[[island:demoLayout]]\n\n[[island:demoExpand]]\n\n[[island:demoChart]]\n\n[[island:demoTasks]]\n\n[[island:demoDecisions]]\n\n[[island:demoNote0001]]\n\n[[island:demoRoadmap1]]\n\nAcceptance criteria:\n\n- at most 3 retries, with jitter\n- the same idempotency key on every retry\n- a declined card is **never** retried",
       "islands": {
         "demoStatusLine": { "t": "p", "c": [{ "t": "text", "v": "Status " }, { "t": "status", "v": "In progress", "color": "blue" }, { "t": "text", "v": " · due " }, { "t": "date", "v": "2026-10-30" }, { "t": "text", "v": " · owner " }, { "t": "user", "v": "@Priya Raman" }, { "t": "text", "v": " · reviewed by " }, { "t": "user", "v": "@Marcus Chen" }, { "t": "text", "v": " 🚀" }] },
@@ -322,6 +324,7 @@
       "points": 2,
       "sprintId": 141,
       "assignee": "demo-acc-6",
+      "labels": ["checkout", "promotions"],
       "description": "Double-clicking **Apply** adds the discount twice.",
       "updated": "2026-10-15T17:00:00.000Z"
     },

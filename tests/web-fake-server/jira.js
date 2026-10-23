@@ -146,7 +146,7 @@ export function installJira(server, { teamId, fixture = DEFAULT_JIRA_FIXTURE, co
         priority: issue.priority ?? null,
         issueType: issue.issueType,
         assignee: data.users.find((u) => u.accountId === issue.assignee) ?? null,
-        reporter: data.users[0] ?? null,
+        reporter: data.users.find((u) => u.accountId === issue.reporter) ?? data.users[0] ?? null,
         parent: issue.parentKey ? { key: issue.parentKey, summary: parentSummary(issue) } : null,
         labels: issue.labels,
         points: issue.points ?? null,
