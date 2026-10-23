@@ -2,8 +2,8 @@
 // server clock, so every tab shows `endsAt − serverNow()` whatever its own clock says. The display ticks at
 // 4 Hz while visible and 1 Hz while hidden. The alarm (three 880 Hz square beeps) plays when local time
 // crosses `endsAt`, or on the server's expiry if that is within 5 s of `endsAt`, and at most once per
-// `endsAt`. Music is generated, and its position is `durationMs − remainingMs`, so every tab plays the
-// same bar. Volume and mute are per browser.
+// `endsAt`. Music is the deployment's track when it has one (track.js), else generated; either way its
+// position is `durationMs − remainingMs`, so every tab plays the same bar. Volume and mute are per browser.
 
 import { h, replaceContent } from '../core/h.js';
 import { announce } from '../core/a11y.js';
@@ -15,6 +15,7 @@ import { createMenu } from '../ui/menu.js';
 import { createSwitch } from '../ui/switch.js';
 import { toast } from '../ui/toast.js';
 import { isFacilitator } from './model.js';
+import { createTrack } from './track.js';
 
 const TICK_VISIBLE_MS = 250;
 const TICK_HIDDEN_MS = 1000;
@@ -132,7 +133,11 @@ const sound = {
   },
 };
 
+// One track element per page, made when a board says a track exists, so boards share its download.
+let track = null;
+
 function unlockSound() {
+  track?.prime();
   sound.unlock();
   if (sound.ready) {
     document.removeEventListener('pointerdown', unlockSound, true);
@@ -255,6 +260,9 @@ function send(ctx, k, d) {
 export const timerFeature = {
   board(ctx, { toolbar }) {
     const music = createMusic();
+    if (ctx.timerMusic) {
+      track ??= createTrack({ sound });
+    }
     const rung = new Set();
     let view = null;
     let seenExpired = null;
@@ -352,11 +360,20 @@ export const timerFeature = {
       }
       if (timer.state === 'running' && timer.music && !sound.muted && sound.ready && remaining > 0) {
         const position = musicPositionMs(timer, now);
-        music.play(position);
+        const onTrack = ctx.timerMusic && track !== null && track.play(position);
+        if (onTrack) {
+          music.stop();
+        } else {
+          track?.stop();
+          music.play(position);
+        }
         el.dataset.musicPosition = String(Math.round(position));
+        el.dataset.musicSource = onTrack ? 'track' : 'generated';
       } else {
         music.stop();
+        track?.stop();
         delete el.dataset.musicPosition;
+        delete el.dataset.musicSource;
       }
     }
 
@@ -421,6 +438,7 @@ export const timerFeature = {
       destroy() {
         clearTimeout(tick);
         music.stop();
+        track?.stop();
         sound.listeners.delete(onSound);
         document.removeEventListener('visibilitychange', onVisibility);
         soundMenu.destroy();

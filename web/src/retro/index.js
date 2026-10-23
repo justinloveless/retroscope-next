@@ -88,7 +88,7 @@ export function mount(root, boot, app = {}) {
     if (snap && room.view === null) {
       room.seed(snap);
     }
-    board = createBoard({ room, socket, me, boardId: id, features: FEATURES });
+    board = createBoard({ room, socket, me, boardId: id, features: FEATURES, timerMusic: boot.timerMusic === true });
     replaceContent(el, board.el);
   }
 
