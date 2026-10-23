@@ -74,10 +74,15 @@ markup tests, and the fake Jira fixtures. It revises U6 decisions 3, 6 and 8 and
    - **Spans and colours.** Spans are capped at 64 and widths at 10,000 px on both sides, and cell colours follow
      decision 4.
    - **Widths.** When the first row's cells give a width for every column, the table gets a `colgroup` and a fixed pixel
-     width, as Jira lays it out. Otherwise it sizes itself.
+     width, as Jira lays it out. Otherwise the table's own `width` applies when it has one, and it sizes itself when it
+     has neither.
+   - **Layout.** `layout` (center, align-start, wide, full-width) is carried in the Doc but not rendered. Jira uses it
+     to place a table narrower or wider than its 760 px content column. Here every table fills the description column,
+     which is narrower than that, and scrolls when it is wider, so the placement has nothing to act on.
    - **Number column.** It adds a 42 px first column that numbers the rows that are not all header cells, as Jira does.
-   - **Scrolling.** The table sits in `.table-wrap` (`overflow-x: auto`) and `.jira-prose` gets `min-width: 0`.
-     Without that, a wide table widened the whole description past the centre issue panel's glass.
+   - **Scrolling.** The table sits in `.table-wrap` (`overflow-x: auto`), and `.jira-prose` and
+     `.jira-description-editor` get `min-width: 0`. Without that, a wide table widened the whole description (or the
+     editor, for a table in an island) past the centre issue panel's glass.
 7. **Media.**
    - **Images.** They still load only through the same-origin attachment proxy, after render.js's same-origin `src`
      check. `figure.media` carries the layout class and the width (percent or pixels, capped at 100 % of the column).
