@@ -72,3 +72,24 @@ test('a spotlight move shows its round’s issue at the centre', async ({ page, 
   await expect(issueView(page)).toHaveAttribute('data-key', 'RS-20');
   await expect(issueView(page).getByRole('button', { name: /^Edit summary/ })).toHaveText('Remember the delivery address');
 });
+
+test('the centre’s fields keep every empty field in words, leave out a missing reporter and fit the view', async ({ page, fake }) => {
+  setupJira(fake, { rounds: [round(R1, 1, { ticketKey: 'RS-40' })] });
+  fake.route('GET', '/api/teams/:teamId/jira/issues/RS-40', {
+    body: detail('RS-40', { fields: { summary: 'Summary of RS-40', status: 'To Do', statusCategory: 'new', issueType: 'Story', priority: null, labels: [], points: null } }),
+  });
+  await openTable(page);
+  const view = issueView(page);
+
+  await expect(view.locator('.jira-meta-label')).toHaveText(['Status', 'Type', 'Priority', 'Assignee', 'Points', 'Parent', 'Sprint', 'Labels', 'Updated']);
+  await expect(view.locator('.jira-field-assignee')).toHaveText('Unassigned');
+  await expect(view.locator('.jira-field-points')).toHaveText('Not estimated');
+  await expect(view.locator('.jira-field-sprint')).toHaveText('Backlog');
+  await expect(view.locator('.jira-field-priority')).toHaveText('None');
+  await expect(view.locator('.jira-meta-parent dd')).toHaveText('No parent');
+  await expect(view.locator('.jira-meta-labels dd')).toHaveText('No labels');
+
+  const right = await view.locator('.jira-meta').evaluate((el) => el.getBoundingClientRect().right);
+  const widest = await view.locator('.jira-meta :is(.jira-chip, .jira-meta-item)').evaluateAll((els) => Math.max(...els.map((el) => el.getBoundingClientRect().right)));
+  expect(widest).toBeLessThanOrEqual(right + 0.5);
+});

@@ -81,6 +81,91 @@ test('the drawer shows the issue: fields, island-rich description, attachments, 
   await expect(thumb).toHaveAttribute('src', /^\/api\/teams\/[^/]+\/jira\/issues\/RS-12\/attachments\/20001$/);
 });
 
+test('the fields read at a glance: visible labels, the assignee’s initials, the parent and short dates', async ({ page, fake }) => {
+  setupJira(fake);
+  await openBrowse(page);
+  const sheet = await openIssue(page, 'RS-12');
+
+  await expect(sheet.locator('.jira-meta-label')).toHaveText(['Status', 'Type', 'Priority', 'Assignee', 'Points', 'Parent', 'Sprint', 'Labels', 'Reporter', 'Created', 'Updated']);
+  for (const name of ['Change status: To Do', 'Change issue type: Story', 'Change priority: Medium', 'Change assignee: Ada Fake', 'Change story points: none', 'Change sprint: Sprint 9']) {
+    await expect(sheet.getByRole('button', { name, exact: true })).toBeVisible();
+  }
+  await expect(sheet.locator('.jira-field-assignee .jira-avatar')).toHaveAttribute('data-initials', 'AF');
+  await expect(sheet.locator('.jira-field-assignee .jira-avatar')).not.toHaveClass(/is-empty/);
+  await expect(sheet.locator('.jira-meta-labels .badge')).toHaveText(['payments']);
+  await expect(sheet.locator('.jira-meta-reporter dd')).toHaveText('Ada Fake');
+  // This year's dates leave the year out; the full date and time are the tooltip and the machine-readable value.
+  const updated = sheet.locator('.jira-meta-updated time');
+  await expect(updated).toHaveAttribute('datetime', '2026-10-13T09:30:00.000Z');
+  await expect(updated).toHaveAttribute('title', /^Oct 13, 2026.*9:30\sAM$/);
+  await expect(updated).toHaveText(new Date().getUTCFullYear() === 2026 ? 'Oct 13' : 'Oct 13, 2026');
+
+  const parent = sheet.locator('.jira-meta-parent').getByRole('button');
+  await expect(parent).toContainText('RS-1');
+  await expect(parent).toContainText('Checkout epic');
+  await parent.click();
+  await expect(drawer(page)).toHaveAttribute('data-key', 'RS-1');
+  await expect(sheet.getByRole('button', { name: /^Edit summary/ })).toHaveText('Checkout epic');
+});
+
+test('empty fields stay visible and say so in words', async ({ page, fake }) => {
+  setupJira(fake);
+  await openBrowse(page);
+  const sheet = await openIssue(page, 'RS-20');
+
+  await expect(sheet.locator('.jira-field-assignee')).toHaveText('Unassigned');
+  await expect(sheet.locator('.jira-field-assignee .jira-avatar')).toHaveClass(/is-empty/);
+  await expect(sheet.getByRole('button', { name: 'Change assignee: Unassigned', exact: true })).toBeVisible();
+  await expect(sheet.locator('.jira-field-points')).toHaveText('Not estimated');
+  await expect(sheet.getByRole('button', { name: 'Change story points: none', exact: true })).toBeVisible();
+  await expect(sheet.locator('.jira-meta-parent dd')).toHaveText('No parent');
+  await expect(sheet.locator('.jira-meta-labels dd')).toHaveText('No labels');
+  await expect(sheet.locator('.jira-meta-parent .is-unset, .jira-meta-labels .is-unset')).toHaveCount(2);
+  // A past year's date keeps its year.
+  await expect(sheet.locator('.jira-meta-created time')).toHaveText('Jun 30, 2025');
+  await expect(sheet.locator('.jira-meta-created time')).toHaveAttribute('datetime', '2025-06-30T08:39:00.000Z');
+});
+
+test('a chip’s caret shows on hover, on focus and while its menu is open, and stays faint on touch', async ({ page, fake, browserName }) => {
+  setupJira(fake);
+  await openBrowse(page);
+  const sheet = await openIssue(page, 'RS-12');
+  const chip = sheet.locator('.jira-field-priority');
+  const caret = chip.locator('.jira-chip-caret');
+  const opacity = () => caret.evaluate((el) => Number(getComputedStyle(el).opacity));
+
+  if (isPhone(page)) {
+    await expect.poll(opacity).toBeCloseTo(0.45);
+    return;
+  }
+  await page.mouse.move(0, 0);
+  await expect.poll(opacity).toBe(0);
+  await chip.hover();
+  await expect.poll(opacity).toBeGreaterThan(0.5);
+  await page.mouse.move(0, 0);
+  await expect.poll(opacity).toBe(0);
+  await chip.click();
+  await expect(page.getByRole('menuitem', { name: 'Highest' })).toBeVisible();
+  await page.mouse.move(0, 0);
+  await expect(chip).toHaveAttribute('aria-expanded', 'true');
+  await expect.poll(opacity).toBeGreaterThan(0.5);
+  await page.keyboard.press('Escape');
+  await expect(chip).toHaveAttribute('aria-expanded', 'false');
+  // Tab from the chip before it; Safari's Tab skips buttons, and there focus after a key press is keyboard focus.
+  if (browserName === 'webkit') {
+    await chip.focus();
+  } else {
+    await sheet.locator('.jira-field-type').focus();
+    await page.keyboard.press('Tab');
+  }
+  await expect(chip).toBeFocused();
+  await expect.poll(() => chip.evaluate((el) => el.matches(':focus-visible'))).toBe(true);
+  await expect.poll(opacity).toBeGreaterThan(0.5);
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect.poll(() => caret.evaluate((el) => parseFloat(getComputedStyle(el).transitionDuration))).toBeLessThan(0.001);
+});
+
 test('field edits go through the proxy and the drawer reloads', async ({ page, fake }) => {
   const { jira } = setupJira(fake);
   await openBrowse(page);
@@ -319,6 +404,9 @@ test('without edit rights the drawer is read-only', async ({ page, fake }) => {
   await expect(sheet.locator('.jira-summary-edit')).toHaveCount(0);
   await expect(sheet.locator('button.jira-field-status')).toHaveCount(0);
   await expect(sheet.locator('span.jira-field-status')).toContainText('To Do');
+  await expect(sheet.locator('.jira-meta-label')).toHaveText(['Status', 'Type', 'Priority', 'Assignee', 'Points', 'Parent', 'Sprint', 'Labels', 'Reporter', 'Created', 'Updated']);
+  await expect(sheet.locator('.jira-chip-caret')).toHaveCount(0);
+  await expect(sheet.locator('.jira-meta-parent').getByRole('button')).toBeEnabled();
   await expect(sheet.getByRole('button', { name: 'Edit description' })).toHaveCount(0);
   await expect(sheet.getByRole('button', { name: 'Clone' })).toHaveCount(0);
   await expect(sheet.getByRole('textbox', { name: 'Add a comment' })).toHaveCount(0);
