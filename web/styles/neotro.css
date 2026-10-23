@@ -1809,8 +1809,8 @@
   height: 1rem;
 }
 
-/* Collapse: 24×40 px, straddling the panel's edge so it covers neither the panel's rows nor the seats; the
-   grip chip sits just above it. */
+/* Collapse: 24×40 px, straddling the panel's edge so it covers neither the panel's rows nor the seats (see the
+   gutter below); the grip chip sits just above it. */
 .drawer-collapse {
   z-index: 2;
   width: 1.5rem;
@@ -1823,6 +1823,18 @@
 
 .drawer-panel > .resize-handle .resize-grip {
   translate: 0 -2rem;
+}
+
+/* Beside an open panel the stage keeps a gutter for the collapse tab's overhang, so the tab never lands on a
+   seat at the ring's edge (the stage measures its seats inside the gutter). Phones have no side panels. */
+@media (min-width: 768px) {
+  .drawer-panel-left:not([hidden]) ~ .nt-center {
+    padding-left: 0.75rem;
+  }
+
+  .nt-center:has(~ .drawer-panel-right:not([hidden])) {
+    padding-right: 0.75rem;
+  }
 }
 
 /* Open: 32×96 px, flush with the screen edge (.nt-body is its containing block). */
