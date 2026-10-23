@@ -34,7 +34,7 @@ const TEST_FOLDERS = {
 const WEB_NET = ['outbox', 'room', 'socket', 'supersede', 'fake-server'].map((n) => `tests/web-unit/net/${n}.test.js`);
 const WEB_CORE_DOM = ['a11y', 'h', 'list', 'router', 'ui'].map((n) => `tests/web-unit/core/${n}.test.js`);
 const POKER_LAYOUT = ['geometry', 'avatar-corner', 'column', 'mirror', 'print'].map((n) => `tests/web-unit/poker/${n}.test.js`);
-const RICH = ['adf', 'clipboard', 'schema', 'tokens'].map((n) => `tests/web-unit/rich/${n}.test.js`);
+const RICH = ['adf', 'block-marks', 'clipboard', 'rules', 'schema', 'tokens'].map((n) => `tests/web-unit/rich/${n}.test.js`);
 const FAKE_SERVER = ['tests/web-fake-server/self.test.js', 'tests/web-fake-server/demo/demo.test.js', 'tests/web-unit/net/fake-server.test.js'];
 const SIM = true;
 
@@ -134,10 +134,11 @@ const RULES = [
   [/^web\/src\/poker\/model\.js$/, { node: ['tests/web-unit/reducers.test.js', 'tests/web-fake-server/demo/demo.test.js'] }],
   [/^web\/src\/poker\/(geometry|seats)\.js$/, { node: POKER_LAYOUT }],
   [/^web\/src\/poker\/drag\.js$/, { node: ['tests/web-unit/poker/drag-zones.test.js'] }],
+  [/^web\/src\/poker\/issue-drawer\.js$/, { node: ['tests/web-unit/core/build.test.js'] }],
   [/^web\/src\/routes\.js$/, { node: ['tests/web-unit/scaffold/routes.test.js', 'tests/web-unit/core/router.test.js', 'tests/web-fake-server/self.test.js', 'tests/web-unit/core/build.test.js'] }],
   [/^web\/styles\/jira\.css$/, { node: ['tests/web-unit/markup.test.js'] }],
   [/^(web\/styles\/|web\/(build\.mjs|budgets\.json|package\.json)$|package-lock\.json$)/, { node: ['tests/web-unit/core/build.test.js', 'tests/web-unit/core/theme.test.js'] }],
-  [/^(package\.json|package-lock\.json|web\/package\.json)$/, { node: ['tests/web-unit/core/deps.test.js'] }],
+  [/^(package\.json|package-lock\.json|web\/package\.json|THIRD_PARTY\.md)$/, { node: ['tests/web-unit/core/deps.test.js'] }],
   [/^(web\/assets\/|tools\/make-sprite\.mjs$|THIRD_PARTY\.md$)/, { node: ['tests/web-unit/assets.test.js'] }],
 
   [/^deploy\/(docker-compose|compose\.test)\.yml$/, { integration: ['Deploy'] }],
