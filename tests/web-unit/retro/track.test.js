@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { TRACK_URL, createTrack, trackCorrection, trackDrift } from '../../../web/src/retro/track.js';
+import { TRACK_LEVEL, TRACK_URL, createTrack, trackCorrection, trackDrift } from '../../../web/src/retro/track.js';
 
 const close = (actual, expected, epsilon = 1e-9) => assert.ok(Math.abs(actual - expected) < epsilon, `${actual} ≉ ${expected}`);
 
@@ -16,6 +16,7 @@ class FakeAudio {
     this.listeners = {};
     this.seeks = [];
     this.loads = 0;
+    this.plays = 0;
     this.playResult = Promise.resolve();
   }
 
@@ -42,6 +43,7 @@ class FakeAudio {
   }
 
   play() {
+    this.plays++;
     this.paused = false;
     return this.playResult;
   }
@@ -65,10 +67,15 @@ class FakeAudio {
 function setup({ audio = new FakeAudio(), volume = 0.5 } = {}) {
   let now = 1000;
   const graph = [];
+  const gains = [];
   const node = (name) => ({ name, gain: { value: 1 }, connect(target) { graph.push([name, target.name]); return target; } });
   const context = {
     destination: { name: 'destination' },
-    createGain: () => node('gain'),
+    createGain: () => {
+      const gain = node('gain');
+      gains.push(gain);
+      return gain;
+    },
     createMediaElementSource: (element) => {
       assert.equal(element, audio);
       return node('source');
@@ -93,7 +100,7 @@ function setup({ audio = new FakeAudio(), volume = 0.5 } = {}) {
       currentTime = value;
     },
   });
-  return { audio, track, graph, sound, made, advance: (ms) => { now += ms; }, setTime: (t) => { currentTime = t; } };
+  return { audio, track, graph, gains, sound, made, advance: (ms) => { now += ms; }, setTime: (t) => { currentTime = t; } };
 }
 
 test('drift is measured the short way round the loop', () => {
@@ -130,12 +137,30 @@ test('the element is made on first need with preload none, then loads only when 
 });
 
 test('it plays through a gain into the page context at the chosen volume', () => {
-  const { track, graph, sound } = setup({ volume: 0.75 });
+  const { track, graph, gains, sound } = setup({ volume: 0.75 });
   track.play(0);
   assert.deepEqual(graph, [['source', 'gain'], ['gain', 'destination']]);
+  close(gains[0].gain.value, TRACK_LEVEL * 0.75);
   sound.volume = 0.25;
   track.play(250);
   assert.deepEqual(graph.length, 2, 'the element is connected once');
+  assert.equal(gains.length, 1);
+  close(gains[0].gain.value, TRACK_LEVEL * 0.25);
+});
+
+test('only the first gesture primes the element, and none after it has played', async () => {
+  const fresh = setup();
+  fresh.track.prime();
+  fresh.track.prime();
+  assert.equal(fresh.audio.loads, 1);
+
+  // A board mounted again re-arms the gesture listeners; load() would abort the playing element.
+  const { audio, track } = setup();
+  track.play(0);
+  await audio.playResult;
+  await Promise.resolve();
+  track.prime();
+  assert.equal(audio.loads, 0);
 });
 
 test('on metadata it seeks to the shared position modulo the length, counting the time since play', () => {
@@ -282,6 +307,12 @@ test('a refused format turns it off, a play blocked before a gesture does not', 
   await blocked.playResult.catch(() => {});
   await Promise.resolve();
   assert.equal(first.track.failed, false);
+  // A refused play leaves a real element paused; the next tick tries again.
+  blocked.paused = true;
+  blocked.playResult = Promise.resolve();
+  first.track.play(250);
+  assert.equal(blocked.plays, 2);
+  assert.equal(blocked.paused, false);
 
   const unsupported = new FakeAudio();
   unsupported.playResult = Promise.reject(Object.assign(new Error('format'), { name: 'NotSupportedError' }));
