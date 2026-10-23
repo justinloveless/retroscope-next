@@ -71,14 +71,12 @@ class Reader {
   attrs(type, raw, path) {
     const table = own(NODE_ATTRS, type) ?? own(MARK_ATTRS, type);
     const out = {};
-    if (raw === undefined) {
-      return { out, keys: null };
-    }
-    if (!isObject(raw)) {
+    if (raw !== undefined && !isObject(raw)) {
       return this.fail('invalid_attr', `${path}.attrs`) ?? { out, keys: null, dropped: true };
     }
-    const keys = [];
-    for (const [key, value] of Object.entries(raw)) {
+    // keys stays null for a node without `attrs`, so it is written back without one; required ones are still due.
+    const keys = raw === undefined ? null : [];
+    for (const [key, value] of Object.entries(raw ?? {})) {
       const at = `${path}.attrs.${key}`;
       if (key === STASH) {
         if (this.paste) {
