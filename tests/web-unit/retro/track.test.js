@@ -146,46 +146,83 @@ test('on metadata it seeks to the shared position modulo the length, counting th
   close(audio.seeks[0], (300_400 / 1000) % 266);
 });
 
-test('a resume or resync far from the element seeks once; small drift only nudges the rate', async () => {
-  const { audio, track, advance, setTime } = setup();
-  track.play(10_000);
-  audio.deliver(266);
+/** Starts playing at `positionMs` with the data in, and lets the post-seek settling pass. */
+async function playing(positionMs) {
+  const t = setup();
+  t.track.play(positionMs);
+  t.audio.deliver(266);
   await Promise.resolve();
-  assert.equal(audio.seeks.length, 1);
+  t.advance(1000);
+  return t;
+}
 
-  advance(250);
-  setTime(10.25 + 0.1);
-  track.play(10_250);
-  assert.equal(audio.seeks.length, 1);
-  assert.equal(audio.playbackRate, 0.97);
+/** One tick of the timer `ms` after the last, with the element reporting `currentTime`. */
+function tick(t, ms, positionMs, currentTime) {
+  t.advance(ms);
+  t.setTime(currentTime);
+  t.track.play(positionMs);
+}
 
-  advance(250);
-  setTime(10.5);
-  track.play(10_500);
-  assert.equal(audio.playbackRate, 1);
+test('a small drift that persists nudges the rate, and the rate returns to 1 once it is gone', async () => {
+  const t = await playing(10_000);
+  assert.equal(t.audio.seeks.length, 1);
+  tick(t, 250, 11_000, 11.1);
+  assert.equal(t.audio.playbackRate, 1, 'one sample decides nothing');
+  tick(t, 250, 11_250, 11.35);
+  assert.equal(t.audio.playbackRate, 0.97);
+  tick(t, 250, 11_500, 11.5);
+  tick(t, 250, 11_750, 11.75);
+  tick(t, 250, 12_000, 12);
+  tick(t, 250, 12_250, 12.25);
+  tick(t, 250, 12_500, 12.5);
+  tick(t, 250, 12_750, 12.75);
+  assert.equal(t.audio.playbackRate, 1);
+  assert.equal(t.audio.seeks.length, 1);
+});
 
-  advance(250);
-  track.play(70_000);
-  assert.equal(audio.seeks.length, 2);
-  close(audio.seeks[1], 70);
+test('a jump while playing seeks to the shared position, then waits before judging again', async () => {
+  const t = await playing(10_000);
+  tick(t, 4000, 70_000, 14);
+  tick(t, 250, 70_250, 14.25);
+  assert.equal(t.audio.seeks.length, 2);
+  close(t.audio.seeks[1], 70.25);
+  tick(t, 250, 70_500, 70.1);
+  tick(t, 250, 70_750, 70.1);
+  assert.equal(t.audio.seeks.length, 2, 'settling after the seek');
+  assert.equal(t.audio.playbackRate, 1);
+});
+
+test('a paused element is aligned at once when it resumes', async () => {
+  const t = await playing(10_000);
+  t.track.stop();
+  t.setTime(10);
+  t.advance(250);
+  t.track.play(50_000);
+  assert.equal(t.audio.seeks.length, 2);
+  close(t.audio.seeks[1], 50);
 });
 
 test('no correction while the element is seeking or still waiting for data', async () => {
-  const { audio, track, setTime } = setup();
-  track.play(10_000);
-  audio.deliver(266, 1);
+  const t = setup();
+  t.track.play(10_000);
+  t.audio.deliver(266, 1);
   await Promise.resolve();
-  assert.equal(audio.seeks.length, 1);
-  setTime(0);
-  track.play(20_000);
-  assert.equal(audio.seeks.length, 1, 'waiting for data');
-  audio.readyState = 4;
-  audio.seeking = true;
-  track.play(20_000);
-  assert.equal(audio.seeks.length, 1, 'seeking');
-  audio.seeking = false;
-  track.play(20_000);
-  assert.equal(audio.seeks.length, 2);
+  assert.equal(t.audio.seeks.length, 1);
+  t.advance(4000);
+  t.setTime(0);
+  t.track.play(20_000);
+  t.track.play(20_000);
+  assert.equal(t.audio.seeks.length, 1, 'waiting for data');
+  t.audio.readyState = 4;
+  t.audio.seeking = true;
+  t.track.play(20_000);
+  t.track.play(20_000);
+  assert.equal(t.audio.seeks.length, 1, 'seeking');
+  t.audio.seeking = false;
+  t.track.play(20_000);
+  t.advance(250);
+  t.track.play(20_250);
+  assert.equal(t.audio.seeks.length, 2);
 });
 
 test('stop pauses and resets the rate; a play that resolves after stop is paused again', async () => {
