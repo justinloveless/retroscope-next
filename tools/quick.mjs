@@ -49,6 +49,7 @@ const RULES = [
   [/^src\/Retroscope\.Core\/(Protocol|Ids)\//, { core: ['Protocol'], node: ['tests/web-unit/net/supersede.test.js', ...FAKE_SERVER] }],
   [/^src\/Retroscope\.Core\/Markup\//, { core: ['Markup', 'Adf'], node: ['tests/web-unit/markup.test.js'] }],
   [/^src\/Retroscope\.Core\/Adf\//, { core: ['Adf'] }],
+  [/^src\/Retroscope\.Core\/Adf\/AdfColor\.cs$/, { node: ['tests/web-unit/markup.test.js'] }],
   [/^src\/Retroscope\.Core\/Security\//, { core: ['Security'] }],
   [/^src\/Retroscope\.Core\/Text\//, { core: ['Text', 'Retro'] }],
   [/^src\/Retroscope\.Core\//, { core: 'all', fallback: true }],
@@ -124,6 +125,7 @@ const RULES = [
   [/^web\/src\/poker\/(geometry|seats)\.js$/, { node: POKER_LAYOUT }],
   [/^web\/src\/poker\/drag\.js$/, { node: ['tests/web-unit/poker/drag-zones.test.js'] }],
   [/^web\/src\/routes\.js$/, { node: ['tests/web-unit/scaffold/routes.test.js', 'tests/web-unit/core/router.test.js', 'tests/web-fake-server/self.test.js', 'tests/web-unit/core/build.test.js'] }],
+  [/^web\/styles\/jira\.css$/, { node: ['tests/web-unit/markup.test.js'] }],
   [/^(web\/styles\/|web\/(build\.mjs|budgets\.json|package\.json)$|package-lock\.json$)/, { node: ['tests/web-unit/core/build.test.js', 'tests/web-unit/core/theme.test.js'] }],
   [/^(web\/assets\/|tools\/make-sprite\.mjs$|THIRD_PARTY\.md$)/, { node: ['tests/web-unit/assets.test.js'] }],
 
