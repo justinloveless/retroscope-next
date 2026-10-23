@@ -140,7 +140,7 @@ test('editing the description keeps its islands and sends descriptionBase', asyn
   await sheet.getByRole('button', { name: 'Edit description' }).click();
   await expect(sheet.locator('.jira-description-editor .island td').first()).toHaveText('Visa');
   const islands = sheet.locator('.jira-description-editor .island');
-  await expect(islands).toHaveCount(4);
+  await expect(islands).toHaveCount(6);
   // The table island is 760 px wide: it scrolls inside the editor instead of widening it past the description.
   const editorBox = await sheet.locator('.jira-description-editor').boundingBox();
   const sectionBox = await sheet.locator('.jira-description').boundingBox();

@@ -563,7 +563,7 @@ describe('fake Jira proxy', () => {
     const meta = await (await write('POST', '/meta', { keys: ['RS-12', 'RS-404'] })).json();
     assert.deepEqual(meta.items.map((i) => [i.key, i.parentSummary]), [['RS-12', 'Checkout epic']]);
     const detail = await (await fetch(`${base()}/issues/RS-12`)).json();
-    assert.deepEqual(detail.islandIds, ['t0b1e5c0ffee', 'r1chL1ne0001', 'pane1Warn001', 'shotMedia001']);
+    assert.deepEqual(detail.islandIds, ['t0b1e5c0ffee', 'r1chL1ne0001', 'pane1Warn001', 'shotMedia001', 'rs12Note0001', 'rs12Roadmap1']);
     assert.ok(isAllowedDoc(detail.description), 'the fixture islands use the DocNode wire shape');
     const island = detail.description.c.find((n) => n.t === 'island');
     assert.equal(island.c[0].t, 'table');
@@ -597,7 +597,7 @@ describe('fake Jira proxy', () => {
     const detail = await (await fetch(`${base()}/issues/RS-12`)).json();
     assert.equal(view.updated, detail.updated);
     assert.equal(view.editable, true);
-    assert.deepEqual(view.adf.content.map((n) => n.type), ['paragraph', 'table', 'paragraph', 'panel', 'mediaSingle', 'bulletList']);
+    assert.deepEqual(view.adf.content.map((n) => n.type), ['paragraph', 'table', 'paragraph', 'panel', 'mediaSingle', 'paragraph', 'extension', 'bulletList']);
     assert.deepEqual(view.media, [{ id: view.adf.content[4].content[0].attrs.id, attachmentId: '20001', name: 'screenshot.png', image: true, w: 640, h: 360 }]);
     assert.deepEqual([view.opaque, view.marks], [[], []]);
     assert.equal(view.limits.nodes, 5000);
@@ -635,7 +635,7 @@ describe('fake Jira proxy', () => {
     const created = await (await write('POST', '/issues', { summary: 'From retro', description: 'Do it' })).json();
     assert.equal(created.key, 'RS-32');
     const clone = await (await write('POST', '/issues', { summary: 'Clone', cloneFrom: 'RS-12' })).json();
-    assert.deepEqual((await (await fetch(`${base()}/issues/${clone.key}`)).json()).islandIds, ['t0b1e5c0ffee', 'r1chL1ne0001', 'pane1Warn001', 'shotMedia001']);
+    assert.deepEqual((await (await fetch(`${base()}/issues/${clone.key}`)).json()).islandIds, ['t0b1e5c0ffee', 'r1chL1ne0001', 'pane1Warn001', 'shotMedia001', 'rs12Note0001', 'rs12Roadmap1']);
     assert.equal((await write('POST', '/issues/RS-13/transition', { transitionId: '31' })).status, 204);
     assert.equal(jira.issues.get('RS-13').statusCategory, 'done');
     const link = await (await write('POST', '/issues/RS-13/links', { typeId: '10000', targetKey: 'RS-12' })).json();

@@ -96,7 +96,7 @@ test('the description is edited in place, keeping its islands and sending descri
 
   await view.getByRole('button', { name: 'Edit description' }).click();
   const islands = view.locator('.jira-description-editor .island');
-  await expect(islands).toHaveCount(4);
+  await expect(islands).toHaveCount(6);
   for (const island of await islands.all()) {
     await expect(island).toHaveAttribute('contenteditable', 'false');
   }

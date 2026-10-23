@@ -413,7 +413,7 @@ describe('HTTP', () => {
     assert.deepEqual(browse.buckets.map((b) => b.name), ['Sprint 41 · Checkout polish', 'Sprint 42 · Onboarding', 'Backlog']);
     const issue = await get(`/api/teams/${DEMO_TEAM}/jira/issues/DEMO-123`);
     assert.equal(issue.fields.summary, 'Retry failed payments with exponential backoff');
-    assert.equal(issue.islandIds.length, 15);
+    assert.equal(issue.islandIds.length, 17);
     assert.ok(isAllowedDoc(issue.description), 'the demo islands use the DocNode wire shape');
     assert.equal(issue.comments.length, 3);
     assert.equal(issue.links.length, 2);
