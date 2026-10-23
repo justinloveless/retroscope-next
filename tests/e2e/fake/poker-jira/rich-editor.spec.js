@@ -8,6 +8,8 @@ import { R1, drawer, issueView, jiraRequests, openBrowse, openTable, round, row,
 
 const TYPE = { delay: 25 };
 const SETTLE_MS = 80;
+// Past the prefetch's idle-callback timeout (2 s), so a chunk that was going to load has been asked for.
+const PREFETCH_WINDOW_MS = 2500;
 
 /** ProseMirror's Mod: Meta where the page reports a Mac or an iPhone, Control elsewhere. */
 async function mod(page) {
@@ -345,7 +347,7 @@ test('someone who cannot edit gets no editor chunk and no edit button', async ({
   const view = issueView(page);
   await expect(view).toHaveAttribute('data-key', 'RS-12');
   await expect(view.locator('.jira-description .jira-prose')).toContainText('pay with a saved card');
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(PREFETCH_WINDOW_MS);
 
   await expect(view.getByRole('button', { name: 'Edit description' })).toHaveCount(0);
   expect(chunkRequests(fake)).toHaveLength(0);
@@ -355,7 +357,7 @@ test('a quick session, which has no team and no Jira, gets no editor chunk', asy
   setupPoker(fake, { snap: snapshot({ teamId: null }) });
   await page.goto('/poker/NEOTRO1234');
   await page.locator('.nt-table').waitFor();
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(PREFETCH_WINDOW_MS);
 
   expect(chunkRequests(fake)).toHaveLength(0);
   expect(fake.requests.filter((r) => /\/assets\/chunks\/issue-drawer-/.test(r.path))).toHaveLength(0);
