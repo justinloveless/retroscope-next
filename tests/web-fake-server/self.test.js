@@ -591,6 +591,40 @@ describe('fake Jira proxy', () => {
     assert.equal(edited.status, 409);
   });
 
+  test('the rich editor loads ADF: the fixture ADF as it is, or ADF built from markup', async () => {
+    fake.jira({ teamId: TEAM });
+    const view = await (await fetch(`${base()}/issues/RS-12/description`)).json();
+    const detail = await (await fetch(`${base()}/issues/RS-12`)).json();
+    assert.equal(view.updated, detail.updated);
+    assert.equal(view.editable, true);
+    assert.deepEqual(view.adf.content.map((n) => n.type), ['paragraph', 'table', 'paragraph', 'panel', 'mediaSingle', 'bulletList']);
+    assert.deepEqual(view.media, [{ id: view.adf.content[4].content[0].attrs.id, attachmentId: '20001', name: 'screenshot.png', image: true, w: 640, h: 360 }]);
+    assert.deepEqual([view.opaque, view.marks], [[], []]);
+    assert.equal(view.limits.nodes, 5000);
+    const plain = await (await fetch(`${base()}/issues/RS-13/description`)).json();
+    assert.equal(plain.adf.type, 'doc');
+  });
+
+  test('rich description writes need the current updated value, hold no tokens and replace the read view', async () => {
+    const jira = fake.jira({ teamId: TEAM });
+    const { updated, adf } = await (await fetch(`${base()}/issues/RS-12/description`)).json();
+    const conflict = await write('PATCH', '/issues/RS-12', { description: 'x', descriptionAdf: adf, descriptionBase: updated });
+    assert.equal((await conflict.json()).fields.descriptionAdf, 'conflict');
+    const token = { ...adf, content: [...adf.content, { type: 'rsOpaque', attrs: { ref: 'AAAAAAAAAAAAAAAA' } }] };
+    assert.equal((await write('PATCH', '/issues/RS-12', { descriptionAdf: token, descriptionBase: updated })).status, 409);
+    const edited = { ...adf, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Rewritten', marks: [{ type: 'strong' }] }] }, ...adf.content.slice(1)] };
+    const saved = await write('PATCH', '/issues/RS-12', { descriptionAdf: edited, descriptionBase: updated });
+    assert.equal(saved.status, 200);
+    const after = await saved.json();
+    assert.deepEqual(after.description.c[0], { t: 'p', c: [{ t: 'b', c: [{ t: 'text', v: 'Rewritten' }] }] });
+    assert.equal(after.description.c[1].t, 'island');
+    assert.deepEqual(jira.issues.get('RS-12').adf, edited);
+    const stale = await write('PATCH', '/issues/RS-12', { descriptionAdf: edited, descriptionBase: updated });
+    assert.equal(stale.status, 409);
+    const cleared = await write('PATCH', '/issues/RS-12', { descriptionAdf: null, descriptionBase: after.updated });
+    assert.deepEqual((await cleared.json()).description, { t: 'doc', c: [] });
+  });
+
   test('points, comments, create, transitions and links are kept', async () => {
     const jira = fake.jira({ teamId: TEAM });
     assert.equal((await write('PUT', '/issues/RS-12/points', { points: 2.5 })).status, 200);

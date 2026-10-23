@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DIALECT_JIRA, DIALECT_JIRA_DESCRIPTION } from '../../web/src/markup/doc.js';
 import { parse } from '../../web/src/markup/parse.js';
+import { adfToDoc, docToAdf, EDIT_LIMITS, EMPTY_DOC, hasTokens, mediaTable } from './adf.js';
 import { json, problem } from './http.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -23,6 +24,10 @@ const BROWSE_STATUSES = new Set(['new', 'indeterminate', 'done']);
 const COMMENT_PAGE = 20;
 
 function descriptionDoc(issue) {
+  // A rich save replaces the markup with ADF.
+  if (issue.description === null && issue.adf) {
+    return adfToDoc(issue.adf);
+  }
   const doc = parse(issue.description ?? '', { dialect: DIALECT_JIRA_DESCRIPTION });
   for (const node of doc.c) {
     if (node.t === 'island') {
@@ -30,6 +35,15 @@ function descriptionDoc(issue) {
     }
   }
   return doc;
+}
+
+// A clone keeps the source's description form: markup with islands, or the ADF a rich save left.
+function clonedMarkup(source) {
+  return source.description === null ? null : `${source.description}\n\nCloned from ${source.key}`;
+}
+
+function footer(text) {
+  return { type: 'paragraph', content: [{ type: 'text', text }] };
 }
 
 function commentView(comment) {
@@ -132,6 +146,42 @@ export function installJira(server, { teamId, fixture = DEFAULT_JIRA_FIXTURE, co
     };
   }
 
+  // GET issues/:key/description (UX10): the issue's ADF as the rich editor loads it.
+  function editView(issue) {
+    const adf = issue.adf ?? docToAdf(descriptionDoc(issue));
+    return {
+      key: issue.key,
+      updated: issue.updated,
+      editable: true,
+      adf,
+      media: mediaTable(adf, issue.attachments),
+      opaque: [],
+      marks: [],
+      limits: EDIT_LIMITS,
+    };
+  }
+
+  // PATCH descriptionAdf: the same precondition and refusals as the server; null clears the description.
+  function writeRich(issue, body) {
+    if (body.description !== undefined) {
+      return problem(400, 'invalid', { fields: { descriptionAdf: 'conflict' } });
+    }
+    if (typeof body.descriptionBase !== 'string' || body.descriptionBase === '') {
+      return problem(400, 'invalid', { fields: { descriptionBase: 'required' } });
+    }
+    const adf = body.descriptionAdf ?? EMPTY_DOC;
+    if (adf?.type !== 'doc' || !Array.isArray(adf.content)) {
+      return problem(400, 'invalid', { fields: { descriptionAdf: 'not_doc' } });
+    }
+    if (body.descriptionBase !== issue.updated || hasTokens(adf)) {
+      return problem(409, 'stale', { current: { updated: issue.updated } });
+    }
+    issue.adf = structuredClone(adf);
+    issue.description = null;
+    issue.islands = undefined;
+    return null;
+  }
+
   function browse(query) {
     const text = (query.get('q') ?? '').trim().toLowerCase();
     const status = query.get('status');
@@ -197,8 +247,9 @@ export function installJira(server, { teamId, fixture = DEFAULT_JIRA_FIXTURE, co
         priority: source?.priority ?? 'Medium',
         points: null,
         sprintId: null,
-        description: source ? `${source.description}\n\nCloned from ${source.key}` : body.description ?? '',
+        description: source ? clonedMarkup(source) : body.description ?? '',
         islands: source?.islands,
+        adf: source?.adf ? { ...source.adf, content: [...source.adf.content, footer(`Cloned from ${source.key}`)] } : undefined,
         comments: [],
         attachments: [],
         labels: [],
@@ -208,8 +259,14 @@ export function installJira(server, { teamId, fixture = DEFAULT_JIRA_FIXTURE, co
       return json({ key: issue.key }, 201);
     },
     'GET /issues/:key': ({ issue }) => json(detail(issue)),
+    'GET /issues/:key/description': ({ issue }) => json(editView(issue)),
     'PATCH /issues/:key': ({ issue, body }) => {
-      if (body?.description !== undefined) {
+      if (body?.descriptionAdf !== undefined) {
+        const refused = writeRich(issue, body);
+        if (refused) {
+          return refused;
+        }
+      } else if (body?.description !== undefined) {
         if (body.descriptionBase !== issue.updated) {
           return problem(409, 'stale', { current: { updated: issue.updated } });
         }
