@@ -440,6 +440,13 @@ public sealed record JiraBoardLocation(string? ProjectKey, long? ProjectId);
 
 public sealed record JiraBoard(long Id, string? Name, string? Type, JiraBoardLocation? Location);
 
+public sealed record JiraEstimationField(string? FieldId, string? DisplayName);
+
+/// <param name="Type"><c>none</c>, <c>issueCount</c> or <c>field</c>; only Scrum boards send an estimation.</param>
+public sealed record JiraEstimation(string? Type, JiraEstimationField? Field);
+
+public sealed record JiraBoardConfiguration(JiraEstimation? Estimation);
+
 /// <param name="Goal">Written by people: cached in memory only, never stored.</param>
 public sealed record JiraSprint(
     long Id,

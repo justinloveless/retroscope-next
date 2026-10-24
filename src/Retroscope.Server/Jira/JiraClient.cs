@@ -95,6 +95,7 @@ public sealed partial class JiraClient : IDisposable {
     private const string ClosedState = "closed";
 
     private static readonly TimeSpan FieldsTtl = TimeSpan.FromHours(6);
+    private static readonly TimeSpan BoardConfigurationTtl = TimeSpan.FromHours(1);
     private static readonly string[] AttachmentTypes = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
     private readonly Credentials _credentials;
@@ -211,6 +212,26 @@ public sealed partial class JiraClient : IDisposable {
 
     public Task<JiraBoard> GetBoardAsync(TeamId team, long boardId, CancellationToken cancellationToken) =>
         GetAsync(team, $"/rest/agile/1.0/board/{boardId}", "/rest/agile/1.0/board/{id}", JiraClientJsonContext.Default.JiraBoard, cancellationToken);
+
+    /// <summary>
+    /// The custom field a Scrum board estimates with, which Jira's own sprint report sums; null when the board estimates
+    /// by issue count, by time or not at all. The board's configuration is cached for an hour.
+    /// </summary>
+    public async Task<string?> GetBoardEstimationFieldAsync(TeamId team, long boardId, CancellationToken cancellationToken) {
+        var configuration = await _cache.GetOrCreateAsync(
+            JiraCache.Key(team, "board-configuration", boardId.ToString(CultureInfo.InvariantCulture)),
+            BoardConfigurationTtl,
+            async () => {
+                var response = await FetchAsync(
+                    team,
+                    Get($"/rest/agile/1.0/board/{boardId}/configuration", "/rest/agile/1.0/board/{id}/configuration"),
+                    CancellationToken.None);
+                var read = Deserialize(response, JiraClientJsonContext.Default.JiraBoardConfiguration);
+                return (read, (long)response.Body.Length, (IReadOnlyCollection<string>?)[JiraCache.TeamTag(team)]);
+            },
+            cancellationToken);
+        return configuration.Estimation is { Type: "field", Field.FieldId: var fieldId } && JiraMap.IsCustomFieldId(fieldId) ? fieldId : null;
+    }
 
     /// <summary>The board's active and future sprints, every page, in bucket order (start date, then natural name order).</summary>
     public async Task<IReadOnlyList<JiraSprint>> GetSprintsAsync(TeamId team, long boardId, CancellationToken cancellationToken) {

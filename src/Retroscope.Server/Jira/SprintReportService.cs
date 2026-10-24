@@ -81,7 +81,7 @@ public sealed class SprintReportService(JiraClient client, Credentials credentia
             JiraCache.Key(team, "sprint-report", id.ToString(CultureInfo.InvariantCulture)),
             IsClosed(sprint) ? ClosedTtl : ActiveTtl,
             async () => {
-                var built = await BuildAsync(team, config, sprint);
+                var built = await BuildAsync(team, config, board, sprint);
                 IReadOnlyCollection<string> tags = [JiraCache.TeamTag(team), .. built.Rows.Select(row => JiraCache.IssueTag(team, row.Key))];
                 return (built, 256L + built.Rows.Sum(row => 160L + 2L * (row.Summary?.Length ?? 0)), tags);
             },
@@ -117,8 +117,8 @@ public sealed class SprintReportService(JiraClient client, Credentials credentia
             },
             cancellationToken);
 
-    private async Task<SprintReport> BuildAsync(TeamId team, JiraTeamConfig stored, JiraSprint sprint) {
-        var config = await WithDiscoveredFieldsAsync(team, stored);
+    private async Task<SprintReport> BuildAsync(TeamId team, JiraTeamConfig stored, long board, JiraSprint sprint) {
+        var config = await WithReportFieldsAsync(team, stored, board);
         var reported = Reported(sprint);
         var fields = ReportFields(config);
         var jql = Jql.InSprint(sprint.Id);
@@ -158,10 +158,15 @@ public sealed class SprintReportService(JiraClient client, Credentials credentia
     }
 
     /// <summary>
-    /// Fills a missing points or sprint field from the site's field catalogue, as a config save would. Imported teams
-    /// keep both null until an admin saves the settings; the discovered ids serve this report only and are never stored.
+    /// The fields this report reads, never stored. Points follow the board's estimation field, as Jira's own sprint
+    /// report does, unless an admin chose a points field; a site can carry several story points fields and discovery
+    /// may pick one the board does not use. A missing field falls back to the stored one, then to the site's field
+    /// catalogue, which imported teams need until an admin saves the settings.
     /// </summary>
-    private async Task<JiraTeamConfig> WithDiscoveredFieldsAsync(TeamId team, JiraTeamConfig config) {
+    private async Task<JiraTeamConfig> WithReportFieldsAsync(TeamId team, JiraTeamConfig stored, long board) {
+        var config = stored.PointsFieldOverridden
+            ? stored
+            : stored with { PointsFieldId = await BoardEstimationFieldAsync(team, board) ?? stored.PointsFieldId };
         if (config.PointsFieldId is not null && config.SprintFieldId is not null) {
             return config;
         }
@@ -170,6 +175,15 @@ public sealed class SprintReportService(JiraClient client, Credentials credentia
             PointsFieldId = config.PointsFieldId ?? discovered.PointsFieldId,
             SprintFieldId = config.SprintFieldId ?? discovered.SprintFieldId,
         };
+    }
+
+    // Reading the board's configuration only refines the points field, so its failure must not fail the report.
+    private async Task<string?> BoardEstimationFieldAsync(TeamId team, long board) {
+        try {
+            return await client.GetBoardEstimationFieldAsync(team, board, CancellationToken.None);
+        } catch (JiraException) {
+            return null;
+        }
     }
 
     // A closed sprint without a readable completion date falls back to its end date; with neither, nothing counts as late.

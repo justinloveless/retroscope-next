@@ -12,6 +12,7 @@ namespace Retroscope.Server.Json;
 [JsonSerializable(typeof(IReadOnlyList<JiraField>))]
 [JsonSerializable(typeof(JiraBoard))]
 [JsonSerializable(typeof(JiraValuesPage<JiraBoard>))]
+[JsonSerializable(typeof(JiraBoardConfiguration))]
 [JsonSerializable(typeof(JiraValuesPage<JiraSprint>))]
 [JsonSerializable(typeof(JiraIssue))]
 [JsonSerializable(typeof(JiraIssuePage))]
