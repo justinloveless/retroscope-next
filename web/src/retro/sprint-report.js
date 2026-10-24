@@ -298,6 +298,8 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
   let selected = null;
   let loadingMore = false;
   let moreAbort = null;
+  // Whether the last scroll ended in the menu's bottom band: entering it loads more, staying in it does not.
+  let atBottom = false;
   let opening = 0;
   let shownBody = null;
   let person = EVERYONE;
@@ -411,8 +413,11 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
       loadMore();
     }
   });
+  // A failed load is not retried while the menu stays at its bottom; leaving the band and coming back, or the button, retries.
   menu.el.addEventListener('scroll', () => {
-    if (menu.el.scrollTop + menu.el.clientHeight >= menu.el.scrollHeight - 24) {
+    const entered = !atBottom;
+    atBottom = menu.el.scrollTop + menu.el.clientHeight >= menu.el.scrollHeight - 24;
+    if (atBottom && entered) {
       loadMore();
     }
   }, { passive: true });
