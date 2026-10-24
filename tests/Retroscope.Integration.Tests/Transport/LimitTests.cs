@@ -45,6 +45,8 @@ public sealed class LimitTests {
         for (var i = 0; i < 3; i++) {
             open.Add(await app.ConnectAsync(forwardedFor: "198.51.100.7"));
         }
+        // The handshake completes before the server counts the socket, so wait for the count before the one too many.
+        await Wait.UntilAsync(() => app.Registry.Count == 3);
 
         await using var refused = await app.ConnectAsync(forwardedFor: "198.51.100.7");
         Assert.Equal(CloseCodes.RateLimited, await refused.ReceiveCloseAsync());
@@ -66,6 +68,7 @@ public sealed class LimitTests {
     public async Task Ipv6_callers_share_the_cap_of_their_64_prefix() {
         await using var app = await TransportApp.StartAsync(new TransportOptions { MaxSocketsPerIp = 1 }, trustLoopbackProxy: true);
         await using var first = await app.ConnectAsync(forwardedFor: "2001:db8:1:2::1");
+        await Wait.UntilAsync(() => app.Registry.Count == 1);
 
         await using var sameNetwork = await app.ConnectAsync(forwardedFor: "2001:db8:1:2:ffff::9");
 
