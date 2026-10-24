@@ -1,5 +1,8 @@
 name: ci
 
+# The full pass (CLAUDE.md "Commands"). On a push to main it then builds and pushes the release images through
+# images.yml, whose image-digests artifact deploy.yml reads from this run. A push to main whose tree already passed as
+# a same-repository pull request skips the tests, because that run tested exactly this content.
 on:
   pull_request:
   push:
@@ -18,38 +21,71 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    permissions:
+      contents: read
+      actions: read # find the pull request run that passed this tree
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # A pull request run tests its merge commit, so when main has not moved since, the merged tree is the one it
+      # passed. Only runs from this repository count; a fork cannot vouch for main.
+      - name: Tree already passed
+        id: prior
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REPO_ID: ${{ github.repository_id }}
+        run: |
+          tree="$(git rev-parse 'HEAD^{tree}')"
+          skip=false
+          runs="$(gh api "repos/$REPO/actions/artifacts?name=ci-pass-$tree&per_page=100" \
+            | jq -r --argjson repo "$REPO_ID" '.artifacts[] | select((.expired | not) and .workflow_run.head_repository_id == $repo) | .workflow_run.id')"
+          for id in $runs; do
+            if gh api "repos/$REPO/actions/runs/$id" \
+              | jq -e '.path == ".github/workflows/ci.yml" and .event == "pull_request" and .conclusion == "success"' >/dev/null; then
+              echo "::notice::tree ${tree:0:12} passed in pull request run $id; skipping the tests"
+              skip=true
+              break
+            fi
+          done
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        if: steps.prior.outputs.skip != 'true'
         with:
           global-json-file: global.json
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.prior.outputs.skip != 'true'
         with:
           node-version: 22
           cache: npm
 
       - name: Native AOT toolchain
+        if: steps.prior.outputs.skip != 'true'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang zlib1g-dev
 
       - name: AOT inputs
         id: aot
+        if: steps.prior.outputs.skip != 'true'
         run: echo "key=$(./build.sh aot-key)" >> "$GITHUB_OUTPUT"
 
       # aot-smoke reuses the server binary when nothing it is compiled from changed (build.sh aot_key).
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.prior.outputs.skip != 'true'
         with:
           path: artifacts/aot-cache
           key: aot-server-${{ steps.aot.outputs.key }}
 
       - name: Test
+        if: steps.prior.outputs.skip != 'true'
         run: ./build.sh test
         env:
           RS_JOBS: "0"
 
       - name: Test results
-        if: always()
+        if: always() && steps.prior.outputs.skip != 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-results
@@ -58,10 +94,41 @@ jobs:
           retention-days: 14
 
       - name: Web build
+        if: steps.prior.outputs.skip != 'true'
         run: ./build.sh web
 
       - name: Generated files are current
+        if: steps.prior.outputs.skip != 'true'
         run: git diff --exit-code
 
       - name: AOT smoke
+        if: steps.prior.outputs.skip != 'true'
         run: ./build.sh aot-smoke
+
+      # Read by 'Tree already passed' when this pull request lands on main.
+      - name: Passing tree
+        id: tree
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          echo "tree=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
+          git rev-parse HEAD > "$RUNNER_TEMP/ci-pass.txt"
+
+      - name: Record the passing tree
+        if: steps.tree.outputs.tree != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-pass-${{ steps.tree.outputs.tree }}
+          path: ${{ runner.temp }}/ci-pass.txt
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 30
+
+  images:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/images.yml
+    with:
+      ref: ${{ github.sha }}

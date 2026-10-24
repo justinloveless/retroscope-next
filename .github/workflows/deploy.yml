@@ -1,9 +1,10 @@
 name: deploy
 
-# Production release (deploy/COOLIFY_SETUP.md §11). When ci passes on a push to main, wait for that push's images.yml
-# run, take the digests from its image-digests artifact (never from a GHCR tag), point the production Coolify resource
-# at that commit and those digests, deploy, and check health. A manual run redeploys any commit whose ci run on main
-# passed, for example to roll back. The token lives in the 'production' environment, which only main may use.
+# Production release (deploy/COOLIFY_SETUP.md §11). When ci passes on a push to main, take the digests from that ci
+# run's image-digests artifact (never from a GHCR tag; ci builds the images through images.yml), point the production
+# Coolify resource at that commit and those digests, deploy, and check health. A manual run redeploys any commit whose
+# ci run on main passed, for example to roll back. The token lives in the 'production' environment, which only main
+# may use.
 on:
   workflow_run:
     workflows: [ci]
@@ -38,10 +39,10 @@ jobs:
       name: production
       url: ${{ vars.PROD_URL }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 110
+    timeout-minutes: 30
     permissions:
       contents: read # checkout and the compare API
-      actions: read # ci and images runs, and the image-digests artifact
+      actions: read # ci runs and their image-digests artifact
       packages: read # confirm the digests exist in GHCR
     steps:
       - name: Target commit
@@ -65,36 +66,36 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "Deploying $sha"
 
-      # ci and images.yml both start on the push. Follow that push's images run instead of polling GHCR: a failed run
-      # fails this deploy at once, and a slow one (its job may take 60 minutes) is waited for.
-      - name: Image digests from main's images run
+      # The images are built inside the ci run that passed. Commits from before ci built them have their digests on the
+      # images.yml run of the same push, which a manual rollback still finds while the artifact lasts.
+      - name: Image digests from main's ci run
         id: images
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
           SHA: ${{ steps.target.outputs.sha }}
         run: |
-          deadline=$((SECONDS + 75 * 60))
-          while :; do
-            run="$(gh api "repos/$REPO/actions/workflows/images.yml/runs?head_sha=$SHA&event=push&branch=main&per_page=1" \
-              --jq '.workflow_runs[0] | if . == null then "" else "\(.id) \(.status) \(.conclusion // "-")" end')" || run=""
-            id="" status="" conclusion=""
-            read -r id status conclusion <<<"$run" || true
-            if [[ "$status" == completed ]]; then
-              [[ "$conclusion" == success ]] || { echo "::error::the images run for $SHA ended as $conclusion"; exit 1; }
+          if [[ "$EVENT" == workflow_run ]]; then
+            ids="$RUN_ID"
+          else
+            ids="$(for wf in ci.yml images.yml; do
+              gh api "repos/$REPO/actions/workflows/$wf/runs?head_sha=$SHA&event=push&branch=main&status=success&per_page=1" \
+                --jq '.workflow_runs[0].id // empty'
+            done)"
+          fi
+          dir="$RUNNER_TEMP/image-digests"
+          id=""
+          for candidate in $ids; do
+            [[ "$candidate" =~ ^[0-9]+$ ]] || { echo "::error::unexpected run id"; exit 1; }
+            if gh run download "$candidate" --repo "$REPO" --name image-digests --dir "$dir"; then
+              id="$candidate"
               break
             fi
-            if ((SECONDS >= deadline)); then
-              echo "::error::the images run for $SHA did not finish within 75 minutes (${status:-no run found})"
-              exit 1
-            fi
-            echo "waiting for the images run of $SHA (${status:-not started})"
-            sleep 30
           done
-          [[ "$id" =~ ^[0-9]+$ ]] || { echo "::error::unexpected images run id"; exit 1; }
-          dir="$RUNNER_TEMP/image-digests"
-          if ! gh run download "$id" --repo "$REPO" --name image-digests --dir "$dir"; then
-            echo "::error::images run $id has no image-digests artifact (built before it existed, or expired); deploy by hand (COOLIFY_SETUP.md §11.5)"
+          if [[ -z "$id" ]]; then
+            echo "::error::no image-digests artifact for $SHA (built before it existed, or expired); deploy by hand (COOLIFY_SETUP.md §11.5)"
             exit 1
           fi
           f="$dir/image-digests.json"
@@ -108,7 +109,7 @@ jobs:
             echo "app=$app"
             echo "importer=$importer"
           } >> "$GITHUB_OUTPUT"
-          echo "images run $id: app sha256:$app, importer sha256:$importer"
+          echo "run $id: app sha256:$app, importer sha256:$importer"
 
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
