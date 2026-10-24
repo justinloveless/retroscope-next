@@ -187,6 +187,41 @@ test('an anchor scrolled out of view never leaves a popover taller than the view
   assert.deepEqual(fit({ width: 200, height: 1000 }, anchorAt(-2000), VIEW, 'top-start'), { top: 8, left: 100, maxHeight: 752 });
 });
 
+test('a popover whose content grows while open is placed again and capped, until it closes', (t) => {
+  const observers = [];
+  globalThis.ResizeObserver = class {
+    constructor(callback) {
+      this.callback = callback;
+      this.targets = new Set();
+      observers.push(this);
+    }
+
+    observe(target) {
+      this.targets.add(target);
+    }
+
+    disconnect() {
+      this.targets.clear();
+    }
+  };
+  t.after(() => delete globalThis.ResizeObserver);
+  const results = doc.createElement('div');
+  const popover = createPopover({ anchor: { getBoundingClientRect: () => anchorAt(100) }, content: results });
+  Object.assign(popover.el, { rect: { width: 200, height: 40 }, scrollHeight: 40, offsetHeight: 40, clientHeight: 40 });
+  popover.open();
+  assert.equal(popover.el.style.getPropertyValue('max-height'), '');
+  const [observer] = observers;
+  assert.deepEqual([...observer.targets], [results]);
+
+  Object.assign(popover.el, { rect: { width: 200, height: 2000 }, scrollHeight: 2000, offsetHeight: 2000, clientHeight: 2000 });
+  observer.callback([]);
+  assert.equal(popover.el.style.getPropertyValue('max-height'), '622px');
+
+  popover.close();
+  assert.equal(observer.targets.size, 0);
+  popover.destroy();
+});
+
 test('popoverOpen reports an open menu until it closes or is destroyed', () => {
   const menu = createMenu({ items: [{ action: 'a', label: 'A' }], onSelect() {} });
   const trigger = doc.createElement('button');
