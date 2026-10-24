@@ -120,6 +120,8 @@ const RULES = [
   [/^tests\/web-fake-server\/edit-views\.gen\.json$/, { node: ['tests/web-unit/rich/commands.test.js'] }],
   // WebFakeAdfTests renders the fixtures' ADF and regenerates edit-views.gen.json from their projection.
   [/^tests\/web-fake-server\/((fixtures|demo)\/jira|edit-views\.gen)\.json$/, { core: ['Adf'] }],
+  // SprintReportTests holds the fixtures' sprintReport blocks to the server's property names.
+  [/^tests\/web-fake-server\/(fixtures|demo)\/jira\.json$/, { integration: ['JiraHttp'] }],
   [/^tests\/e2e\//, { note: 'Run the changed spec alone: ./build.sh fake-e2e "<area>/<file>.spec.js".' }],
 
   [/^web\//, { web: true }],

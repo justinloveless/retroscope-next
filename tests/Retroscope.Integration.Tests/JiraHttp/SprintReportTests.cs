@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.DependencyInjection;
 using Retroscope.Core.Ids;
 using Retroscope.Fakes.FakeJira;
+using Retroscope.Integration.Tests.Scaffold;
 using Retroscope.Integration.Tests.Schema;
 using Retroscope.Server.Jira;
 
@@ -30,6 +31,36 @@ public sealed partial class SprintReportTests(PostgresFixture postgres) {
         Assert.Superset(
             new HashSet<string> { "resolutiondate", "statuscategorychangedate", JiraHttpHost.PointsField, JiraHttpHost.SprintField },
             SearchedFields(search).ToHashSet());
+    }
+
+    /// <summary>
+    /// The web fake and the demo serve the sprint report from a <c>sprintReport</c> block; its property names must stay
+    /// those of the server's answer, or the web tests pass against a shape production never sends. Values are not
+    /// compared (the demo's dates are day offsets).
+    /// </summary>
+    [Theory]
+    [InlineData("tests/web-fake-server/fixtures/jira.json")]
+    [InlineData("tests/web-fake-server/demo/jira.json")]
+    public async Task The_web_fixtures_sprint_report_has_the_servers_property_names(string file) {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (ada, team) = await BrowseTests.TeamAsync(host);
+        SeedSprints(host);
+        var server = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, $"{Report}?sprint=231"));
+
+        var block = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(RepoRoot.Path, file), JiraHttpHost.Token))!["sprintReport"]!;
+        var fixture = new JsonObject {
+            ["sprints"] = block["sprints"]!.DeepClone(),
+            ["empty"] = null,
+            ["report"] = block["reports"]![block["default"]!.ToString()]!.DeepClone(),
+        };
+
+        var expected = PropertyPaths(server);
+        var actual = PropertyPaths(fixture);
+        Assert.True(
+            expected.SetEquals(actual),
+            $"{file} sprintReport differs from the server's answer.\n"
+            + $"only on the server: {string.Join(", ", expected.Except(actual))}\n"
+            + $"only in the fixture: {string.Join(", ", actual.Except(expected))}");
     }
 
     [Fact]
@@ -320,6 +351,24 @@ public sealed partial class SprintReportTests(PostgresFixture postgres) {
 
     private static IEnumerable<(string Outcome, JsonNode Row)> Rows(JsonArray groups) =>
         groups.SelectMany(g => g!["issues"]!.AsArray().Select(r => ((string)g["outcome"]!, r!)));
+
+    private static SortedSet<string> PropertyPaths(JsonNode? node, string at = "$", SortedSet<string>? paths = null) {
+        paths ??= new SortedSet<string>(StringComparer.Ordinal);
+        switch (node) {
+            case JsonObject obj:
+                foreach (var (name, value) in obj) {
+                    paths.Add($"{at}.{name}");
+                    PropertyPaths(value, $"{at}.{name}", paths);
+                }
+                break;
+            case JsonArray array:
+                foreach (var element in array) {
+                    PropertyPaths(element, $"{at}[]", paths);
+                }
+                break;
+        }
+        return paths;
+    }
 
     private static IEnumerable<string> SearchedFields(FakeJiraRequest search) =>
         JsonNode.Parse(search.Body)!["fields"]!.AsArray().Select(f => (string)f!);
