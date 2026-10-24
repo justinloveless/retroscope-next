@@ -62,6 +62,11 @@ export function createPopover(props) {
     tabindex: '-1',
   }, props.content);
   let frame = 0;
+  // Content that grows or shrinks while open is placed again before it paints. The observer watches the content,
+  // not the surface: the cap place() sets changes the surface's height, not the content's, so it does not feed back.
+  const grown = typeof ResizeObserver === 'function'
+    ? new ResizeObserver(() => place(el, anchor.getBoundingClientRect(), props.placement))
+    : null;
 
   function reposition(event) {
     if (event?.type === 'scroll' && el.contains(event.target)) {
@@ -96,6 +101,9 @@ export function createPopover(props) {
     }
     el.hidden = false;
     place(el, anchor.getBoundingClientRect(), props.placement);
+    for (const child of el.children) {
+      grown?.observe(child);
+    }
     anchor.setAttribute?.('aria-expanded', 'true');
     document.addEventListener('pointerdown', onPointerDown, true);
     el.addEventListener('keydown', onKeyDown);
@@ -114,6 +122,7 @@ export function createPopover(props) {
     window.removeEventListener('resize', reposition);
     window.removeEventListener('scroll', reposition, { capture: true });
     cancelAnimationFrame(frame);
+    grown?.disconnect();
     props.onClose?.();
   }
 
@@ -122,8 +131,6 @@ export function createPopover(props) {
     open,
     close,
     toggle: () => (el.hidden ? open() : close()),
-    // For content that grows or shrinks while open: placed at once, so the cap follows before the next paint.
-    reposition: () => place(el, anchor.getBoundingClientRect(), props.placement),
     get isOpen() {
       return !el.hidden;
     },

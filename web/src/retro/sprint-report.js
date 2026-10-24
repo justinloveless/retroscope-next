@@ -332,9 +332,6 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
     more.replaceChildren(loadingMore ? h('span', { class: 'spinner', 'aria-hidden': 'true' }) : icon('chevron-down'),
       h('span', { text: loadingMore ? 'Loading sprints…' : 'Load more sprints' }));
     roving.refresh();
-    if (menu.isOpen) {
-      menu.reposition();
-    }
   }
 
   async function loadMore() {
