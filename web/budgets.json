@@ -8,6 +8,7 @@
     "rich-editor": 89600,
     "editor": 8192,
     "retro": 32768,
+    "sprint-report": 3584,
     "team": 10240,
     "landing": 10240,
     "auth": 10240,
