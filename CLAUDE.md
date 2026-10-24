@@ -79,6 +79,7 @@ These came from the owner at the start of the project and shape every decision. 
                                      #   + web-unit and web-fake-server node tests + golden-vector check
 ./build.sh web                       # esbuild bundle into web/dist (budgets, CSP hashes, banned-sink check)
 ./build.sh aot-smoke                 # AOT publish with zero warnings, native binary + chiseled image probes
+./build.sh aot-key                   # hash of everything the AOT server binary is compiled from (the cache key)
 ./build.sh fake-e2e "poker-*/*.spec.js"   # Playwright against tests/web-fake-server (glob under tests/e2e/fake/)
 ./build.sh e2e "real/poker*.spec.js"      # Playwright against deploy/compose.test.yml (rebuilds images)
 ./build.sh preview [fake|real]       # fake: demo with simulated teammates (PREVIEW_PORT, default 5173; real: 8080)
@@ -87,6 +88,10 @@ dotnet run --project tests/Retroscope.Soak -- --profile short    # soak/chaos ru
 ```
 
 **CI** (`.github/workflows/ci.yml`) runs `./build.sh test`, `./build.sh web`, `git diff --exit-code` (generated files must be committed) and `./build.sh aot-smoke`. It does not run e2e or soak.
+
+- **Pull requests.** A newer push cancels the PR's older run. Each run uploads its TRX test reports as the `test-results` artifact.
+- **AOT cache.** `aot-smoke` reuses the server binary from `RS_AOT_CACHE` (default `artifacts/aot-cache`, empty disables it) when `./build.sh aot-key` is unchanged. CI keeps that directory in `actions/cache` under the same key.
+- **Push to `main`.** When a same-repository PR run already passed the same git tree (artifact `ci-pass-<tree>`), the run skips the test steps. After `build` passes, its `images` job calls `images.yml` to build and push the release images.
 
 **Running a subset:**
 
@@ -147,12 +152,12 @@ dotnet run --project tests/Retroscope.Soak -- --profile short    # soak/chaos ru
 
 ## Deployment
 
-`.github/workflows/images.yml` builds and pushes `ghcr.io/justinloveless/retroscope` and `retroscope-import`, tagged with the commit SHA, on every push to `main` and on every `v*` tag. `deploy/docker-compose.yml` pulls them by digest and never builds on the VPS.
+`.github/workflows/images.yml` builds and pushes `ghcr.io/justinloveless/retroscope` and `retroscope-import`, tagged with the commit SHA. `ci` calls it on every push to `main` once the tests pass, and it also runs on every `v*` tag. The app image packages the server binary that `aot-smoke` compiled and probed in the same job, so the server is compiled once. `deploy/docker-compose.yml` pulls them by digest and never builds on the VPS.
 
 Coolify's own auto deploy is off; GitHub Actions drives every deploy through the Coolify API, using `deploy/coolify-deploy.sh`. The script pins the resource's branch and commit (`git_commit_sha`, so the compose file matches the images), sets `APP_DIGEST`/`IMPORTER_DIGEST` (the hex after `sha256:`), deploys, and waits for `/healthz` and `running:healthy`.
 
-- **Production** (`.github/workflows/deploy.yml`) deploys automatically after `ci` succeeds on a push to `main`. It follows that push's `images.yml` run and takes the digests from its `image-digests` artifact, never from a GHCR tag. It skips a commit only when a newer commit on `main` has a `ci` run that is running or passed. A manual run from `main` redeploys or rolls back to any commit whose `ci` run on `main` passed and whose artifact still exists. Its token lives in the `production` environment, which only `main` can use.
-- **Preview** (`.github/workflows/preview.yml`) is a single slot on its own Coolify resource, server and team, with its own token (`preview` environment), database and secrets. A same-repository PR labelled `preview` deploys on label, push and reopen, and a manual run deploys any branch. Preview images are tagged `preview-<sha>`. The last deploy wins, and the PR gets one sticky comment with the URL and commit.
+- **Production** (`.github/workflows/deploy.yml`) deploys automatically after `ci` succeeds on a push to `main`. It takes the digests from the `image-digests` artifact of that `ci` run, never from a GHCR tag. It skips a commit only when a newer commit on `main` has a `ci` run that is running or passed. A manual run from `main` redeploys or rolls back to any commit whose `ci` run on `main` passed and whose artifact still exists. Its token lives in the `production` environment, which only `main` can use.
+- **Preview** (`.github/workflows/preview.yml`) is a single slot on its own Coolify resource, server and team, with its own token (`preview` environment), database and secrets. A same-repository PR deploys when the `preview` label is added. Later pushes do not redeploy, so remove and re-add the label to refresh it. A manual run deploys any branch. Preview images are tagged `preview-<sha>`. The last deploy wins, and the PR gets one sticky comment with the URL and commit.
 - The repository variables, the token's permissions and the by-hand fallback are in `deploy/COOLIFY_SETUP.md` section 11.
 
 The guides are:
