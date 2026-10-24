@@ -129,9 +129,14 @@ class Node extends Target {
     }
   }
 
+  // As in a browser, a focused element taken out of the document leaves focus on the body.
   detach(node) {
     this.childNodes.splice(this.childNodes.indexOf(node), 1);
     node.parentNode = null;
+    const doc = this.ownerDocument;
+    if (doc && node.contains(doc.activeElement)) {
+      doc.activeElement = doc.body;
+    }
   }
 
   removeChild(node) {
