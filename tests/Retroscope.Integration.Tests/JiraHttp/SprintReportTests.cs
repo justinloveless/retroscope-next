@@ -14,6 +14,7 @@ namespace Retroscope.Integration.Tests.JiraHttp;
 [Collection(SharedPostgres.Name)]
 public sealed partial class SprintReportTests(PostgresFixture postgres) {
     private const string Report = "/sprint-report";
+    private const string OtherPointsField = "customfield_10028";
 
     [Fact]
     public async Task A_closed_sprint_reports_what_was_done_done_late_and_left_and_where_it_went() {
@@ -216,12 +217,96 @@ public sealed partial class SprintReportTests(PostgresFixture postgres) {
         host.AddBoard();
         SeedSprints(host);
         host.Jira.Fields.Clear();
+        host.Jira.BoardEstimation = JsonNode.Parse("""{"type":"issueCount"}""")!.AsObject();
 
         var report = (await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, $"{Report}?sprint=231")))["report"]!;
 
         Assert.False((bool)report["pointsKnown"]!);
         Assert.All(report["groups"]!.AsArray(), g => Assert.Null(g!["points"]));
         Assert.All(Rows(report["groups"]!.AsArray()), r => Assert.Null(r.Row["points"]));
+    }
+
+    [Fact]
+    public async Task Points_come_from_the_boards_estimation_field_rather_than_the_stored_one() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (ada, team) = await BrowseTests.TeamAsync(host);
+        SeedSprints(host);
+        host.Jira.BoardEstimation = FakeJiraServer.FieldEstimation(OtherPointsField, "Story Points");
+        host.Jira.Issues["RS-1"]["fields"]![OtherPointsField] = 13;
+
+        var report = (await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, $"{Report}?sprint=231")))["report"]!;
+
+        Assert.True((bool)report["pointsKnown"]!);
+        Assert.Equal(13m, (decimal)Rows(report["groups"]!.AsArray()).Single(r => (string)r.Row["key"]! == "RS-1").Row["points"]!);
+        Assert.Equal(13m, (decimal)report["groups"]![0]!["points"]!);
+        var search = Assert.Single(host.Jira.Requests, r => r.Path == "/rest/api/3/search/jql");
+        Assert.Contains(OtherPointsField, SearchedFields(search));
+        Assert.DoesNotContain(JiraHttpHost.PointsField, SearchedFields(search));
+        var stored = Assert.Single(await host.RowsAsync("select points_field_id from team_jira_config where team_id = $1", team.Value));
+        Assert.Equal(JiraHttpHost.PointsField, (string?)stored[0]);
+    }
+
+    [Fact]
+    public async Task A_points_field_an_admin_chose_wins_over_the_boards() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var ada = await host.UserAsync("Ada");
+        var team = await host.TeamAsync((ada, "member"));
+        await host.ConfigureAsync(team, pointsOverridden: true);
+        host.AddBoard();
+        SeedSprints(host);
+        host.Jira.BoardEstimation = FakeJiraServer.FieldEstimation(OtherPointsField, "Story Points");
+
+        var report = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, $"{Report}?sprint=231"));
+
+        Assert.Equal(JsonNode.Parse(ClosedSprintReport)!.ToJsonString(), report.ToJsonString());
+        Assert.DoesNotContain(host.Jira.Requests, r => r.Path == "/rest/agile/1.0/board/7/configuration");
+    }
+
+    [Theory]
+    [InlineData("""{"type":"issueCount"}""")]
+    [InlineData("""{"type":"none"}""")]
+    [InlineData("""{"type":"field","field":{"fieldId":"timeoriginalestimate","displayName":"Original Time Estimate"}}""")]
+    [InlineData(null)]
+    public async Task A_board_that_does_not_estimate_with_a_custom_field_leaves_the_stored_points_field(string? estimation) {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (ada, team) = await BrowseTests.TeamAsync(host);
+        SeedSprints(host);
+        host.Jira.BoardEstimation = estimation is null ? null : JsonNode.Parse(estimation)!.AsObject();
+
+        var report = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, $"{Report}?sprint=231"));
+
+        Assert.Equal(JsonNode.Parse(ClosedSprintReport)!.ToJsonString(), report.ToJsonString());
+    }
+
+    [Theory]
+    [InlineData(404, 1)]
+    [InlineData(503, 3)]
+    public async Task A_failing_board_configuration_falls_back_to_the_stored_then_the_discovered_points_field(int status, int replies) {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var ada = await host.UserAsync("Ada");
+        var team = await host.TeamAsync((ada, "member"));
+        await host.ConfigureAsync(team, pointsField: null);
+        host.AddBoard();
+        SeedSprints(host);
+        host.Jira.Script("GET", "/rest/agile/1.0/board/7/configuration", [.. Enumerable.Repeat(new FakeJiraResponse(status, "{}"), replies)]);
+
+        var report = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, $"{Report}?sprint=231"));
+
+        Assert.Equal(JsonNode.Parse(ClosedSprintReport)!.ToJsonString(), report.ToJsonString());
+        Assert.Single(host.Jira.Requests, r => r.Path == "/rest/api/3/field");
+    }
+
+    [Fact]
+    public async Task The_boards_configuration_is_read_once_for_every_sprint_of_the_board() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (ada, team) = await BrowseTests.TeamAsync(host);
+        SeedSprints(host);
+
+        await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, $"{Report}?sprint=231"));
+        await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, $"{Report}?sprint=230"));
+
+        Assert.Single(host.Jira.Requests, r => r.Path == "/rest/agile/1.0/board/7/configuration");
+        Assert.Equal(2, host.Jira.Requests.Count(r => r.Path == "/rest/api/3/search/jql"));
     }
 
     [Fact]
