@@ -297,6 +297,7 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
   let count = SPRINTS;
   let selected = null;
   let loadingMore = false;
+  let moreAbort = null;
   let opening = 0;
   let shownBody = null;
   let person = EVERYONE;
@@ -357,16 +358,21 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
     const focused = more.contains(document.activeElement);
     count = Math.min(MAX_SPRINTS, list.sprints.filter((s) => s.state === 'closed').length + MORE);
     loadingMore = true;
+    moreAbort = new AbortController();
     renderPicker();
+    let body = null;
     try {
-      take(await fetchReport(teamId, wanted, { force: true, sprints: count }));
+      body = await fetchReport(teamId, wanted, { signal: moreAbort.signal, force: true, sprints: count });
     } catch (error) {
-      if (mine === opening) {
+      if (mine === opening && error?.name !== 'AbortError') {
         toast(jiraMessage(error, ERRORS), { variant: 'error', duration: 6000 });
       }
     }
     if (mine !== opening) {
       return;
+    }
+    if (body) {
+      take(body);
     }
     loadingMore = false;
     renderPicker();
@@ -487,6 +493,7 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
     request++;
     opening++;
     abort?.abort();
+    moreAbort?.abort();
     menu.close();
     list = { sprints: [], more: false };
     count = SPRINTS;
