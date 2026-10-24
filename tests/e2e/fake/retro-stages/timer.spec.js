@@ -160,7 +160,8 @@ test('the music starts where the shared timer is, and stops when it pauses', asy
   await expect(timer).not.toHaveAttribute('data-music-position');
 
   await page.getByRole('button', { name: 'Timer sound' }).click();
-  await page.getByRole('menuitem', { name: 'Mute' }).click();
+  await page.getByRole('dialog', { name: 'Timer sound' }).getByRole('switch', { name: 'Mute' }).click();
+  await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Resume timer' }).click();
   await expect(timer).toHaveAttribute('data-state', 'running');
   await page.waitForTimeout(500);

@@ -3,19 +3,21 @@
 // 4 Hz while visible and 1 Hz while hidden. The alarm (three 880 Hz square beeps) plays when local time
 // crosses `endsAt`, or on the server's expiry if that is within 5 s of `endsAt`, and at most once per
 // `endsAt`. Music is the deployment's track when it has one (track.js), else generated; either way its
-// position is `durationMs − remainingMs`, so every tab plays the same bar. Volume and mute are per browser.
+// position is `durationMs − remainingMs`, so every tab plays the same bar. Volume and mute are per browser;
+// the volume is a perceptual level from a slider (volume.js, UX15).
 
-import { h, replaceContent } from '../core/h.js';
+import { h, replaceContent, setStyle } from '../core/h.js';
 import { announce } from '../core/a11y.js';
 import { duration } from '../core/fmt.js';
 import { createButton } from '../ui/button.js';
 import { createDialog } from '../ui/dialog.js';
 import { icon } from '../ui/icons.js';
-import { createMenu } from '../ui/menu.js';
+import { createPopover } from '../ui/popover.js';
 import { createSwitch } from '../ui/switch.js';
 import { toast } from '../ui/toast.js';
 import { isFacilitator } from './model.js';
 import { createTrack } from './track.js';
+import { MAX_LEVEL, MIN_LEVEL, clampLevel, gain, glide, legacyGain, levelText, storedLevel } from './volume.js';
 
 const TICK_VISIBLE_MS = 250;
 const TICK_HIDDEN_MS = 1000;
@@ -23,9 +25,10 @@ const ALARM_WINDOW_MS = 5000;
 const CLOCK_STEP_MS = 1000;
 const MIN_DURATION_MS = 1000;
 const MAX_DURATION_MS = 7_200_000;
+const LEVEL_KEY = 'rs.timer.level';
+// The gain as it was stored before levels. Still written, so a tab on an older bundle plays at the same loudness.
 const VOLUME_KEY = 'rs.timer.volume';
 const MUTED_KEY = 'rs.timer.muted';
-const VOLUMES = [0.25, 0.5, 0.75, 1];
 
 export function remainingMs(timer, serverNow) {
   if (timer.state === 'running') {
@@ -66,13 +69,22 @@ function writePref(key, value) {
   }
 }
 
+const initialLevel = storedLevel(readPref(LEVEL_KEY, null), readPref(VOLUME_KEY, null));
+
 // One AudioContext per page, created and resumed inside the first pointer or key event, because browsers
 // keep audio locked until the user interacts with the page.
 const sound = {
   context: null,
-  volume: Number(readPref(VOLUME_KEY, '0.5')) || 0.5,
+  level: initialLevel,
+  /** The linear gain everything multiplies by, derived from the level. */
+  volume: gain(initialLevel),
   muted: readPref(MUTED_KEY, '0') === '1',
   listeners: new Set(),
+
+  /** Muted, or at level 0: either way nothing should play. */
+  get silent() {
+    return this.muted || this.level === 0;
+  },
 
   get ready() {
     return this.context?.state === 'running';
@@ -98,11 +110,16 @@ const sound = {
     }
   },
 
-  set(volume, muted) {
-    this.volume = volume;
+  /** `save: false` while the slider moves: the sound follows at once, and the browser keeps it on release. */
+  set(level, muted, { save = true } = {}) {
+    this.level = clampLevel(level);
+    this.volume = gain(this.level);
     this.muted = muted;
-    writePref(VOLUME_KEY, volume);
-    writePref(MUTED_KEY, muted ? '1' : '0');
+    if (save) {
+      writePref(LEVEL_KEY, this.level);
+      writePref(VOLUME_KEY, legacyGain(this.level));
+      writePref(MUTED_KEY, muted ? '1' : '0');
+    }
     this.changed();
   },
 
@@ -123,7 +140,7 @@ const sound = {
   },
 
   alarm() {
-    if (!this.ready || this.muted) {
+    if (!this.ready || this.silent) {
       return;
     }
     const start = this.context.currentTime + 0.05;
@@ -155,6 +172,7 @@ const MUSIC_NOTES = [220, 261.63, 329.63, 440, 329.63, 261.63, 220, 0,
 
 function createMusic() {
   let output = null;
+  let level = 0;
   let until = 0;
 
   function stop() {
@@ -169,10 +187,14 @@ function createMusic() {
       const context = sound.context;
       if (!output) {
         output = context.createGain();
+        level = 0.08 * sound.volume;
+        output.gain.value = level;
         output.connect(context.destination);
         until = position;
+      } else if (level !== 0.08 * sound.volume) {
+        level = 0.08 * sound.volume;
+        glide(output.gain, level, context);
       }
-      output.gain.value = 0.08 * sound.volume;
       if (until < position || until > position + MUSIC_LOOKAHEAD_MS + MUSIC_STEP_MS) {
         stop();
         this.play(position);
@@ -257,6 +279,57 @@ function send(ctx, k, d) {
   });
 }
 
+/**
+ * The sound popover's content: the board's alarm and music flags for facilitators, then this browser's mute
+ * and volume. paint() updates the controls in place, so a slider being dragged is never replaced (UX15).
+ */
+let soundPanels = 0;
+
+function createSoundPanel(ctx, currentView) {
+  const flag = (key, label) => createSwitch({ label, onChange: (on) => send(ctx, 'retro.timer.setFlags', { [key]: on }) });
+  const alarm = flag('alarm', 'Alarm when time is up');
+  const music = flag('music', 'Background music');
+  const mute = createSwitch({ label: 'Mute', onChange: (on) => sound.set(sound.level, on) });
+  // Input moves the sound live; change (release, a key) keeps it. Either way moving the slider unmutes.
+  const slider = h('input', {
+    type: 'range', class: 'range', min: String(MIN_LEVEL), max: String(MAX_LEVEL), step: '1', 'aria-label': 'Volume',
+    on: {
+      input: () => sound.set(Number(slider.value), false, { save: false }),
+      change: () => sound.set(Number(slider.value), false),
+    },
+  });
+  const percent = h('span', { class: 'retro-sound-level', 'aria-hidden': 'true' });
+  const id = `retro-sound-${++soundPanels}`;
+  const group = (key, heading, ...controls) => h('div', { class: 'retro-sound-group', role: 'group', 'aria-labelledby': `${id}-${key}` },
+    h('p', { class: 'retro-sound-heading', id: `${id}-${key}`, text: heading }), ...controls);
+  const board = group('board', 'Everyone on the board', alarm, music);
+  const el = h('div', { class: 'retro-sound-panel' },
+    board,
+    group('browser', 'This browser',
+      mute,
+      h('div', { class: 'retro-sound-volume' }, h('span', { class: 'retro-sound-label', text: 'Volume', 'aria-hidden': 'true' }), slider, percent)));
+
+  return {
+    el,
+    focus: () => slider.focus(),
+    paint(facilitator) {
+      const view = currentView();
+      board.hidden = !facilitator;
+      alarm.update({ checked: view.timer.alarm });
+      music.update({ checked: view.timer.music });
+      mute.update({ checked: sound.muted });
+      el.classList.toggle('is-muted', sound.muted);
+      if (Number(slider.value) !== sound.level) {
+        slider.value = String(sound.level);
+      }
+      const text = levelText(sound.level);
+      slider.setAttribute('aria-valuetext', text);
+      setStyle(slider, { '--range-fill': `${sound.level}%` });
+      percent.textContent = text;
+    },
+  };
+}
+
 export const timerFeature = {
   board(ctx, { toolbar }) {
     const music = createMusic();
@@ -277,22 +350,20 @@ export const timerFeature = {
     const display = h('span', { class: 'retro-timer-display', role: 'timer', 'aria-label': 'Time left' });
     const pause = createButton({ iconOnly: true, variant: 'ghost', size: 'icon', onClick: () => send(ctx, view.timer.state === 'running' ? 'retro.timer.pause' : 'retro.timer.resume', {}) });
     const reset = createButton({ label: 'Reset timer', icon: 'rotate-ccw', iconOnly: true, variant: 'ghost', size: 'icon', onClick: () => send(ctx, 'retro.timer.reset', {}) });
-    const soundButton = h('button', { type: 'button', class: 'btn btn-ghost btn-icon btn-sm retro-timer-sound' });
-    const soundMenu = createMenu({ items: [], label: 'Timer sound', onSelect: choose });
-    soundMenu.attach(soundButton);
+    const soundButton = h('button', { type: 'button', class: 'btn btn-ghost btn-icon btn-sm retro-timer-sound', 'aria-haspopup': 'dialog', 'aria-expanded': 'false' });
+    const soundPanel = createSoundPanel(ctx, () => view);
+    const soundPopover = createPopover({ anchor: soundButton, role: 'dialog', label: 'Timer sound', className: 'retro-sound', content: soundPanel.el });
+    soundButton.addEventListener('click', () => {
+      if (soundPopover.isOpen) {
+        soundPopover.close();
+      } else {
+        soundPopover.open();
+        soundPanel.focus();
+      }
+    });
     const running = h('span', { class: 'retro-timer-running' }, icon('timer'), display, pause, reset, soundButton);
     const el = h('div', { class: 'retro-timer' }, setup, signIn, running);
     toolbar.append(el);
-
-    function choose(action) {
-      if (action === 'alarm' || action === 'music') {
-        send(ctx, 'retro.timer.setFlags', { [action]: !view.timer[action] });
-      } else if (action === 'mute') {
-        sound.set(sound.volume, !sound.muted);
-      } else if (action.startsWith('volume:')) {
-        sound.set(Number(action.slice('volume:'.length)), false);
-      }
-    }
 
     function ring(endsAt) {
       if (rung.has(endsAt)) {
@@ -308,23 +379,17 @@ export const timerFeature = {
       const facilitator = isFacilitator(view, ctx.me()) && !view.meta.archived;
       const wantsSound = view.timer.alarm || view.timer.music;
       const locked = wantsSound && !sound.ready;
-      replaceContent(soundButton, icon(locked ? 'triangle-alert' : sound.muted ? 'volume-x' : view.timer.music ? 'music' : 'bell'));
+      // Only on a change: the slider repaints on every step, and a press that unlocks the audio would
+      // otherwise remove the icon it landed on and lose its click.
+      const glyph = locked ? 'triangle-alert' : sound.silent ? 'volume-x' : view.timer.music ? 'music' : 'bell';
+      if (soundButton.dataset.icon !== glyph) {
+        soundButton.dataset.icon = glyph;
+        replaceContent(soundButton, icon(glyph));
+      }
       const label = locked ? 'Click anywhere on the page to turn on the timer sound' : 'Timer sound';
       soundButton.setAttribute('aria-label', label);
       soundButton.title = label;
-      soundMenu.update({
-        items: [
-          ...(facilitator
-            ? [
-              { action: 'alarm', label: 'Alarm when time is up', icon: view.timer.alarm ? 'check' : 'circle' },
-              { action: 'music', label: 'Background music', icon: view.timer.music ? 'check' : 'circle' },
-              'separator',
-            ]
-            : []),
-          { action: 'mute', label: sound.muted ? 'Unmute' : 'Mute', icon: sound.muted ? 'volume-x' : 'bell' },
-          ...VOLUMES.map((v) => ({ action: `volume:${v}`, label: `Volume ${v * 100}%`, icon: !sound.muted && v === sound.volume ? 'check' : 'circle' })),
-        ],
-      });
+      soundPanel.paint(facilitator);
     }
 
     // A wall-clock jump that monotonic time did not see (sleep, a manual clock change) makes the clock
@@ -358,7 +423,7 @@ export const timerFeature = {
       } else {
         delete display.dataset.deadline;
       }
-      if (timer.state === 'running' && timer.music && !sound.muted && sound.ready && remaining > 0) {
+      if (timer.state === 'running' && timer.music && !sound.silent && sound.ready && remaining > 0) {
         const position = musicPositionMs(timer, now);
         const onTrack = ctx.timerMusic && track !== null && track.play(position);
         if (onTrack) {
@@ -401,6 +466,10 @@ export const timerFeature = {
       setup.el.hidden = active || !facilitator;
       signIn.hidden = active || facilitator || ctx.me()?.kind !== 'guest';
       running.hidden = !active;
+      if (!active) {
+        // The button it is anchored to is hidden, so it would float loose.
+        soundPopover.close();
+      }
       pause.el.hidden = !facilitator;
       reset.el.hidden = !facilitator;
       pause.update(timer.state === 'running'
@@ -441,7 +510,7 @@ export const timerFeature = {
         track?.stop();
         sound.listeners.delete(onSound);
         document.removeEventListener('visibilitychange', onVisibility);
-        soundMenu.destroy();
+        soundPopover.destroy();
         el.remove();
       },
     };
