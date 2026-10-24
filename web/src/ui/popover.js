@@ -113,6 +113,12 @@ export function createPopover(props) {
   };
 }
 
+// Whether any popover or menu is open in `doc`. A closed one stays in the page with `hidden`, and destroy()
+// removes it, so a visible `.popover` is an open one. Page shortcuts stand down while one is open.
+export function popoverOpen(doc = document) {
+  return doc.querySelector('.popover:not([hidden])') !== null;
+}
+
 // A zero-size anchor at a viewport point, for context menus.
 export function pointAnchor(x, y) {
   return { getBoundingClientRect: () => ({ top: y, bottom: y, left: x, right: x, width: 0, height: 0 }) };
