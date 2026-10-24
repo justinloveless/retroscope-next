@@ -33,7 +33,8 @@ renice -n "${RS_NICE:-10}" -p $$ >/dev/null 2>&1 || true
 CORES="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
 RS_JOBS="${RS_JOBS:-$(( CORES / 3 > 2 ? CORES / 3 : 2 ))}"
 if [[ "$RS_JOBS" == 0 ]]; then
-  BUILD_LIMIT=() TEST_LIMIT=() PW_LIMIT=()
+  # The default module cap is the core count; on a 2-core runner Integration would queue behind Core.
+  BUILD_LIMIT=() TEST_LIMIT=(--max-parallel-test-modules 16) PW_LIMIT=()
 else
   BUILD_LIMIT=("-maxcpucount:$RS_JOBS")
   TEST_LIMIT=(--max-parallel-test-modules "$RS_JOBS" --max-threads "$RS_JOBS")
@@ -122,7 +123,9 @@ cmd_test() {
   dotnet build Retroscope.slnx ${BUILD_LIMIT[@]+"${BUILD_LIMIT[@]}"}
 
   log "dotnet test (unit, integration, importer)"
-  dotnet test --solution Retroscope.slnx --no-build ${TEST_LIMIT[@]+"${TEST_LIMIT[@]}"}
+  local report=()
+  [[ -n "${CI:-}" ]] && report=(--results-directory "$ARTIFACTS/test-results" --report-xunit-trx)
+  dotnet test --solution Retroscope.slnx --no-build ${TEST_LIMIT[@]+"${TEST_LIMIT[@]}"} ${report[@]+"${report[@]}"}
 
   log "simulation (PR seeds)"
   dotnet run --no-build --project tests/Retroscope.Sim -- --seeds 2000 --strict
