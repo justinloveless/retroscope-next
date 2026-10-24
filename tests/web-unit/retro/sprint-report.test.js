@@ -536,3 +536,29 @@ test('choosing a person with the keyboard leaves focus on the Person control', a
   assert.equal(doc.activeElement, person());
   report.destroy();
 });
+
+test('a refresh that answers after Load more keeps the longer list, and a list that changed in Jira replaces it', async (t) => {
+  const doc = installDom();
+  withPopovers(t);
+  const { report } = panel();
+  report.toggle();
+  await settle();
+  const slow = hold();
+  replies.push(slow.reply(() => bodyFor(100)));
+  refreshButton(doc).click();
+  doc.querySelector('.retro-sprint-picker').click();
+  moreButton(doc).click();
+  await settle();
+  assert.equal(sprintItems(doc).length, 12);
+  slow.release();
+  await settle();
+  assert.deepEqual([params(requests[1]).get('sprints'), params(requests[2]).get('sprints')], ['4', '12']);
+  assert.equal(sprintItems(doc).length, 12, 'the refresh lists a prefix of the loaded sprints');
+  assert.equal(moreButton(doc).hidden, true);
+
+  replies.push(() => reply(200, { ...bodyFor(100), sprints: bodyFor(100).sprints.map((s) => (s.id === 101 ? { ...s, state: 'closed' } : s)) }));
+  refreshButton(doc).click();
+  await settle();
+  assert.equal(sprintItems(doc).length, 5, 'a sprint closed in Jira, so the shorter list is the current one');
+  report.destroy();
+});
