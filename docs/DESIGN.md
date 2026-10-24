@@ -1144,7 +1144,7 @@ Notation: **P** public, **G** guest or user, **U** user, **V** user with a verif
 | GET | `/`, `/login`, `/auth/*`, `/dashboard`, `/account`, `/mentions`, `/teams`, `/teams/{id}`, `/teams/{id}/settings`, `/teams/{tid}/poker/{code}`, `/poker/{code}`, `/retro/{code}`, `/invite`, `/admin/*` | P | Shell HTML (~3 KB, `no-store`) with boot JSON (me, theme, build id) and route `modulepreload`s; room routes embed the viewer snapshot (§c.3) via `RoomResolver` |
 | GET | `/api/boot?path=` | P | Same boot JSON for in-app navigation; room paths go through `RoomResolver` |
 | GET | `/assets/*` | P | Hashed, precompressed, `public, max-age=31536000, immutable` |
-| GET | `/media/timer-music` | P | The deploy-time timer track from `MUSIC_FILE` (UX13): streamed from disk with range requests, strong ETag and `Last-Modified`, `public, max-age=86400`, `nosniff`; 404 when not configured or refused at startup; 120/min/IP. The `/retro/{code}` boot JSON carries `timerMusic: true` when it exists |
+| GET | `/media/timer-music` | G | The deploy-time timer track from `MUSIC_FILE` (UX13): streamed from disk with range requests, strong ETag and `Last-Modified`, `private, max-age=86400`, `nosniff`; 401 without a session; 404 when not configured or refused at startup; 120/min/IP and 60/min per principal. The `/retro/{code}` boot JSON carries `timerMusic: true` when it exists |
 | GET | `/blob/{id}` | avatar: P; board_image: board access | `nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, `Cross-Origin-Resource-Policy: same-origin`; avatars `public, immutable`, board images `private, max-age=31536000, immutable` |
 | GET | `/ws` | G | WebSocket; exact Origin; ≤ 20 sockets per IP |
 | POST | `/api/auth/signup` | P | `{email, password, fullName}`; password 10–72 bytes, not in the embedded top-10k list (signup and password change only, **never** login, S30); always 202; an existing email gets an "you already have an account" email; 5/h/IP + email budget. Verification mail says "If you didn't create this account, ignore this email" |
@@ -1614,6 +1614,8 @@ services:
     stop_grace_period: 8s                             # F9: no overlap to wait for; bye{retryMs} spreads reconnects
     read_only: true
     tmpfs: [ "/tmp:size=16m" ]
+    # volumes:                                        # optional timer track (UX13); makes MUSIC_DIR required
+    #   - ${MUSIC_DIR:?}:/music:ro                    #   on every resource that deploys this file
     mem_limit: 200m
     cpus: 0.9
     restart: unless-stopped
