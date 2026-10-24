@@ -127,6 +127,28 @@ public sealed partial class SprintReportTests(PostgresFixture postgres) {
     }
 
     [Fact]
+    public async Task An_imported_team_without_field_ids_gets_them_from_discovery_once_and_never_stores_them() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var ada = await host.UserAsync("Ada");
+        var team = await host.TeamAsync((ada, "member"));
+        await host.ConfigureAsync(team, pointsField: null, sprintField: null);
+        host.AddBoard();
+        SeedSprints(host);
+
+        var report = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, $"{Report}?sprint=231"));
+        await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, $"{Report}?sprint=230"));
+
+        Assert.Equal(JsonNode.Parse(ClosedSprintReport)!.ToJsonString(), report.ToJsonString());
+        Assert.Single(host.Jira.Requests, r => r.Path == "/rest/api/3/field");
+        Assert.All(host.Jira.Requests.Where(r => r.Path == "/rest/api/3/search/jql"), r => {
+            Assert.Contains(JiraHttpHost.PointsField, SearchedFields(r));
+            Assert.Contains(JiraHttpHost.SprintField, SearchedFields(r));
+        });
+        var stored = Assert.Single(await host.RowsAsync("select points_field_id, sprint_field_id from team_jira_config where team_id = $1", team.Value));
+        Assert.Equal([null, null], stored);
+    }
+
+    [Fact]
     public async Task Without_a_points_field_no_points_are_shown() {
         await using var host = await JiraHttpHost.StartAsync(postgres);
         var ada = await host.UserAsync("Ada");
@@ -134,6 +156,7 @@ public sealed partial class SprintReportTests(PostgresFixture postgres) {
         await host.ConfigureAsync(team, pointsField: null);
         host.AddBoard();
         SeedSprints(host);
+        host.Jira.Fields.Clear();
 
         var report = (await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, $"{Report}?sprint=231")))["report"]!;
 
@@ -269,6 +292,9 @@ public sealed partial class SprintReportTests(PostgresFixture postgres) {
 
     private static IEnumerable<(string Outcome, JsonNode Row)> Rows(JsonArray groups) =>
         groups.SelectMany(g => g!["issues"]!.AsArray().Select(r => ((string)g["outcome"]!, r!)));
+
+    private static IEnumerable<string> SearchedFields(FakeJiraRequest search) =>
+        JsonNode.Parse(search.Body)!["fields"]!.AsArray().Select(f => (string)f!);
 
     private static int Searches(JiraHttpHost host, int since, long sprint) =>
         host.JiraRequestsSince(since).Count(r => r.Path == "/rest/api/3/search/jql" && r.Body.Contains($"sprint = {sprint} ", StringComparison.Ordinal));
