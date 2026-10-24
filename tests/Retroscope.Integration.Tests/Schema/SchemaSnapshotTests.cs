@@ -1,4 +1,5 @@
 using Retroscope.Integration.Tests.Scaffold;
+using Retroscope.Server.Data;
 
 namespace Retroscope.Integration.Tests.Schema;
 
@@ -9,9 +10,10 @@ namespace Retroscope.Integration.Tests.Schema;
 public sealed class SchemaSnapshotTests(PostgresFixture postgres) {
     private static readonly string SnapshotPath = Path.Combine(RepoRoot.Path, "tests/schema.snapshot.sql");
 
+    // Passing the migrator migrates a new database rather than cloning the fixture's template.
     [Fact]
     public async Task Migrated_schema_equals_the_committed_snapshot() {
-        var database = await postgres.CreateDatabaseAsync();
+        var database = await postgres.CreateDatabaseAsync(Migrator.FromEmbeddedScripts());
 
         var dump = await postgres.DumpSchemaAsync(database);
 
@@ -19,5 +21,13 @@ public sealed class SchemaSnapshotTests(PostgresFixture postgres) {
             await File.WriteAllTextAsync(SnapshotPath, dump, TestContext.Current.CancellationToken);
         }
         Assert.Equal(await File.ReadAllTextAsync(SnapshotPath, TestContext.Current.CancellationToken), dump);
+    }
+
+    [Fact]
+    public async Task A_cloned_database_has_the_schema_of_a_freshly_migrated_one() {
+        var fresh = await postgres.CreateDatabaseAsync(Migrator.FromEmbeddedScripts());
+        var clone = await postgres.CreateDatabaseAsync();
+
+        Assert.Equal(await postgres.DumpSchemaAsync(fresh), await postgres.DumpSchemaAsync(clone));
     }
 }

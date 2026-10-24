@@ -1,11 +1,12 @@
 name: preview
 
-# The single preview slot (deploy/COOLIFY_SETUP.md §11). A same-repository pull request labelled 'preview' is built
-# and deployed to the preview Coolify resource on every push; a manual run deploys any branch. The slot holds one
-# branch at a time and the last deploy wins. Previews are for unverified work, so this does not wait for ci.
+# The single preview slot (deploy/COOLIFY_SETUP.md §11). Adding the 'preview' label to a same-repository pull request
+# builds and deploys its head commit to the preview Coolify resource; later pushes do not redeploy, so remove and re-add
+# the label (or run this workflow by hand) to refresh it. A manual run deploys any branch. The slot holds one branch at
+# a time and the last deploy wins. Previews are for unverified work, so this does not wait for ci.
 on:
   pull_request:
-    types: [labeled, synchronize, reopened]
+    types: [labeled]
   workflow_dispatch:
     inputs:
       ref:
@@ -17,25 +18,21 @@ permissions: {}
 
 # Eligible runs share one group, so a newer preview cancels an older run as a whole and the last one wins. The group is
 # per workflow, not per job: with job-level groups an older run's deploy job could cancel a newer run's images job.
-# Runs that will not deploy (an unlabelled PR, another label added, a fork) get a group of their own and so never
-# cancel a live preview. Keep the condition in step with the target job's if.
+# Runs that will not deploy (another label, a fork) get a group of their own and so never cancel a live preview. Keep
+# the condition in step with the target job's if.
 concurrency:
   group: >-
     ${{ (github.event_name == 'workflow_dispatch' ||
-         (github.event.pull_request.head.repo.full_name == github.repository &&
-          contains(github.event.pull_request.labels.*.name, 'preview') &&
-          (github.event.action != 'labeled' || github.event.label.name == 'preview')))
+         (github.event.pull_request.head.repo.full_name == github.repository && github.event.label.name == 'preview'))
         && 'preview' || format('preview-noop-{0}', github.run_id) }}
   cancel-in-progress: true
 
 jobs:
   target:
-    # Fork pull requests get no secrets, so they are skipped. Adding another label to a preview PR does not redeploy.
+    # Fork pull requests get no secrets, so they are skipped. Adding another label does not deploy.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event.pull_request.head.repo.full_name == github.repository &&
-       contains(github.event.pull_request.labels.*.name, 'preview') &&
-       (github.event.action != 'labeled' || github.event.label.name == 'preview'))
+      (github.event.pull_request.head.repo.full_name == github.repository && github.event.label.name == 'preview')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -169,7 +166,7 @@ jobs:
           - Deployed: $(date -u '+%Y-%m-%d %H:%M UTC')
           - Run: $RUN_URL
 
-          There is one preview slot. The next preview of any branch replaces this one, so check the commit above."
+          There is one preview slot. The next preview of any branch replaces this one, so check the commit above. Later pushes do not redeploy: remove and re-add the \`preview\` label to refresh it."
           id="$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
             --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- retroscope-preview -->"))) | .id' \
             | sed -n 1p)"

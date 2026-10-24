@@ -12,6 +12,7 @@
 #   ./build.sh aot-smoke           AOT publish with zero warnings, probe against a throwaway Postgres, the
 #                                  native server signs a user up and holds a /ws session (hello/welcome,
 #                                  protocol PING/PONG), chiseled image serves /healthz (needs Docker)
+#   ./build.sh aot-key             prints the hash of everything the AOT server binary is compiled from
 #   ./build.sh fake-e2e <glob>     Playwright specs under tests/e2e/fake/ against tests/web-fake-server
 #   ./build.sh e2e <glob>          Playwright specs under tests/e2e/ against deploy/compose.test.yml
 #   ./build.sh preview [fake|real] fake (default): the web build on the demo fake server with simulated teammates,
@@ -22,10 +23,14 @@
 #
 # Load: everything runs at low priority (RS_NICE, default 10) and test parallelism is capped at RS_JOBS
 # (default a third of the cores, at least 2). RS_JOBS=0 lifts the cap for CI.
+#
+# The AOT server binary is reused from RS_AOT_CACHE (default artifacts/aot-cache; empty disables it) when every input
+# that compiles it is unchanged (aot_key). CI keeps that directory in actions/cache under the same key.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ARTIFACTS="$ROOT/artifacts"
+RS_AOT_CACHE="${RS_AOT_CACHE-$ARTIFACTS/aot-cache}"
 POSTGRES_IMAGE="postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873"
 cd "$ROOT"
 
@@ -33,7 +38,8 @@ renice -n "${RS_NICE:-10}" -p $$ >/dev/null 2>&1 || true
 CORES="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
 RS_JOBS="${RS_JOBS:-$(( CORES / 3 > 2 ? CORES / 3 : 2 ))}"
 if [[ "$RS_JOBS" == 0 ]]; then
-  BUILD_LIMIT=() TEST_LIMIT=() PW_LIMIT=()
+  # The default module cap is the core count; on a 2-core runner Integration would queue behind Core.
+  BUILD_LIMIT=() TEST_LIMIT=(--max-parallel-test-modules 16) PW_LIMIT=()
 else
   BUILD_LIMIT=("-maxcpucount:$RS_JOBS")
   TEST_LIMIT=(--max-parallel-test-modules "$RS_JOBS" --max-threads "$RS_JOBS")
@@ -122,7 +128,9 @@ cmd_test() {
   dotnet build Retroscope.slnx ${BUILD_LIMIT[@]+"${BUILD_LIMIT[@]}"}
 
   log "dotnet test (unit, integration, importer)"
-  dotnet test --solution Retroscope.slnx --no-build ${TEST_LIMIT[@]+"${TEST_LIMIT[@]}"}
+  local report=()
+  [[ -n "${CI:-}" ]] && report=(--results-directory "$ARTIFACTS/test-results" --report-xunit-trx)
+  dotnet test --solution Retroscope.slnx --no-build ${TEST_LIMIT[@]+"${TEST_LIMIT[@]}"} ${report[@]+"${report[@]}"}
 
   log "simulation (PR seeds)"
   dotnet run --no-build --project tests/Retroscope.Sim -- --seeds 2000 --strict
@@ -212,6 +220,21 @@ aot_publish() {
   if grep -E ': warning [A-Z]+[0-9]+' "$log_file"; then
     die "AOT publish of $project produced warnings"
   fi
+}
+
+# The paths deploy/Dockerfile copies into its build stage, the publish recipe, and the toolchain that compiles them.
+AOT_INPUTS=(global.json Directory.Build.props Directory.Packages.props .editorconfig db src/Retroscope.Core src/Retroscope.Server)
+aot_key() {
+  local files
+  files="$(git ls-files -z -co --exclude-standard -- "${AOT_INPUTS[@]}" \
+    | while IFS= read -r -d '' f; do if [[ -f "$f" ]]; then printf '%s\n' "$f"; fi; done | LC_ALL=C sort)"
+  {
+    paste -d ' ' <(git hash-object --stdin-paths <<<"$files") <(printf '%s\n' "$files")
+    declare -f aot_publish host_rid
+    dotnet --version
+    clang --version 2>/dev/null | head -1 || true
+    echo "${ImageOS:-} ${ImageVersion:-}"
+  } | git hash-object --stdin
 }
 
 # Against the native server at $1: signs a user up and in through the real routes, then speaks the wire protocol over
@@ -364,8 +387,24 @@ cmd_aot_smoke() {
   rm -rf "$ARTIFACTS/aot"
   mkdir -p "$ARTIFACTS/aot"
 
-  log "AOT publish: server"
-  aot_publish src/Retroscope.Server "$ARTIFACTS/aot/server" "$ARTIFACTS/aot/server.log"
+  local key="" cached=""
+  if [[ -n "$RS_AOT_CACHE" ]]; then
+    key="$(aot_key)"
+    [[ "$key" =~ ^[0-9a-f]{40}$ ]] || die "could not compute the AOT input key"
+    cached="$RS_AOT_CACHE/aot-$key"
+  fi
+  if [[ -n "$cached" && -x "$cached/retroscope" ]]; then
+    log "AOT server: reusing the binary built from the same inputs (${key:0:12})"
+    cp -R "$cached" "$ARTIFACTS/aot/server"
+  else
+    log "AOT publish: server"
+    aot_publish src/Retroscope.Server "$ARTIFACTS/aot/server" "$ARTIFACTS/aot/server.log"
+    if [[ -n "$cached" ]]; then
+      mkdir -p "$RS_AOT_CACHE"
+      rm -rf "$RS_AOT_CACHE"/aot-*
+      cp -R "$ARTIFACTS/aot/server" "$cached"
+    fi
+  fi
   log "AOT publish: smoke probe"
   aot_publish tests/Retroscope.AotSmoke "$ARTIFACTS/aot/smoke" "$ARTIFACTS/aot/smoke.log"
 
@@ -410,7 +449,16 @@ cmd_aot_smoke() {
   SMOKE_PID=""
 
   log "chiseled image serves /healthz"
-  docker build -f deploy/Dockerfile -t "$SMOKE_IMAGE" . >"$ARTIFACTS/aot/image.log" 2>&1 \
+  local build_from=()
+  if [[ "$(host_rid)" == linux-x64 ]]; then
+    # The image packages the binary probed above instead of compiling it again; images.yml pushes these contexts.
+    cmd_web
+    mkdir -p "$ARTIFACTS/aot/image/build/out" "$ARTIFACTS/aot/image/web/src/web"
+    cp "$ARTIFACTS/aot/server/retroscope" "$ARTIFACTS/aot/image/build/out/"
+    cp -R web/dist "$ARTIFACTS/aot/image/web/src/web/dist"
+    build_from=(--build-context "build=$ARTIFACTS/aot/image/build" --build-context "web=$ARTIFACTS/aot/image/web")
+  fi
+  docker build -f deploy/Dockerfile ${build_from[@]+"${build_from[@]}"} -t "$SMOKE_IMAGE" . >"$ARTIFACTS/aot/image.log" 2>&1 \
     || { tail -50 "$ARTIFACTS/aot/image.log"; die "image build failed"; }
   docker run -d --name "$SMOKE_APP" --network "container:$SMOKE_PG" \
     -e DATABASE_URL="Host=127.0.0.1;Port=5432;Database=retroscope;Username=retroscope_app;Password=smoke-app" \
@@ -616,9 +664,10 @@ case "${1:-all}" in
   hooks) ;;
   web) cmd_web ;;
   aot-smoke) cmd_aot_smoke ;;
+  aot-key) aot_key ;;
   fake-e2e) shift; cmd_fake_e2e "$@" ;;
   e2e) shift; cmd_e2e "$@" ;;
   preview) shift; cmd_preview "$@" ;;
   screenshots) cmd_screenshots ;;
-  *) die "unknown verb '$1' (all | test | quick [paths] | verify | hooks | web | aot-smoke | fake-e2e <glob> | e2e <glob> | preview [fake|real] | screenshots)" ;;
+  *) die "unknown verb '$1' (all | test | quick [paths] | verify | hooks | web | aot-smoke | aot-key | fake-e2e <glob> | e2e <glob> | preview [fake|real] | screenshots)" ;;
 esac

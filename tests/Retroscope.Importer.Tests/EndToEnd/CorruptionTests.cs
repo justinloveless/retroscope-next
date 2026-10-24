@@ -35,11 +35,24 @@ public sealed class CorruptionTests(ImporterDatabases databases) : IAsyncLifetim
             """update archive.import_runs set report = jsonb_set(report, '{tables,public.teams,imported}', '1')""" },
     };
 
+    // Every test shares one clean import, so none may write to its target: verify runs read-only, and a corruption goes
+    // into a clone (CloneTargetAsync). xUnit runs a class's tests one at a time, so no clone races another connection.
+    private static readonly Lock _gate = new();
+    private static Task<EndToEndImport>? _sharedImport;
+
     private EndToEndImport? _import;
 
     public async ValueTask InitializeAsync() {
-        _import = await CreateAsync(databases);
-        await _import.FetchAndRunAsync();
+        lock (_gate) {
+            _sharedImport ??= ImportOnceAsync(databases);
+        }
+        _import = await _sharedImport;
+    }
+
+    private static async Task<EndToEndImport> ImportOnceAsync(ImporterDatabases databases) {
+        var import = await CreateAsync(databases);
+        await import.FetchAndRunAsync();
+        return import;
     }
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
