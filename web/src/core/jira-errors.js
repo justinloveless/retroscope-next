@@ -13,8 +13,11 @@ const JIRA_ERRORS = {
   network: 'You are offline. Try again when the connection is back.',
 };
 
-/** A sentence for a failed Jira call: an ApiError, a nack ({code, detail}), a bare code, or anything thrown. */
-export function jiraMessage(error) {
+/**
+ * A sentence for a failed Jira call: an ApiError, a nack ({code, detail}), a bare code, or anything thrown.
+ * `overrides` ({code: sentence}) lets a screen word a code for what it asked Jira for.
+ */
+export function jiraMessage(error, overrides = {}) {
   const code = typeof error === 'string' ? error : error?.code;
   if (code === 'jira_validation' && error?.fields) {
     const first = Object.values(error.fields).find((v) => typeof v === 'string');
@@ -22,5 +25,5 @@ export function jiraMessage(error) {
       return first;
     }
   }
-  return JIRA_ERRORS[code] ?? (error?.detail || 'Something went wrong with Jira.');
+  return overrides[code] ?? JIRA_ERRORS[code] ?? (error?.detail || 'Something went wrong with Jira.');
 }

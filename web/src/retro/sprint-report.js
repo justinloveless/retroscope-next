@@ -28,6 +28,11 @@ const EMPTY = {
   no_sprints: 'The team’s Jira board has no active or closed sprints yet.',
 };
 
+// The report asks Jira for a board and a sprint, never for one issue.
+const ERRORS = {
+  jira_not_found: 'Jira could not find the team’s board or that sprint. A team admin can check the board in Team Settings.',
+};
+
 export const FOOTNOTE = 'A snapshot of the sprint as Jira holds it now. Issues removed before the sprint closed are not listed, '
   + 'issues added during the sprint are not marked, and points are current estimates.';
 export const NO_POINTS = 'The team has no story points field in its Jira settings, so points are not shown.';
@@ -265,11 +270,11 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
       }
       // A failed refresh keeps the report it was refreshing.
       if (force && painted) {
-        toast(jiraMessage(error), { variant: 'error', duration: 6000 });
+        toast(jiraMessage(error, ERRORS), { variant: 'error', duration: 6000 });
         return;
       }
       painted = false;
-      status(jiraMessage(error), {
+      status(jiraMessage(error, ERRORS), {
         role: 'alert',
         retry: createButton({ label: 'Try again', icon: 'refresh-cw', variant: 'outline', size: 'sm', onClick: () => load(sprintId) }),
       });
