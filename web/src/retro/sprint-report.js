@@ -9,6 +9,7 @@ import { h, replaceContent } from '../core/h.js';
 import { http } from '../core/http.js';
 import { jiraMessage } from '../core/jira-errors.js';
 import { createButton } from '../ui/button.js';
+import { createChoice } from '../ui/choice.js';
 import { issueTypeGlyph, statusBadge } from '../ui/glyphs.js';
 import { icon } from '../ui/icons.js';
 import { createPopover } from '../ui/popover.js';
@@ -44,6 +45,11 @@ export const FOOTNOTE = 'A snapshot of the sprint as Jira holds it now. Issues r
 export const NO_POINTS = 'The team has no story points field in its Jira settings, so points are not shown.';
 export const TRUNCATED = 'This sprint has more issues than the report reads; the counts cover the first 1,000.';
 
+// The person filter's values: everyone, nobody, or an assignee's display name behind a prefix no sentinel shares.
+export const EVERYONE = '';
+export const UNASSIGNED = '-';
+const assigneeValue = (name) => `@${name}`;
+
 const day = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
 
 // Shared by every panel of the tab: `${teamId}:${sprintId | 'default'}` → {at, promise}. The key leaves out how many
@@ -75,17 +81,45 @@ function chipsOf(issue, outcome, closed) {
   return chips;
 }
 
+function peopleOf(issues) {
+  const counts = new Map();
+  let unassigned = 0;
+  for (const issue of issues) {
+    if (issue.assignee == null) {
+      unassigned++;
+    } else {
+      counts.set(issue.assignee, (counts.get(issue.assignee) ?? 0) + 1);
+    }
+  }
+  const people = [...counts]
+    .sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+    .map(([name, n]) => ({ value: assigneeValue(name), label: `${name} · ${n}` }));
+  return [
+    { value: EVERYONE, label: 'Everyone' },
+    ...people,
+    ...(unassigned > 0 ? [{ value: UNASSIGNED, label: `Unassigned · ${unassigned}` }] : []),
+  ];
+}
+
 /**
  * The sprint-report response → what the panel draws. Only a closed sprint has a "done after close" outcome
- * and a place its unfinished work went; points show only when the team has a points field.
+ * and a place its unfinished work went; points show only when the team has a points field. `person` keeps the
+ * issues of one assignee (or the unassigned ones) and recounts the tiles; one absent from the report means everyone.
  */
-export function viewModel(body, { siteHost }) {
+export function viewModel(body, { siteHost, person = EVERYONE }) {
   const sprints = Array.isArray(body?.sprints) ? body.sprints : [];
   const report = body?.report ?? null;
   const sprint = report ? sprints.find((s) => s.id === report.sprintId) ?? null : null;
   const closed = sprint?.state === 'closed';
   const pointsKnown = report?.pointsKnown === true;
-  const groups = (report?.groups ?? []).filter((g) => OUTCOMES[g.outcome] && (closed || g.outcome !== 'doneAfter'));
+  const shown = (report?.groups ?? []).filter((g) => OUTCOMES[g.outcome] && (closed || g.outcome !== 'doneAfter'));
+  const people = report ? peopleOf(shown.flatMap((g) => g.issues ?? [])) : [];
+  const chosen = people.some((p) => p.value === person) ? person : EVERYONE;
+  const keep = chosen === UNASSIGNED ? (i) => i.assignee == null : (i) => assigneeValue(i.assignee) === chosen;
+  const groups = chosen === EVERYONE ? shown : shown.map((g) => {
+    const issues = (g.issues ?? []).filter(keep);
+    return { ...g, issues, count: issues.length, points: issues.reduce((sum, i) => sum + (i.points ?? 0), 0) };
+  });
   const start = formatDay(sprint?.startDate);
   const end = formatDay(sprint?.endDate);
   const range = start && end ? `${start} – ${end}` : start ?? end;
@@ -102,6 +136,8 @@ export function viewModel(body, { siteHost }) {
     empty: report ? null : body?.empty ?? 'no_sprints',
     picker: sprints.map((s) => ({ value: String(s.id), label: sprintLabel(s) })),
     selected: sprint ? String(sprint.id) : null,
+    people,
+    person: chosen,
     heading: sprint && {
       name: sprint.name,
       goal: report.goal || null,
@@ -209,12 +245,13 @@ function rowEl(row) {
       row.chips.map((chip) => h('span', { class: 'retro-sprint-chip', dataset: { kind: chip.kind }, text: chip.text }))));
 }
 
-function reportEl(model) {
+function reportEl(model, filter) {
   const { heading } = model;
   return [
     h('div', { class: 'retro-sprint-head' },
       heading.goal ? h('p', { class: 'retro-sprint-goal' }, h('span', { class: 'retro-sprint-label', text: 'Goal' }), ' ', heading.goal) : null,
       heading.dates ? h('p', { class: 'retro-sprint-dates', text: heading.dates }) : null),
+    model.people.length > 1 ? filter : null,
     h('div', { class: 'retro-sprint-tiles' }, model.tiles.map((tile) => h('div', { class: 'retro-sprint-tile', dataset: { outcome: tile.outcome } },
       h('span', { class: 'retro-sprint-count', text: String(tile.count) }),
       h('span', { class: 'retro-sprint-tile-label', text: tile.label }),
@@ -245,6 +282,8 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
   const menu = createPopover({ anchor: picker, content: [items, more], role: 'menu', label: 'Sprints', className: 'menu retro-sprint-menu' });
   menu.el.removeAttribute('tabindex');
   const roving = rovingTabindex(menu.el, { selector: '.menu-item', orientation: 'vertical' });
+  const people = createChoice({ label: 'Person', options: [], className: 'retro-sprint-person', onChange: (value) => paint(value) });
+  const filter = h('div', { class: 'retro-sprint-filter' }, h('span', { class: 'retro-sprint-label', 'aria-hidden': 'true', text: 'Person' }), people.el);
   const content = h('div', { class: 'retro-sprint-content' });
   sheet.body.append(h('div', { class: 'retro-sprint' }, picker, content));
 
@@ -259,6 +298,16 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
   let selected = null;
   let loadingMore = false;
   let opening = 0;
+  let shownBody = null;
+  let person = EVERYONE;
+
+  // Draws the report for `chosen`; a person missing from this sprint's report falls back to everyone.
+  function paint(chosen) {
+    const model = viewModel(shownBody, { siteHost, person: chosen });
+    person = model.person;
+    people.update({ options: model.people, value: person });
+    replaceContent(content, reportEl(model, filter));
+  }
 
   function take(body, force) {
     const sprints = Array.isArray(body?.sprints) ? body.sprints : [];
@@ -404,7 +453,8 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
     if (model.empty) {
       status(EMPTY[model.empty] ?? EMPTY.no_sprints);
     } else {
-      replaceContent(content, reportEl(model));
+      shownBody = body;
+      paint(person);
     }
   }
 
@@ -430,6 +480,7 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
     list = { sprints: [], more: false };
     count = SPRINTS;
     loadingMore = false;
+    person = EVERYONE;
     sheet.hide();
     dock?.classList.remove('has-side-sheet');
     onClose?.();
@@ -451,6 +502,7 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
       close();
       roving.destroy();
       menu.destroy();
+      people.destroy();
       sheet.destroy();
     },
   };

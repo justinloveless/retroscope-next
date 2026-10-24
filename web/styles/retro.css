@@ -457,6 +457,8 @@ html:has(.retro-kudos-dock:not([hidden])) { scroll-padding-bottom: calc(3.5rem +
 .retro-sprint-more .spinner { width: 0.875rem; height: 0.875rem; }
 .retro-sprint-head { display: grid; gap: 0.25rem; }
 .retro-sprint-head:empty { display: none; }
+.retro-sprint-filter { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; }
+.retro-sprint-person { flex: 1; min-width: 0; }
 .retro-sprint-goal { margin: 0; font-size: 0.875rem; overflow-wrap: anywhere; }
 .retro-sprint-label { font-weight: 600; }
 .retro-sprint-dates, .retro-sprint-note, .retro-sprint-assignee { margin: 0; font-size: 0.75rem; color: hsl(var(--muted-foreground)); }
