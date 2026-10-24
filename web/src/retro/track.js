@@ -12,6 +12,8 @@
 // An engine whose playback itself keeps stalling (headless WebKit does, every second or so) would still
 // seek again and again, so a playing element seeks at most once every few seconds and is nudged between.
 
+import { glide } from './volume.js';
+
 export const TRACK_URL = '/media/timer-music';
 export const TRACK_LEVEL = 0.3;
 
@@ -53,6 +55,7 @@ export function trackCorrection(drift) {
 export function createTrack({ url = TRACK_URL, sound, createAudio = () => new Audio(), clock = () => performance.now() }) {
   let audio = null;
   let gain = null;
+  let level = null;
   let failed = false;
   let primed = false;
   let playing = false;
@@ -85,6 +88,8 @@ export function createTrack({ url = TRACK_URL, sound, createAudio = () => new Au
       const context = sound.context;
       const source = context.createMediaElementSource(audio);
       gain = context.createGain();
+      level = TRACK_LEVEL * sound.volume;
+      gain.gain.value = level;
       source.connect(gain);
       gain.connect(context.destination);
       return true;
@@ -182,7 +187,11 @@ export function createTrack({ url = TRACK_URL, sound, createAudio = () => new Au
       if (!connect()) {
         return false;
       }
-      gain.gain.value = TRACK_LEVEL * sound.volume;
+      // A volume change glides, so dragging the slider does not click (UX15).
+      if (level !== TRACK_LEVEL * sound.volume) {
+        level = TRACK_LEVEL * sound.volume;
+        glide(gain.gain, level, sound.context);
+      }
       wanted = { positionMs, at: clock() };
       playing = true;
       audio.preload = 'auto';

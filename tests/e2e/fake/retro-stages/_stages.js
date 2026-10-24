@@ -103,10 +103,14 @@ export function serveStages(fake, snap = snapshot()) {
   return state;
 }
 
-/** Records every tone instead of playing it; `window.__tones` lists `{type, frequency, at}`. */
+/**
+ * Records every tone instead of playing it; `window.__tones` lists `{type, frequency, at}`, and
+ * `window.__glides` the target of every gain glide (a volume change on playing music).
+ */
 export const fakeAudio = {
   fn: () => {
     window.__tones = [];
+    window.__glides = [];
     class Param {
       constructor(value) {
         this.value = value;
@@ -115,6 +119,11 @@ export const fakeAudio = {
       setValueAtTime() {}
 
       linearRampToValueAtTime() {}
+
+      setTargetAtTime(target) {
+        window.__glides.push(target);
+        this.value = target;
+      }
     }
     class Node {
       connect(target) {
