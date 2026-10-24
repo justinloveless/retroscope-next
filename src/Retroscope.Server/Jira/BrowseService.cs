@@ -68,7 +68,8 @@ public sealed class BrowseService(JiraClient client, Credentials credentials, Ji
             JiraCache.Key(team, "sprints", board.ToString(System.Globalization.CultureInfo.InvariantCulture)),
             SprintsTtl,
             async () => {
-                var sprints = await client.GetSprintsAsync(team, board, CancellationToken.None);
+                // Poker never shows a sprint goal, so the cache does not keep it.
+                IReadOnlyList<JiraSprint> sprints = [.. (await client.GetSprintsAsync(team, board, CancellationToken.None)).Select(s => s with { Goal = null })];
                 return (sprints, 64L + sprints.Count * 160L, [JiraCache.TeamTag(team)]);
             },
             cancellationToken);
