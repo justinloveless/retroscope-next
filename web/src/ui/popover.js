@@ -19,7 +19,8 @@ export function fit(size, rect, { vw, vh }, placement = 'bottom-start') {
     const above = rect.top - GAP - MARGIN;
     const [first, second] = side === 'bottom' ? [below, above] : [above, below];
     const onFirst = height <= first || (height > second && first >= second);
-    height = Math.min(height, Math.max(0, onFirst ? first : second));
+    // An anchor scrolled out of view leaves the other side more room than the viewport has.
+    height = Math.min(height, Math.max(0, onFirst ? first : second), vh - 2 * MARGIN);
     top = (side === 'bottom') === onFirst ? rect.bottom + GAP : rect.top - GAP - height;
     left = align === 'start' ? rect.left : align === 'end' ? rect.right - width : rect.left + (rect.width - width) / 2;
   } else {
