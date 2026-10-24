@@ -110,8 +110,12 @@ function confetti(layer) {
   }
 }
 
-/** The recipient's celebration: a card naming the giver and the kudos, confetti and a chime. */
-export function celebrate({ emoji, typeName, from }) {
+/**
+ * The recipient's celebration: a card naming the giver and the kudos, confetti and a chime. It goes in `host`,
+ * which is the open kudos drawer when there is one: a modal dialog makes the rest of the page inert and
+ * covers it with its backdrop. moveTo(host) carries a live celebration into or out of the drawer.
+ */
+export function celebrate({ emoji, typeName, from }, host = document.body) {
   const reduced = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   const layer = h('div', { class: 'retro-celebration-confetti', 'aria-hidden': 'true' });
   const card = h('div', { class: 'card retro-celebration', role: 'status' },
@@ -125,13 +129,20 @@ export function celebrate({ emoji, typeName, from }) {
     card.remove();
   };
   card.addEventListener('click', close);
-  document.body.append(layer, card);
+  host.append(layer, card);
   if (!reduced) {
     confetti(layer);
   }
   playArpeggio();
   timer = setTimeout(close, CELEBRATION_MS);
-  return close;
+  return {
+    close,
+    moveTo(next) {
+      if (card.isConnected) {
+        next.append(layer, card);
+      }
+    },
+  };
 }
 
 export const kudos = {
@@ -154,7 +165,7 @@ export const kudos = {
     let dialog = null;
     let unbindKey = null;
     let seen = ctx.view()?.celebrate ?? null;
-    let closeCelebration = null;
+    let celebration = null;
 
     function send(k, d, apply) {
       ctx.command(k, d, {
@@ -218,6 +229,7 @@ export const kudos = {
         className: 'retro-kudos',
         content: h('div', { class: 'retro-kudos-body' }, summary, people),
         onClose() {
+          celebration?.moveTo(document.body);
           dialog.destroy();
           dialog = null;
           // The drawer also closes when the tab hides (UX16), and then there is no tab to go back to.
@@ -229,6 +241,7 @@ export const kudos = {
       dialog.el.querySelector('.dialog-title').prepend(icon('award'));
       paintDrawer(offer);
       dialog.open();
+      celebration?.moveTo(dialog.el);
     }
 
     function toggleDrawer() {
@@ -250,12 +263,12 @@ export const kudos = {
         return;
       }
       const type = view.endorsementTypes?.find((t) => t.id === endorsement.typeId);
-      closeCelebration?.();
-      closeCelebration = celebrate({
+      celebration?.close();
+      celebration = celebrate({
         emoji: type?.emoji ?? '⭐',
         typeName: type?.name ?? 'a teammate',
         from: ctx.personName(endorsement.from) ?? 'A teammate',
-      });
+      }, dialog?.el);
     }
 
     return {
@@ -280,7 +293,7 @@ export const kudos = {
       },
       destroy() {
         unbindKey?.();
-        closeCelebration?.();
+        celebration?.close();
         dialog?.destroy();
         dock.remove();
       },
