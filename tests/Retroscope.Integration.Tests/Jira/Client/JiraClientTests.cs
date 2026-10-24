@@ -608,6 +608,93 @@ public sealed class JiraClientTests(PostgresFixture postgres) {
     }
 
     [Fact]
+    public async Task Recent_sprints_of_a_young_board_are_its_active_sprints_then_every_closed_one() {
+        await using var h = await JiraHarness.StartAsync(postgres);
+        AddClosedSprints(h, 12);
+        h.Jira.AddSprint(13, "Sprint 13", "active", "2026-10-12T09:00:00.000Z");
+        h.Jira.AddSprint(14, "Sprint 14", "future", null);
+
+        var sprints = await h.Client.GetRecentSprintsAsync(h.Team, 7, 30, Ct);
+
+        Assert.Equal([13L, .. Enumerable.Range(1, 12).Select(i => (long)i)], sprints.Select(s => s.Id));
+        Assert.Equal(["state=active&startAt=0", "state=closed&startAt=0"], SprintQueries(h));
+    }
+
+    [Fact]
+    public async Task Recent_sprints_jump_to_the_tail_when_Jira_sends_a_total() {
+        await using var h = await JiraHarness.StartAsync(postgres);
+        AddClosedSprints(h, 200);
+
+        var sprints = await h.Client.GetRecentSprintsAsync(h.Team, 7, 30, Ct);
+
+        Assert.Equal(Enumerable.Range(171, 30).Select(i => (long)i), sprints.Select(s => s.Id));
+        Assert.Equal(["state=active&startAt=0", "state=closed&startAt=0", "state=closed&startAt=170"], SprintQueries(h));
+    }
+
+    [Fact]
+    public async Task Recent_sprints_page_forward_keeping_the_newest_without_a_total() {
+        await using var h = await JiraHarness.StartAsync(postgres);
+        h.Jira.OmitTotals = true;
+        AddClosedSprints(h, 120);
+
+        var sprints = await h.Client.GetRecentSprintsAsync(h.Team, 7, 30, Ct);
+
+        Assert.Equal(Enumerable.Range(91, 30).Select(i => (long)i), sprints.Select(s => s.Id));
+        Assert.Equal(
+            ["state=active&startAt=0", "state=closed&startAt=0", "state=closed&startAt=50", "state=closed&startAt=100"],
+            SprintQueries(h));
+    }
+
+    [Fact]
+    public async Task A_stale_total_that_jumps_past_the_end_falls_back_to_paging_forward() {
+        await using var h = await JiraHarness.StartAsync(postgres);
+        AddClosedSprints(h, 80);
+        var firstPage = new System.Text.Json.Nodes.JsonObject {
+            ["startAt"] = 0,
+            ["maxResults"] = 50,
+            ["isLast"] = false,
+            ["total"] = 500,
+            ["values"] = new System.Text.Json.Nodes.JsonArray([.. h.Jira.Sprints.Take(50).Select(s => s.DeepClone())]),
+        };
+        h.Jira.Script(
+            "GET",
+            "/rest/agile/1.0/board/7/sprint",
+            new FakeJiraResponse(200, """{"startAt":0,"maxResults":50,"isLast":true,"values":[]}"""),
+            new FakeJiraResponse(200, firstPage.ToJsonString()));
+
+        var sprints = await h.Client.GetRecentSprintsAsync(h.Team, 7, 30, Ct);
+
+        Assert.Equal(Enumerable.Range(51, 30).Select(i => (long)i), sprints.Select(s => s.Id));
+        Assert.Equal(
+            ["state=active&startAt=0", "state=closed&startAt=0", "state=closed&startAt=470", "state=closed&startAt=50"],
+            SprintQueries(h));
+    }
+
+    [Fact]
+    public async Task Recent_sprints_stop_after_30_calls() {
+        await using var h = await JiraHarness.StartAsync(postgres);
+        h.Jira.OmitTotals = true;
+        AddClosedSprints(h, 2000);
+
+        var sprints = await h.Client.GetRecentSprintsAsync(h.Team, 7, 30, Ct);
+
+        Assert.Equal(30, h.Jira.Requests.Count);
+        Assert.Equal(Enumerable.Range(1421, 30).Select(i => (long)i), sprints.Select(s => s.Id));
+    }
+
+    [Fact]
+    public async Task Recent_sprints_carry_their_close_date_goal_and_owning_board() {
+        await using var h = await JiraHarness.StartAsync(postgres);
+        h.Jira.AddSprint(5, "Sprint 5", "closed", "2026-09-28T09:00:00.000Z", "2026-10-12T09:00:00.000Z", "2026-10-12T16:30:00.000Z", "Ship it", 7);
+
+        var sprint = Assert.Single(await h.Client.GetRecentSprintsAsync(h.Team, 7, 30, Ct));
+
+        Assert.Equal(
+            new JiraSprint(5, "Sprint 5", "closed", "2026-09-28T09:00:00.000Z", "2026-10-12T09:00:00.000Z", "2026-10-12T16:30:00.000Z", "Ship it", 7),
+            sprint);
+    }
+
+    [Fact]
     public async Task Ranked_pages_and_writes_reach_the_verified_paths() {
         await using var h = await JiraHarness.StartAsync(postgres);
         h.Jira.AddBoard(7, "DUN");
@@ -653,6 +740,16 @@ public sealed class JiraClientTests(PostgresFixture postgres) {
         Assert.Contains(h.Jira.Requests, r => r.Path.EndsWith("/comment", StringComparison.Ordinal) && r.Query.Contains("orderBy=-created", StringComparison.Ordinal));
         Assert.Contains(h.Jira.Requests, r => r.Path == "/rest/api/3/user/assignable/search" && r.Query.Contains("query=ad%20a", StringComparison.Ordinal));
     }
+
+    private static void AddClosedSprints(JiraHarness h, int count) {
+        h.Jira.AddBoard(7, "DUN");
+        for (var i = 1; i <= count; i++) {
+            h.Jira.AddSprint(i, $"Sprint {i}", "closed", null);
+        }
+    }
+
+    private static List<string> SprintQueries(JiraHarness h) =>
+        [.. h.Jira.Requests.Where(r => r.Path == "/rest/agile/1.0/board/7/sprint").Select(r => r.Query.TrimStart('?').Replace("&maxResults=50", "", StringComparison.Ordinal))];
 
     [Theory]
     [InlineData("../myself")]
