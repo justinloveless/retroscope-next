@@ -29,6 +29,17 @@ public sealed class TimerMusicTests : IDisposable {
     }
 
     [Fact]
+    public async Task A_caller_without_a_session_is_refused() {
+        await using var app = await StartAsync(Write("track.mp3", Mp3));
+
+        using var anonymous = await app.Client.GetAsync(TimerMusic.Path, TestContext.Current.CancellationToken);
+        using var guest = await GetAsync(app);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, guest.StatusCode);
+    }
+
+    [Fact]
     public async Task A_configured_track_is_streamed_with_its_type_validators_and_cache_policy() {
         await using var app = await StartAsync(Write("track.mp3", Mp3));
 
@@ -164,16 +175,64 @@ public sealed class TimerMusicTests : IDisposable {
         Assert.Equal(HttpStatusCode.OK, other.StatusCode);
     }
 
+    [Fact]
+    public async Task A_file_overwritten_in_place_is_served_from_the_next_request_with_a_new_etag() {
+        var path = Write("track.mp3", Mp3);
+        await using var app = await StartAsync(path);
+        using var before = await GetAsync(app);
+        byte[] replacement = [.. "ID3"u8, 4, 0, 0, 0, 0, 0, 0, 1, 2, 3];
+        File.WriteAllBytes(path, replacement);
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(1));
+
+        using var after = await GetAsync(app);
+
+        Assert.Equal(replacement, await after.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+        Assert.NotEqual(before.Headers.ETag, after.Headers.ETag);
+    }
+
+    [Fact]
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    public async Task An_unreadable_file_turns_the_route_off_with_a_warning() {
+        Assert.SkipWhen(Environment.UserName == "root", "root reads a file whatever its mode");
+        var path = Write("locked.mp3", Mp3);
+        File.SetUnixFileMode(path, UnixFileMode.None);
+        var logs = new CapturingLoggerProvider();
+        try {
+            await using var app = await StartAsync(path, logs);
+
+            using var response = await GetAsync(app);
+
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+            Assert.Contains(logs.Entries, x => x.Level == LogLevel.Warning && x.Message.Contains("cannot be read", StringComparison.Ordinal));
+        } finally {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
+
     // The route needs a session; a guest's is enough.
-    private static HttpRequestMessage Request(string? peer = null) {
+    private static HttpRequestMessage Request(string? peer = null, string caller = "guest") {
         var request = TestApp.Get(TimerMusic.Path, peer);
-        request.Headers.Add(TestApp.CallerHeader, "guest");
+        request.Headers.Add(TestApp.CallerHeader, caller);
         return request;
     }
 
     private static async Task<HttpResponseMessage> GetAsync(TestApp app) {
         using var request = Request();
         return await app.Client.SendAsync(request, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task The_route_is_limited_per_principal() {
+        await using var app = await StartAsync(Write("track.mp3", Mp3));
+        var caller = $"guest:{Guid.CreateVersion7()}";
+
+        for (var i = 0; i < 60; i++) {
+            using var ok = await app.Client.SendAsync(Request($"198.51.100.{i + 10}", caller), TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        }
+        using var limited = await app.Client.SendAsync(Request("198.51.100.200", caller), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
     }
 
     private string Write(string name, byte[] bytes) {
