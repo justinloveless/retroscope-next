@@ -314,10 +314,13 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
     }
   }
 
-  function take(body, force) {
+  // Every response lists a prefix of the same sprints (active, then closed newest first), so the longer one holds
+  // the other, whichever answered last. Only a list that changed in Jira replaces a longer one.
+  function take(body) {
     const sprints = Array.isArray(body?.sprints) ? body.sprints : [];
-    // Every response lists a prefix of the same sprints (active, then closed newest first), so the longer one holds the other.
-    if (force || sprints.length >= list.sprints.length) {
+    const [shorter, longer] = sprints.length < list.sprints.length ? [sprints, list.sprints] : [list.sprints, sprints];
+    const changed = shorter.some((s, i) => s.id !== longer[i].id || s.state !== longer[i].state || s.name !== longer[i].name);
+    if (changed || sprints.length >= list.sprints.length) {
       list = { sprints, more: body?.hasMoreSprints === true };
     }
   }
@@ -356,7 +359,7 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
     loadingMore = true;
     renderPicker();
     try {
-      take(await fetchReport(teamId, wanted, { force: true, sprints: count }), true);
+      take(await fetchReport(teamId, wanted, { force: true, sprints: count }));
     } catch (error) {
       if (mine === opening) {
         toast(jiraMessage(error, ERRORS), { variant: 'error', duration: 6000 });
@@ -455,7 +458,7 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
     const model = viewModel(body, { siteHost });
     wanted = model.selected === null ? sprintId : Number(model.selected);
     selected = model.selected;
-    take(body, force);
+    take(body);
     renderPicker();
     painted = !model.empty;
     if (model.empty) {
