@@ -1,5 +1,5 @@
 import { expect, test } from '../_harness/fixtures.js';
-import { ALICE, BOB, CAROL, ROOM, TYPE_HELPER, TYPE_IDEAS, boardFor, openBoard, sent, serveTeam } from './_actions.js';
+import { ALICE, BOB, CAROL, MEMBERS, ROOM, TYPE_HELPER, TYPE_IDEAS, boardFor, card, column, openBoard, sent, serveTeam } from './_actions.js';
 
 const kudosButton = (page) => page.locator('.retro-kudos-tab');
 const drawer = (page) => page.getByRole('dialog', { name: 'Give kudos' });
@@ -96,6 +96,92 @@ test('kudos received by others show as counts in the drawer', async ({ page, fak
   await kudosButton(page).click();
   await expect(kudosFor(page, 'Bob').getByRole('button', { name: 'Team Player' })).toContainText('1');
   await expect(kudosFor(page, 'Bob').getByRole('button', { name: 'Team Player' })).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('N opens and closes the drawer, and focus goes back to the tab', async ({ page, fake }) => {
+  serveTeam(fake);
+  await openBoard(page, fake, { snap: boardFor() });
+  await expect(kudosButton(page)).toHaveAttribute('aria-keyshortcuts', 'N');
+
+  await page.keyboard.press('n');
+  await expect(drawer(page)).toBeVisible();
+  // N still closes it with the focus on one of the drawer's own buttons.
+  await kudosFor(page, 'Bob').getByRole('button', { name: 'Innovator' }).focus();
+  await page.keyboard.press('n');
+  await expect(drawer(page)).toBeHidden();
+  await expect(kudosButton(page)).toBeFocused();
+
+  await page.keyboard.press('Shift+N');
+  await page.keyboard.press('Control+n');
+  await expect(drawer(page)).toBeHidden();
+});
+
+test('N is typed, not a shortcut, in the composer and while another dialog is open', async ({ page, fake }) => {
+  serveTeam(fake);
+  await openBoard(page, fake, { snap: boardFor() });
+  const good = column(page, 'Good');
+  await good.locator('.retro-add-card').click();
+  const input = good.locator('.rs-editor-input');
+  await expect(input).toBeFocused();
+  await page.keyboard.type('nn');
+  await expect(input).toHaveText('nn');
+  await expect(drawer(page)).toBeHidden();
+
+  await page.getByRole('button', { name: 'Add column' }).click();
+  const other = page.getByRole('dialog', { name: 'Add column' });
+  await other.getByRole('button', { name: 'Cancel' }).focus();
+  await page.keyboard.press('n');
+  await expect(drawer(page)).toBeHidden();
+  await expect(other).toBeVisible();
+});
+
+test('Escape and a click on the backdrop close the drawer', async ({ page, fake }) => {
+  serveTeam(fake);
+  await openBoard(page, fake, { snap: boardFor() });
+  await kudosButton(page).click();
+  await expect(drawer(page)).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(drawer(page)).toBeHidden();
+  await expect(kudosButton(page)).toBeFocused();
+
+  await kudosButton(page).click();
+  await expect(drawer(page)).toBeVisible();
+  // The sheet hangs from the bottom edge, so the top left corner is backdrop.
+  await page.mouse.click(5, 5);
+  await expect(drawer(page)).toBeHidden();
+  await expect(kudosButton(page)).toBeFocused();
+});
+
+test('the drawer is a bottom sheet with a card per teammate, or says there is nobody', async ({ page, fake }) => {
+  serveTeam(fake);
+  await openBoard(page, fake, { snap: boardFor() });
+  await kudosButton(page).click();
+  await expect(drawer(page)).toBeVisible();
+  await expect(drawer(page).locator('.retro-kudos-person')).toHaveCount(2);
+  const viewport = page.viewportSize();
+  await expect.poll(async () => {
+    const box = await drawer(page).boundingBox();
+    return [Math.round(box.x), Math.round(box.width), Math.round(box.y + box.height)];
+  }).toEqual([0, viewport.width, viewport.height]);
+  await page.keyboard.press('Escape');
+
+  fake.tx(ROOM, [{ k: 'retro.members', d: { members: [MEMBERS[0]] } }]);
+  await kudosButton(page).click();
+  await expect(drawer(page).locator('.retro-kudos-person')).toHaveCount(0);
+  await expect(drawer(page)).toContainText('No other team members to give kudos to.');
+});
+
+test('the tab leaves room under the last card of a long column', async ({ page, fake }) => {
+  serveTeam(fake);
+  const cards = Array.from({ length: 14 }, (_, i) => card(i + 1, { body: `A longer card ${i + 1} so the column outgrows the screen` }));
+  await openBoard(page, fake, { snap: boardFor({ cards }) });
+  await expect(kudosButton(page)).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  const addCard = column(page, 'Good').locator('.retro-add-card');
+  await expect.poll(async () => {
+    const [tab, last] = [await kudosButton(page).boundingBox(), await addCard.boundingBox()];
+    return last.y + last.height <= tab.y;
+  }).toBe(true);
 });
 
 test('the recipient gets a celebration, once', async ({ page, fake }) => {
