@@ -149,6 +149,16 @@ test('reports are fetched once per minute per team and sprint, shared in flight,
   assert.equal(requests.length, 5, 'a failed fetch is not cached');
 });
 
+test('a refresh of the default sprint also replaces its default entry, so reopening shows the refreshed report', async () => {
+  const id = team();
+  assert.equal((await fetchReport(id, null)).report.goal, 'Take card payments end to end');
+  replies.push(() => reply(200, bodyFor(100, (r) => ({ ...r, goal: 'Refreshed' }))));
+  await fetchReport(id, 100, { force: true });
+  assert.equal((await fetchReport(id, null)).report.goal, 'Refreshed');
+  assert.equal((await fetchReport(id, 100)).report.goal, 'Refreshed');
+  assert.equal(requests.length, 2);
+});
+
 function panel(fields = {}) {
   const dock = document.createElement('div');
   document.body.append(dock);
@@ -210,6 +220,40 @@ test('a failed load says why and Try again loads it again', async () => {
   await settle();
   assert.equal(doc.querySelectorAll('.retro-sprint-row').length, 7);
   assert.equal(requests.length, 2);
+  report.destroy();
+});
+
+test('Refresh during a pending pick reloads the picked sprint, not the one still shown', async (t) => {
+  const doc = installDom();
+  globalThis.window = { addEventListener() {}, removeEventListener() {} };
+  globalThis.cancelAnimationFrame = () => {};
+  t.after(() => {
+    delete globalThis.window;
+    delete globalThis.cancelAnimationFrame;
+  });
+  const { report } = panel();
+  report.toggle();
+  await settle();
+  assert.equal(doc.querySelector('.retro-sprint-picker').textContent, 'Sprint 8');
+
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  replies.push(async (url) => {
+    await held;
+    return reply(200, bodyFor(new URL(url, 'http://x').searchParams.get('sprint')));
+  });
+  doc.querySelector('.retro-sprint-picker').click();
+  doc.querySelectorAll('[role=menuitem]').find((item) => item.dataset.action === '101').click();
+  assert.match(doc.querySelector('.retro-sprint-status').textContent, /Loading/);
+  doc.querySelector('[aria-label=Refresh]').click();
+  await settle();
+  release();
+  await settle();
+
+  assert.deepEqual(requests.slice(1).map((url) => new URL(url, 'http://x').searchParams.get('sprint')), ['101', '101']);
+  assert.equal(doc.querySelector('.retro-sprint-picker').textContent, 'Sprint 9 (active)');
+  assert.deepEqual(doc.querySelectorAll('.retro-sprint-tile').map((t) => t.dataset.outcome), ['done', 'notDone']);
+  assert.equal(storage.get(`${PICK_KEY}:board-1`), '101');
   report.destroy();
 });
 
