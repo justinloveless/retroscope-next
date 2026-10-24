@@ -50,10 +50,10 @@ services:
     stop_grace_period: 8s
     read_only: true
     tmpfs: ["/tmp:size=16m"]
-    # To play a timer track, uncomment this and set MUSIC_DIR to the VPS folder that holds the file. Every
-    # resource that deploys this file then needs MUSIC_DIR, the preview slot too (COOLIFY_SETUP §5.12).
-    # volumes:
-    #   - ${MUSIC_DIR:?}:/music:ro
+    # The folder on the VPS that holds the timer track. Every resource that deploys this file needs MUSIC_DIR, the
+    # preview slot too; a folder without a track is fine there (COOLIFY_SETUP §5.12).
+    volumes:
+      - ${MUSIC_DIR:?}:/music:ro
     mem_limit: 200m
     cpus: 0.6
     restart: unless-stopped

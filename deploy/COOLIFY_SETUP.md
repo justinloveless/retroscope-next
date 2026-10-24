@@ -299,6 +299,7 @@ Required means the compose file marks it `${VAR:?}`. Defaults come from the comp
 | `ENTRA_TENANT_DOMAINS` | no (empty) | `<tid>=example.com\|example.org` | Email domains trusted per tenant when the token lacks `xms_edov`. |
 | `JIRA_HOST_ALLOWLIST` | no (empty) | `jira.example.com` | Extra exact Jira host names beyond `*.atlassian.net`. |
 | `BLOB_BYTES_MAX` | no (`2147483648`) | `2147483648` | Ceiling on all board images together, in bytes. |
+| `MUSIC_DIR` | **yes** | `/data/retroscope-music` | Folder on the VPS mounted read-only at `/music`. Where no track plays, point it at an existing empty folder (section 5.12). |
 | `MUSIC_FILE` | no (empty) | `/music/track.mp3` | Optional retro timer track, as a path inside the container. Empty plays the generated music (section 5.12). |
 
 Fixed values in the compose file that you do not set: `ASPNETCORE_URLS`, `DATABASE_URL`, `DATABASE_OWNER_URL`, `DOTNET_GCHeapHardLimit`, `DOTNET_gcServer`, `DOTNET_gcConcurrent`, and `DOTNET_GCConserveMemory`. Leave them alone.
@@ -431,8 +432,8 @@ By default the retro timer's background music is a short arpeggio generated in t
    ssh <vps> 'sudo mv /tmp/track.mp3 /data/retroscope-music/track.mp3 && sudo chmod 755 /data/retroscope-music && sudo chmod 644 /data/retroscope-music/track.mp3'
    ```
 
-3. In `deploy/docker-compose.yml`, uncomment the `volumes` block of the `app` service. It mounts `MUSIC_DIR` read-only at `/music`. Commit that change; the compose file holds only the variable, never your path.
-   - **This makes `MUSIC_DIR` required everywhere.** Every Coolify resource that deploys this compose file, the preview slot included (section 11.3), then refuses to deploy until `MUSIC_DIR` has a value. Set it on the preview resource before the commit reaches `main`: point it at a folder that exists on the preview server (an empty one is enough) and leave `MUSIC_FILE` empty there. Every branch cut from `main` after that commit needs it too.
+3. The `app` service in `deploy/docker-compose.yml` mounts `MUSIC_DIR` read-only at `/music`. The compose file holds only the variable, never your path.
+   - **`MUSIC_DIR` is required everywhere.** Every Coolify resource that deploys this compose file, the preview slot included (section 11.3), refuses to deploy until `MUSIC_DIR` has a value. Where no track plays, point it at a folder that exists on that server (an empty one is enough) and leave `MUSIC_FILE` empty.
 4. In Coolify, set `MUSIC_DIR=/data/retroscope-music` and `MUSIC_FILE=/music/track.mp3` on the production resource, then redeploy.
 5. Check the app log for `Timer music is served from MUSIC_FILE as audio/mpeg`. If you see `Timer music is off: <reason>` instead, fix the reason and restart. The app keeps running either way, with the generated music.
 6. Check the route. It serves only callers with a session, so a plain `curl` gets `401`. Open a retro board in a browser, start the timer with music on, and check in the developer tools' network panel that `/media/timer-music` answers `206` with the content type above.
@@ -728,7 +729,7 @@ Set up the preview resource like production (sections 4 and 5), with these diffe
 - It has its own database and secrets. Generate fresh `DB_OWNER_PASSWORD`, `DB_APP_PASSWORD`, `APP_KEYS` and `ANON_TAG_KEY`. Never copy production's values, and never import production data into it.
 - Its sign-in providers need the preview URL as an extra redirect URI. They are optional, so you can leave them unset.
 - Its auto deploy is off, as in section 4.3.
-- If production plays a timer track (section 5.12), the committed `volumes` block needs `MUSIC_DIR` here too: set it to a folder that exists on the preview server, which can be empty, and leave `MUSIC_FILE` empty.
+- The compose file mounts `MUSIC_DIR` (section 5.12), so set it here too: a folder that exists on the preview server, which can be empty. Leave `MUSIC_FILE` empty.
 
 If you put the preview on the production host anyway, you accept both risks above: a branch can take over the host, and the two stacks compete for 2 GB.
 

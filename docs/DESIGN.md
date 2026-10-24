@@ -1627,8 +1627,8 @@ services:
     stop_grace_period: 8s                             # F9: no overlap to wait for; bye{retryMs} spreads reconnects
     read_only: true
     tmpfs: [ "/tmp:size=16m" ]
-    # volumes:                                        # optional timer track (UX13); makes MUSIC_DIR required
-    #   - ${MUSIC_DIR:?}:/music:ro                    #   on every resource that deploys this file
+    volumes:                                          # timer track folder (UX13); MUSIC_DIR is required
+      - ${MUSIC_DIR:?}:/music:ro                      #   on every resource, an empty folder where none plays
     mem_limit: 200m
     cpus: 0.9
     restart: unless-stopped
