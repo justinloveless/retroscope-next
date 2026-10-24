@@ -44,6 +44,13 @@ export function trapFocus(container, { initial } = {}) {
   };
 }
 
+// Whether a key typed at `target` is text for a field rather than a page shortcut: inside an input, textarea,
+// select or editable content (a non-editable chip inside an editor still counts as the editor's).
+export function isTypingTarget(target) {
+  return typeof target?.closest === 'function'
+    && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])') !== null;
+}
+
 const KEYS = {
   horizontal: { next: ['ArrowRight'], prev: ['ArrowLeft'] },
   vertical: { next: ['ArrowDown'], prev: ['ArrowUp'] },

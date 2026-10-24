@@ -145,9 +145,10 @@ export function createBoard({ room, socket, me, boardId, features = [], timerMus
   const list = h('div', { class: 'retro-column-list' });
   const addColumn = h('button', { type: 'button', class: 'btn btn-outline retro-add-column', dataset: { action: 'add-column' } }, icon('plus'), 'Add column');
   const row = h('div', { class: 'retro-columns' }, before, list, addColumn);
-  const el = h('div', { class: 'retro-board' }, header, archived, offline, kicked, top, row);
+  const end = h('div', { class: 'retro-end' });
+  const el = h('div', { class: 'retro-board' }, header, archived, offline, kicked, top, row, end);
 
-  const mounted = features.map((feature) => feature.board?.(ctx, { toolbar, top, before })).filter(Boolean);
+  const mounted = features.map((feature) => feature.board?.(ctx, { toolbar, top, before, end })).filter(Boolean);
 
   function renderPresence(view) {
     const people = [...view.presence.values()];

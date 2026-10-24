@@ -1,15 +1,12 @@
 // Table shortcuts (§g.8): 1–7 pick a card, Shift+digit votes between that card and the next one, L lock,
-// A abstain, R reveal, N next round, ←/→ change round. Nothing fires while a text field or a dialog has
-// the keyboard.
+// A abstain, R reveal, N next round, ←/→ change round. Nothing fires while a text field has the keyboard or
+// a dialog, popover or menu is open.
 
+import { isTypingTarget } from '../core/a11y.js';
+import { popoverOpen } from '../ui/popover.js';
 import { DECK } from './model.js';
 
 const DIGIT = /^(?:Digit|Numpad)([1-9])$/;
-
-function typing(target) {
-  return target instanceof Element
-    && (target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])') !== null);
-}
 
 /** The action a keydown maps to, or null: {type, points?, high?, step?}. */
 export function shortcutFor(event) {
@@ -52,10 +49,11 @@ export function shortcutFor(event) {
   }
 }
 
-/** Calls handle(action, event) for shortcuts typed anywhere outside fields and dialogs; returns unbind. */
+/** Calls handle(action, event) for shortcuts typed anywhere outside fields, dialogs and popovers; returns unbind. */
 export function bindKeyboard(handle, doc = document) {
   function onKey(event) {
-    if (event.defaultPrevented || event.repeat || typing(event.target) || doc.querySelector('dialog[open]')) {
+    if (event.defaultPrevented || event.repeat || isTypingTarget(event.target) || doc.querySelector('dialog[open]')
+      || popoverOpen(doc)) {
       return;
     }
     const action = shortcutFor(event);

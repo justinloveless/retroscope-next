@@ -117,6 +117,17 @@ const STATES = [
       await page.waitForTimeout(400);
     },
   },
+  {
+    route: 'retro',
+    state: 'kudos-drawer-open',
+    path: `/retro/${CODES.discussing}`,
+    ready: '.retro-kudos-tab',
+    async act(page) {
+      await page.locator('.retro-kudos-tab').click();
+      await expect(page.getByRole('dialog', { name: 'Give kudos' })).toBeVisible();
+      await page.waitForTimeout(400);
+    },
+  },
   { route: 'admin', state: 'teams', path: '/admin/teams', ready: 'role=searchbox', act: search('Platform Guild') },
   { route: 'admin', state: 'stats', path: '/admin/stats', ready: 'text=liveRooms' },
   {

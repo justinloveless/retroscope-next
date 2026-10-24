@@ -1,7 +1,7 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { FakeEvent, installDom } from './_dom.js';
-import { announce, focusable, trapFocus } from '../../../web/src/core/a11y.js';
+import { announce, focusable, isTypingTarget, trapFocus } from '../../../web/src/core/a11y.js';
 
 let doc;
 
@@ -61,4 +61,31 @@ test('announce writes to one polite and one assertive live region', async () => 
   assert.equal(polite.textContent, 'Cards revealed again');
   assert.equal(assertive.textContent, 'Connection lost');
   assert.equal(polite.className, 'sr-only');
+});
+
+test('isTypingTarget is true inside fields and editable content only', () => {
+  const at = (tag, attrs = {}) => {
+    const el = doc.createElement(tag);
+    for (const [name, value] of Object.entries(attrs)) {
+      el.setAttribute(name, value);
+    }
+    doc.body.appendChild(el);
+    return el;
+  };
+  for (const tag of ['input', 'textarea', 'select']) {
+    assert.equal(isTypingTarget(at(tag)), true, tag);
+  }
+  assert.equal(isTypingTarget(at('div', { contenteditable: '' })), true);
+  assert.equal(isTypingTarget(at('div', { contenteditable: 'true' })), true);
+  assert.equal(isTypingTarget(at('div', { contenteditable: 'false' })), false);
+  // A read-only chip inside an editor is still the editor's.
+  const editor = at('div', { contenteditable: 'true' });
+  const chip = doc.createElement('span');
+  chip.setAttribute('contenteditable', 'false');
+  editor.appendChild(chip);
+  assert.equal(isTypingTarget(chip), true);
+  assert.equal(isTypingTarget(at('button')), false);
+  assert.equal(isTypingTarget(doc.body), false);
+  assert.equal(isTypingTarget(null), false);
+  assert.equal(isTypingTarget(doc), false);
 });

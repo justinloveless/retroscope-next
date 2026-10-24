@@ -43,7 +43,7 @@ test('kudos stop at the per-board limit and the recipient celebrates', async ({ 
   const [ann, bob] = players;
   const kudosFor = (name) => ann.page.getByRole('dialog', { name: 'Give kudos' }).getByRole('group', { name: `Kudos for ${name}` });
 
-  await ann.page.locator('.retro-kudos-button').click();
+  await ann.page.locator('.retro-kudos-tab').click();
   const status = ann.page.getByRole('dialog', { name: 'Give kudos' }).getByRole('status');
   await expect(status).toHaveText('You have 3 of 3 kudos left on this board.');
   await kudosFor('Bob Kudos').getByRole('button', { name: 'Team Player' }).click();
