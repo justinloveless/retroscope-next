@@ -325,6 +325,32 @@ test('a description the server marks read-only offers no editing; one without a 
   await expect(sheet.getByRole('button', { name: 'Edit description' })).toBeVisible();
 });
 
+test('long lines in a comment wrap inside the drawer', async ({ page, fake }) => {
+  const fixture = JSON.parse(readFileSync(DEFAULT_JIRA_FIXTURE, 'utf8'));
+  const issue = fixture.issues.find((i) => i.key === 'RS-12');
+  const url = `https://example.com/redirect?g=${'A'.repeat(40)}&utm_campaign=${'b'.repeat(40)}&utm_term=${'c'.repeat(40)}`;
+  issue.comments = [{
+    id: '40000', author: 'Grace Fixture', created: '2026-10-13T08:00:00.000Z', body: '',
+    bodyDoc: { t: 'doc', c: [
+      { t: 'p', c: [{ t: 'text', v: 'Got this instead (' }, { t: 'code', v: `Error: ${'not authorized to perform the operation '.repeat(4)}` }, { t: 'text', v: '):' }] },
+      { t: 'pre', lang: 'json', v: `{\n  "type": "${url}",\n  "status": 404\n}` },
+    ] },
+  }];
+  setupJira(fake, { fixture });
+  await openBrowse(page);
+  const sheet = await openIssue(page, 'RS-12');
+
+  const comment = sheet.locator('.jira-comment');
+  await expect(comment.locator('pre')).toContainText('"status": 404');
+  const sizes = await comment.evaluate((li) => {
+    const section = li.closest('.jira-comments-section');
+    const pre = li.querySelector('pre');
+    return { comment: li.getBoundingClientRect().width, section: section.clientWidth, preScroll: pre.scrollWidth, preClient: pre.clientWidth };
+  });
+  expect(sizes.comment).toBeLessThanOrEqual(sizes.section);
+  expect(sizes.preScroll).toBeLessThanOrEqual(sizes.preClient);
+});
+
 test('comments page in 20s and a new comment goes to the top', async ({ page, fake }) => {
   const fixture = JSON.parse(readFileSync(DEFAULT_JIRA_FIXTURE, 'utf8'));
   const issue = fixture.issues.find((i) => i.key === 'RS-12');
