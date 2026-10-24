@@ -168,7 +168,7 @@ internal sealed class JiraHttpHost : IAsyncDisposable {
     }
 
     /// <summary>A team configured against FakeJira: board 7 of project RS, the default points and sprint fields.</summary>
-    public async Task ConfigureAsync(TeamId team, bool membersCanEdit = true, string status = "ok", string? pointsField = PointsField) {
+    public async Task ConfigureAsync(TeamId team, bool membersCanEdit = true, string status = "ok", string? pointsField = PointsField, string? sprintField = SprintField) {
         var sealedBox = App.Services.GetRequiredService<Credentials>().Seal(team, Jira.Email, Jira.Token);
         await ExecuteAsync(
             """
@@ -177,7 +177,7 @@ internal sealed class JiraHttpHost : IAsyncDisposable {
             values ($1, $2, $3, $4, $5, $6, 'RS', 7, 'RS', $7, $8, $9, $10)
             """,
             team.Value, SiteHost, sealedBox.Box, sealedBox.KeyId, sealedBox.TokenLast4, sealedBox.EmailMasked,
-            (object?)pointsField ?? DBNull.Value, SprintField, status, membersCanEdit);
+            (object?)pointsField ?? DBNull.Value, (object?)sprintField ?? DBNull.Value, status, membersCanEdit);
         App.Services.GetRequiredService<Credentials>().Invalidate(team);
     }
 

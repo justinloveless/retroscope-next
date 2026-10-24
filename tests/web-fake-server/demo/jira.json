@@ -13,6 +13,67 @@
     { "id": 141, "name": "Sprint 41 · Checkout polish", "state": "active", "startDate": "2026-10-13T08:00:00.000Z", "endDate": "2026-10-27T08:00:00.000Z" },
     { "id": 142, "name": "Sprint 42 · Onboarding", "state": "future", "startDate": "2026-10-27T08:00:00.000Z", "endDate": "2026-11-10T08:00:00.000Z" }
   ],
+  "sprintReport": {
+    "default": 140,
+    "sprints": [
+      { "id": 141, "name": "Sprint 41 · Checkout polish", "state": "active", "startDate": -7, "endDate": 7, "completeDate": null },
+      { "id": 140, "name": "Sprint 40 · Payments hardening", "state": "closed", "startDate": -21, "endDate": -7, "completeDate": -7 },
+      { "id": 139, "name": "Sprint 39 · Search basics", "state": "closed", "startDate": -35, "endDate": -21, "completeDate": -21 }
+    ],
+    "reports": {
+      "139": {
+        "sprintId": 139, "goal": "Search that finds what people type", "pointsKnown": true, "truncated": false,
+        "groups": [
+          { "outcome": "done", "count": 2, "points": 8, "issues": [
+            { "key": "DEMO-104", "summary": "Autocomplete product names", "issueType": "Story", "status": "Done", "statusCategory": "done", "assignee": "Aisha Okafor", "points": 5, "carriedIn": false, "next": null },
+            { "key": "DEMO-106", "summary": "Highlight the matched words in results", "issueType": "Story", "status": "Done", "statusCategory": "done", "assignee": "Jonas Weber", "points": 3, "carriedIn": false, "next": null }
+          ] },
+          { "outcome": "doneAfter", "count": 1, "points": 3, "issues": [
+            { "key": "DEMO-115", "summary": "Retry the order webhook when it times out", "issueType": "Story", "status": "Done", "statusCategory": "done", "assignee": "Marcus Chen", "points": 3, "carriedIn": false, "next": "Sprint 40 · Payments hardening" }
+          ] },
+          { "outcome": "notDone", "count": 1, "points": 0, "issues": [
+            { "key": "DEMO-123", "summary": "Retry failed payments with exponential backoff", "issueType": "Story", "status": "To Do", "statusCategory": "new", "assignee": "Marcus Chen", "points": null, "carriedIn": false, "next": "Sprint 40 · Payments hardening" }
+          ] }
+        ]
+      },
+      "140": {
+        "sprintId": 140, "goal": "No payment fails silently", "pointsKnown": true, "truncated": false,
+        "groups": [
+          { "outcome": "done", "count": 5, "points": 19, "issues": [
+            { "key": "DEMO-111", "summary": "Keep cards in the payment provider’s vault", "issueType": "Story", "status": "Done", "statusCategory": "done", "assignee": "Priya Raman", "points": 8, "carriedIn": false, "next": null },
+            { "key": "DEMO-112", "summary": "Declined cards show a generic error", "issueType": "Bug", "status": "Done", "statusCategory": "done", "assignee": "Sofia Alvarez", "points": 2, "carriedIn": false, "next": null },
+            { "key": "DEMO-113", "summary": "3-D Secure challenge in a dialog", "issueType": "Story", "status": "Done", "statusCategory": "done", "assignee": "Jonas Weber", "points": 5, "carriedIn": false, "next": null },
+            { "key": "DEMO-115", "summary": "Retry the order webhook when it times out", "issueType": "Story", "status": "Done", "statusCategory": "done", "assignee": "Marcus Chen", "points": 3, "carriedIn": true, "next": null },
+            { "key": "DEMO-114", "summary": "Rotate the payment API keys", "issueType": "Task", "status": "Done", "statusCategory": "done", "assignee": "Aisha Okafor", "points": 1, "carriedIn": false, "next": null }
+          ] },
+          { "outcome": "doneAfter", "count": 1, "points": 2, "issues": [
+            { "key": "DEMO-116", "summary": "Show the card brand next to the number", "issueType": "Story", "status": "Done", "statusCategory": "done", "assignee": "Priya Raman", "points": 2, "carriedIn": false, "next": null }
+          ] },
+          { "outcome": "notDone", "count": 3, "points": 10, "issues": [
+            { "key": "DEMO-119", "summary": "Apple Pay button on the cart page", "issueType": "Story", "status": "In Progress", "statusCategory": "indeterminate", "assignee": "Priya Raman", "points": 8, "carriedIn": false, "next": "Sprint 41 · Checkout polish" },
+            { "key": "DEMO-123", "summary": "Retry failed payments with exponential backoff", "issueType": "Story", "status": "To Do", "statusCategory": "new", "assignee": "Marcus Chen", "points": null, "carriedIn": true, "next": "Sprint 41 · Checkout polish" },
+            { "key": "DEMO-133", "summary": "Skip onboarding for returning users", "issueType": "Story", "status": "To Do", "statusCategory": "new", "assignee": null, "points": 2, "carriedIn": false, "next": null }
+          ] }
+        ]
+      },
+      "141": {
+        "sprintId": 141, "goal": "Make paying with a saved card a one-tap flow", "pointsKnown": true, "truncated": false,
+        "groups": [
+          { "outcome": "done", "count": 2, "points": 7, "issues": [
+            { "key": "DEMO-118", "summary": "Show saved cards at checkout", "issueType": "Story", "status": "Done", "statusCategory": "done", "assignee": "Marcus Chen", "points": 5, "carriedIn": false, "next": null },
+            { "key": "DEMO-150", "summary": "Discount code applied twice", "issueType": "Bug", "status": "Done", "statusCategory": "done", "assignee": "Sofia Alvarez", "points": 2, "carriedIn": false, "next": null }
+          ] },
+          { "outcome": "doneAfter", "count": 0, "points": 0, "issues": [] },
+          { "outcome": "notDone", "count": 4, "points": 11, "issues": [
+            { "key": "DEMO-119", "summary": "Apple Pay button on the cart page", "issueType": "Story", "status": "In Progress", "statusCategory": "indeterminate", "assignee": "Priya Raman", "points": 8, "carriedIn": true, "next": null },
+            { "key": "DEMO-121", "summary": "Validate the postcode before payment", "issueType": "Story", "status": "In Review", "statusCategory": "indeterminate", "assignee": "Jonas Weber", "points": 3, "carriedIn": false, "next": null },
+            { "key": "DEMO-123", "summary": "Retry failed payments with exponential backoff", "issueType": "Story", "status": "To Do", "statusCategory": "new", "assignee": "Marcus Chen", "points": null, "carriedIn": true, "next": null },
+            { "key": "DEMO-124", "summary": "Remember the last shipping address", "issueType": "Story", "status": "To Do", "statusCategory": "new", "assignee": null, "points": null, "carriedIn": false, "next": null }
+          ] }
+        ]
+      }
+    }
+  },
   "users": [
     { "accountId": "demo-acc-1", "displayName": "Demo User" },
     { "accountId": "demo-acc-2", "displayName": "Priya Raman" },

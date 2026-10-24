@@ -138,6 +138,17 @@ const STATES = [
       await page.waitForTimeout(400);
     },
   },
+  {
+    route: 'retro',
+    state: 'sprint-report-open',
+    path: `/retro/${CODES.discussing}`,
+    ready: '.retro-sprint-open',
+    async act(page) {
+      await page.getByRole('button', { name: 'Sprint report' }).click();
+      await expect(page.getByRole('dialog', { name: 'Sprint report' }).locator('.retro-sprint-row').first()).toBeVisible();
+      await page.waitForTimeout(400);
+    },
+  },
   { route: 'admin', state: 'teams', path: '/admin/teams', ready: 'role=searchbox', act: search('Platform Guild') },
   { route: 'admin', state: 'stats', path: '/admin/stats', ready: 'text=liveRooms' },
   {

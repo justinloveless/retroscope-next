@@ -1,6 +1,8 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Retroscope.Core.Ids;
+using Retroscope.Core.Sprints;
 using Retroscope.Integration.Tests.Scaffold;
 using Retroscope.Server.Jira;
 using Retroscope.Server.Json;
@@ -102,6 +104,58 @@ public sealed class JiraMapTests {
         Assert.Null(JiraMap.ReadSprint(Issue("{}"), "customfield_10020"));
     }
 
+    [Fact]
+    public void Sprint_marks_are_every_entry_of_the_sprint_field_in_order() {
+        var issue = Issue("""
+            {"customfield_10020":[
+              {"id":1,"name":"Old","state":"closed","startDate":"2026-09-01T09:00:00.000+0000","completeDate":"2026-09-14T17:00:00.000+0000"},
+              {"id":2,"name":"Now","state":"ACTIVE"},
+              {"id":3,"state":"future"},
+              {"id":4,"name":"Odd","state":"archived"},
+              "com.atlassian.greenhopper.service.sprint.Sprint@1[id=5,rapidViewId=1,state=FUTURE,name=Legacy 5,startDate=<null>]",
+              "com.atlassian.greenhopper.service.sprint.Sprint@2[rapidViewId=1,state=CLOSED,name=No id]"]}
+            """);
+
+        Assert.Equal(
+            [
+                new SprintMark(1, "Old", SprintPhase.Closed, DateTimeOffset.Parse("2026-09-01T09:00:00Z", System.Globalization.CultureInfo.InvariantCulture).ToUnixTimeMilliseconds()),
+                new SprintMark(2, "Now", SprintPhase.Active, null),
+                new SprintMark(5, "Legacy 5", SprintPhase.Future, null),
+            ],
+            JiraMap.ReadSprintMarks(issue, "customfield_10020"));
+    }
+
+    [Fact]
+    public void Sprint_marks_are_empty_without_a_sprint_field_and_found_by_scanning_without_its_id() {
+        var scanned = Issue("""{"customfield_10016":3,"customfield_10007":[{"id":9,"name":"Nine","state":"closed"}]}""");
+
+        Assert.Empty(JiraMap.ReadSprintMarks(Issue("""{"customfield_10020":null}"""), "customfield_10020"));
+        Assert.Empty(JiraMap.ReadSprintMarks(Issue("{}"), "customfield_10020"));
+        Assert.Equal([new SprintMark(9, "Nine", SprintPhase.Closed, null)], JiraMap.ReadSprintMarks(scanned, null));
+    }
+
+    [Fact]
+    public void An_issue_is_done_at_its_resolution_else_at_its_status_category_change_when_done() {
+        var resolved = Issue("""
+            {"status":{"name":"Done","statusCategory":{"key":"done"}},"resolutiondate":"2026-10-02T10:00:00.000+0000",
+             "statuscategorychangedate":"2026-10-05T10:00:00.000+0000","customfield_10016":5}
+            """);
+        var unresolved = Issue("""
+            {"status":{"name":"Closed","statusCategory":{"key":"done"}},"resolutiondate":null,"statuscategorychangedate":"2026-10-05T10:00:00.000+0000"}
+            """);
+        var reopened = Issue("""
+            {"status":{"name":"In Review","statusCategory":{"key":"indeterminate"}},"statuscategorychangedate":"2026-10-05T10:00:00.000+0000"}
+            """);
+
+        var facts = JiraMap.ToIssueFacts(resolved, Config());
+
+        Assert.Equal(("DUN-1", WorkCategory.Done, Ms("2026-10-02T10:00:00Z"), 5m), (facts.Key, facts.Category, facts.DoneAt, facts.Points));
+        Assert.Equal(Ms("2026-10-05T10:00:00Z"), JiraMap.ToIssueFacts(unresolved, Config()).DoneAt);
+        Assert.Equal((WorkCategory.InProgress, (long?)null), (JiraMap.ToIssueFacts(reopened, Config()).Category, JiraMap.ToIssueFacts(reopened, Config()).DoneAt));
+        Assert.Equal(WorkCategory.ToDo, JiraMap.ToIssueFacts(Issue("{}"), Config()).Category);
+        Assert.Null(JiraMap.ToIssueFacts(resolved, Config() with { PointsFieldId = null }).Points);
+    }
+
     [Theory]
     [InlineData("2026-01-26T19:00:00.000+1000", "2026-01-26T09:00:00Z")]
     [InlineData("2026-01-26T19:00:00.000+10:00", "2026-01-26T09:00:00Z")]
@@ -194,6 +248,12 @@ public sealed class JiraMapTests {
     [InlineData("https://[::1]/x", false)]
     public void Media_redirect_targets_are_allow_listed(string location, bool allowed) =>
         Assert.Equal(allowed, JiraClient.IsAllowedMediaLocation(new Uri(location)));
+
+    private static long Ms(string utc) => DateTimeOffset.Parse(utc, System.Globalization.CultureInfo.InvariantCulture).ToUnixTimeMilliseconds();
+
+    private static JiraTeamConfig Config() => new(
+        new TeamId(Guid.Empty), "acme.atlassian.net", [], "k1", "1234", "b***@acme.test", "DUN", 7, "DUN",
+        "customfield_10016", false, "customfield_10020", JiraConfigStatus.Ok, true, null);
 
     private static JiraField Field(string id, string name, string? custom) =>
         new(id, name, custom is not null, custom is null ? null : new JiraFieldSchema("number", custom));

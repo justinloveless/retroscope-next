@@ -22,7 +22,7 @@ const DOCKER_FREE = { core: 'all', integration: new Set(['Deploy', 'Scaffold']),
 
 const TEST_FOLDERS = {
   core: { Adf: 'Adf', Authz: 'Authz', Markup: 'Markup', Poker: 'Poker', Protocol: 'Protocol', Retro: 'Retro',
-    Scaffold: 'Scaffold', Security: 'Security', Team: 'Team', Text: 'Text' },
+    Scaffold: 'Scaffold', Security: 'Security', Sprints: 'Sprints', Team: 'Team', Text: 'Text' },
   integration: { Actors: 'Actors', Admin: 'Admin', Auth: 'AuthCore', AuthCore: 'AuthCore', Blobs: 'Blobs',
     Deploy: 'Deploy', Email: 'Email', Hosting: 'Hosting', Jira: 'JiraClient', JiraHttp: 'JiraHttp',
     Leadership: 'Leader', Oidc: 'Oidc', PokerRoom: 'PokerRoom', RetroRooms: 'RetroRoom', RoomHttp: 'RoomHttp',
@@ -54,6 +54,7 @@ const RULES = [
   [/^src\/Retroscope\.Core\/Adf\/AdfColor\.cs$/, { node: ['tests/web-unit/markup.test.js'] }],
   [/^src\/Retroscope\.Core\/Security\//, { core: ['Security'] }],
   [/^src\/Retroscope\.Core\/Text\//, { core: ['Text', 'Retro'] }],
+  [/^src\/Retroscope\.Core\/Sprints\//, { core: ['Sprints'] }],
   [/^src\/Retroscope\.Core\//, { core: 'all', fallback: true }],
 
   [/^src\/Retroscope\.Server\/Realtime\/Transport\//, { integration: ['Transport'] }],
@@ -119,6 +120,8 @@ const RULES = [
   [/^tests\/web-fake-server\/edit-views\.gen\.json$/, { node: ['tests/web-unit/rich/commands.test.js'] }],
   // WebFakeAdfTests renders the fixtures' ADF and regenerates edit-views.gen.json from their projection.
   [/^tests\/web-fake-server\/((fixtures|demo)\/jira|edit-views\.gen)\.json$/, { core: ['Adf'] }],
+  // SprintReportTests holds the fixtures' sprintReport blocks to the server's property names.
+  [/^tests\/web-fake-server\/(fixtures|demo)\/jira\.json$/, { integration: ['JiraHttp'] }],
   [/^tests\/e2e\//, { note: 'Run the changed spec alone: ./build.sh fake-e2e "<area>/<file>.spec.js".' }],
 
   [/^web\//, { web: true }],

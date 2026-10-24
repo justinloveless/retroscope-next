@@ -16,10 +16,11 @@ import { shareFeature } from './share.js';
 import { actionItems } from './actions.js';
 import { previousActionItems } from './prev-actions.js';
 import { kudos } from './kudos.js';
+import { sprintFeature } from './sprint.js';
 
 const FEATURES = [
   stagesFeature, focusFeature, timerFeature, shareFeature, configFeature,
-  actionItems, previousActionItems, kudos,
+  actionItems, previousActionItems, kudos, sprintFeature,
 ];
 
 const NACK_MESSAGES = {

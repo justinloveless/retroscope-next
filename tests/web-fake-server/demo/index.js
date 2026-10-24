@@ -46,7 +46,7 @@ export class Demo {
 
   install() {
     const start = this.now();
-    this.jira = installJira(this.fake, { teamId: DEMO_TEAM, fixture: JSON.parse(readFileSync(DEMO_JIRA, 'utf8')) });
+    this.jira = installJira(this.fake, { teamId: DEMO_TEAM, fixture: JSON.parse(readFileSync(DEMO_JIRA, 'utf8')), now: start });
     for (const seed of teams(start)) {
       this.addRoom(new Team(this, seed));
     }
