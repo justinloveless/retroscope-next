@@ -562,3 +562,31 @@ test('a refresh that answers after Load more keeps the longer list, and a list t
   assert.equal(sprintItems(doc).length, 5, 'a sprint closed in Jira, so the shorter list is the current one');
   report.destroy();
 });
+
+test('a Load more still in flight when the panel closes is abandoned, and the reopened panel lists 4 sprints', async (t) => {
+  const doc = installDom();
+  withPopovers(t);
+  const signals = [];
+  const fetch = globalThis.fetch;
+  globalThis.fetch = (url, init) => {
+    signals.push(init.signal);
+    return fetch(url, init);
+  };
+  const { report } = panel();
+  report.toggle();
+  await settle();
+  const slow = hold();
+  replies.push(slow.reply((url) => bodyFor(100, undefined, Number(params(url).get('sprints')))));
+  doc.querySelector('.retro-sprint-picker').click();
+  moreButton(doc).click();
+  report.toggle();
+  assert.equal(signals[1].aborted, true);
+  report.toggle();
+  await settle();
+  slow.release();
+  await settle();
+  doc.querySelector('.retro-sprint-picker').click();
+  assert.equal(sprintItems(doc).length, 5);
+  assert.equal(moreButton(doc).hidden, false);
+  report.destroy();
+});
