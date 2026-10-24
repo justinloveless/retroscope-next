@@ -1,12 +1,18 @@
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 import { FakeEvent, installDom } from '../core/_dom.js';
+import { createMenu } from '../../../web/src/ui/menu.js';
 import { bindKudosKey, togglesKudos } from '../../../web/src/retro/keyboard.js';
 
 let doc;
 
 beforeEach(() => {
   doc = installDom();
+  doc.documentElement.clientWidth = 1024;
+  doc.documentElement.clientHeight = 768;
+  globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
+  globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
+  globalThis.window = { addEventListener() {}, removeEventListener() {} };
 });
 
 /** An element in the page, with its attributes. */
@@ -50,6 +56,32 @@ test('another open dialog blocks it, the kudos drawer itself does not', () => {
   assert.equal(togglesKudos(key(), { openDialogs: [other], drawer: null }), false);
   assert.equal(togglesKudos(key(), { openDialogs: [drawer], drawer }), true);
   assert.equal(togglesKudos(key(), { openDialogs: [drawer, other], drawer }), false);
+});
+
+test('an open popover or menu blocks it, even over the drawer', () => {
+  const drawer = {};
+  assert.equal(togglesKudos(key(), { popover: true }), false);
+  assert.equal(togglesKudos(key(), { openDialogs: [drawer], drawer, popover: true }), false);
+});
+
+test('bindKudosKey stands down while an action menu is open and resumes when it closes', () => {
+  let toggles = 0;
+  const unbind = bindKudosKey(() => toggles++, () => null, doc);
+  const menu = createMenu({ label: 'Card actions', items: [{ action: 'edit', label: 'Edit' }], onSelect() {} });
+  const trigger = element('button');
+  menu.attach(trigger);
+  const press = () => doc.activeElement.dispatchEvent(new FakeEvent('keydown', { bubbles: true, key: 'n' }));
+
+  trigger.click();
+  assert.equal(menu.el.hidden, false);
+  press();
+  assert.equal(toggles, 0);
+
+  menu.close();
+  trigger.focus();
+  press();
+  assert.equal(toggles, 1);
+  unbind();
 });
 
 test('bindKudosKey toggles, prevents the default and unbinds', () => {

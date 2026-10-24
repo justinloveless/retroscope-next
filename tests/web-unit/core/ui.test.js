@@ -5,6 +5,7 @@ import { createAvatar } from '../../../web/src/ui/avatar.js';
 import { createButton } from '../../../web/src/ui/button.js';
 import { confirmDialog } from '../../../web/src/ui/confirm.js';
 import { createMenu } from '../../../web/src/ui/menu.js';
+import { popoverOpen } from '../../../web/src/ui/popover.js';
 import { createResizable } from '../../../web/src/ui/resizable.js';
 import { createSidePanel } from '../../../web/src/ui/side-panel.js';
 import { createSwitch } from '../../../web/src/ui/switch.js';
@@ -145,6 +146,21 @@ test('menu closes on Escape and returns focus to the anchor', () => {
   menu.el.querySelector('[role=menuitem]').dispatchEvent(key('Escape'));
   assert.equal(menu.el.hidden, true);
   assert.equal(doc.activeElement, trigger);
+});
+
+test('popoverOpen reports an open menu until it closes or is destroyed', () => {
+  const menu = createMenu({ items: [{ action: 'a', label: 'A' }], onSelect() {} });
+  const trigger = doc.createElement('button');
+  doc.body.appendChild(trigger);
+  menu.attach(trigger);
+  assert.equal(popoverOpen(doc), false);
+  trigger.click();
+  assert.equal(popoverOpen(doc), true);
+  menu.close();
+  assert.equal(popoverOpen(doc), false);
+  trigger.click();
+  menu.destroy();
+  assert.equal(popoverOpen(doc), false);
 });
 
 test('confirmDialog resolves true on confirm and false on dismiss', async () => {
