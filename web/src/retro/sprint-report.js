@@ -113,22 +113,41 @@ export function viewModel(body, { siteHost }) {
   };
 }
 
-/** GET …/sprint-report, cached in memory for a minute per team and sprint, shared while in flight, dropped on failure. */
+function fresh(entry) {
+  return entry != null && Date.now() - entry.at < CACHE_MS;
+}
+
+/**
+ * GET …/sprint-report, cached in memory for a minute per team and sprint, shared while in flight, dropped on
+ * failure. A forced fetch replaces every fresh entry that showed the same sprint, the default one included.
+ */
 export function fetchReport(teamId, sprintId, { signal, force = false } = {}) {
   const id = `${teamId}:${sprintId ?? 'default'}`;
   const hit = cache.get(id);
-  if (!force && hit && Date.now() - hit.at < CACHE_MS) {
+  if (!force && fresh(hit)) {
     return hit.promise;
   }
   const query = sprintId == null ? '' : `?sprint=${encodeURIComponent(sprintId)}`;
   const promise = http.get(`/api/teams/${encodeURIComponent(teamId)}/jira/sprint-report${query}`, { signal });
   const at = Date.now();
-  cache.set(id, { at, promise });
+  cache.set(id, { at, promise, own: null });
   promise.then((body) => {
-    // The default sprint's report is also that sprint's, so picking it next costs no request.
     const own = body?.report ? `${teamId}:${body.report.sprintId}` : null;
-    if (own && own !== id && !(Date.now() - (cache.get(own)?.at ?? -Infinity) < CACHE_MS)) {
-      cache.set(own, { at, promise });
+    if (!own || cache.get(id)?.promise !== promise) {
+      return;
+    }
+    const entry = { at, promise, own };
+    cache.set(id, entry);
+    // The default sprint's report is also that sprint's, so picking it next costs no request.
+    if (force || !fresh(cache.get(own))) {
+      cache.set(own, entry);
+    }
+    if (force) {
+      for (const [key, other] of cache) {
+        if (other.own === own && fresh(other)) {
+          cache.set(key, entry);
+        }
+      }
     }
   }, () => {
     if (cache.get(id)?.promise === promise) {
