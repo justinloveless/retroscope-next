@@ -341,6 +341,8 @@ public sealed partial class SprintReportTests(PostgresFixture postgres) {
         var report = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, $"{Report}?sprint=231"));
 
         Assert.Equal(JsonNode.Parse(ClosedSprintReport)!.ToJsonString(), report.ToJsonString());
+        // Discovery would pick the stored field too, so only the absent field catalogue read shows the stored one won.
+        Assert.DoesNotContain(host.Jira.Requests, r => r.Path == "/rest/api/3/field");
     }
 
     [Theory]
