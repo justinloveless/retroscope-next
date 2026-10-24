@@ -168,3 +168,171 @@ test('the music starts where the shared timer is, and stops when it pauses', asy
   await expect(timer).not.toHaveAttribute('data-music-position');
   expect(await page.evaluate(() => localStorage.getItem('rs.timer.muted'))).toBe('1');
 });
+
+/** Opens the sound popover and returns it, with its volume slider and mute switch. */
+async function soundPanel(page) {
+  await page.getByRole('button', { name: 'Timer sound' }).click();
+  const panel = page.getByRole('dialog', { name: 'Timer sound' });
+  await expect(panel).toBeVisible();
+  return { panel, slider: panel.getByRole('slider', { name: 'Volume' }), mute: panel.getByRole('switch', { name: 'Mute' }) };
+}
+
+const prefs = (page) => page.evaluate(() => ({
+  level: localStorage.getItem('rs.timer.level'),
+  volume: localStorage.getItem('rs.timer.volume'),
+  muted: localStorage.getItem('rs.timer.muted'),
+}));
+
+const lastGlide = (page) => page.evaluate(() => window.__glides.at(-1));
+
+test('the volume slider sets a perceptual level live, keeps it on release, and survives a reload', async ({ page, fake }) => {
+  await page.addInitScript(fakeAudio.fn);
+  await openBoard(page, fake, { snap: snapshot({ timer: running(fake, 240_000, { music: true }) }) });
+  await unlockAudio(page);
+  const timer = page.locator('.retro-timer');
+  await expect(timer).toHaveAttribute('data-music-source', 'generated');
+
+  const { panel, slider, mute } = await soundPanel(page);
+  await expect(slider).toBeFocused();
+  await expect(slider).toHaveValue('85');
+  await expect(slider).toHaveAttribute('aria-valuetext', '85%');
+  await expect(panel.locator('.retro-sound-level')).toHaveText('85%');
+
+  // 50 is 20 dB down: a gain of 0.1, under the generated music's own 0.08.
+  await slider.fill('50');
+  await expect.poll(() => lastGlide(page)).toBeCloseTo(0.008, 6);
+  await expect(panel.locator('.retro-sound-level')).toHaveText('50%');
+  await expect.poll(() => prefs(page)).toEqual({ level: '50', volume: '0.1', muted: '0' });
+
+  // Mute keeps the level; moving the slider unmutes.
+  await mute.click();
+  await expect(mute).toHaveAttribute('aria-checked', 'true');
+  await expect(timer).not.toHaveAttribute('data-music-position');
+  await expect(slider).toHaveValue('50');
+  expect(await prefs(page)).toEqual({ level: '50', volume: '0.1', muted: '1' });
+  await slider.fill('60');
+  await expect(mute).toHaveAttribute('aria-checked', 'false');
+  await expect(timer).toHaveAttribute('data-music-position');
+  await expect.poll(() => prefs(page)).toEqual({ level: '60', volume: String(10 ** -0.8), muted: '0' });
+
+  // Level 0 is silent like mute, and stores a near-silent gain that an older bundle cannot read as unset.
+  await slider.fill('0');
+  await expect(timer).not.toHaveAttribute('data-music-position');
+  await expect(page.locator('.retro-timer-sound')).toHaveAttribute('data-icon', 'volume-x');
+  await expect(mute).toHaveAttribute('aria-checked', 'false');
+  await expect.poll(() => prefs(page)).toEqual({ level: '0', volume: '0.0001', muted: '0' });
+  await slider.fill('60');
+  await expect(timer).toHaveAttribute('data-music-position');
+  await expect(page.locator('.retro-timer-sound')).toHaveAttribute('data-icon', 'music');
+
+  await page.reload();
+  await expect(page.locator('.retro-column')).toHaveCount(3);
+  const again = await soundPanel(page);
+  await expect(again.slider).toHaveValue('60');
+  await expect(again.mute).toHaveAttribute('aria-checked', 'false');
+});
+
+test('the volume slider works from the keyboard and says Off at the bottom', async ({ page, fake }) => {
+  await openBoard(page, fake, { snap: snapshot({ timer: running(fake, 240_000) }) });
+  const { slider, mute } = await soundPanel(page);
+  await mute.click();
+  await expect(mute).toHaveAttribute('aria-checked', 'true');
+
+  await slider.focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(slider).toHaveValue('84');
+  await expect(mute).toHaveAttribute('aria-checked', 'false');
+  await expect.poll(() => prefs(page)).toMatchObject({ level: '84', muted: '0' });
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect(slider).toHaveValue('86');
+  await page.keyboard.press('Home');
+  await expect(slider).toHaveValue('0');
+  await expect(slider).toHaveAttribute('aria-valuetext', 'Off');
+  await expect.poll(() => prefs(page)).toMatchObject({ level: '0', volume: '0.0001' });
+  await page.keyboard.press('End');
+  await expect(slider).toHaveValue('100');
+  await expect(slider).toHaveAttribute('aria-valuetext', '100%');
+
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Timer sound' })).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Timer sound' })).toBeFocused();
+});
+
+test('a drag on the slider moves it without the popover redrawing it', async ({ page, fake }) => {
+  await openBoard(page, fake, { snap: snapshot({ timer: running(fake, 240_000) }) });
+  const { slider } = await soundPanel(page);
+  const handle = await slider.elementHandle();
+  const box = await slider.boundingBox();
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + box.width * 0.85, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.5, y, { steps: 4 });
+  await page.mouse.move(box.x + box.width * 0.3, y, { steps: 4 });
+  await page.mouse.up();
+  const level = Number(await slider.inputValue());
+  expect(level).toBeGreaterThan(20);
+  expect(level).toBeLessThan(40);
+  expect(await handle.evaluate((el) => el.isConnected)).toBe(true);
+  await expect.poll(() => prefs(page)).toMatchObject({ level: String(level) });
+});
+
+test('a volume saved before levels is migrated to the level that sounds the same', async ({ page, fake }) => {
+  await page.addInitScript(() => {
+    if (localStorage.getItem('rs.timer.level') === null) {
+      localStorage.setItem('rs.timer.volume', '0.25');
+    }
+  });
+  await openBoard(page, fake, { snap: snapshot({ timer: running(fake, 240_000) }) });
+  const { slider } = await soundPanel(page);
+  await expect(slider).toHaveValue('70');
+});
+
+test('facilitators switch the alarm and music for the board; others get only their own sound', async ({ page, fake }) => {
+  await openBoard(page, fake, { snap: snapshot({ timer: running(fake, 240_000) }) });
+  const { panel } = await soundPanel(page);
+  const board = panel.getByRole('group', { name: 'Everyone on the board' });
+  const alarm = board.getByRole('switch', { name: 'Alarm when time is up' });
+  const music = board.getByRole('switch', { name: 'Background music' });
+  const browserGroup = panel.getByRole('group', { name: 'This browser' });
+  await expect(browserGroup.getByRole('switch', { name: 'Mute' })).toBeVisible();
+  await expect(browserGroup.getByRole('slider', { name: 'Volume' })).toBeVisible();
+  await expect(alarm).toHaveAttribute('aria-checked', 'true');
+  await expect(music).toHaveAttribute('aria-checked', 'false');
+  await music.click();
+  await alarm.click();
+  await expect.poll(() => sent(fake, 'retro.timer.setFlags')).toEqual([{ music: true }, { alarm: false }]);
+
+  await openBoard(page, fake, { snap: snapshot({ presence: [ALICE, GUEST], timer: running(fake, 240_000) }), me: GUEST });
+  const guest = await soundPanel(page);
+  await expect(guest.panel.getByRole('switch', { name: 'Alarm when time is up' })).toBeHidden();
+  await expect(guest.slider).toBeVisible();
+  await expect(guest.mute).toBeVisible();
+});
+
+test('the sound popover closes when the timer stops under it', async ({ page, fake }) => {
+  const timer = running(fake, 240_000);
+  await openBoard(page, fake, { snap: snapshot({ timer }) });
+  const { panel } = await soundPanel(page);
+  fake.tx(ROOM, [{ k: 'retro.timer', d: { ...timer, state: 'idle' } }]);
+  await expect(page.locator('.retro-timer')).toHaveAttribute('data-state', 'idle');
+  await expect(panel).toBeHidden();
+  await expect(page.locator('.retro-timer-sound')).toHaveAttribute('aria-expanded', 'false');
+
+  fake.tx(ROOM, [{ k: 'retro.timer', d: running(fake, 240_000) }]);
+  await expect(page.locator('.retro-timer')).toHaveAttribute('data-state', 'running');
+  await expect(panel).toBeHidden();
+});
+
+test('while audio is locked the sound button warns, and its first click unlocks it and opens the popover', async ({ page, fake }) => {
+  await page.addInitScript(fakeAudio.fn);
+  await openBoard(page, fake, { snap: snapshot({ timer: running(fake, 240_000, { music: true }) }) });
+  const button = page.locator('.retro-timer-sound');
+  await expect(button).toHaveAttribute('data-icon', 'triangle-alert');
+  await expect(button).toHaveAccessibleName('Click anywhere on the page to turn on the timer sound');
+
+  await button.click();
+  await expect(page.getByRole('dialog', { name: 'Timer sound' })).toBeVisible();
+  await expect(button).toHaveAttribute('data-icon', 'music');
+  await expect(page.locator('.retro-timer')).toHaveAttribute('data-music-source', 'generated');
+});
