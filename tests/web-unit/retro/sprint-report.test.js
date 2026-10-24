@@ -484,3 +484,55 @@ test('the person stays chosen across sprints where they have issues, and resets 
   assert.equal(person().textContent, 'Everyone');
   report.destroy();
 });
+
+const hold = () => {
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  return { release, reply: (body) => async (url) => {
+    await held;
+    return reply(200, body(url));
+  } };
+};
+const refreshButton = (doc) => doc.querySelectorAll('button').find((b) => b.getAttribute('aria-label') === 'Refresh');
+
+test('a keyboard user keeps their place in the sprint menu when a scroll load or a refresh redraws it', async (t) => {
+  const doc = installDom();
+  withPopovers(t);
+  const { report } = panel();
+  report.toggle();
+  await settle();
+  doc.querySelector('.retro-sprint-picker').click();
+  const menu = doc.querySelector('.retro-sprint-menu');
+  const focusedId = () => (doc.activeElement.isConnected ? doc.activeElement.dataset.id : null);
+  assert.equal(focusedId(), '100');
+
+  Object.assign(menu, { scrollTop: 190, clientHeight: 200, scrollHeight: 400 });
+  menu.dispatchEvent(new FakeEvent('scroll'));
+  assert.equal(focusedId(), '100', 'while it loads');
+  await settle();
+  assert.equal(sprintItems(doc).length, 12);
+  assert.equal(focusedId(), '100', 'after it loaded');
+
+  sprintItems(doc).find((i) => i.textContent === 'Sprint 6').focus();
+  refreshButton(doc).click();
+  await settle();
+  assert.equal(params(requests.at(-1)).get('sprints'), '12');
+  assert.equal(focusedId(), '98', 'after a refresh');
+  report.destroy();
+});
+
+test('choosing a person with the keyboard leaves focus on the Person control', async (t) => {
+  const doc = installDom();
+  withPopovers(t);
+  const { report } = panel();
+  report.toggle();
+  await settle();
+  const person = () => doc.querySelector('.retro-sprint-person');
+  person().click();
+  const grace = doc.querySelectorAll('[role=menuitem]').find((i) => i.dataset.action === '@Grace Fixture');
+  grace.focus();
+  grace.click();
+  assert.equal(person().textContent, 'Grace Fixture · 2');
+  assert.equal(doc.activeElement, person());
+  report.destroy();
+});
