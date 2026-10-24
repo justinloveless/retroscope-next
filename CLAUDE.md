@@ -140,7 +140,7 @@ dotnet run --project tests/Retroscope.Soak -- --profile short    # soak/chaos ru
   - **Styles** live in `web/styles`, and importing CSS from JS fails the build. A new route stylesheet needs a `ROUTE_STYLES` entry in `web/build.mjs`.
 - **Tests:**
   - `Retroscope.Core.Tests`: units and FsCheck properties.
-  - `Retroscope.Integration.Tests`: Testcontainers Postgres, with a fresh migrated database per test through `PostgresFixture.CreateDatabaseAsync`.
+  - `Retroscope.Integration.Tests`: Testcontainers Postgres, with a fresh database per test through `PostgresFixture.CreateDatabaseAsync`, cloned from a template migrated once per run (pass a `Migrator` to migrate from empty instead).
   - `Retroscope.Importer.Tests`: a fake Supabase source.
   - `Retroscope.Sim`: deterministic simulation of real actors under injected faults.
   - `Retroscope.Soak`: the soak and chaos run.
