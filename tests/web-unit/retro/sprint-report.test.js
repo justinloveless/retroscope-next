@@ -590,3 +590,31 @@ test('a Load more still in flight when the panel closes is abandoned, and the re
   assert.equal(moreButton(doc).hidden, false);
   report.destroy();
 });
+
+test('a failed scroll load is retried only after the menu leaves its bottom and comes back, or on the button', async (t) => {
+  const doc = installDom();
+  withPopovers(t);
+  const { report } = panel();
+  report.toggle();
+  await settle();
+  doc.querySelector('.retro-sprint-picker').click();
+  const menu = doc.querySelector('.retro-sprint-menu');
+  const scrollTo = async (top) => {
+    Object.assign(menu, { scrollTop: top, clientHeight: 200, scrollHeight: 400 });
+    menu.dispatchEvent(new FakeEvent('scroll'));
+    await settle();
+  };
+  replies.push(() => reply(500, { code: 'jira_error' }), () => reply(500, { code: 'jira_error' }));
+  await scrollTo(190);
+  await scrollTo(195);
+  await scrollTo(200);
+  assert.equal(requests.length, 2, 'one load for one entry into the bottom');
+  await scrollTo(0);
+  await scrollTo(190);
+  assert.equal(requests.length, 3);
+  moreButton(doc).click();
+  await settle();
+  assert.equal(requests.length, 4);
+  assert.equal(sprintItems(doc).length, 12);
+  report.destroy();
+});
