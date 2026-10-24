@@ -107,9 +107,14 @@ test('on a wide screen the panel sits beside the columns; on a phone it covers t
 test('teams without Jira or without a board get no button and no report request', async ({ page, fake }) => {
   for (const jira of [{ configured: false }, { ...JIRA, boardId: null }]) {
     const control = setup(fake, jira);
+    const before = fake.requests.length;
+    const team = page.waitForResponse((r) => new URL(r.url()).pathname === `/api/teams/${TEAM_ID}`);
     await openBoard(page, fake, { snap: boardFor() });
-    await expect.poll(() => teamRequests(fake).some((r) => r.path === `/api/teams/${TEAM_ID}`)).toBe(true);
+    await (await team).finished();
+    // The button starts hidden, so it proves the gate only once the page has applied the team response.
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0))));
     await expect(openButton(page)).toBeHidden();
+    expect(fake.requests.slice(before).filter((r) => r.path.startsWith(`/api/teams/${TEAM_ID}/`))).toEqual([]);
     expect(reportCalls(control)).toHaveLength(0);
     control.uninstall();
   }
