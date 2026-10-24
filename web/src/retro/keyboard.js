@@ -1,10 +1,7 @@
 // Board shortcuts (UX16): N opens and closes the kudos drawer, as in the original. Nothing fires while a text
 // field has the keyboard or another dialog is open; inside the drawer itself N still closes it.
 
-function typing(target) {
-  return typeof target?.closest === 'function'
-    && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])') !== null;
-}
+import { isTypingTarget } from '../core/a11y.js';
 
 /**
  * Whether a keydown toggles the kudos drawer. `openDialogs` are the page's open dialogs and `drawer` the
@@ -18,7 +15,7 @@ export function togglesKudos(event, { openDialogs = [], drawer = null } = {}) {
   if (event.key !== 'n' && event.key !== 'N') {
     return false;
   }
-  return !typing(event.target) && openDialogs.every((dialog) => dialog === drawer);
+  return !isTypingTarget(event.target) && openDialogs.every((dialog) => dialog === drawer);
 }
 
 /** Calls toggle() on N typed anywhere outside fields and other dialogs; returns unbind. */
