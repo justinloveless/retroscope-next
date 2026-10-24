@@ -89,6 +89,11 @@ public sealed record JiraProbeResult(JiraUser Myself, JiraFieldIds Fields, JiraB
 public sealed partial class JiraClient : IDisposable {
     public const string MediaHost = "api.media.atlassian.com";
 
+    private const int MaxSprintPages = 30;
+    private const int SprintPageSize = 50;
+    private const string ActiveState = "active";
+    private const string ClosedState = "closed";
+
     private static readonly TimeSpan FieldsTtl = TimeSpan.FromHours(6);
     private static readonly string[] AttachmentTypes = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
@@ -229,6 +234,60 @@ public sealed partial class JiraClient : IDisposable {
 
         sprints.Sort(JiraMap.SprintOrder);
         return sprints;
+    }
+
+    /// <summary>
+    /// The board's active sprints, then its newest <paramref name="keep"/> closed ones in Jira's order (oldest first).
+    /// Jira lists closed sprints oldest first, so when it sends a total the read jumps to the tail: a young board costs
+    /// two calls and an old one three. Without a total, or when a stale total jumps too far, it pages forward keeping the
+    /// last <paramref name="keep"/>. At most 30 calls in all.
+    /// </summary>
+    public async Task<IReadOnlyList<JiraSprint>> GetRecentSprintsAsync(TeamId team, long boardId, int keep, CancellationToken cancellationToken) {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(keep);
+        var budget = MaxSprintPages;
+
+        Task<JiraValuesPage<JiraSprint>> PageAsync(string state, int startAt) {
+            budget--;
+            return GetAsync(
+                team,
+                $"/rest/agile/1.0/board/{boardId}/sprint?state={state}&startAt={startAt}&maxResults={SprintPageSize}",
+                "/rest/agile/1.0/board/{id}/sprint",
+                JiraClientJsonContext.Default.JiraValuesPageJiraSprint,
+                cancellationToken);
+        }
+
+        // Pages forward from startAt into ring, keeping its last `keep`; returns how many sprints were read.
+        async Task<int> WalkAsync(int startAt, List<JiraSprint> ring) {
+            var read = 0;
+            while (budget > 0) {
+                var page = await PageAsync(ClosedState, startAt);
+                var values = page.Values ?? [];
+                read += values.Count;
+                KeepTail(ring, values, keep);
+                if (page.IsLast || values.Count == 0) {
+                    break;
+                }
+                startAt += values.Count;
+            }
+            return read;
+        }
+
+        var active = await PageAsync(ActiveState, 0);
+        var first = await PageAsync(ClosedState, 0);
+        var firstValues = first.Values ?? [];
+        var closed = new List<JiraSprint>();
+        KeepTail(closed, firstValues, keep);
+        if (!first.IsLast && firstValues.Count > 0) {
+            var jumpTo = first.Total is { } total ? total - keep : 0;
+            var tail = new List<JiraSprint>();
+            if (jumpTo > firstValues.Count && await WalkAsync(jumpTo, tail) >= keep) {
+                closed = tail;
+            } else {
+                await WalkAsync(firstValues.Count, closed);
+            }
+        }
+
+        return [.. active.Values ?? [], .. closed];
     }
 
     /// <summary>One page of a sprint's issues in rank order.</summary>
@@ -798,6 +857,13 @@ public sealed partial class JiraClient : IDisposable {
 
     private static string BodyHash(byte[]? body) =>
         body is null ? "" : Convert.ToHexString(SHA256.HashData(body));
+
+    private static void KeepTail(List<JiraSprint> ring, IReadOnlyList<JiraSprint> values, int keep) {
+        ring.AddRange(values);
+        if (ring.Count > keep) {
+            ring.RemoveRange(0, ring.Count - keep);
+        }
+    }
 
     private static byte[] MoveBody(IReadOnlyList<string> issueKeys) {
         ArgumentNullException.ThrowIfNull(issueKeys);

@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using Retroscope.Core.Sprints;
 using Retroscope.Core.Text;
 using Retroscope.Server.Json;
 
@@ -190,6 +191,52 @@ public static partial class JiraMap {
     }
 
     /// <summary>
+    /// Every sprint the issue's sprint field holds, in field order: objects and legacy <c>"com.atlassian…[id=1,…]"</c>
+    /// strings alike, skipping entries without an id, a name or a known state. Legacy strings carry no start. Without a
+    /// known sprint field the first custom field that holds sprints is read, as <see cref="ReadSprint"/> scans.
+    /// </summary>
+    public static IReadOnlyList<SprintMark> ReadSprintMarks(JiraIssue issue, string? sprintFieldId) {
+        ArgumentNullException.ThrowIfNull(issue);
+        if (issue.Fields?.Extra is not { } extra) {
+            return [];
+        }
+        if (sprintFieldId is not null) {
+            return extra.TryGetValue(sprintFieldId, out var value) ? ReadMarks(value) : [];
+        }
+
+        foreach (var (key, value) in extra) {
+            if (key.StartsWith("customfield_", StringComparison.Ordinal) && ReadMarks(value) is { Count: > 0 } marks) {
+                return marks;
+            }
+        }
+        return [];
+    }
+
+    /// <summary>
+    /// What the sprint classifier needs of an issue: the status category, when it was done (the resolution date, else
+    /// the status category change of a done issue), its points and its sprint marks.
+    /// </summary>
+    public static IssueFacts ToIssueFacts(JiraIssue issue, JiraTeamConfig config) {
+        ArgumentNullException.ThrowIfNull(issue);
+        ArgumentNullException.ThrowIfNull(config);
+        var fields = issue.Fields;
+        var category = fields?.Status?.StatusCategory?.Key switch {
+            "done" => WorkCategory.Done,
+            "indeterminate" => WorkCategory.InProgress,
+            _ => WorkCategory.ToDo,
+        };
+        long? doneAt = TryParseDate(fields?.Resolutiondate, out var resolved)
+            ? resolved
+            : category == WorkCategory.Done && TryParseDate(fields?.Statuscategorychangedate, out var changed) ? changed : null;
+        return new IssueFacts(
+            issue.Key ?? "",
+            category,
+            doneAt,
+            ReadPoints(issue, config.PointsFieldId),
+            ReadSprintMarks(issue, config.SprintFieldId));
+    }
+
+    /// <summary>
     /// Sprint bucket order (port of <c>jiraBrowseSprintBuckets.ts</c>): buckets with a parseable start date first,
     /// by date; then those with an unparseable one; then those with none; ties by name with <see cref="NaturalCompare"/>.
     /// </summary>
@@ -287,6 +334,52 @@ public static partial class JiraMap {
         }
     }
 
+    private static List<SprintMark> ReadMarks(JsonElement value) {
+        var marks = new List<SprintMark>();
+        if (value.ValueKind == JsonValueKind.Array) {
+            foreach (var item in value.EnumerateArray()) {
+                if (ReadMark(item) is { } mark) {
+                    marks.Add(mark);
+                }
+            }
+        } else if (ReadMark(value) is { } mark) {
+            marks.Add(mark);
+        }
+        return marks;
+    }
+
+    private static SprintMark? ReadMark(JsonElement item) {
+        switch (item.ValueKind) {
+            case JsonValueKind.Object: {
+                long? id = item.TryGetProperty("id", out var idElement) ? ReadLong(idElement) : null;
+                var name = item.TryGetProperty("name", out var n) && n.ValueKind is JsonValueKind.String or JsonValueKind.Number ? n.ToString() : null;
+                var phase = item.TryGetProperty("state", out var s) && s.ValueKind == JsonValueKind.String ? ParsePhase(s.GetString()) : null;
+                long? start = item.TryGetProperty("startDate", out var d) && d.ValueKind == JsonValueKind.String && TryParseDate(d.GetString(), out var at) ? at : null;
+                return id is { } sprintId && !string.IsNullOrEmpty(name) && phase is { } known ? new SprintMark(sprintId, name, known, start) : null;
+            }
+            case JsonValueKind.String: {
+                var text = item.GetString()!;
+                var idMatch = LegacyId().Match(text);
+                var nameMatch = LegacyName().Match(text);
+                var stateMatch = LegacyState().Match(text);
+                return idMatch.Success && long.TryParse(idMatch.Groups[1].Value, CultureInfo.InvariantCulture, out var legacyId)
+                    && nameMatch.Success && nameMatch.Groups[1].Value.Trim() is { Length: > 0 } legacyName
+                    && stateMatch.Success && ParsePhase(stateMatch.Groups[1].Value.Trim()) is { } legacyPhase
+                    ? new SprintMark(legacyId, legacyName, legacyPhase, null)
+                    : null;
+            }
+            default:
+                return null;
+        }
+    }
+
+    private static SprintPhase? ParsePhase(string? state) => state?.ToLowerInvariant() switch {
+        "active" => SprintPhase.Active,
+        "closed" => SprintPhase.Closed,
+        "future" => SprintPhase.Future,
+        _ => null,
+    };
+
     private static long? ReadLong(JsonElement element) => element.ValueKind switch {
         JsonValueKind.Number when element.TryGetInt64(out var number) => number,
         JsonValueKind.String when long.TryParse(element.GetString(), CultureInfo.InvariantCulture, out var parsed) => parsed,
@@ -347,10 +440,19 @@ public sealed record JiraBoardLocation(string? ProjectKey, long? ProjectId);
 
 public sealed record JiraBoard(long Id, string? Name, string? Type, JiraBoardLocation? Location);
 
-public sealed record JiraSprint(long Id, string? Name, string? State, string? StartDate, string? EndDate);
+/// <param name="Goal">Written by people: cached in memory only, never stored.</param>
+public sealed record JiraSprint(
+    long Id,
+    string? Name,
+    string? State,
+    string? StartDate,
+    string? EndDate,
+    string? CompleteDate = null,
+    string? Goal = null,
+    long? OriginBoardId = null);
 
-/// <summary>An Agile 1.0 page of <c>values</c> (boards, sprints).</summary>
-public sealed record JiraValuesPage<T>(int StartAt, int MaxResults, bool IsLast, IReadOnlyList<T>? Values);
+/// <summary>An Agile 1.0 page of <c>values</c> (boards, sprints). <see cref="Total"/> is absent on some sites and can be stale.</summary>
+public sealed record JiraValuesPage<T>(int StartAt, int MaxResults, bool IsLast, IReadOnlyList<T>? Values, int? Total = null);
 
 public sealed record JiraStatusCategory(string? Key, string? Name);
 
@@ -405,6 +507,10 @@ public sealed class JiraIssueFields {
     public string? Created { get; init; }
 
     public string? Updated { get; init; }
+
+    public string? Resolutiondate { get; init; }
+
+    public string? Statuscategorychangedate { get; init; }
 
     public JiraProjectRef? Project { get; init; }
 

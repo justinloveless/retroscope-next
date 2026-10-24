@@ -112,6 +112,13 @@ public static partial class Jql {
         return $"{filters} AND {clause} ORDER BY Rank ASC";
     }
 
+    /// <summary>
+    /// A sprint's issues in rank order: what its sprint field holds, so work carried out of it too, without epics or
+    /// sub-tasks. No project clause: a board's sprint can hold issues of several projects.
+    /// </summary>
+    public static string InSprint(long sprintId) =>
+        $"sprint = {sprintId.ToString(CultureInfo.InvariantCulture)} AND issuetype not in (Epic, subtaskIssueTypes()) ORDER BY Rank ASC";
+
     /// <summary>The search-text clause: the summary contains the words, or the text is the issue's key.</summary>
     public static string Text(string text) {
         var trimmed = text.Trim();
