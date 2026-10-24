@@ -420,6 +420,20 @@ describe('HTTP', () => {
     assert.equal(issue.attachments.length, 2);
   });
 
+  test('the demo sprint report follows the demo clock: an active sprint around today and closed ones before it', async () => {
+    const body = await get(`/api/teams/${DEMO_TEAM}/jira/sprint-report`);
+    assert.deepEqual(body.sprints.map((s) => s.state), ['active', 'closed', 'closed']);
+    const [active, last] = body.sprints;
+    const now = Date.now();
+    assert.ok(Date.parse(active.startDate) < now && now < Date.parse(active.endDate), 'the active sprint spans today');
+    assert.equal(last.completeDate, last.endDate);
+    assert.equal(Date.parse(last.endDate), Date.parse(active.startDate));
+    assert.equal(body.report.sprintId, last.id);
+    assert.ok(body.report.groups.find((g) => g.outcome === 'notDone').issues.some((i) => i.next === active.name));
+    const report = await get(`/api/teams/${DEMO_TEAM}/jira/sprint-report?sprint=${active.id}`);
+    assert.equal(report.report.sprintId, active.id);
+  });
+
   test('a role change reaches the team room as the new member list', async () => {
     const team = demo.teams.get(DEMO_TEAM);
     const me = await connect('demo', [team.key]);

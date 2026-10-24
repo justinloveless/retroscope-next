@@ -720,6 +720,37 @@ describe('fake Jira proxy', () => {
     assert.equal((await write('DELETE', `/issues/RS-13/links/${link.id}`)).status, 204);
   });
 
+  test('the sprint report serves the picker and the default sprint, any listed sprint, and refuses the rest', async () => {
+    const jira = fake.jira({ teamId: TEAM });
+    const first = await (await fetch(`${base()}/sprint-report`)).json();
+    assert.deepEqual(first.sprints.map((s) => [s.id, s.state]), [[101, 'active'], [100, 'closed'], [99, 'closed']]);
+    assert.equal(first.empty, null);
+    assert.equal(first.report.sprintId, 100);
+    assert.deepEqual(first.report.groups.map((g) => [g.outcome, g.count, g.points]), [['done', 3, 5], ['doneAfter', 1, 5], ['notDone', 3, 8]]);
+    for (const group of first.report.groups) {
+      assert.equal(group.issues.length, group.count, group.outcome);
+    }
+    const active = await (await fetch(`${base()}/sprint-report?sprint=101`)).json();
+    assert.equal(active.report.sprintId, 101);
+    assert.ok(active.report.groups.flatMap((g) => g.issues).every((i) => i.next === null), 'an active sprint sends no next sprint');
+    assert.equal((await (await fetch(`${base()}/sprint-report?sprint=102`)).json()).code, 'jira_not_found');
+    const invalid = await fetch(`${base()}/sprint-report?sprint=0`);
+    assert.equal(invalid.status, 400);
+    assert.deepEqual((await invalid.json()).fields, { sprint: 'invalid' });
+    assert.equal((await fetch(`${base()}/sprint-report?sprint=abc`)).status, 400);
+    jira.config.boardId = null;
+    assert.deepEqual(await (await fetch(`${base()}/sprint-report`)).json(), { sprints: [], empty: 'no_board', report: null });
+    jira.config.configured = false;
+    assert.equal((await fetch(`${base()}/sprint-report`)).status, 409);
+  });
+
+  test('a fixture without a sprintReport block has no sprints to report', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const { sprintReport, ...fixture } = JSON.parse(await readFile(join(here, 'fixtures/jira.json'), 'utf8'));
+    fake.jira({ teamId: TEAM, fixture });
+    assert.deepEqual(await (await fetch(`${base()}/sprint-report`)).json(), { sprints: [], empty: 'no_sprints', report: null });
+  });
+
   test('errors: injected failures, unknown issues, other teams and unconfigured teams', async () => {
     const jira = fake.jira({ teamId: TEAM });
     jira.failNext({ ...problem(503, 'jira_unavailable'), headers: { 'Retry-After': '2' } });
