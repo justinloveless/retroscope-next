@@ -422,7 +422,8 @@ describe('HTTP', () => {
 
   test('the demo sprint report follows the demo clock: an active sprint around today and closed ones before it', async () => {
     const body = await get(`/api/teams/${DEMO_TEAM}/jira/sprint-report`);
-    assert.deepEqual(body.sprints.map((s) => s.state), ['active', 'closed', 'closed']);
+    assert.deepEqual(body.sprints.map((s) => s.state), ['active', 'closed', 'closed', 'closed', 'closed']);
+    assert.equal(body.hasMoreSprints, true);
     const [active, last] = body.sprints;
     const now = Date.now();
     assert.ok(Date.parse(active.startDate) < now && now < Date.parse(active.endDate), 'the active sprint spans today');

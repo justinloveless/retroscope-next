@@ -281,21 +281,44 @@ export function installJira(server, { teamId, fixture = DEFAULT_JIRA_FIXTURE, co
     'GET /': () => json(control.config),
     'GET /browse': ({ query }) => json(browse(query)),
     'GET /sprints': () => json({ sprints: data.sprints }),
-    // The picker plus one sprint's report (default: the block's `default`), as the server's sprint-report route.
+    // The picker plus one sprint's report (default: the block's `default`), as the server's sprint-report route: the
+    // active sprints and the newest `sprints` closed ones (default 4), extended down to the reported sprint. A listed
+    // sprint without a report in the block reports no issues.
     'GET /sprint-report': ({ query }) => {
       const asked = query.get('sprint');
-      if (asked !== null && !SPRINT_ID.test(asked)) {
-        return problem(400, 'invalid', { fields: { sprint: 'invalid' } });
+      const count = query.get('sprints') ?? '4';
+      const fields = {
+        ...(asked !== null && !SPRINT_ID.test(asked) ? { sprint: 'invalid' } : {}),
+        ...(!SPRINT_ID.test(count) || Number(count) > 100 ? { sprints: 'invalid' } : {}),
+      };
+      if (Object.keys(fields).length > 0) {
+        return problem(400, 'invalid', { fields });
       }
       if (control.config.boardId == null) {
-        return json({ sprints: [], empty: 'no_board', report: null });
+        return json({ sprints: [], hasMoreSprints: false, empty: 'no_board', report: null });
       }
       if (reportSprints.length === 0) {
-        return json({ sprints: [], empty: 'no_sprints', report: null });
+        return json({ sprints: [], hasMoreSprints: false, empty: 'no_sprints', report: null });
       }
       const id = asked === null ? data.sprintReport.default : Number(asked);
-      const report = reportSprints.some((s) => s.id === id) ? data.sprintReport.reports[id] : undefined;
-      return report ? json({ sprints: reportSprints, empty: null, report }) : problem(404, 'jira_not_found');
+      if (!reportSprints.some((s) => s.id === id)) {
+        return problem(404, 'jira_not_found');
+      }
+      const closed = reportSprints.filter((s) => s.state === 'closed');
+      const shown = Math.max(Math.min(Number(count), closed.length), closed.findIndex((s) => s.id === id) + 1);
+      const report = data.sprintReport.reports[id] ?? {
+        sprintId: id,
+        goal: null,
+        pointsKnown: true,
+        truncated: false,
+        groups: ['done', 'doneAfter', 'notDone'].map((outcome) => ({ outcome, count: 0, points: 0, issues: [] })),
+      };
+      return json({
+        sprints: [...reportSprints.filter((s) => s.state !== 'closed'), ...closed.slice(0, shown)],
+        hasMoreSprints: closed.length > shown,
+        empty: null,
+        report,
+      });
     },
     'POST /meta': ({ body }) => {
       const keys = Array.isArray(body?.keys) ? body.keys : null;
