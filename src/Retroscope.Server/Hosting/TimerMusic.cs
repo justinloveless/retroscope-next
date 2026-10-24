@@ -11,10 +11,11 @@ namespace Retroscope.Server.Hosting;
 /// </summary>
 public sealed class TimerMusic {
     public const string Path = "/media/timer-music";
-    public const string CacheControl = "public, max-age=86400";
+    public const string CacheControl = "private, max-age=86400";
     public const long MaxBytes = 32 * 1024 * 1024;
 
-    public static readonly RateLimit Limit = RateLimit.Define("media.timer-music", RateRule.PerIp(120, TimeSpan.FromMinutes(1)));
+    public static readonly RateLimit Limit = RateLimit.Define(
+        "media.timer-music", RateRule.PerIp(120, TimeSpan.FromMinutes(1)), RateRule.PerPrincipal(60, TimeSpan.FromMinutes(1)));
 
     private static readonly Dictionary<string, string> ContentTypes = new(StringComparer.OrdinalIgnoreCase) {
         [".mp3"] = "audio/mpeg",
@@ -90,8 +91,10 @@ public sealed class TimerMusic {
     public static void Map(IEndpointRouteBuilder app) {
         // Resolved here so a bad MUSIC_FILE is reported when the server starts, not on the first request.
         var music = app.ServiceProvider.GetRequiredService<TimerMusic>();
+        // Only a page that holds a session plays it, and the deployer's licence may not cover anyone else, so the
+        // route needs one (guests included) and shared caches must not keep a copy.
         app.MapGet(Path, music.ServeAsync)
-            .RequireRoutePolicy(RoutePolicy.Public)
+            .RequireRoutePolicy(RoutePolicy.Guest)
             .RequireRateLimit(Limit)
             .ExcludeFromDescription();
     }

@@ -22,7 +22,7 @@ public sealed class TimerMusicTests : IDisposable {
     public async Task Without_music_file_the_route_is_404_and_the_boot_has_no_flag() {
         await using var app = await TestApp.StartAsync();
 
-        using var response = await app.Client.GetAsync(TimerMusic.Path, TestContext.Current.CancellationToken);
+        using var response = await GetAsync(app);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.False((await BootAsync(app, "/retro/ABCDEFGHJK")).TryGetProperty("timerMusic", out _));
@@ -32,12 +32,12 @@ public sealed class TimerMusicTests : IDisposable {
     public async Task A_configured_track_is_streamed_with_its_type_validators_and_cache_policy() {
         await using var app = await StartAsync(Write("track.mp3", Mp3));
 
-        using var response = await app.Client.GetAsync(TimerMusic.Path, TestContext.Current.CancellationToken);
+        using var response = await GetAsync(app);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(Mp3, await response.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
         Assert.Equal("audio/mpeg", response.Content.Headers.ContentType?.ToString());
-        Assert.Equal(TimerMusic.CacheControl, response.Headers.CacheControl?.ToString());
+        Assert.True(response.Headers.CacheControl is { Private: true, Public: false, MaxAge.TotalDays: 1 });
         Assert.Equal("bytes", Assert.Single(response.Headers.AcceptRanges));
         Assert.NotNull(response.Headers.ETag);
         Assert.False(response.Headers.ETag!.IsWeak);
@@ -48,7 +48,7 @@ public sealed class TimerMusicTests : IDisposable {
     [Fact]
     public async Task A_range_request_gets_206_with_just_those_bytes() {
         await using var app = await StartAsync(Write("track.mp3", Mp3));
-        using var request = new HttpRequestMessage(HttpMethod.Get, TimerMusic.Path);
+        using var request = Request();
         request.Headers.Range = new RangeHeaderValue(100, 199);
 
         using var response = await app.Client.SendAsync(request, TestContext.Current.CancellationToken);
@@ -62,12 +62,12 @@ public sealed class TimerMusicTests : IDisposable {
     [Fact]
     public async Task A_range_past_the_end_is_416_and_a_matching_etag_is_304() {
         await using var app = await StartAsync(Write("track.mp3", Mp3));
-        using var first = await app.Client.GetAsync(TimerMusic.Path, TestContext.Current.CancellationToken);
+        using var first = await GetAsync(app);
 
-        using var past = new HttpRequestMessage(HttpMethod.Get, TimerMusic.Path);
+        using var past = Request();
         past.Headers.Range = new RangeHeaderValue(Mp3.Length + 10, null);
         using var pastResponse = await app.Client.SendAsync(past, TestContext.Current.CancellationToken);
-        using var again = new HttpRequestMessage(HttpMethod.Get, TimerMusic.Path);
+        using var again = Request();
         again.Headers.IfNoneMatch.Add(first.Headers.ETag!);
         using var againResponse = await app.Client.SendAsync(again, TestContext.Current.CancellationToken);
 
@@ -83,7 +83,7 @@ public sealed class TimerMusicTests : IDisposable {
         byte[] bytes = contentType == "audio/ogg" ? [.. "OggS"u8, 0, 2, 0, 0] : [0, 0, 0, 24, .. "ftypM4A "u8];
         await using var app = await StartAsync(Write(name, bytes));
 
-        using var response = await app.Client.GetAsync(TimerMusic.Path, TestContext.Current.CancellationToken);
+        using var response = await GetAsync(app);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(contentType, response.Content.Headers.ContentType?.ToString());
@@ -110,7 +110,7 @@ public sealed class TimerMusicTests : IDisposable {
         var logs = new CapturingLoggerProvider();
         await using var app = await StartAsync(Write(name, bytes), logs);
 
-        using var response = await app.Client.GetAsync(TimerMusic.Path, TestContext.Current.CancellationToken);
+        using var response = await GetAsync(app);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.False((await BootAsync(app, "/retro/ABCDEFGHJK")).TryGetProperty("timerMusic", out _));
@@ -127,7 +127,7 @@ public sealed class TimerMusicTests : IDisposable {
         var path = name.StartsWith("relative", StringComparison.Ordinal) ? name : Path.Combine(_dir.FullName, name);
         await using var app = await StartAsync(path, logs);
 
-        using var response = await app.Client.GetAsync(TimerMusic.Path, TestContext.Current.CancellationToken);
+        using var response = await GetAsync(app);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.Contains(logs.Entries, x => x.Level == LogLevel.Warning && x.Message.Contains(reason, StringComparison.Ordinal));
@@ -143,25 +143,37 @@ public sealed class TimerMusicTests : IDisposable {
         var logs = new CapturingLoggerProvider();
         await using var app = await StartAsync(path, logs);
 
-        using var response = await app.Client.GetAsync(TimerMusic.Path, TestContext.Current.CancellationToken);
+        using var response = await GetAsync(app);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.Contains(logs.Entries, x => x.Level == LogLevel.Warning && x.Message.Contains("32 MiB", StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task The_route_is_public_and_limited_per_ip() {
+    public async Task The_route_is_limited_per_ip() {
         await using var app = await StartAsync(Write("track.mp3", Mp3));
 
         for (var i = 0; i < 120; i++) {
-            using var ok = await app.Client.SendAsync(TestApp.Get(TimerMusic.Path, "198.51.100.7"), TestContext.Current.CancellationToken);
+            using var ok = await app.Client.SendAsync(Request("198.51.100.7"), TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
         }
-        using var limited = await app.Client.SendAsync(TestApp.Get(TimerMusic.Path, "198.51.100.7"), TestContext.Current.CancellationToken);
-        using var other = await app.Client.SendAsync(TestApp.Get(TimerMusic.Path, "198.51.100.8"), TestContext.Current.CancellationToken);
+        using var limited = await app.Client.SendAsync(Request("198.51.100.7"), TestContext.Current.CancellationToken);
+        using var other = await app.Client.SendAsync(Request("198.51.100.8"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
         Assert.Equal(HttpStatusCode.OK, other.StatusCode);
+    }
+
+    // The route needs a session; a guest's is enough.
+    private static HttpRequestMessage Request(string? peer = null) {
+        var request = TestApp.Get(TimerMusic.Path, peer);
+        request.Headers.Add(TestApp.CallerHeader, "guest");
+        return request;
+    }
+
+    private static async Task<HttpResponseMessage> GetAsync(TestApp app) {
+        using var request = Request();
+        return await app.Client.SendAsync(request, TestContext.Current.CancellationToken);
     }
 
     private string Write(string name, byte[] bytes) {
