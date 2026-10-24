@@ -338,6 +338,16 @@ test('the rich editor is a lazy chunk with its own budgets, inside them', async 
   assert.ok(drawer.bytes < 22528, 'the drawer does not absorb the editor');
 });
 
+test('the sprint report is a lazy chunk with its own budget, inside it, loaded neither with the entry nor with the board', async () => {
+  const budgets = JSON.parse(await readFile(join(web, 'budgets.json'), 'utf8')).chunks;
+  const size = built.sizes.find((s) => s.name === 'sprint-report');
+  assert.ok(size, 'sprint-report is measured');
+  assert.ok(budgets['sprint-report'] > 0, 'sprint-report has a budget');
+  assert.ok(size.bytes <= budgets['sprint-report'], `sprint-report: ${size.bytes} B within ${budgets['sprint-report']} B`);
+  assert.ok(!built.manifest.entry.some((file) => file.includes('sprint-report')), 'not in the entry');
+  assert.ok(!built.manifest.routes['/retro/:code'].some((file) => file.includes('sprint-report')), 'not loaded with the board');
+});
+
 test('a sink in a built script fails the output scan, which buildWeb runs on every emitted script', async () => {
   const dir = join(work, 'planted-output');
   await mkdir(join(dir, 'chunks'), { recursive: true });
