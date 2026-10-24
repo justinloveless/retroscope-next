@@ -68,8 +68,11 @@ function setup({ audio = new FakeAudio(), volume = 0.5 } = {}) {
   let now = 1000;
   const graph = [];
   const gains = [];
-  const node = (name) => ({ name, gain: { value: 1 }, connect(target) { graph.push([name, target.name]); return target; } });
+  // A glide lands on its target at once here; the test checks the level and that it glided.
+  const param = () => ({ value: 1, glides: [], setTargetAtTime(target, at) { this.glides.push([target, at]); this.value = target; } });
+  const node = (name) => ({ name, gain: param(), connect(target) { graph.push([name, target.name]); return target; } });
   const context = {
+    currentTime: 7,
     destination: { name: 'destination' },
     createGain: () => {
       const gain = node('gain');
