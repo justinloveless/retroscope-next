@@ -1,15 +1,27 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { beforeEach, test } from 'node:test';
+import { FakeEvent, installDom } from '../core/_dom.js';
 import { bindKudosKey, togglesKudos } from '../../../web/src/retro/keyboard.js';
+
+let doc;
+
+beforeEach(() => {
+  doc = installDom();
+});
+
+/** An element in the page, with its attributes. */
+function element(tag, attrs = {}) {
+  const el = doc.createElement(tag);
+  for (const [name, value] of Object.entries(attrs)) {
+    el.setAttribute(name, value);
+  }
+  doc.body.appendChild(el);
+  return el;
+}
 
 /** A keydown on `target` (a button unless it says otherwise). */
 function key(fields = {}) {
-  return { key: 'n', target: field(null), ...fields };
-}
-
-/** An element whose closest() matches only when it is a text field. */
-function field(kind) {
-  return { closest: (selector) => (kind !== null && selector.includes(kind) ? {} : null) };
+  return { key: 'n', target: element('button'), ...fields };
 }
 
 test('n and N toggle the drawer', () => {
@@ -25,9 +37,10 @@ test('modifiers, repeats, IME composition and handled keys do not', () => {
 });
 
 test('typing in a field does not', () => {
-  for (const kind of ['input', 'textarea', 'select', '[contenteditable]']) {
-    assert.equal(togglesKudos(key({ target: field(kind) })), false, kind);
+  for (const [tag, attrs] of [['input'], ['textarea'], ['select'], ['div', { contenteditable: 'true' }]]) {
+    assert.equal(togglesKudos(key({ target: element(tag, attrs) })), false, tag);
   }
+  assert.equal(togglesKudos(key({ target: element('div', { contenteditable: 'false' }) })), true);
   assert.equal(togglesKudos(key({ target: null })), true);
 });
 
@@ -40,30 +53,23 @@ test('another open dialog blocks it, the kudos drawer itself does not', () => {
 });
 
 test('bindKudosKey toggles, prevents the default and unbinds', () => {
-  const listeners = new Set();
-  const open = [];
-  const doc = {
-    addEventListener: (type, listener) => listeners.add(listener),
-    removeEventListener: (type, listener) => listeners.delete(listener),
-    querySelectorAll: () => open,
-  };
   let toggles = 0;
   const unbind = bindKudosKey(() => toggles++, () => null, doc);
-  const event = { ...key(), preventDefault() {
-    this.defaultPrevented = true;
-  } };
-  for (const listener of listeners) {
-    listener(event);
-  }
+  const button = element('button');
+  const press = () => {
+    const event = new FakeEvent('keydown', { bubbles: true, key: 'n' });
+    button.dispatchEvent(event);
+    return event;
+  };
+  assert.equal(press().defaultPrevented, true);
   assert.equal(toggles, 1);
-  assert.equal(event.defaultPrevented, true);
 
-  open.push({});
-  for (const listener of listeners) {
-    listener(key());
-  }
+  element('dialog', { open: '' });
+  assert.equal(press().defaultPrevented, false);
   assert.equal(toggles, 1);
 
   unbind();
-  assert.equal(listeners.size, 0);
+  doc.querySelector('dialog').remove();
+  press();
+  assert.equal(toggles, 1);
 });
