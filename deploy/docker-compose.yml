@@ -50,10 +50,10 @@ services:
     stop_grace_period: 8s
     read_only: true
     tmpfs: ["/tmp:size=16m"]
-    # The folder on the VPS that holds the timer track. Every resource that deploys this file needs MUSIC_DIR, the
-    # preview slot too; a folder without a track is fine there (COOLIFY_SETUP §5.12).
+    # The folder on the VPS that holds the timer track (COOLIFY_SETUP §5.12). A fixed path: Coolify rejects a volume
+    # source that contains '${'. Docker creates it empty on a host without one, and no track plays.
     volumes:
-      - ${MUSIC_DIR:?}:/music:ro
+      - /data/retroscope-music:/music:ro
     mem_limit: 200m
     cpus: 0.6
     restart: unless-stopped

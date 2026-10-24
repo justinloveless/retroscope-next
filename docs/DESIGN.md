@@ -1627,8 +1627,8 @@ services:
     stop_grace_period: 8s                             # F9: no overlap to wait for; bye{retryMs} spreads reconnects
     read_only: true
     tmpfs: [ "/tmp:size=16m" ]
-    volumes:                                          # timer track folder (UX13); MUSIC_DIR is required
-      - ${MUSIC_DIR:?}:/music:ro                      #   on every resource, an empty folder where none plays
+    volumes:                                          # timer track folder (UX13); a fixed path, because
+      - /data/retroscope-music:/music:ro              #   Coolify rejects '${' in a volume source
     mem_limit: 200m
     cpus: 0.9
     restart: unless-stopped
