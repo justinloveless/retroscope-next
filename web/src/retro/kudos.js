@@ -220,7 +220,10 @@ export const kudos = {
         onClose() {
           dialog.destroy();
           dialog = null;
-          button.focus();
+          // The drawer also closes when the tab hides (UX16), and then there is no tab to go back to.
+          if (!dock.hidden) {
+            button.focus();
+          }
         },
       });
       dialog.el.querySelector('.dialog-title').prepend(icon('award'));
@@ -259,10 +262,11 @@ export const kudos = {
       update(view) {
         const offer = kudosOf(view, ctx.me());
         dock.hidden = offer === null || offer.types.length === 0;
-        // N works only while the tab does.
+        // N and the drawer work only while the tab does.
         if (dock.hidden) {
           unbindKey?.();
           unbindKey = null;
+          dialog?.close();
         } else {
           unbindKey ??= bindKudosKey(toggleDrawer, () => dialog?.el ?? null);
         }
@@ -271,8 +275,6 @@ export const kudos = {
           if (dialog) {
             paintDrawer(offer);
           }
-        } else {
-          dialog?.close();
         }
         maybeCelebrate(view);
       },
