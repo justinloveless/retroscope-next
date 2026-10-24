@@ -107,9 +107,10 @@ public sealed class SprintReportService(JiraClient client, Credentials credentia
             PickerTtl,
             async () => {
                 var recent = await client.GetRecentSprintsAsync(team, board, PickerSize, CancellationToken.None);
-                // A sprint that closed between the active and the closed read is listed twice; the first is kept.
+                // A sprint that closed between the active and the closed read is listed twice; its closed copy is kept.
                 IReadOnlyList<JiraSprint> picker = [.. recent
                     .Where(s => (IsActive(s) || IsClosed(s)) && (s.OriginBoardId is null || s.OriginBoardId == board))
+                    .OrderByDescending(IsClosed)
                     .DistinctBy(s => s.Id)
                     .Order(PickerOrder)];
                 return (picker, 64L + picker.Sum(s => 160L + 2L * ((s.Name?.Length ?? 0) + (s.Goal?.Length ?? 0))), [JiraCache.TeamTag(team)]);
