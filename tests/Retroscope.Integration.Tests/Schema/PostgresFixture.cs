@@ -13,10 +13,15 @@ public sealed record TestDatabase(string Name, string OwnerConnectionString, str
 
 // One container per test run; every test gets its own database, so tests never see each other's rows.
 // The roles are cluster-wide, which is why databases are migrated one at a time.
+// Migrating costs far more than copying, so the embedded migrations run once into a template and test databases are
+// clones of it. A clone copies the schema, rows and object grants but not database-level settings or grants
+// (alter database ... set, grant ... on database), so migrations must not rely on those. SchemaSnapshotTests checks
+// that a clone dumps the same schema as a freshly migrated database.
 public sealed class PostgresFixture : IAsyncLifetime {
     public const string Image = "postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873";
     public const string Owner = "retroscope_owner";
     public const string AppPassword = "app-password-for-tests";
+    private const string Template = "t_template";
 
     private readonly SemaphoreSlim _migrating = new(1, 1);
     private readonly PostgreSqlContainer _container = new PostgreSqlBuilder(Image)
@@ -35,11 +40,16 @@ public sealed class PostgresFixture : IAsyncLifetime {
             try {
                 await using var connection = new NpgsqlConnection(_container.GetConnectionString());
                 await connection.OpenAsync();
-                return;
+                break;
             } catch (NpgsqlException) when (attempt < 60) {
                 await Task.Delay(500);
             }
         }
+
+        var template = await CreateEmptyDatabaseAsync(Template);
+        await MigrateAsync(template, Migrator.FromEmbeddedScripts());
+        // Cloning fails while any session is connected to the template, so none may connect to it.
+        await ExecuteAsync($"alter database {Template} with is_template true allow_connections false");
     }
 
     public async ValueTask DisposeAsync() {
@@ -47,29 +57,22 @@ public sealed class PostgresFixture : IAsyncLifetime {
         _migrating.Dispose();
     }
 
+    /// <summary>
+    /// A database with every embedded migration applied, cloned from the template. Given a migrator, an empty database
+    /// migrated by it instead.
+    /// </summary>
     public async Task<TestDatabase> CreateDatabaseAsync(Migrator? migrator = null) {
-        var database = await CreateEmptyDatabaseAsync();
-        await MigrateAsync(database, migrator ?? Migrator.FromEmbeddedScripts());
-        return database;
-    }
-
-    public async Task<TestDatabase> CreateEmptyDatabaseAsync() {
-        var name = $"t_{Guid.NewGuid():N}";
-        await using (var connection = new NpgsqlConnection(_container.GetConnectionString())) {
-            await connection.OpenAsync();
-            await using var create = new NpgsqlCommand($"create database {name}", connection);
-            await create.ExecuteNonQueryAsync();
+        if (migrator is not null) {
+            var database = await CreateEmptyDatabaseAsync();
+            await MigrateAsync(database, migrator);
+            return database;
         }
-
-        // Test code opens owner connections ad hoc; pooled, each database would park one until max_connections ran out.
-        var owner = new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = name, Pooling = false };
-        var app = new NpgsqlConnectionStringBuilder(owner.ConnectionString) {
-            Username = Db.AppRole,
-            Password = AppPassword,
-            Pooling = true,
-        };
-        return new TestDatabase(name, owner.ConnectionString, app.ConnectionString);
+        var name = NewName();
+        await ExecuteAsync($"create database {name} template {Template}");
+        return Describe(name);
     }
+
+    public Task<TestDatabase> CreateEmptyDatabaseAsync() => CreateEmptyDatabaseAsync(NewName());
 
     public async Task<int> MigrateAsync(TestDatabase database, Migrator migrator) {
         await _migrating.WaitAsync();
@@ -93,5 +96,30 @@ public sealed class PostgresFixture : IAsyncLifetime {
             .Split('\n')
             .Where(x => !x.StartsWith("\\restrict ", StringComparison.Ordinal) && !x.StartsWith("\\unrestrict ", StringComparison.Ordinal));
         return string.Join('\n', lines);
+    }
+
+    private static string NewName() => $"t_{Guid.NewGuid():N}";
+
+    private async Task<TestDatabase> CreateEmptyDatabaseAsync(string name) {
+        await ExecuteAsync($"create database {name}");
+        return Describe(name);
+    }
+
+    private TestDatabase Describe(string name) {
+        // Test code opens owner connections ad hoc; pooled, each database would park one until max_connections ran out.
+        var owner = new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = name, Pooling = false };
+        var app = new NpgsqlConnectionStringBuilder(owner.ConnectionString) {
+            Username = Db.AppRole,
+            Password = AppPassword,
+            Pooling = true,
+        };
+        return new TestDatabase(name, owner.ConnectionString, app.ConnectionString);
+    }
+
+    private async Task ExecuteAsync(string sql) {
+        await using var connection = new NpgsqlConnection(_container.GetConnectionString());
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync();
     }
 }
