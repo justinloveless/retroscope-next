@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.DependencyInjection;
 using Retroscope.Core.Ids;
 using Retroscope.Core.Room;
 using Retroscope.Fakes.FakeJira;
@@ -45,6 +46,17 @@ public sealed class BrowseTests(PostgresFixture postgres) {
         var sprintCalls = host.Jira.Requests.Where(r => r.Path.StartsWith("/rest/agile/1.0/sprint/", StringComparison.Ordinal)).ToList();
         Assert.Equal(3, sprintCalls.Count);
         Assert.All(sprintCalls, r => Assert.Contains("jql=", r.Query, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task The_cached_board_sprints_drop_the_goal_poker_never_shows() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (_, team) = await TeamAsync(host);
+        host.Jira.AddSprint(203, "Sprint 11", "active", "2026-10-12T09:00:00.000+0000", goal: "Ship checkout polish");
+
+        var sprint = Assert.Single(await host.App.Services.GetRequiredService<Server.Jira.BrowseService>().SprintsAsync(team, JiraHttpHost.Token));
+
+        Assert.Equal((203L, "Sprint 11", null), (sprint.Id, sprint.Name, sprint.Goal));
     }
 
     [Fact]
