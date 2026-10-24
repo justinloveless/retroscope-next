@@ -593,6 +593,11 @@
   from { transform: translateX(100%); }
 }
 
+/* A bottom sheet (a dialog hung from the bottom edge) slides up into place. */
+@keyframes sheet-up {
+  from { transform: translateY(100%); }
+}
+
 .app-sheet-body,
 .app-sheet-section,
 .app-sheet-links {

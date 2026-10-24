@@ -369,7 +369,7 @@ html:has(.retro-kudos-dock:not([hidden])) { scroll-padding-bottom: calc(3.5rem +
   border-radius: 1rem 1rem 0 0;
   box-shadow: 0 -12px 40px rgb(0 0 0 / 0.25);
 }
-.dialog.retro-kudos[open] { animation: retro-sheet-in 0.3s var(--ease-out); }
+.dialog.retro-kudos[open] { animation: sheet-up 0.3s var(--ease-out); }
 .dialog.retro-kudos::backdrop { backdrop-filter: blur(3px); }
 /* The grab handle is decoration; like the backdrop, a click on it closes the sheet. */
 .dialog.retro-kudos::before {
@@ -381,7 +381,6 @@ html:has(.retro-kudos-dock:not([hidden])) { scroll-padding-bottom: calc(3.5rem +
   border-radius: 999px;
   background: hsl(var(--muted-foreground) / 0.3);
 }
-@keyframes retro-sheet-in { from { transform: translateY(100%); } }
 /* Padding, not margins: a click on the dialog's own box (outside its children) counts as the backdrop. */
 .retro-kudos .dialog-header, .retro-kudos .dialog-description, .retro-kudos .dialog-body {
   padding-inline: max(1.5rem, calc((100% - 64rem) / 2));
