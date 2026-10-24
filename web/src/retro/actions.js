@@ -104,15 +104,21 @@ function createTeamLink(ctx) {
     jiraKeys: new Map(),
 
     /**
-     * `{configured, siteHost, membersCanEdit}` of the team's Jira, or null until `GET /api/teams/{id}`
-     * has answered (fetched once per team; listeners hear when it arrives).
+     * `{configured, status, siteHost, boardId, membersCanEdit}` of the team's Jira, or null until
+     * `GET /api/teams/{id}` has answered (fetched once per team; listeners hear when it arrives).
      */
     jira() {
       if (teamId && jira === null && !jiraLoading) {
         const id = teamId;
         jiraLoading = true;
         http.get(`/api/teams/${id}`).then(
-          (team) => ({ configured: team.jira?.configured === true, siteHost: team.jira?.siteHost ?? null, membersCanEdit: team.jira?.membersCanEdit !== false }),
+          (team) => ({
+            configured: team.jira?.configured === true,
+            status: team.jira?.status ?? null,
+            siteHost: team.jira?.siteHost ?? null,
+            boardId: team.jira?.boardId ?? null,
+            membersCanEdit: team.jira?.membersCanEdit !== false,
+          }),
           () => ({ configured: false }),
         ).then((config) => {
           if (id === teamId) {
