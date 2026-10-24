@@ -301,12 +301,17 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
   let shownBody = null;
   let person = EVERYONE;
 
-  // Draws the report for `chosen`; a person missing from this sprint's report falls back to everyone.
+  // Draws the report for `chosen`; a person missing from this sprint's report falls back to everyone. Redrawing
+  // takes the Person control out of the page for a moment, so focus on it is put back.
   function paint(chosen) {
     const model = viewModel(shownBody, { siteHost, person: chosen });
+    const refocus = people.el.contains(document.activeElement);
     person = model.person;
     people.update({ options: model.people, value: person });
     replaceContent(content, reportEl(model, filter));
+    if (refocus && people.el.isConnected) {
+      people.el.focus();
+    }
   }
 
   function take(body, force) {
@@ -318,6 +323,7 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
   }
 
   function renderPicker() {
+    const focusedId = items.contains(document.activeElement) ? document.activeElement.dataset.id : null;
     const chosen = list.sprints.find((s) => String(s.id) === selected);
     picker.hidden = list.sprints.length === 0;
     picker.textContent = chosen ? sprintLabel(chosen) : '';
@@ -332,6 +338,11 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
     more.replaceChildren(loadingMore ? h('span', { class: 'spinner', 'aria-hidden': 'true' }) : icon('chevron-down'),
       h('span', { text: loadingMore ? 'Loading sprints…' : 'Load more sprints' }));
     roving.refresh();
+    // The items are new nodes, so a keyboard user's place in the menu moves to the same sprint's new item.
+    if (focusedId != null) {
+      const again = [...items.children].find((item) => item.dataset.id === focusedId);
+      (again ?? items.querySelector('[aria-checked="true"]') ?? items.firstElementChild ?? more).focus();
+    }
   }
 
   async function loadMore() {
