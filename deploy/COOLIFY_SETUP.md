@@ -121,17 +121,17 @@ Your `PUBLIC_URL` is now `https://<your-domain>`. The Google and Entra redirect 
 
 ### 3.1 Confirm the images build
 
-`.github/workflows/images.yml` runs on every push to `main` and on every `v*` tag. The preview workflow also calls it for a branch's head commit (section 11.3). It:
+`.github/workflows/images.yml` runs inside the `ci` run of every push to `main`, after the tests pass, and on every `v*` tag. The preview workflow also calls it for a branch's head commit (section 11.3). It:
 
-1. Runs the Native AOT smoke test (`./build.sh aot-smoke`).
-2. Builds `ghcr.io/justinloveless/retroscope` from `deploy/Dockerfile` and `ghcr.io/justinloveless/retroscope-import` from `deploy/Dockerfile.importer`, for `linux/amd64` only.
+1. Runs the Native AOT smoke test (`./build.sh aot-smoke`). It reuses a cached server binary when nothing the binary is compiled from changed.
+2. Builds `ghcr.io/justinloveless/retroscope` from `deploy/Dockerfile`, packaging the server binary the smoke test probed, and `ghcr.io/justinloveless/retroscope-import` from `deploy/Dockerfile.importer`, for `linux/amd64` only.
 3. Pushes both. A push to `main` or a `v*` tag tags them with the commit SHA. A preview build tags them `preview-<sha>`, so it never writes a plain-SHA tag. There is no `latest` tag.
-4. Prints both digests in the run summary. On a push to `main` it also uploads them as the `image-digests` artifact, which the production deploy reads (section 11.1).
+4. Prints both digests in the run summary. On a push to `main` it also uploads them as the `image-digests` artifact of the `ci` run, which the production deploy reads (section 11.1).
 
 To check it:
 
-1. Open the repo on GitHub, then **Actions** > **images**.
-2. Open the most recent green run on `main`. If none exists, push to `main` or run a tagged release, then wait for it.
+1. Open the repo on GitHub, then **Actions** > **ci**.
+2. Open the most recent green run on `main`. Its `images` job builds the images. If none exists, push to `main` or run a tagged release, then wait for it.
 
 ### 3.2 Find the image digests
 
@@ -323,7 +323,7 @@ Set it to `justinloveless`. It must be lower case, because `images.yml` lowercas
 
 ### 5.3 `APP_DIGEST` and `IMPORTER_DIGEST`
 
-For the first deploy, copy them from the images run summary (section 3.2). Paste only the hex after `sha256:`. After that, the deploy workflows set them (section 11).
+For the first deploy, copy them from the `ci` run summary (section 3.2). Paste only the hex after `sha256:`. After that, the deploy workflows set them (section 11).
 
 Set `IMPORTER_DIGEST` too, even though the compose file does not require it. The `importer` service is in profile `import` and should not start, but the Coolify docs do not say whether Coolify honours `profiles` (**UNVERIFIED**). If Coolify parses or pulls the importer with an empty digest, the image reference `…/retroscope-import@sha256:` is invalid and the deploy fails. Setting it avoids that.
 
@@ -660,13 +660,12 @@ Releases run from GitHub Actions. Only verified work reaches `main`, and `main` 
 
 `.github/workflows/deploy.yml` runs when the `ci` workflow completes. It deploys only when that `ci` run succeeded on a push to `main`:
 
-1. It follows the `images.yml` run of the same push. If that run fails, the deploy fails at once. If it is slow, the deploy waits up to 75 minutes.
-2. It reads both digests from that run's `image-digests` artifact and checks that GHCR has them. It never resolves a tag: tags can be re-pushed, and a preview build runs branch code that can push packages.
-3. It skips the deploy if a newer commit on `main` has a `ci` run that is still running or has passed, because that run deploys the newer commit. A newer commit whose `ci` failed or was cancelled does not block an older green one.
-4. It points the production resource at branch `main` and that exact commit (`git_commit_sha`). Coolify checks the commit out after cloning, so `deploy/docker-compose.yml` always matches the images. It then sets `APP_DIGEST` and `IMPORTER_DIGEST`.
-5. It starts a Coolify deployment and waits up to 15 minutes for it to finish.
-6. It waits for `<production URL>/healthz` to answer 200 and for Coolify to report the resource as `running:healthy`. Both the old and new containers answer `/healthz`, so this shows that the site is up after the deployment finished, not which build serves it.
-7. It writes the commit, both digests and the Coolify deployment ID to the run summary.
+1. It reads both digests from the `image-digests` artifact of that `ci` run, which built the images through `images.yml` after its tests passed, and checks that GHCR has them. It never resolves a tag: tags can be re-pushed, and a preview build runs branch code that can push packages.
+2. It skips the deploy if a newer commit on `main` has a `ci` run that is still running or has passed, because that run deploys the newer commit. A newer commit whose `ci` failed or was cancelled does not block an older green one.
+3. It points the production resource at branch `main` and that exact commit (`git_commit_sha`). Coolify checks the commit out after cloning, so `deploy/docker-compose.yml` always matches the images. It then sets `APP_DIGEST` and `IMPORTER_DIGEST`.
+4. It starts a Coolify deployment and waits up to 15 minutes for it to finish.
+5. It waits for `<production URL>/healthz` to answer 200 and for Coolify to report the resource as `running:healthy`. Both the old and new containers answer `/healthz`, so this shows that the site is up after the deployment finished, not which build serves it.
+6. It writes the commit, both digests and the Coolify deployment ID to the run summary.
 
 Any failure fails the run, with the reason as an annotation. The job runs in the `production` environment, which holds the production token (section 11.4).
 
@@ -680,18 +679,18 @@ The `production` concurrency group is on the job, so a run whose job is skipped 
 
 The run checks that a `ci` run on a push to `main` succeeded for that SHA, then deploys it as in section 11.1, with that commit's compose file and digests. It does not skip older commits, so this is also the rollback. A rollback must respect the expand/contract rule: the older binary has to work with the newer schema.
 
-The digests come from the commit's `image-digests` artifact, which GitHub keeps for 90 days. A commit whose artifact has expired, or that was built before the artifact existed, cannot be deployed this way. Use section 11.5 for it.
+The digests come from the commit's `image-digests` artifact, which GitHub keeps for 90 days. The run looks for it on the commit's `ci` run, then on its `images` run, where commits built before `ci` built the images keep it. A commit whose artifact has expired, or that was built before the artifact existed, cannot be deployed this way. Use section 11.5 for it.
 
 ### 11.3 The preview slot
 
 The preview slot is a second compose resource that shows unverified work before it merges. It has one slot, so the last deploy wins. `.github/workflows/preview.yml` deploys to it:
 
-- **From a pull request.** Add the `preview` label to a PR. The PR deploys when the label is added, on every push to it, and when it is reopened. PRs from forks are skipped, because they get no secrets.
+- **From a pull request.** Add the `preview` label to a PR. The PR deploys when the label is added. Later pushes do not redeploy it. To refresh the preview, remove the label and add it again, or use the manual run. PRs from forks are skipped, because they get no secrets.
 - **By hand.** Open **Actions** > **preview** > **Run workflow** and enter a branch name. If the branch has an open PR, that PR gets the comment.
 
-GitHub does not run `pull_request` workflows while a PR has a merge conflict. A labelled PR with conflicts does not preview until you resolve them. Until then, the manual run is the only way to preview it.
+GitHub does not run `pull_request` workflows while a PR has a merge conflict. Adding the label to a PR with conflicts does not deploy it. Resolve them and add the label again, or use the manual run.
 
-Each run builds the images for the branch's head commit through `images.yml`, points the preview resource at that branch and commit, sets the digests, deploys, and checks `<preview URL>/healthz`. It then posts or updates one comment on the PR with the preview URL, the commit and the time. Coolify reads `deploy/docker-compose.yml` from that commit, so compose changes are previewed too. Runs that would deploy share one `preview` concurrency group for the whole workflow, so a newer preview cancels an older run wherever it is. If the older run had already queued a Coolify deployment that has not started, the script cancels it. Other runs, such as adding a different label, never cancel a live preview. Removing the label stops further deploys but leaves the current preview running.
+Each run builds the images for the branch's head commit through `images.yml`, points the preview resource at that branch and commit, sets the digests, deploys, and checks `<preview URL>/healthz`. It then posts or updates one comment on the PR with the preview URL, the commit and the time. Coolify reads `deploy/docker-compose.yml` from that commit, so compose changes are previewed too. Runs that would deploy share one `preview` concurrency group for the whole workflow, so a newer preview cancels an older run wherever it is. If the older run had already queued a Coolify deployment that has not started, the script cancels it. Other runs, such as adding a different label, never cancel a live preview. Removing the label leaves the current preview running.
 
 Set up the preview resource like production (sections 4 and 5), with these differences:
 
@@ -744,7 +743,7 @@ In Coolify:
 
 Use this if GitHub Actions or the Coolify API is unavailable.
 
-1. Find the green images run for the commit on `main` and copy the `app` and `importer` digests from its summary (section 3.2). Use a run on a push to `main`, not a preview build.
+1. Find the green `ci` run for the commit on `main` and copy the `app` and `importer` digests from its summary (section 3.2). A commit built before `ci` built the images has them on its `images` run instead. Use a run on a push to `main`, not a preview build.
 2. In Coolify, set the resource's git commit to that commit, so the compose file matches the images. The workflows leave it pinned to the last commit they deployed.
 3. Set `APP_DIGEST` and `IMPORTER_DIGEST`.
 4. Click **Redeploy**. A restart is not enough, because the new image must be pulled.
