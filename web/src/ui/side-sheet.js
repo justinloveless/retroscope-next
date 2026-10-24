@@ -1,7 +1,10 @@
 import { h } from '../core/h.js';
 import { createButton } from './button.js';
 
-/** A fixed side sheet (non-modal, so menus and toasts stay above it). Escape and the close button call onClose. */
+/**
+ * A fixed side sheet (non-modal, so menus and toasts stay above it). Escape and the close button call onClose.
+ * It spans the viewport's height; a screen whose header stays visible beside it sets --side-sheet-top.
+ */
 export function createSideSheet({ side = 'right', label, width = '36rem', onClose }) {
   const close = createButton({ label: 'Close', icon: 'x', iconOnly: true, variant: 'ghost', size: 'icon', onClick: () => onClose() });
   const body = h('div', { class: 'jira-sheet-body', style: { flex: '1', overflow: 'auto', padding: '0 1rem 1rem' } });
@@ -15,7 +18,7 @@ export function createSideSheet({ side = 'right', label, width = '36rem', onClos
     hidden: true,
     style: {
       position: 'fixed',
-      top: '0',
+      top: 'var(--side-sheet-top, 0px)',
       bottom: '0',
       [side]: '0',
       width: `min(${width}, 100vw)`,
