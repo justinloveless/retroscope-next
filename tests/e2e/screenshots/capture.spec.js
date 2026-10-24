@@ -103,6 +103,16 @@ const STATES = [
     },
   },
   { route: 'retro', state: 'thinking-timer-running', path: `/retro/${CODES.thinking}`, ready: '.retro-card' },
+  {
+    route: 'retro',
+    state: 'timer-sound',
+    path: `/retro/${CODES.thinking}`,
+    ready: '.retro-card',
+    async act(page) {
+      await page.getByRole('button', { name: 'Timer sound' }).click();
+      await expect(page.getByRole('dialog', { name: 'Timer sound' }).getByRole('slider', { name: 'Volume' })).toBeVisible();
+    },
+  },
   { route: 'retro', state: 'voting', path: `/retro/${CODES.voting}`, ready: '.retro-card' },
   { route: 'retro', state: 'discussing', path: `/retro/${CODES.discussing}`, ready: '.retro-card' },
   { route: 'retro', state: 'closed', path: `/retro/${CODES.closed}`, ready: '.retro-card' },
