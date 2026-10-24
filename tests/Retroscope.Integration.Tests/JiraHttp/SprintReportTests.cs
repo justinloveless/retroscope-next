@@ -49,8 +49,10 @@ public sealed partial class SprintReportTests(PostgresFixture postgres) {
         var server = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, $"{Report}?sprint=231"));
 
         var block = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(RepoRoot.Path, file), JiraHttpHost.Token))!["sprintReport"]!;
+        // The block holds data, not the flag: the fake derives hasMoreSprints from sprints=K, and self.test.js pins it.
         var fixture = new JsonObject {
             ["sprints"] = block["sprints"]!.DeepClone(),
+            ["hasMoreSprints"] = false,
             ["empty"] = null,
             ["report"] = block["reports"]![block["default"]!.ToString()]!.DeepClone(),
         };
