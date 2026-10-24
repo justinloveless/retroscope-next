@@ -5,7 +5,7 @@ import { createAvatar } from '../../../web/src/ui/avatar.js';
 import { createButton } from '../../../web/src/ui/button.js';
 import { confirmDialog } from '../../../web/src/ui/confirm.js';
 import { createMenu } from '../../../web/src/ui/menu.js';
-import { popoverOpen } from '../../../web/src/ui/popover.js';
+import { createPopover, fit, popoverOpen } from '../../../web/src/ui/popover.js';
 import { createResizable } from '../../../web/src/ui/resizable.js';
 import { createSidePanel } from '../../../web/src/ui/side-panel.js';
 import { createSwitch } from '../../../web/src/ui/switch.js';
@@ -146,6 +146,80 @@ test('menu closes on Escape and returns focus to the anchor', () => {
   menu.el.querySelector('[role=menuitem]').dispatchEvent(key('Escape'));
   assert.equal(menu.el.hidden, true);
   assert.equal(doc.activeElement, trigger);
+});
+
+const VIEW = { vw: 1024, vh: 768 };
+const anchorAt = (top, left = 100, height = 32, width = 120) => ({ top, left, bottom: top + height, right: left + width, width, height });
+
+test('a popover that fits opens below its anchor, or above when only above has room, with no height cap', () => {
+  assert.deepEqual(fit({ width: 200, height: 300 }, anchorAt(100), VIEW), { top: 138, left: 100, maxHeight: null });
+  assert.deepEqual(fit({ width: 200, height: 300 }, anchorAt(600), VIEW), { top: 294, left: 100, maxHeight: null });
+  assert.deepEqual(fit({ width: 200, height: 300 }, anchorAt(600), VIEW, 'top-end'), { top: 294, left: 20, maxHeight: null });
+});
+
+test('a popover taller than either side takes the roomier side and is capped to it, never past the viewport', () => {
+  const below = fit({ width: 200, height: 2000 }, anchorAt(100), VIEW);
+  assert.deepEqual(below, { top: 138, left: 100, maxHeight: 622 });
+  assert.ok(below.top + below.maxHeight <= VIEW.vh - 8);
+  const above = fit({ width: 200, height: 2000 }, anchorAt(500), VIEW);
+  assert.deepEqual(above, { top: 8, left: 100, maxHeight: 486 });
+  assert.equal(above.top + above.maxHeight, 500 - 6);
+  assert.deepEqual(fit({ width: 200, height: 2000 }, anchorAt(100), VIEW, 'top-start').maxHeight, 622, 'top flips below when below is roomier');
+  assert.deepEqual(fit({ width: 200, height: 2000 }, anchorAt(100), VIEW, 'left'), { top: 8, left: 226, maxHeight: 752 });
+});
+
+test('place() caps an overflowing popover from its scroll height, so placing it again keeps the cap', () => {
+  const popover = createPopover({ anchor: { getBoundingClientRect: () => anchorAt(100) }, content: [] });
+  Object.assign(popover.el, { rect: { width: 200, height: 622 }, scrollHeight: 2000, offsetHeight: 622, clientHeight: 620 });
+  popover.open();
+  assert.equal(popover.el.style.getPropertyValue('max-height'), '622px');
+  assert.equal(popover.el.style.getPropertyValue('top'), '138px');
+  popover.el.scrollHeight = 100;
+  popover.el.rect = { width: 200, height: 102 };
+  popover.close();
+  popover.open();
+  assert.equal(popover.el.style.getPropertyValue('max-height'), '');
+  popover.destroy();
+});
+
+test('an anchor scrolled out of view never leaves a popover taller than the viewport', () => {
+  assert.deepEqual(fit({ width: 200, height: 1000 }, anchorAt(2000), VIEW), { top: 8, left: 100, maxHeight: 752 });
+  assert.deepEqual(fit({ width: 200, height: 1000 }, anchorAt(-2000), VIEW, 'top-start'), { top: 8, left: 100, maxHeight: 752 });
+});
+
+test('a popover whose content grows while open is placed again and capped, until it closes', (t) => {
+  const observers = [];
+  globalThis.ResizeObserver = class {
+    constructor(callback) {
+      this.callback = callback;
+      this.targets = new Set();
+      observers.push(this);
+    }
+
+    observe(target) {
+      this.targets.add(target);
+    }
+
+    disconnect() {
+      this.targets.clear();
+    }
+  };
+  t.after(() => delete globalThis.ResizeObserver);
+  const results = doc.createElement('div');
+  const popover = createPopover({ anchor: { getBoundingClientRect: () => anchorAt(100) }, content: results });
+  Object.assign(popover.el, { rect: { width: 200, height: 40 }, scrollHeight: 40, offsetHeight: 40, clientHeight: 40 });
+  popover.open();
+  assert.equal(popover.el.style.getPropertyValue('max-height'), '');
+  const [observer] = observers;
+  assert.deepEqual([...observer.targets], [results]);
+
+  Object.assign(popover.el, { rect: { width: 200, height: 2000 }, scrollHeight: 2000, offsetHeight: 2000, clientHeight: 2000 });
+  observer.callback([]);
+  assert.equal(popover.el.style.getPropertyValue('max-height'), '622px');
+
+  popover.close();
+  assert.equal(observer.targets.size, 0);
+  popover.destroy();
 });
 
 test('popoverOpen reports an open menu until it closes or is destroyed', () => {

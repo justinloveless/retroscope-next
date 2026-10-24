@@ -168,16 +168,17 @@ internal sealed class JiraHttpHost : IAsyncDisposable {
     }
 
     /// <summary>A team configured against FakeJira: board 7 of project RS, the default points and sprint fields.</summary>
-    public async Task ConfigureAsync(TeamId team, bool membersCanEdit = true, string status = "ok", string? pointsField = PointsField, string? sprintField = SprintField) {
+    public async Task ConfigureAsync(
+        TeamId team, bool membersCanEdit = true, string status = "ok", string? pointsField = PointsField, string? sprintField = SprintField, bool pointsOverridden = false) {
         var sealedBox = App.Services.GetRequiredService<Credentials>().Seal(team, Jira.Email, Jira.Token);
         await ExecuteAsync(
             """
             insert into team_jira_config (team_id, site_host, credentials_box, key_id, token_last4, email_masked, project_key,
-                board_id, ticket_prefix, points_field_id, sprint_field_id, status, members_can_edit)
-            values ($1, $2, $3, $4, $5, $6, 'RS', 7, 'RS', $7, $8, $9, $10)
+                board_id, ticket_prefix, points_field_id, points_field_overridden, sprint_field_id, status, members_can_edit)
+            values ($1, $2, $3, $4, $5, $6, 'RS', 7, 'RS', $7, $8, $9, $10, $11)
             """,
             team.Value, SiteHost, sealedBox.Box, sealedBox.KeyId, sealedBox.TokenLast4, sealedBox.EmailMasked,
-            (object?)pointsField ?? DBNull.Value, (object?)sprintField ?? DBNull.Value, status, membersCanEdit);
+            (object?)pointsField ?? DBNull.Value, pointsOverridden, (object?)sprintField ?? DBNull.Value, status, membersCanEdit);
         App.Services.GetRequiredService<Credentials>().Invalidate(team);
     }
 

@@ -71,9 +71,11 @@ test('a member of a team whose Jira has a board gets the button, and nothing is 
   assert.deepEqual(requests, [`/api/teams/${TEAM}`]);
 
   button.dispatchEvent(new FakeEvent('click'));
-  await settle();
-  await settle();
-  assert.deepEqual(requests, [`/api/teams/${TEAM}`, `/api/teams/${TEAM}/jira/sprint-report`]);
+  // The click loads the report's chunk first, which takes a few turns of the event loop.
+  for (let turn = 0; turn < 20 && requests.length < 2; turn++) {
+    await settle();
+  }
+  assert.deepEqual(requests, [`/api/teams/${TEAM}`, `/api/teams/${TEAM}/jira/sprint-report?sprints=4`]);
   assert.equal(button.getAttribute('aria-expanded'), 'true');
   assert.ok(document.querySelector('.retro-board').classList.contains('has-side-sheet'));
   feature.destroy();

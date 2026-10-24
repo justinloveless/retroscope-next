@@ -129,9 +129,14 @@ class Node extends Target {
     }
   }
 
+  // As in a browser, a focused element taken out of the document leaves focus on the body.
   detach(node) {
     this.childNodes.splice(this.childNodes.indexOf(node), 1);
     node.parentNode = null;
+    const doc = this.ownerDocument;
+    if (doc && node.contains(doc.activeElement)) {
+      doc.activeElement = doc.body;
+    }
   }
 
   removeChild(node) {
@@ -262,6 +267,9 @@ class Element extends Node {
     this.style = new Style();
     this.animations = [];
     this.rect = { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 };
+    this.scrollHeight = 0;
+    this.offsetHeight = 0;
+    this.clientHeight = 0;
     const element = this;
     this.dataset = new Proxy({}, {
       get: (_, key) => element.getAttribute(camelToData(key)) ?? undefined,

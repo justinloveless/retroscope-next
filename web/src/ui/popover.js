@@ -3,32 +3,48 @@ import { h, setStyle } from '../core/h.js';
 const GAP = 6;
 const MARGIN = 8;
 
-// Places `el` next to `rect` (fixed positioning), flipping to the other side when it would overflow.
-export function place(el, rect, placement = 'bottom-start') {
+/**
+ * Where a popover of natural size `size` goes next to `rect` in a `vw`×`vh` viewport: {top, left, maxHeight}.
+ * It flips to the other side when it would overflow and the other side has room; when neither side fits, it
+ * takes the roomier one and `maxHeight` caps it to that side (null when it fits), so the popover scrolls.
+ */
+export function fit(size, rect, { vw, vh }, placement = 'bottom-start') {
   const [side, align = 'center'] = placement.split('-');
-  const box = el.getBoundingClientRect();
-  const vw = document.documentElement.clientWidth;
-  const vh = document.documentElement.clientHeight;
+  const { width } = size;
+  let { height } = size;
   let top;
   let left;
   if (side === 'top' || side === 'bottom') {
-    const below = rect.bottom + GAP;
-    const above = rect.top - GAP - box.height;
-    top = side === 'bottom'
-      ? (below + box.height > vh - MARGIN && above >= MARGIN ? above : below)
-      : (above < MARGIN && below + box.height <= vh - MARGIN ? below : above);
-    left = align === 'start' ? rect.left : align === 'end' ? rect.right - box.width : rect.left + (rect.width - box.width) / 2;
+    const below = vh - MARGIN - rect.bottom - GAP;
+    const above = rect.top - GAP - MARGIN;
+    const [first, second] = side === 'bottom' ? [below, above] : [above, below];
+    const onFirst = height <= first || (height > second && first >= second);
+    // An anchor scrolled out of view leaves the other side more room than the viewport has.
+    height = Math.min(height, Math.max(0, onFirst ? first : second), vh - 2 * MARGIN);
+    top = (side === 'bottom') === onFirst ? rect.bottom + GAP : rect.top - GAP - height;
+    left = align === 'start' ? rect.left : align === 'end' ? rect.right - width : rect.left + (rect.width - width) / 2;
   } else {
     const after = rect.right + GAP;
-    const before = rect.left - GAP - box.width;
+    const before = rect.left - GAP - width;
     left = side === 'right'
-      ? (after + box.width > vw - MARGIN && before >= MARGIN ? before : after)
-      : (before < MARGIN && after + box.width <= vw - MARGIN ? after : before);
-    top = align === 'start' ? rect.top : align === 'end' ? rect.bottom - box.height : rect.top + (rect.height - box.height) / 2;
+      ? (after + width > vw - MARGIN && before >= MARGIN ? before : after)
+      : (before < MARGIN && after + width <= vw - MARGIN ? after : before);
+    height = Math.min(height, Math.max(0, vh - 2 * MARGIN));
+    top = align === 'start' ? rect.top : align === 'end' ? rect.bottom - height : rect.top + (rect.height - height) / 2;
   }
-  left = Math.min(Math.max(MARGIN, left), Math.max(MARGIN, vw - box.width - MARGIN));
-  top = Math.min(Math.max(MARGIN, top), Math.max(MARGIN, vh - box.height - MARGIN));
-  setStyle(el, { top: `${Math.round(top)}px`, left: `${Math.round(left)}px` });
+  left = Math.min(Math.max(MARGIN, left), Math.max(MARGIN, vw - width - MARGIN));
+  top = Math.min(Math.max(MARGIN, top), Math.max(MARGIN, vh - height - MARGIN));
+  return { top: Math.round(top), left: Math.round(left), maxHeight: height < size.height ? Math.floor(height) : null };
+}
+
+// Places `el` next to `rect` (fixed positioning). The natural height comes from scrollHeight, so a popover
+// already capped and scrolled keeps its scroll position when it is placed again.
+export function place(el, rect, placement = 'bottom-start') {
+  const box = el.getBoundingClientRect();
+  const height = Math.max(box.height, el.scrollHeight + el.offsetHeight - el.clientHeight);
+  const view = { vw: document.documentElement.clientWidth, vh: document.documentElement.clientHeight };
+  const at = fit({ width: box.width, height }, rect, view, placement);
+  setStyle(el, { top: `${at.top}px`, left: `${at.left}px`, 'max-height': at.maxHeight === null ? null : `${at.maxHeight}px` });
 }
 
 /**
@@ -46,8 +62,16 @@ export function createPopover(props) {
     tabindex: '-1',
   }, props.content);
   let frame = 0;
+  // Content that grows or shrinks while open is placed again before it paints. The observer watches the content,
+  // not the surface: the cap place() sets changes the surface's height, not the content's, so it does not feed back.
+  const grown = typeof ResizeObserver === 'function'
+    ? new ResizeObserver(() => place(el, anchor.getBoundingClientRect(), props.placement))
+    : null;
 
-  function reposition() {
+  function reposition(event) {
+    if (event?.type === 'scroll' && el.contains(event.target)) {
+      return;
+    }
     cancelAnimationFrame(frame);
     frame = requestAnimationFrame(() => place(el, anchor.getBoundingClientRect(), props.placement));
   }
@@ -77,6 +101,9 @@ export function createPopover(props) {
     }
     el.hidden = false;
     place(el, anchor.getBoundingClientRect(), props.placement);
+    for (const child of el.children) {
+      grown?.observe(child);
+    }
     anchor.setAttribute?.('aria-expanded', 'true');
     document.addEventListener('pointerdown', onPointerDown, true);
     el.addEventListener('keydown', onKeyDown);
@@ -95,6 +122,7 @@ export function createPopover(props) {
     window.removeEventListener('resize', reposition);
     window.removeEventListener('scroll', reposition, { capture: true });
     cancelAnimationFrame(frame);
+    grown?.disconnect();
     props.onClose?.();
   }
 

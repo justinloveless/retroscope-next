@@ -35,12 +35,12 @@ test('a member opens the report of the last closed sprint and switches to anothe
   expect(reportCalls(jira)).toHaveLength(1);
 
   await panel.locator('.retro-sprint-picker').click();
-  await page.getByRole('menuitem', { name: 'Sprint 9 (active)' }).click();
+  await page.getByRole('menuitemradio', { name: 'Sprint 9 (active)' }).click();
   await expect(panel.locator('.retro-sprint-picker')).toHaveText('Sprint 9 (active)');
   await expect(panel.locator('.retro-sprint-tile')).toHaveCount(2);
   await expect(panel.locator('.retro-sprint-chip[data-kind="backlog"], .retro-sprint-chip[data-kind="next"]')).toHaveCount(0);
   expect(reportCalls(jira)).toHaveLength(2);
-  expect(fake.requests.filter((r) => r.path.endsWith('/sprint-report')).map((r) => r.query.get('sprint'))).toEqual([null, '101']);
+  expect(fake.requests.filter((r) => r.path.endsWith('/sprint-report')).map((r) => [r.query.get('sprint'), r.query.get('sprints')])).toEqual([[null, '4'], ['101', '4']]);
 });
 
 test('the picked sprint is what the panel opens with next time', async ({ page, fake }) => {
@@ -48,12 +48,93 @@ test('the picked sprint is what the panel opens with next time', async ({ page, 
   await openBoard(page, fake, { snap: boardFor() });
   await openButton(page).click();
   await sheet(page).locator('.retro-sprint-picker').click();
-  await page.getByRole('menuitem', { name: 'Sprint 7' }).click();
+  await page.getByRole('menuitemradio', { name: 'Sprint 7' }).click();
   await expect(sheet(page).locator('.retro-sprint-goal')).toHaveText('Goal Guest checkout');
 
   await page.reload();
   await openButton(page).click();
   await expect(sheet(page).locator('.retro-sprint-picker')).toHaveText('Sprint 7');
+});
+
+test('the sprint menu lists 4 closed sprints, loads 8 more with the button or by scrolling, and stays inside the screen', async ({ page, fake }) => {
+  setup(fake);
+  await page.setViewportSize({ width: 1280, height: 520 });
+  await openBoard(page, fake, { snap: boardFor() });
+  await openButton(page).click();
+  const picker = sheet(page).locator('.retro-sprint-picker');
+  await expect(picker).toHaveText('Sprint 8');
+  await picker.click();
+  const menu = page.getByRole('menu', { name: 'Sprints' });
+  const items = menu.getByRole('menuitemradio');
+  await expect(items).toHaveText(['Sprint 9 (active)', 'Sprint 8', 'Sprint 7', 'Sprint 6', 'Sprint 5']);
+  await expect(menu.getByRole('menuitemradio', { name: 'Sprint 8' })).toBeFocused();
+  await expect(menu.getByRole('menuitemradio', { name: 'Sprint 8' })).toHaveAttribute('aria-checked', 'true');
+
+  await page.keyboard.press('End');
+  await expect(menu.getByRole('menuitem', { name: 'Load more sprints' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(items).toHaveCount(12);
+  await expect(menu.getByRole('menuitem', { name: 'Load more sprints' })).toBeHidden();
+  await expect(menu.getByRole('menuitemradio', { name: 'Sprint 4' })).toBeFocused();
+  const box = await menu.boundingBox();
+  expect(box.y + box.height).toBeLessThanOrEqual(520);
+  expect(await menu.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  expect(fake.requests.filter((r) => r.path.endsWith('/sprint-report')).map((r) => [r.query.get('sprint'), r.query.get('sprints')])).toEqual([[null, '4'], ['100', '12']]);
+
+  await page.keyboard.press('End');
+  await expect(menu.getByRole('menuitemradio', { name: 'Pilot' })).toBeFocused();
+  await expect(menu.getByRole('menuitemradio', { name: 'Pilot' })).toBeInViewport();
+  await page.keyboard.press('Enter');
+  await expect(menu).toBeHidden();
+  await expect(picker).toBeFocused();
+  await expect(picker).toHaveText('Pilot');
+  await expect(sheet(page).locator('.retro-sprint-empty')).toHaveText('No issues in this sprint.');
+  await page.keyboard.press('ArrowDown');
+  await expect(menu.getByRole('menuitemradio', { name: 'Pilot' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await expect(picker).toBeFocused();
+  await expect(sheet(page)).toBeVisible();
+});
+
+test('scrolling to the bottom of the sprint menu loads more sprints', async ({ page, fake }) => {
+  setup(fake);
+  await page.setViewportSize({ width: 1280, height: 300 });
+  await openBoard(page, fake, { snap: boardFor() });
+  await openButton(page).click();
+  await sheet(page).locator('.retro-sprint-picker').click();
+  const menu = page.getByRole('menu', { name: 'Sprints' });
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(5);
+  expect(await menu.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  await menu.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(12);
+  expect(fake.requests.filter((r) => r.path.endsWith('/sprint-report')).map((r) => r.query.get('sprints'))).toEqual(['4', '12']);
+});
+
+test('the person filter keeps one person\'s issues and recounts the tiles', async ({ page, fake }) => {
+  const jira = setup(fake);
+  await openBoard(page, fake, { snap: boardFor() });
+  await openButton(page).click();
+  const panel = sheet(page);
+  const person = panel.locator('.retro-sprint-person');
+  await expect(person).toHaveText('Everyone');
+  await person.click();
+  await expect(page.getByRole('menuitem')).toHaveText(['Everyone', 'Ada Fake · 3', 'ben Example · 1', 'Grace Fixture · 2', 'Unassigned · 1']);
+  await page.getByRole('menuitem', { name: 'Grace Fixture · 2' }).click();
+  await expect(panel.locator('.retro-sprint-row')).toHaveText([/RS-9/, /RS-7/]);
+  await expect(panel.locator('.retro-sprint-tile')).toHaveText([/^1\s*Done\s*2 pts$/, /^0\s*Done after close\s*0 pts$/, /^1\s*Not done\s*3 pts$/]);
+
+  await panel.locator('.retro-sprint-picker').click();
+  await page.getByRole('menuitemradio', { name: 'Sprint 9 (active)' }).click();
+  await expect(person).toHaveText('Grace Fixture · 1');
+  await expect(panel.locator('.retro-sprint-row')).toHaveText([/RS-14/]);
+  await panel.locator('.retro-sprint-picker').click();
+  await page.getByRole('menuitemradio', { name: 'Sprint 7' }).click();
+  await expect(person).toHaveText('Grace Fixture · 1');
+  await person.click();
+  await page.getByRole('menuitem', { name: 'Everyone' }).click();
+  await expect(panel.locator('.retro-sprint-row')).toHaveCount(3);
+  expect(reportCalls(jira)).toHaveLength(3);
 });
 
 test('a Jira failure says why and Try again recovers', async ({ page, fake }) => {

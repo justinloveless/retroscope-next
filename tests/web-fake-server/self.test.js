@@ -723,7 +723,8 @@ describe('fake Jira proxy', () => {
   test('the sprint report serves the picker and the default sprint, any listed sprint, and refuses the rest', async () => {
     const jira = fake.jira({ teamId: TEAM });
     const first = await (await fetch(`${base()}/sprint-report`)).json();
-    assert.deepEqual(first.sprints.map((s) => [s.id, s.state]), [[101, 'active'], [100, 'closed'], [99, 'closed']]);
+    assert.deepEqual(first.sprints.map((s) => [s.id, s.state]), [[101, 'active'], [100, 'closed'], [99, 'closed'], [98, 'closed'], [97, 'closed']]);
+    assert.equal(first.hasMoreSprints, true);
     assert.equal(first.empty, null);
     assert.equal(first.report.sprintId, 100);
     assert.deepEqual(first.report.groups.map((g) => [g.outcome, g.count, g.points]), [['done', 3, 5], ['doneAfter', 1, 5], ['notDone', 3, 8]]);
@@ -738,8 +739,13 @@ describe('fake Jira proxy', () => {
     assert.equal(invalid.status, 400);
     assert.deepEqual((await invalid.json()).fields, { sprint: 'invalid' });
     assert.equal((await fetch(`${base()}/sprint-report?sprint=abc`)).status, 400);
+    for (const count of ['0', '101', 'x', '']) {
+      const refused = await fetch(`${base()}/sprint-report?sprints=${count}`);
+      assert.equal(refused.status, 400, count);
+      assert.deepEqual((await refused.json()).fields, { sprints: 'invalid' }, count);
+    }
     jira.config.boardId = null;
-    assert.deepEqual(await (await fetch(`${base()}/sprint-report`)).json(), { sprints: [], empty: 'no_board', report: null });
+    assert.deepEqual(await (await fetch(`${base()}/sprint-report`)).json(), { sprints: [], hasMoreSprints: false, empty: 'no_board', report: null });
     jira.config.configured = false;
     assert.equal((await fetch(`${base()}/sprint-report`)).status, 409);
   });
@@ -748,7 +754,21 @@ describe('fake Jira proxy', () => {
     const { readFile } = await import('node:fs/promises');
     const { sprintReport, ...fixture } = JSON.parse(await readFile(join(here, 'fixtures/jira.json'), 'utf8'));
     fake.jira({ teamId: TEAM, fixture });
-    assert.deepEqual(await (await fetch(`${base()}/sprint-report`)).json(), { sprints: [], empty: 'no_sprints', report: null });
+    assert.deepEqual(await (await fetch(`${base()}/sprint-report`)).json(), { sprints: [], hasMoreSprints: false, empty: 'no_sprints', report: null });
+  });
+
+  test('the sprint report lists the newest `sprints` closed sprints, extended down to an older reported one', async () => {
+    fake.jira({ teamId: TEAM });
+    const closed = (body) => body.sprints.filter((s) => s.state === 'closed').map((s) => s.id);
+    const eight = await (await fetch(`${base()}/sprint-report?sprints=8`)).json();
+    assert.deepEqual([closed(eight), eight.hasMoreSprints], [[100, 99, 98, 97, 96, 95, 94, 93], true]);
+    const all = await (await fetch(`${base()}/sprint-report?sprints=100`)).json();
+    assert.deepEqual([closed(all).length, all.hasMoreSprints], [11, false]);
+    const old = await (await fetch(`${base()}/sprint-report?sprint=94&sprints=4`)).json();
+    assert.deepEqual([closed(old), old.hasMoreSprints, old.report.sprintId], [[100, 99, 98, 97, 96, 95, 94], true, 94]);
+    assert.deepEqual(old.report.groups.map((g) => [g.outcome, g.count, g.issues.length]), [['done', 0, 0], ['doneAfter', 0, 0], ['notDone', 0, 0]]);
+    const oldest = await (await fetch(`${base()}/sprint-report?sprint=90`)).json();
+    assert.deepEqual([closed(oldest).length, oldest.hasMoreSprints], [11, false]);
   });
 
   test('errors: injected failures, unknown issues, other teams and unconfigured teams', async () => {
