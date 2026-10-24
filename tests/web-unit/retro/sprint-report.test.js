@@ -223,6 +223,17 @@ test('a failed load says why and Try again loads it again', async () => {
   report.destroy();
 });
 
+test('a missing board or sprint is worded for the report, not as a missing issue', async () => {
+  const doc = installDom();
+  replies.push(() => reply(404, { code: 'jira_not_found' }));
+  const { report } = panel();
+  report.toggle();
+  await settle();
+  assert.equal(doc.querySelector('.retro-sprint-status').textContent,
+    'Jira could not find the team’s board or that sprint. A team admin can check the board in Team Settings.');
+  report.destroy();
+});
+
 test('Refresh during a pending pick reloads the picked sprint, not the one still shown', async (t) => {
   const doc = installDom();
   globalThis.window = { addEventListener() {}, removeEventListener() {} };
