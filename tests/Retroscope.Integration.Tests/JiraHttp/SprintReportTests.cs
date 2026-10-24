@@ -135,6 +135,69 @@ public sealed partial class SprintReportTests(PostgresFixture postgres) {
     }
 
     [Theory]
+    [InlineData(null, 4, true)]
+    [InlineData("8", 8, true)]
+    [InlineData("10", 10, false)]
+    [InlineData("100", 10, false)]
+    public async Task The_picker_lists_the_active_sprints_and_the_newest_closed_ones_asked_for(string? closed, int listed, bool more) {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (ada, team) = await BrowseTests.TeamAsync(host);
+        SeedClosedSprints(host, 10);
+
+        var report = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, closed is null ? Report : $"{Report}?sprints={closed}"));
+
+        Assert.Equal([900L, .. Enumerable.Range(311 - listed, listed).Reverse().Select(i => (long)i)], SprintIds(report));
+        Assert.Equal(more, (bool)report["hasMoreSprints"]!);
+        Assert.Equal(310, (long)report["report"]!["sprintId"]!);
+    }
+
+    [Fact]
+    public async Task An_older_selected_sprint_stretches_the_list_to_reach_it() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (ada, team) = await BrowseTests.TeamAsync(host);
+        SeedClosedSprints(host, 10);
+
+        var report = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, $"{Report}?sprint=303"));
+
+        Assert.Equal([900L, 310, 309, 308, 307, 306, 305, 304, 303], SprintIds(report));
+        Assert.True((bool)report["hasMoreSprints"]!);
+        Assert.Equal(303, (long)report["report"]!["sprintId"]!);
+    }
+
+    [Fact]
+    public async Task The_picker_reaches_back_100_closed_sprints() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (ada, team) = await BrowseTests.TeamAsync(host);
+        SeedClosedSprints(host, 101);
+
+        var oldest = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, $"{Report}?sprint=302"));
+        var (status, _) = await host.ProblemAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, $"{Report}?sprint=301"));
+
+        Assert.Equal(302, (long)oldest["report"]!["sprintId"]!);
+        Assert.Equal(101, SprintIds(oldest).Count);
+        Assert.False((bool)oldest["hasMoreSprints"]!);
+        Assert.Equal(404, status);
+    }
+
+    [Theory]
+    [InlineData("abc")]
+    [InlineData("0")]
+    [InlineData("101")]
+    [InlineData("-1")]
+    [InlineData("4.5")]
+    [InlineData("")]
+    [InlineData("99999999999999999999")]
+    public async Task A_closed_sprint_count_outside_1_to_100_is_refused(string closed) {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (ada, team) = await BrowseTests.TeamAsync(host);
+
+        var (status, problem) = await host.ProblemAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, $"{Report}?sprints={closed}"));
+
+        Assert.Equal((400, "invalid", "invalid"), (status, (string)problem["code"]!, (string)problem["fields"]!["sprints"]!));
+        Assert.Empty(host.Jira.Requests);
+    }
+
+    [Theory]
     [InlineData("abc")]
     [InlineData("0")]
     [InlineData("-5")]
@@ -175,14 +238,14 @@ public sealed partial class SprintReportTests(PostgresFixture postgres) {
         var (ada, team) = await BrowseTests.TeamAsync(host);
 
         var noSprints = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, Report));
-        Assert.Equal("""{"sprints":[],"empty":"no_sprints","report":null}""", noSprints.ToJsonString());
+        Assert.Equal("""{"sprints":[],"hasMoreSprints":false,"empty":"no_sprints","report":null}""", noSprints.ToJsonString());
 
         await host.ExecuteAsync("update team_jira_config set board_id = null where team_id = $1", team.Value);
         host.App.Services.GetRequiredService<Credentials>().Invalidate(team);
         var before = host.Jira.Requests.Count;
         var noBoard = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, Report));
 
-        Assert.Equal("""{"sprints":[],"empty":"no_board","report":null}""", noBoard.ToJsonString());
+        Assert.Equal("""{"sprints":[],"hasMoreSprints":false,"empty":"no_board","report":null}""", noBoard.ToJsonString());
         Assert.Equal(before, host.Jira.Requests.Count);
     }
 
@@ -396,6 +459,7 @@ public sealed partial class SprintReportTests(PostgresFixture postgres) {
           {"id":232,"name":"Sprint 43","state":"active","startDate":"2026-10-19T09:00:00.000Z","endDate":"2026-11-02T09:00:00.000Z","completeDate":null},
           {"id":231,"name":"Sprint 42","state":"closed","startDate":"2026-10-05T09:00:00.000Z","endDate":"2026-10-19T09:00:00.000Z","completeDate":"2026-10-19T16:00:00.000Z"},
           {"id":230,"name":"Sprint 41","state":"closed","startDate":"2026-09-21T09:00:00.000Z","endDate":"2026-10-05T09:00:00.000Z","completeDate":"2026-10-05T15:00:00.000Z"}],
+         "hasMoreSprints":false,
          "empty":null,
          "report":{"sprintId":231,"goal":"Ship checkout polish","pointsKnown":true,"truncated":false,"groups":[
            {"outcome":"done","count":2,"points":8,"issues":[
@@ -433,6 +497,19 @@ public sealed partial class SprintReportTests(PostgresFixture postgres) {
         jira.AddIssue("RS-7", "Checkout", sprintId: 231, issueType: "Epic");
         jira.AddIssue("RS-8", "Older work", sprintId: 230, status: "Done");
     }
+
+    // Closed sprints 301 (oldest) to 300 + count, two weeks apart, and the active sprint 900 after them.
+    private static void SeedClosedSprints(JiraHttpHost host, int count) {
+        var start = new DateTimeOffset(2022, 1, 3, 9, 0, 0, TimeSpan.Zero);
+        for (var i = 1; i <= count; i++, start = start.AddDays(14)) {
+            host.Jira.AddSprint(300 + i, $"Sprint {i}", "closed", Iso(start), Iso(start.AddDays(14)), Iso(start.AddDays(14).AddHours(6)));
+        }
+        host.Jira.AddSprint(900, "Current", "active", Iso(start));
+    }
+
+    private static string Iso(DateTimeOffset at) => at.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static List<long> SprintIds(JsonNode report) => [.. report["sprints"]!.AsArray().Select(s => (long)s!["id"]!)];
 
     private static IEnumerable<(string Outcome, JsonNode Row)> Rows(JsonArray groups) =>
         groups.SelectMany(g => g!["issues"]!.AsArray().Select(r => ((string)g["outcome"]!, r!)));

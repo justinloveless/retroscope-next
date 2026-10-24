@@ -632,6 +632,19 @@ public sealed class JiraClientTests(PostgresFixture postgres) {
     }
 
     [Fact]
+    public async Task The_sprint_reports_100_recent_sprints_cost_four_calls_on_an_old_board() {
+        await using var h = await JiraHarness.StartAsync(postgres);
+        AddClosedSprints(h, 250);
+
+        var sprints = await h.Client.GetRecentSprintsAsync(h.Team, 7, SprintReportService.PickerSize, Ct);
+
+        Assert.Equal(Enumerable.Range(151, 100).Select(i => (long)i), sprints.Select(s => s.Id));
+        Assert.Equal(
+            ["state=active&startAt=0", "state=closed&startAt=0", "state=closed&startAt=150", "state=closed&startAt=200"],
+            SprintQueries(h));
+    }
+
+    [Fact]
     public async Task Recent_sprints_page_forward_keeping_the_newest_without_a_total() {
         await using var h = await JiraHarness.StartAsync(postgres);
         h.Jira.OmitTotals = true;
