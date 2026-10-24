@@ -24,6 +24,7 @@ namespace Retroscope.Server.Json;
 [JsonSerializable(typeof(JiraBrowseView))]
 [JsonSerializable(typeof(JiraMetaView))]
 [JsonSerializable(typeof(JiraSprintsView))]
+[JsonSerializable(typeof(JiraSprintReportView))]
 [JsonSerializable(typeof(JiraIssueView))]
 [JsonSerializable(typeof(JiraDescriptionEditView))]
 [JsonSerializable(typeof(JiraCommentPageView))]

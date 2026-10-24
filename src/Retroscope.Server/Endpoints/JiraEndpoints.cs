@@ -302,6 +302,7 @@ public static partial class JiraEndpoints {
     public static void AddServices(IServiceCollection services, IConfiguration configuration) {
         services.AddSingleton<BrowseService>();
         services.AddSingleton<IslandStore>();
+        services.AddSingleton<SprintReportService>();
         services.AddSingleton<JiraAudit>();
         services.AddSingleton<JiraGate>();
         services.AddSingleton<JiraWrites>();
@@ -324,6 +325,7 @@ public static partial class JiraEndpoints {
         jira.MapGet("/browse", BrowseAsync).RequireRoutePolicy(RoutePolicy.TeamMember).RequireRateLimit(Read);
         jira.MapPost("/meta", MetaAsync).RequireRoutePolicy(RoutePolicy.TeamMember).RequireRateLimit(Read);
         jira.MapGet("/sprints", SprintsAsync).RequireRoutePolicy(RoutePolicy.TeamMember).RequireRateLimit(Read);
+        jira.MapGet("/sprint-report", SprintReportAsync).RequireRoutePolicy(RoutePolicy.TeamMember).RequireRateLimit(Read);
         jira.MapPost("/issues", CreateAsync).RequireRoutePolicy(RoutePolicy.TeamMember).RequireRateLimit(Write);
         jira.MapGet("/issues/{key}", GetIssueAsync).RequireRoutePolicy(RoutePolicy.TeamMember).RequireRateLimit(Read);
         jira.MapGet("/issues/{key}/description", DescriptionAsync).RequireRoutePolicy(RoutePolicy.TeamMember).RequireRateLimit(Read);
