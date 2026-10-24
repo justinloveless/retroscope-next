@@ -262,6 +262,9 @@ class Element extends Node {
     this.style = new Style();
     this.animations = [];
     this.rect = { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 };
+    this.scrollHeight = 0;
+    this.offsetHeight = 0;
+    this.clientHeight = 0;
     const element = this;
     this.dataset = new Proxy({}, {
       get: (_, key) => element.getAttribute(camelToData(key)) ?? undefined,
