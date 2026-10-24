@@ -1,8 +1,8 @@
-// Kudos (endorsements) on team boards: a toolbar button opens a drawer where a member gives or takes
-// back endorsements, limited per board by the team's live `maxEndorsements` (`team.settings`). The
-// recipient's projection marks a new endorsement with `celebrate`, which plays a short confetti burst
-// and arpeggio (DESIGN §g.8; no external sound). Members-only data (S12): without `members` in the view
-// none of this shows.
+// Kudos (endorsements) on team boards: a tab fixed at the bottom of the screen (or the N key) opens a
+// bottom drawer where a member gives or takes back endorsements, limited per board by the team's live
+// `maxEndorsements` (`team.settings`; UX16). The recipient's projection marks a new endorsement with
+// `celebrate`, which plays a short confetti burst and arpeggio (DESIGN §g.8; no external sound).
+// Members-only data (S12): without `members` in the view none of this shows.
 
 import { h, replaceContent } from '../core/h.js';
 import { createAvatar } from '../ui/avatar.js';
@@ -11,6 +11,7 @@ import { icon } from '../ui/icons.js';
 import { toast } from '../ui/toast.js';
 import { isMember, uuidv7 } from './model.js';
 import { avatarSrc } from './card.js';
+import { bindKudosKey } from './keyboard.js';
 
 const CONFETTI_PIECES = 24;
 const CONFETTI_MS = 2000;
@@ -134,18 +135,24 @@ export function celebrate({ emoji, typeName, from }) {
 }
 
 export const kudos = {
-  board(ctx, { toolbar }) {
+  board(ctx, { end }) {
     const left = h('span', { class: 'badge retro-kudos-left' });
     const button = h('button', {
       type: 'button',
-      class: 'btn btn-ghost btn-sm retro-kudos-button',
-      hidden: true,
-      on: { click: () => open() },
+      class: 'retro-kudos-tab',
+      'aria-haspopup': 'dialog',
+      'aria-keyshortcuts': 'N',
+      on: { click: () => toggleDrawer() },
     }, icon('award'), h('span', { text: 'Kudos' }), ' ', left, h('span', { class: 'sr-only', text: ' left' }));
-    toolbar.append(button);
+    // The key hint sits over the tab but outside the button, so the button's visible text stays the start of
+    // its name (axe label-content-name-mismatch); clicks pass through it.
+    const dock = h('div', { class: 'retro-kudos-dock', hidden: true },
+      button, h('kbd', { class: 'retro-kudos-key', 'aria-hidden': 'true', text: 'N' }));
+    end.append(dock);
     const summary = h('p', { class: 'retro-kudos-summary', role: 'status' });
-    const people = h('ul', { class: 'retro-cards retro-kudos-people' });
+    const people = h('ul', { class: 'retro-kudos-people' });
     let dialog = null;
+    let unbindKey = null;
     let seen = ctx.view()?.celebrate ?? null;
     let closeCelebration = null;
 
@@ -173,12 +180,15 @@ export const kudos = {
       summary.textContent = offer.max === 0
         ? 'Kudos are turned off for this team.'
         : `You have ${offer.left} of ${offer.max} kudos left on this board.`;
+      if (offer.teammates.length === 0) {
+        replaceContent(people, h('li', { class: 'retro-kudos-empty', text: 'No other team members to give kudos to.' }));
+        return;
+      }
       replaceContent(people, offer.teammates.map((person) => h('li', { class: 'retro-kudos-person', dataset: { pid: person.pid } },
-        h('div', { class: 'retro-author' },
-          createAvatar({ name: person.name, src: avatarSrc(person.avatar), size: 'sm' }),
-          h('span', { class: 'retro-author-name', text: person.name })),
+        createAvatar({ name: person.name, src: avatarSrc(person.avatar), size: 'lg' }),
+        h('span', { class: 'retro-kudos-name', text: person.name }),
         h('div', {
-          class: 'retro-card-meta retro-kudos-types',
+          class: 'retro-kudos-types',
           role: 'group',
           'aria-label': `Kudos for ${person.name}`,
         }, offer.types.map((type) => {
@@ -192,7 +202,7 @@ export const kudos = {
             title: mine ? `Take back your ${type.name} kudos` : type.description ?? type.name,
             dataset: { type: type.id },
             on: { click: () => toggle(person, type, mine) },
-          }, h('span', { 'aria-hidden': 'true', text: type.emoji }), h('span', { text: type.name }),
+          }, h('span', { 'aria-hidden': 'true', text: type.emoji }), h('span', { class: 'retro-kudos-type-name', text: type.name }),
           received > 0 ? h('span', { class: 'badge', text: String(received) }) : null);
         })))));
     }
@@ -213,8 +223,17 @@ export const kudos = {
           button.focus();
         },
       });
+      dialog.el.querySelector('.dialog-title').prepend(icon('award'));
       paintDrawer(offer);
       dialog.open();
+    }
+
+    function toggleDrawer() {
+      if (dialog) {
+        dialog.close();
+      } else {
+        open();
+      }
     }
 
     function maybeCelebrate(view) {
@@ -239,7 +258,14 @@ export const kudos = {
     return {
       update(view) {
         const offer = kudosOf(view, ctx.me());
-        button.hidden = offer === null || offer.types.length === 0;
+        dock.hidden = offer === null || offer.types.length === 0;
+        // N works only while the tab does.
+        if (dock.hidden) {
+          unbindKey?.();
+          unbindKey = null;
+        } else {
+          unbindKey ??= bindKudosKey(toggleDrawer, () => dialog?.el ?? null);
+        }
         if (offer) {
           left.textContent = String(offer.left);
           if (dialog) {
@@ -251,9 +277,10 @@ export const kudos = {
         maybeCelebrate(view);
       },
       destroy() {
+        unbindKey?.();
         closeCelebration?.();
         dialog?.destroy();
-        button.remove();
+        dock.remove();
       },
     };
   },

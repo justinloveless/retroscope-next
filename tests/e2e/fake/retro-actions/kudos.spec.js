@@ -1,7 +1,7 @@
 import { expect, test } from '../_harness/fixtures.js';
 import { ALICE, BOB, CAROL, ROOM, TYPE_HELPER, TYPE_IDEAS, boardFor, openBoard, sent, serveTeam } from './_actions.js';
 
-const kudosButton = (page) => page.locator('.retro-kudos-button');
+const kudosButton = (page) => page.locator('.retro-kudos-tab');
 const drawer = (page) => page.getByRole('dialog', { name: 'Give kudos' });
 const kudosFor = (page, name) => drawer(page).getByRole('group', { name: `Kudos for ${name}` });
 

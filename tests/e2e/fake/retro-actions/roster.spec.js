@@ -26,7 +26,7 @@ for (const viewer of [DAVE, GUEST]) {
     // Give a wrongly subscribing page time to paint what it would have received.
     await page.waitForTimeout(500);
 
-    await expect(page.locator('.retro-kudos-button')).toBeHidden();
+    await expect(page.locator('.retro-kudos-tab')).toBeHidden();
     await expect(page.locator('.retro-prev-actions')).toHaveCount(0);
     await expect(cardsIn(page, 'Action Items').locator('.retro-action-item')).toBeHidden();
     await expect(page.locator('body')).not.toContainText(CAROL.name);
@@ -38,7 +38,7 @@ for (const viewer of [DAVE, GUEST]) {
 test('a member sees the same board with the team parts', async ({ page, fake }) => {
   serveFullTeam(fake);
   await openBoard(page, fake, { snap: boardFor({ cards: [actionCard(1)] }), me: BOB });
-  await expect(page.locator('.retro-kudos-button')).toBeVisible();
+  await expect(page.locator('.retro-kudos-tab')).toBeVisible();
   await expect(page.locator('.retro-prev-actions')).toContainText('Carol owns the deploy');
   await expect(cardsIn(page, 'Action Items').locator('.retro-assignee')).toHaveText('Carol Danvers');
   await expect.poll(() => teamSubs(fake).length).toBe(1);
@@ -51,7 +51,7 @@ test('losing the roster drops the team subscription and its parts', async ({ pag
 
   fake.tx(`board:${BOARD_ID}`, [{ k: 'retro.members', d: { members: [{ pid: ALICE.pid, name: ALICE.name, role: 'owner' }] } }]);
   await expect(page.locator('.retro-prev-actions')).toHaveCount(0);
-  await expect(page.locator('.retro-kudos-button')).toBeHidden();
+  await expect(page.locator('.retro-kudos-tab')).toBeHidden();
   await expect(cardsIn(page, 'Action Items').locator('.retro-action-item')).toBeHidden();
   await expect.poll(() => fake.received.some(({ frame }) => frame.t === 'unsub' && frame.r === `team:${TEAM_ID}`)).toBe(true);
 });
