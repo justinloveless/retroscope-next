@@ -65,6 +65,9 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
     /// <summary>Answer attachment downloads with a 303 to the media host even when <c>redirect=false</c> was asked for.</summary>
     public bool RedirectAttachments { get; set; }
 
+    /// <summary>Agile pages leave out <c>total</c>, as some sites do.</summary>
+    public bool OmitTotals { get; set; }
+
     /// <summary>Overrides the Location of the attachment redirect.</summary>
     public string? AttachmentLocation { get; set; }
 
@@ -173,14 +176,41 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
         .Select(link => (string)link!["id"]!)
         .Distinct()];
 
-    public JsonObject AddSprint(long id, string name, string state, string? startDate) {
-        var sprint = new JsonObject { ["id"] = id, ["name"] = name, ["state"] = state };
-        if (startDate is not null) {
-            sprint["startDate"] = startDate;
+    /// <param name="originBoardId">The board that owns the sprint; a board's sprint list leaves out other boards' sprints.</param>
+    public JsonObject AddSprint(
+        long id,
+        string name,
+        string state,
+        string? startDate,
+        string? endDate = null,
+        string? completeDate = null,
+        string? goal = null,
+        long? originBoardId = null) {
+        var sprint = new JsonObject {
+            ["id"] = id,
+            ["name"] = name,
+            ["state"] = state,
+            ["startDate"] = startDate,
+            ["endDate"] = endDate,
+            ["completeDate"] = completeDate,
+            ["goal"] = goal,
+            ["originBoardId"] = originBoardId,
+        };
+        foreach (var unset in sprint.Where(member => member.Value is null).Select(member => member.Key).ToList()) {
+            sprint.Remove(unset);
         }
         Sprints.Add(sprint);
         return sprint;
     }
+
+    /// <summary>Replaces the issue's whole sprint field, in order: how an issue carried from sprint to sprint looks.</summary>
+    public void SetSprints(string key, params long[] sprintIds) =>
+        Issues[key]["fields"]![SprintFieldId] = sprintIds.Length == 0
+            ? null
+            : new JsonArray([.. sprintIds.Select(id => Sprints.First(s => (long)s["id"]! == id).DeepClone())]);
+
+    /// <summary>Sets the issue's resolution date; null clears it.</summary>
+    public void Resolve(string key, string? resolutiondate) => Issues[key]["fields"]!["resolutiondate"] = resolutiondate;
 
     public JsonObject AddBoard(long id, string projectKey, string type = "scrum") {
         var board = new JsonObject {
@@ -344,7 +374,8 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
                     : NotFound("Board does not exist.");
             case "GET" when (m = BoardSprintsPath().Match(path)).Success: {
                 var states = ((string?)query["state"] ?? "active,future,closed").Split(',');
-                return (200, ValuesPage(Sprints.Where(s => states.Contains((string?)s["state"])).ToList(), query));
+                var boardId = long.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
+                return (200, ValuesPage(Sprints.Where(s => states.Contains((string?)s["state"]) && ((long?)s["originBoardId"] ?? boardId) == boardId).ToList(), query));
             }
             case "GET" when (m = SprintIssuesPath().Match(path)).Success: {
                 var sprintId = long.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
@@ -598,16 +629,20 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
         return removed > 0 ? (204, null) : NotFound("No issue link with id " + id + " exists.");
     }
 
-    private static JsonObject ValuesPage(List<JsonObject> all, IQueryCollection query) {
+    private JsonObject ValuesPage(List<JsonObject> all, IQueryCollection query) {
         var startAt = int.TryParse(query["startAt"], CultureInfo.InvariantCulture, out var s) ? s : 0;
         var maxResults = int.TryParse(query["maxResults"], CultureInfo.InvariantCulture, out var m) ? m : 50;
         var page = all.Skip(startAt).Take(maxResults).ToList();
-        return new JsonObject {
+        var result = new JsonObject {
             ["startAt"] = startAt,
             ["maxResults"] = maxResults,
             ["isLast"] = startAt + page.Count >= all.Count,
             ["values"] = new JsonArray([.. page.Select(v => v.DeepClone())]),
         };
+        if (!OmitTotals) {
+            result["total"] = all.Count;
+        }
+        return result;
     }
 
     [GeneratedRegex(@"^/rest/agile/1\.0/board/([0-9]+)$")]
