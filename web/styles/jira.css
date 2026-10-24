@@ -77,8 +77,9 @@
   margin-block: 0.75rem 0;
 }
 
-/* The prose and the editor sit in grid sections: without this a wide table would widen the whole description. */
-:is(.jira-prose, .jira-description-editor) { min-width: 0; max-width: 100%; }
+/* The prose and the editor sit in grid sections, and comments nest two grids deeper: without this a wide table would widen
+   the whole description or comment list. */
+:is(.jira-prose, .jira-description-editor, .jira-comments, .jira-comment) { min-width: 0; max-width: 100%; }
 
 :where(.jira-prose, .jira-description-editor) > :first-child,
 :where(.jira-prose) > .island:first-child > :first-child,
@@ -141,9 +142,8 @@
   padding: 0.5rem 0.75rem;
   border-radius: 3px;
   background: var(--jp-code-bg);
-  overflow-x: auto;
-  white-space: pre;
-  overflow-wrap: normal;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   line-height: 1.5;
 }
 
