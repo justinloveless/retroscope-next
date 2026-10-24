@@ -149,6 +149,25 @@ const STATES = [
       await page.waitForTimeout(400);
     },
   },
+  {
+    route: 'retro',
+    state: 'sprint-report-menu',
+    path: `/retro/${CODES.discussing}`,
+    ready: '.retro-sprint-open',
+    async act(page) {
+      await page.getByRole('button', { name: 'Sprint report' }).click();
+      const panel = page.getByRole('dialog', { name: 'Sprint report' });
+      await expect(panel.locator('.retro-sprint-row').first()).toBeVisible();
+      await panel.locator('.retro-sprint-person').click();
+      await page.getByRole('menuitem', { name: /^Priya Raman/ }).click();
+      await panel.locator('.retro-sprint-picker').click();
+      const menu = page.getByRole('menu', { name: 'Sprints' });
+      await menu.getByRole('menuitem', { name: 'Load more sprints' }).click();
+      await expect(menu.getByRole('menuitem', { name: 'Load more sprints' })).toBeHidden();
+      await menu.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      await page.waitForTimeout(400);
+    },
+  },
   { route: 'admin', state: 'teams', path: '/admin/teams', ready: 'role=searchbox', act: search('Platform Guild') },
   { route: 'admin', state: 'stats', path: '/admin/stats', ready: 'text=liveRooms' },
   {
