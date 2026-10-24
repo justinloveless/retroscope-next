@@ -70,8 +70,8 @@ retroscope-next/
   Retroscope.slnx
   build.sh                        # restore, build, test (dotnet + node), web build, AOT publish check
   .github/workflows/
-    ci.yml                        # build + test + AOT smoke on every PR
-    images.yml                    # on main/tag: build app + importer for linux-x64, AOT smoke, push to GHCR by digest
+    ci.yml                        # build + test + AOT smoke on every PR and push to main, then images.yml on main
+    images.yml                    # from ci on main, and on tags: build app + importer for linux-x64, AOT smoke, push to GHCR by digest
   db/
     migrations/0001_init.sql      # embedded into Retroscope.Server
   src/
@@ -1582,7 +1582,7 @@ Cold poker visit from a far region: TLS (1–2 RTT, HTTP/3 if Traefik enables it
 
 ### i.1 `deploy/docker-compose.yml`
 
-**The VPS never compiles (F1).** `.github/workflows/images.yml` builds `app` and `importer` for linux-x64 on GitHub-hosted runners, runs the AOT smoke test against a service-container Postgres, and pushes `ghcr.io/<owner>/retroscope:<sha>` and `…/retroscope-import:<sha>`. The Coolify compose file references images **by digest only**; `deploy/compose.build.yml` (local dev and CI) adds the `build:` sections. U43's check greps the Coolify compose file for `build:` and fails if present.
+**The VPS never compiles (F1).** `.github/workflows/images.yml` builds `app` and `importer` for linux-x64 on GitHub-hosted runners, runs the AOT smoke test against a service-container Postgres, packages the server binary that test probed into the app image, and pushes `ghcr.io/<owner>/retroscope:<sha>` and `…/retroscope-import:<sha>`. The Coolify compose file references images **by digest only**; `deploy/compose.build.yml` (local dev and CI) adds the `build:` sections. U43's check greps the Coolify compose file for `build:` and fails if present.
 
 ```yaml
 services:
