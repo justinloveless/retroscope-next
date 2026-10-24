@@ -63,12 +63,114 @@ test('the drawer shows the issue: fields, island-rich description, attachments, 
   await expect(sheet.locator('.jira-field-sprint')).toHaveText('Sprint 9');
   await expect(sheet.locator('.jira-description strong')).toHaveText('pay with a saved card');
   await expect(sheet.locator('.jira-description .island td').first()).toHaveText('Visa');
+  await expect(sheet.locator('.jira-description .panel-warning')).toHaveText('Never store the CVC.');
+  await expect(sheet.locator('.jira-description .status-green')).toHaveText('Ready');
+  await expect(sheet.locator('.jira-description .jira-user')).toHaveText('@Ada Fake');
+  await expect(sheet.locator('.jira-description time.date-lozenge')).toHaveAttribute('datetime', '2026-11-02');
+  await expect(sheet.locator('.jira-description figure.media img')).toHaveAttribute('alt', 'screenshot.png');
+  await expect(sheet.locator('.jira-description figure.media figcaption')).toHaveText('Saved cards list');
+  await expect(sheet.locator('.jira-description .island td').nth(1)).toHaveCSS('background-color', 'rgb(220, 255, 241)');
   await expect(sheet.locator('.jira-comment')).toHaveCount(2);
   await expect(sheet.getByRole('heading', { name: 'Comments (2)' })).toBeVisible();
   await expect(sheet.locator('.jira-comment').first()).toContainText('Amex');
+  await expect(sheet.locator('.jira-comment').nth(1).locator('.status-green')).toHaveText('Done');
+  await expect(sheet.locator('.jira-comment').nth(1).locator('.panel-info')).toHaveText('Amex ships in Sprint 10.');
+  await expect(sheet.locator('.jira-comment').nth(1).locator('.panel-info')).toHaveCSS('background-color', 'rgb(233, 242, 254)');
   await expect(sheet.getByRole('link', { name: 'Open RS-12 in Jira' })).toHaveAttribute('href', `https://${SITE}/browse/RS-12`);
   const thumb = sheet.getByRole('button', { name: 'View screenshot.png' }).locator('img');
   await expect(thumb).toHaveAttribute('src', /^\/api\/teams\/[^/]+\/jira\/issues\/RS-12\/attachments\/20001$/);
+});
+
+test('the fields read at a glance: visible labels, the assignee’s initials, the parent and short dates', async ({ page, fake }) => {
+  setupJira(fake);
+  await openBrowse(page);
+  const sheet = await openIssue(page, 'RS-12');
+
+  await expect(sheet.locator('.jira-meta-label')).toHaveText(['Status', 'Type', 'Priority', 'Assignee', 'Points', 'Parent', 'Sprint', 'Labels', 'Reporter', 'Created', 'Updated']);
+  for (const name of ['Change status: To Do', 'Change issue type: Story', 'Change priority: Medium', 'Change assignee: Ada Fake', 'Change story points: none', 'Change sprint: Sprint 9']) {
+    await expect(sheet.getByRole('button', { name, exact: true })).toBeVisible();
+  }
+  await expect(sheet.locator('.jira-field-assignee .jira-avatar')).toHaveAttribute('data-initials', 'AF');
+  await expect(sheet.locator('.jira-field-assignee .jira-avatar')).not.toHaveClass(/is-empty/);
+  await expect(sheet.locator('.jira-meta-labels .badge')).toHaveText(['payments']);
+  await expect(sheet.locator('.jira-meta-reporter dd')).toHaveText('Ada Fake');
+  // This year's dates leave the year out; the full date and time are the tooltip and the machine-readable value.
+  const updated = sheet.locator('.jira-meta-updated time');
+  await expect(updated).toHaveAttribute('datetime', '2026-10-13T09:30:00.000Z');
+  await expect(updated).toHaveAttribute('title', /^Oct 13, 2026.*9:30\sAM$/);
+  await expect(updated).toHaveText(new Date().getUTCFullYear() === 2026 ? 'Oct 13' : 'Oct 13, 2026');
+  // The short date is hidden from screen readers, which read the full date and time instead.
+  await expect(updated).toHaveAttribute('aria-hidden', 'true');
+  await expect(sheet.locator('.jira-meta-updated .sr-only')).toHaveText(/^Oct 13, 2026.*9:30\sAM$/);
+
+  const parent = sheet.locator('.jira-meta-parent').getByRole('button');
+  await expect(parent).toContainText('RS-1');
+  await expect(parent).toContainText('Checkout epic');
+  await parent.click();
+  await expect(drawer(page)).toHaveAttribute('data-key', 'RS-1');
+  await expect(sheet.getByRole('button', { name: /^Edit summary/ })).toHaveText('Checkout epic');
+});
+
+test('empty fields stay visible and say so in words', async ({ page, fake }) => {
+  setupJira(fake);
+  await openBrowse(page);
+  const sheet = await openIssue(page, 'RS-20');
+
+  await expect(sheet.locator('.jira-field-assignee')).toHaveText('Unassigned');
+  await expect(sheet.locator('.jira-field-assignee .jira-avatar')).toHaveClass(/is-empty/);
+  await expect(sheet.getByRole('button', { name: 'Change assignee: Unassigned', exact: true })).toBeVisible();
+  await expect(sheet.locator('.jira-field-points')).toHaveText('Not estimated');
+  await expect(sheet.getByRole('button', { name: 'Change story points: none', exact: true })).toBeVisible();
+  await expect(sheet.locator('.jira-meta-parent dd')).toHaveText('No parent');
+  await expect(sheet.locator('.jira-meta-labels dd')).toHaveText('No labels');
+  await expect(sheet.locator('.jira-meta-parent .is-unset, .jira-meta-labels .is-unset')).toHaveCount(2);
+  await expect(sheet.locator('.jira-meta-reporter dd')).toHaveText('Grace Fixture');
+  // A past year's date keeps its year.
+  await expect(sheet.locator('.jira-meta-created time')).toHaveText('Jun 30, 2025');
+  await expect(sheet.locator('.jira-meta-created time')).toHaveAttribute('datetime', '2025-06-30T08:39:00.000Z');
+});
+
+test('a chip’s caret shows on hover, on focus and while its menu is open, and stays faint on touch', async ({ page, fake, browserName }) => {
+  setupJira(fake);
+  await openBrowse(page);
+  const sheet = await openIssue(page, 'RS-12');
+  const chip = sheet.locator('.jira-field-priority');
+  const caret = chip.locator('.jira-chip-caret');
+  const opacity = () => caret.evaluate((el) => Number(getComputedStyle(el).opacity));
+
+  if (isPhone(page)) {
+    await expect.poll(opacity).toBeCloseTo(0.45);
+    return;
+  }
+  await page.mouse.move(0, 0);
+  await expect.poll(opacity).toBe(0);
+  await chip.hover();
+  await expect.poll(opacity).toBeGreaterThan(0.5);
+  await page.mouse.move(0, 0);
+  await expect.poll(opacity).toBe(0);
+  // Opened from the keyboard, so every engine has the chip as the menu's opener.
+  await chip.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('menuitem', { name: 'Highest' })).toBeFocused();
+  await page.mouse.move(0, 0);
+  await expect(chip).toHaveAttribute('aria-expanded', 'true');
+  await expect.poll(opacity).toBeGreaterThan(0.5);
+  await page.keyboard.press('Escape');
+  await expect(chip).toHaveAttribute('aria-expanded', 'false');
+  await expect(chip).toBeFocused();
+  // Tab from the chip before it; Safari's Tab skips buttons, and there focus after a key press is keyboard focus.
+  if (browserName === 'webkit') {
+    await chip.focus();
+  } else {
+    await sheet.locator('.jira-field-type').focus();
+    await page.keyboard.press('Tab');
+  }
+  await expect(chip).toBeFocused();
+  await expect.poll(() => chip.evaluate((el) => el.matches(':focus-visible'))).toBe(true);
+  await expect.poll(opacity).toBeGreaterThan(0.5);
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect.poll(() => caret.evaluate((el) => parseFloat(getComputedStyle(el).transitionDuration))).toBeLessThan(0.001);
 });
 
 test('field edits go through the proxy and the drawer reloads', async ({ page, fake }) => {
@@ -121,19 +223,38 @@ test('field edits go through the proxy and the drawer reloads', async ({ page, f
   expect(call('PUT', '/issues/:key/sprint').body).toEqual({ sprintId: null });
 });
 
-test('editing the description keeps its islands and sends descriptionBase', async ({ page, fake }) => {
+// The rich editor (rich-editor.spec.js) edits descriptions; the markup editor with islands stays only for an edit
+// view Jira does not hold as ADF, until phase 12 removes it.
+function markupOnly(fake, jira) {
+  fake.route('GET', '/api/teams/:teamId/jira/issues/RS-12/description', () => ({
+    body: { key: 'RS-12', updated: jira.issues.get('RS-12').updated, editable: false, adf: null, media: [], opaque: [], marks: [], limits: { nodes: 5000, depth: 28, text: 32000, bytes: 1048576 } },
+  }));
+}
+
+test('a description without an ADF edit view is edited as markup, keeping its islands and sending descriptionBase', async ({ page, fake }) => {
   const { jira } = setupJira(fake);
+  markupOnly(fake, jira);
   await openBrowse(page);
   const sheet = await openIssue(page, 'RS-12');
   const before = jira.issues.get('RS-12').updated;
 
   await sheet.getByRole('button', { name: 'Edit description' }).click();
   await expect(sheet.locator('.jira-description-editor .island td').first()).toHaveText('Visa');
-  await expect(sheet.locator('.jira-description-editor .island')).toHaveAttribute('contenteditable', 'false');
+  const islands = sheet.locator('.jira-description-editor .island');
+  await expect(islands).toHaveCount(6);
+  // The table island is 760 px wide: it scrolls inside the editor instead of widening it past the description.
+  const editorBox = await sheet.locator('.jira-description-editor').boundingBox();
+  const sectionBox = await sheet.locator('.jira-description').boundingBox();
+  expect(editorBox.width).toBeLessThanOrEqual(sectionBox.width + 1);
+  for (const island of await islands.all()) {
+    await expect(island).toHaveAttribute('contenteditable', 'false');
+  }
   await caretInLastItem(page);
   await page.keyboard.type('Then ');
   await sheet.getByRole('button', { name: 'Save', exact: true }).click();
 
+  // The editor sits inside the description section, so its own list would match the text below before the save.
+  await expect(sheet.locator('.jira-description-editor')).toHaveCount(0);
   await expect(sheet.locator('.jira-description li').last()).toHaveText('Then asks for the CVC');
   const patch = jira.calls.filter((c) => c.method === 'PATCH').at(-1).body;
   expect(patch.descriptionBase).toBe(before);
@@ -143,13 +264,15 @@ test('editing the description keeps its islands and sends descriptionBase', asyn
   await expect(sheet.locator('.jira-description .island td').first()).toHaveText('Visa');
 });
 
-test('a description edited in Jira meanwhile is refused as stale and the drawer reloads', async ({ page, fake }) => {
+test('a markup description edited in Jira meanwhile is refused as stale and the drawer reloads', async ({ page, fake }) => {
   const { jira } = setupJira(fake);
+  markupOnly(fake, jira);
   await openBrowse(page);
   const sheet = await openIssue(page, 'RS-12');
   const original = jira.issues.get('RS-12').description;
 
   await sheet.getByRole('button', { name: 'Edit description' }).click();
+  await expect(sheet.locator('.jira-description-editor')).toBeVisible();
   await caretInLastItem(page);
   await page.keyboard.type('Later ');
   jira.touch('RS-12', { summary: 'Pay with a saved card (edited in Jira)' });
@@ -174,7 +297,7 @@ const detail = (key, extra) => ({
   ...extra,
 });
 
-test('a description the server marks read-only, or one without a markup form, offers no editing', async ({ page, fake }) => {
+test('a description the server marks read-only offers no editing; one without a markup form opens in the rich editor', async ({ page, fake }) => {
   setupJira(fake, { rounds: [round(R1, 1, { ticketKey: 'RS-13' })] });
   fake.route('GET', '/api/teams/:teamId/jira/issues/RS-13', {
     body: detail('RS-13', {
@@ -199,7 +322,7 @@ test('a description the server marks read-only, or one without a markup form, of
   await expect(sheet).toHaveAttribute('data-key', 'RS-14');
   await expect(view).toHaveAttribute('data-key', 'RS-13');
   await expect(sheet.locator('.jira-description .panel-info')).toHaveText('A bare panel.');
-  await expect(sheet.getByRole('button', { name: 'Edit description' })).toHaveCount(0);
+  await expect(sheet.getByRole('button', { name: 'Edit description' })).toBeVisible();
 });
 
 test('comments page in 20s and a new comment goes to the top', async ({ page, fake }) => {
@@ -288,6 +411,11 @@ test('without edit rights the drawer is read-only', async ({ page, fake }) => {
   await expect(sheet.locator('.jira-summary-edit')).toHaveCount(0);
   await expect(sheet.locator('button.jira-field-status')).toHaveCount(0);
   await expect(sheet.locator('span.jira-field-status')).toContainText('To Do');
+  await expect(sheet.locator('.jira-meta-label')).toHaveText(['Status', 'Type', 'Priority', 'Assignee', 'Points', 'Parent', 'Sprint', 'Labels', 'Reporter', 'Created', 'Updated']);
+  await expect(sheet.locator('.jira-chip-caret')).toHaveCount(0);
+  // Without a caret or an outline, a field that cannot be changed does not look like one that can.
+  await expect.poll(() => sheet.locator('span.jira-field-status').evaluate((el) => getComputedStyle(el).borderTopColor)).toBe('rgba(0, 0, 0, 0)');
+  await expect(sheet.locator('.jira-meta-parent').getByRole('button')).toBeEnabled();
   await expect(sheet.getByRole('button', { name: 'Edit description' })).toHaveCount(0);
   await expect(sheet.getByRole('button', { name: 'Clone' })).toHaveCount(0);
   await expect(sheet.getByRole('textbox', { name: 'Add a comment' })).toHaveCount(0);

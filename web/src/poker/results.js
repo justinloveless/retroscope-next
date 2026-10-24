@@ -128,9 +128,10 @@ function createPiles() {
 /**
  * The overlay. round(state, id, {revealed, live}) follows the viewed round: it fills the piles, reopens the
  * overlay unless this tab minimized it for that round (a live reveal forgets that), and on a live reveal takes
- * focus unless the viewer is typing. show(winner, nodes) puts the winner in its head and `nodes` (the round
- * actions, the submit chips) below the piles; the table moves them back to the dock while it is minimized.
- * `showResults` is the dock's button that reopens it. onToggle() runs after Minimize or Show results.
+ * focus unless the viewer is typing. fill(winner, nodes) puts the winner in its head and `nodes` (Replay, the
+ * round actions, the submit chips) below the piles; show() and hide() open and close it, and the table moves
+ * what the dock needs back there while it is minimized. `showResults` is the dock's button that reopens it.
+ * onToggle() runs after Minimize or Show results.
  */
 export function createResultsOverlay({ onToggle }) {
   const piles = createPiles();
@@ -178,10 +179,12 @@ export function createResultsOverlay({ onToggle }) {
         reconcile(piles.el, [], (p) => p.key, null, null);
       }
     },
-    show(winner, nodes) {
-      el.hidden = false;
+    fill(winner, nodes) {
       winnerSlot.replaceChildren(winner);
       body.replaceChildren(...nodes);
+    },
+    show() {
+      el.hidden = false;
     },
     hide() {
       el.hidden = true;

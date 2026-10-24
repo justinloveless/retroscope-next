@@ -105,7 +105,7 @@ test('the reveal flips each seat to its vote; before it no vote value is in the 
       faces: [...seats.querySelectorAll('[data-card]')].map((c) => c.dataset.card).filter((c) => c !== 'back'),
       text: seats.textContent.match(/\d/g) ?? [],
       labels: [...seats.querySelectorAll('[aria-label]')].map((s) => s.getAttribute('aria-label')).filter((l) => /\d|voted/.test(l)),
-      results: document.querySelectorAll('.nt-stack').length,
+      results: document.querySelectorAll('.nt-pile').length,
     };
   });
   expect(await leaks()).toEqual({ faces: [], text: [], labels: [], results: 0 });

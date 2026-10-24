@@ -41,7 +41,7 @@ U33 done verified= True open= []
    FU: U26: serve the HTTP shapes in docs/decisions/U33.md, contract 1. That includes optional 'editable', links with type, direction and optional label, and link POST {typeId, direction, targetKey}. Alternatively, change the screens and specs to new shapes in the same integration commit.
    FU: Integrator: merge the poker/index.js FEATURES line with U32's entry (one-line conflict).
    FU: U31: a 'center' (or 'table') slot in ctx.slots would replace the DOM lookup submit.js uses to place the chips.
-   FU: U10/UF11: add a jira.css to ROUTE_STYLES for poker routes so the CSSOM layout rules can move into a stylesheet. Style .panel-*, .island and Jira tables inside .jira-prose.
+   FU: U10/UF11: add a jira.css to ROUTE_STYLES for poker routes so the CSSOM layout rules can move into a stylesheet. Style .panel-*, .island and Jira tables inside .jira-prose. (Done on 2026-10-22 by UX8: web/styles/jira.css is in ROUTE_STYLES for poker routes and styles panels, islands, tables and every other Jira kind inside .jira-prose. The drawer's own layout rules still use the CSSOM.)
    FU: UF11: once lazy chunks are measured net of their importer, issue-drawer.js can lazy-import markup/editor.js.
    FU: U32 and whoever builds the right panel's Issue/History tabs: createIssueDrawer can be hosted inline (§0.1). Round-chip hover prefetch needs the drawer's prefetch exposed through the feature context.
    FU: Panel resizing (240–480 px, §g.8) of the left Jira panel is not done; wrap the slot with ui/resizable.js.

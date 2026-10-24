@@ -7,7 +7,7 @@
 import { h, replaceContent } from '../core/h.js';
 import { http } from '../core/http.js';
 import { createButton } from '../ui/button.js';
-import { createResizable } from '../ui/resizable.js';
+import { createSidePanel } from '../ui/side-panel.js';
 import { toast } from '../ui/toast.js';
 import { readPanels, writePanel } from './history.js';
 import { roundById, uuidv7 } from './model.js';
@@ -133,11 +133,13 @@ function createSubmit({ onSubmit }) {
   const chips = h('div', { class: 'jira-submit-chips', role: 'group', 'aria-label': 'Points to submit' });
   const send = createButton({ label: 'Submit to Jira', icon: 'send', variant: 'emerald', press: true, size: 'sm', onClick: () => onSubmit(chosen) });
   const status = h('p', { class: 'jira-submit-status', role: 'status' });
+  // While the results are minimized, the table puts Show results in this row, beside Submit.
+  const sendRow = h('div', { class: 'jira-submit-send', dataset: { resultsInline: '' } }, send.el);
   const el = h('section', {
     class: 'jira-submit',
     'aria-label': 'Submit points to Jira',
     hidden: true,
-  }, chips, send.el, status);
+  }, chips, sendRow, status);
   const buttons = SUBMIT_CHIPS.map((points) => createButton({
     label: String(points),
     variant: 'default',
@@ -206,9 +208,10 @@ function createSubmit({ onSubmit }) {
  */
 export function jiraFeature(ctx) {
   const { room, me, slots } = ctx;
-  const toggle = createButton({ label: 'Browse Jira', icon: 'panel-left', variant: 'ghost', size: 'sm', pressed: false, className: 'jira-toggle', onClick: () => setPanel(!panelOpen, true) });
-  toggle.el.hidden = true;
-  slots.toolbar.append(toggle.el);
+  // Phones have no side panels; the bottom bar's button opens the browse sheet instead.
+  const mobileOpen = createButton({ label: 'Browse Jira', icon: 'search', iconOnly: true, variant: 'default', press: true, size: 'sm', onClick: () => setPanel(true, false) });
+  mobileOpen.el.hidden = true;
+  slots.bottom.append(mobileOpen.el);
   const submit = createSubmit({ onSubmit: submitPoints });
 
   let view = null;
@@ -221,7 +224,7 @@ export function jiraFeature(ctx) {
   let drawerLoad = null;
   let issuePanel = null;
   let sheet = null;
-  let resizer = null;
+  let side = null;
   let panelOpen = false;
   let preview = null;
   let idle = 0;
@@ -259,7 +262,19 @@ export function jiraFeature(ctx) {
     if (!team) {
       return;
     }
-    toggle.el.hidden = false;
+    mobileOpen.el.hidden = false;
+    // Resizable 240–480 px like the Round panel (§g.8); open and width are kept in rs.panels.left.
+    side ??= createSidePanel({
+      panel: slots.left,
+      edge: 'left',
+      name: 'Jira panel',
+      openIcon: 'search',
+      width: readPanels().left?.width ?? 320,
+      open: false,
+      onToggle: (open) => setPanel(open, true),
+      onCommit: (width) => writePanel('left', { width }),
+    });
+    slots.left.classList.add('jira-panel');
     loadDrawer();
     idle = setTimeout(loadBrowse, IDLE_PREFETCH_MS);
     if (!mobile() && readPanels().left?.open !== false) {
@@ -277,6 +292,10 @@ export function jiraFeature(ctx) {
         }
       }
       return browse;
+    }, (error) => {
+      // Forget the failed chunk so the next open retries it.
+      browseLoad = null;
+      throw error;
     });
     return browseLoad;
   }
@@ -301,16 +320,28 @@ export function jiraFeature(ctx) {
 
   async function setPanel(open, remember) {
     panelOpen = open;
-    toggle.update({ pressed: open });
     if (remember && !mobile()) {
       writePanel('left', { open });
     }
     if (!open) {
-      slots.left.hidden = true;
+      side?.setOpen(false, { focus: remember });
       sheet?.hide();
       return;
     }
-    const panel = await loadBrowse();
+    if (!mobile()) {
+      side?.setOpen(true, { focus: remember });
+    }
+    let panel;
+    try {
+      panel = await loadBrowse();
+    } catch {
+      if (panelOpen) {
+        panelOpen = false;
+        side?.setOpen(false);
+        toast('Could not load the Jira panel. Try again.', { variant: 'error' });
+      }
+      return;
+    }
     if (!panel || !panelOpen) {
       return;
     }
@@ -318,18 +349,8 @@ export function jiraFeature(ctx) {
       sheet ??= createSheet({ side: 'left', label: 'Browse Jira', width: '28rem', onClose: () => setPanel(false, false) });
       sheet.body.append(panel.el);
       sheet.open();
-    } else {
-      // Resizable 240–480 px like the Round panel (§g.8); the width is kept in rs.panels.left.
-      resizer ??= createResizable({
-        panel: slots.left,
-        side: 'right',
-        width: readPanels().left?.width ?? 320,
-        label: 'Resize Jira panel',
-        onCommit: (width) => writePanel('left', { width }),
-      });
-      slots.left.classList.add('jira-panel');
-      slots.left.replaceChildren(panel.el, resizer.el);
-      slots.left.hidden = false;
+    } else if (panel.el.parentNode !== slots.left) {
+      slots.left.prepend(panel.el);
     }
   }
 
@@ -432,11 +453,10 @@ export function jiraFeature(ctx) {
       issuePanel?.destroy();
       sheet?.destroy();
       submit.el.remove();
-      toggle.el.remove();
-      resizer?.destroy();
+      mobileOpen.el.remove();
+      side?.destroy();
       slots.left.hidden = true;
       slots.left.classList.remove('jira-panel');
-      slots.left.style.removeProperty('width');
       replaceContent(slots.left);
     },
   };

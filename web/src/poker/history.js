@@ -4,8 +4,7 @@
 
 import { h } from '../core/h.js';
 import { reconcile } from '../core/list.js';
-import { createButton } from '../ui/button.js';
-import { createResizable } from '../ui/resizable.js';
+import { createSidePanel } from '../ui/side-panel.js';
 import { createTabs } from '../ui/tabs.js';
 import { voteLabel } from './model.js';
 import { personOf } from './strip.js';
@@ -116,7 +115,7 @@ export function createHistoryList(ctx) {
 const panels = new WeakMap();
 
 /**
- * The Round panel in the right-hand slot: a tab list, a collapse button and a resize grip. One per
+ * The Round panel in the right-hand slot: a tab list with the drawer handles (side-panel.js). One per
  * slot; `addTab({id, label, order})` returns the tab's panel element.
  */
 export function roundPanel(slot) {
@@ -128,30 +127,21 @@ export function roundPanel(slot) {
   const tabs = [];
   const tablist = createTabs({ tabs: [], label: 'Round panel', onChange: (id) => writePanel('right', { tab: id }) });
   const body = h('div', { class: 'nt-round-panel-body' });
-  const collapse = createButton({ label: 'Collapse panel', icon: 'chevron-right', iconOnly: true, variant: 'ghost', size: 'sm', onClick: () => setOpen(false) });
-  const reopen = h('button', { type: 'button', class: 'nt-panel-tab', 'aria-label': 'Open round panel', hidden: true, on: { click: () => setOpen(true) } },
-    h('span', { text: 'History' }));
-  const resizer = createResizable({ panel: slot, side: 'left', width: saved.width ?? 320, label: 'Resize round panel', onCommit: (width) => writePanel('right', { width }) });
   slot.classList.add('nt-round-panel');
-  slot.append(resizer.el, h('div', { class: 'nt-round-panel-head' }, tablist.el, collapse.el), body);
-  slot.after(reopen);
-  slot.hidden = false;
-
-  function setOpen(open) {
-    slot.hidden = !open;
-    reopen.hidden = open;
-    writePanel('right', { open });
-    if (open) {
-      collapse.el.focus();
-    } else {
-      reopen.focus();
-    }
-  }
-
-  if (saved.open === false) {
-    slot.hidden = true;
-    reopen.hidden = false;
-  }
+  slot.append(h('div', { class: 'nt-round-panel-head' }, tablist.el), body);
+  const side = createSidePanel({
+    panel: slot,
+    edge: 'right',
+    name: 'round panel',
+    openIcon: 'list-ordered',
+    width: saved.width ?? 320,
+    open: saved.open !== false,
+    onToggle(open) {
+      side.setOpen(open, { focus: true });
+      writePanel('right', { open });
+    },
+    onCommit: (width) => writePanel('right', { width }),
+  });
 
   panel = {
     addTab({ id, label, order = 0 }) {
@@ -166,8 +156,7 @@ export function roundPanel(slot) {
     destroy() {
       panels.delete(slot);
       tablist.destroy();
-      resizer.destroy();
-      reopen.remove();
+      side.destroy();
       slot.replaceChildren();
       slot.classList.remove('nt-round-panel');
       slot.hidden = true;

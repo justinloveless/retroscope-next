@@ -14,9 +14,14 @@ internal sealed class AdfReader(AdfMediaMap media) {
         Italic,
         Strike,
         Underline,
+        Background,
+        TextColor,
+        Sub,
+        Sup,
     }
 
-    private readonly record struct Mark(MarkKind Kind, string Href);
+    // Value is the href of a link and the DocColor value of a colour mark; Title is a link's title.
+    private readonly record struct Mark(MarkKind Kind, string Value, string? Title = null);
 
     private readonly record struct Piece(DocInline Leaf, Mark[] Marks);
 
@@ -49,6 +54,8 @@ internal sealed class AdfReader(AdfMediaMap media) {
         var inner = depth + 1;
         switch (AdfJson.Type(node)) {
             case "paragraph":
+                AddParagraph(output, Pieces(node, inner), BlockFormat(node));
+                break;
             case "taskItem":
             case "decisionItem":
                 AddParagraph(output, Pieces(node, inner));
@@ -56,7 +63,7 @@ internal sealed class AdfReader(AdfMediaMap media) {
             case "heading":
                 var heading = TrimLines(Group(Pieces(node, inner)));
                 if (!IsBlank(heading)) {
-                    output.Add(new DocHeading(HeadingLevel(node), heading));
+                    output.Add(new DocHeading(HeadingLevel(node), heading, BlockFormat(node)));
                 }
                 break;
             case "bulletList":
@@ -66,7 +73,10 @@ internal sealed class AdfReader(AdfMediaMap media) {
                 AddList(output, ListItems(node, inner), items => new DocOrderedList(OrderedStart(node), items));
                 break;
             case "decisionList":
-                AddList(output, DecisionItems(node, inner), items => new DocBulletList(items));
+                var decisions = DecisionItems(node, inner);
+                if (decisions.Count > 0) {
+                    output.Add(new DocDecisionList(decisions));
+                }
                 break;
             case "codeBlock":
                 output.Add(new DocCodeBlock(CodeLanguage(node), CodeText(node, inner)));
@@ -78,32 +88,44 @@ internal sealed class AdfReader(AdfMediaMap media) {
                 output.Add(new DocRule());
                 break;
             case "panel":
-                output.Add(new DocPanel(PanelKind(AdfJson.Attr(node, "panelType")), Blocks(node, inner)));
+                output.Add(Panel(node, inner));
                 break;
             case "expand":
             case "nestedExpand":
                 output.Add(new DocExpand(AdfJson.Attr(node, "title") ?? "", Blocks(node, inner)));
                 break;
             case "table":
-                output.Add(new DocTable(TableRows(node, inner)));
+                output.Add(new DocTable(
+                    TableRows(node, inner),
+                    Layout(AdfJson.Attr(node, "layout")),
+                    AdfJson.TryAttr(node, "isNumberColumnEnabled", out var numbered) && numbered.ValueKind == JsonValueKind.True,
+                    Pixels(AdfJson.Number(node, "width"))));
+                break;
+            case "layoutSection":
+                var columns = LayoutColumns(node, inner);
+                if (columns.Count > 0) {
+                    output.Add(new DocLayoutSection(columns));
+                }
                 break;
             case "taskList":
-                var tasks = new List<DocTaskItem>();
+                var tasks = new List<DocNode>();
                 TaskItems(node, inner, tasks);
                 if (tasks.Count > 0) {
                     output.Add(new DocTaskList(tasks));
                 }
                 break;
             case "mediaSingle":
+                MediaSingle(node, inner, output);
+                break;
             case "mediaGroup":
-                MediaBlock(node, inner, output);
+                MediaGroup(node, inner, output);
                 break;
             case "media":
                 AddParagraph(output, [new Piece(Media(node), [])]);
                 break;
             case "blockCard":
             case "embedCard":
-                AddParagraph(output, [new Piece(Card(node), [])]);
+                AddParagraph(output, [new Piece(Card(node, block: true), [])]);
                 break;
             case var type when IsInline(type):
                 var pieces = new List<Piece>();
@@ -153,14 +175,46 @@ internal sealed class AdfReader(AdfMediaMap media) {
         return items;
     }
 
-    private List<DocListItem> DecisionItems(JsonElement list, int depth) {
-        var items = new List<DocListItem>();
+    private List<DocDecisionItem> DecisionItems(JsonElement list, int depth) {
+        var items = new List<DocDecisionItem>();
         foreach (var child in AdfJson.Children(list)) {
-            var blocks = new List<DocBlock>();
-            Block(child, depth, blocks);
-            items.Add(new DocListItem(blocks));
+            if (!Enter(depth)) {
+                continue;
+            }
+            var decided = AdfJson.Attr(child, "state") == "DECIDED";
+            var pieces = AdfJson.Type(child) == "decisionItem" ? Pieces(child, depth + 1) : BlockPieces(child, depth + 1);
+            items.Add(new DocDecisionItem(decided, TrimLines(Group(pieces))));
         }
         return items;
+    }
+
+    private DocPanel Panel(JsonElement node, int depth) {
+        var kind = PanelKind(AdfJson.Attr(node, "panelType"));
+        var blocks = Blocks(node, depth);
+        if (kind != DocPanelKind.Custom) {
+            return new DocPanel(kind, blocks);
+        }
+        var icon = AdfJson.Attr(node, "panelIconText");
+        return new DocPanel(kind, blocks, AdfColor.Background(AdfJson.Attr(node, "panelColor")), icon is { Length: > 0 and <= 16 } ? icon : null);
+    }
+
+    // Children that are not columns get a column of their own, so no content is lost.
+    private List<DocLayoutColumn> LayoutColumns(JsonElement section, int depth) {
+        var columns = new List<DocLayoutColumn>();
+        foreach (var child in AdfJson.Children(section)) {
+            if (AdfJson.Type(child) == "layoutColumn") {
+                if (Enter(depth)) {
+                    columns.Add(new DocLayoutColumn(ColumnWidth(AdfJson.Number(child, "width")), Blocks(child, depth + 1)));
+                }
+                continue;
+            }
+            var blocks = new List<DocBlock>();
+            Block(child, depth, blocks);
+            if (blocks.Count > 0) {
+                columns.Add(new DocLayoutColumn(0, blocks));
+            }
+        }
+        return columns;
     }
 
     private static void AddList(List<DocBlock> output, List<DocListItem> items, Func<List<DocListItem>, DocBlock> create) {
@@ -178,7 +232,7 @@ internal sealed class AdfReader(AdfMediaMap media) {
             var cells = new List<DocTableCell>();
             foreach (var cell in AdfJson.Children(row)) {
                 if (Enter(depth + 1)) {
-                    cells.Add(new DocTableCell(AdfJson.Type(cell) == "tableHeader", Blocks(cell, depth + 2)));
+                    cells.Add(new DocTableCell(AdfJson.Type(cell) == "tableHeader", Blocks(cell, depth + 2), CellFormat(cell)));
                 }
             }
             rows.Add(new DocTableRow(cells));
@@ -186,15 +240,19 @@ internal sealed class AdfReader(AdfMediaMap media) {
         return rows;
     }
 
-    // Nested task lists are flattened into their parent: the Doc has no task indentation.
-    private void TaskItems(JsonElement list, int depth, List<DocTaskItem> output) {
+    // A nested task list stays a list inside its parent, so its indentation shows.
+    private void TaskItems(JsonElement list, int depth, List<DocNode> output) {
         foreach (var child in AdfJson.Children(list)) {
             if (!Enter(depth)) {
                 continue;
             }
             var type = AdfJson.Type(child);
             if (type == "taskList") {
-                TaskItems(child, depth + 1, output);
+                var nested = new List<DocNode>();
+                TaskItems(child, depth + 1, nested);
+                if (nested.Count > 0) {
+                    output.Add(new DocTaskList(nested));
+                }
                 continue;
             }
             var done = AdfJson.Attr(child, "state") == "DONE";
@@ -215,8 +273,8 @@ internal sealed class AdfReader(AdfMediaMap media) {
         return pieces;
     }
 
-    private void MediaBlock(JsonElement node, int depth, List<DocBlock> output) {
-        var media = new List<Piece>();
+    private void MediaSingle(JsonElement node, int depth, List<DocBlock> output) {
+        var media = new List<DocInline>();
         var caption = new List<Piece>();
         foreach (var child in AdfJson.Children(node)) {
             if (!Enter(depth)) {
@@ -225,11 +283,32 @@ internal sealed class AdfReader(AdfMediaMap media) {
             if (AdfJson.Type(child) == "caption") {
                 Collect(child, depth + 1, caption);
             } else {
-                media.Add(new Piece(Media(child), []));
+                media.Add(Media(child));
             }
         }
-        AddParagraph(output, media);
-        AddParagraph(output, caption);
+        var captionInlines = TrimLines(Group(caption));
+        if (IsBlank(captionInlines)) {
+            captionInlines = [];
+        }
+        if (media.Count == 0) {
+            AddParagraph(output, captionInlines);
+            return;
+        }
+        var pixels = AdfJson.Attr(node, "widthType") == "pixel";
+        var width = pixels ? Pixels(AdfJson.Number(node, "width")) : Percent(AdfJson.Number(node, "width"));
+        output.Add(new DocMedia(Layout(AdfJson.Attr(node, "layout")), width, pixels ? DocWidthUnit.Pixel : DocWidthUnit.Percent, media, captionInlines));
+    }
+
+    private void MediaGroup(JsonElement node, int depth, List<DocBlock> output) {
+        var media = new List<DocInline>();
+        foreach (var child in AdfJson.Children(node)) {
+            if (Enter(depth)) {
+                media.Add(Media(child));
+            }
+        }
+        if (media.Count > 0) {
+            output.Add(new DocMediaGroup(media));
+        }
     }
 
     private List<Piece> Pieces(JsonElement node, int depth) {
@@ -255,23 +334,28 @@ internal sealed class AdfReader(AdfMediaMap media) {
                 pieces.Add(new Piece(new DocLineBreak(), []));
                 break;
             case "mention":
-                var name = AdfJson.Attr(node, "text") ?? "";
-                pieces.Add(new Piece(new DocText(name.StartsWith('@') ? name : "@" + name), []));
+                var name = AdfJson.Attr(node, "text");
+                pieces.Add(new Piece(new DocUser(string.IsNullOrEmpty(name) ? "@unknown" : name.StartsWith('@') ? name : "@" + name), []));
                 break;
             case "emoji":
                 AddPlain(pieces, AdfJson.Attr(node, "text") ?? AdfJson.Attr(node, "shortName"));
                 break;
             case "date":
-                AddPlain(pieces, FormatDate(AdfJson.Attr(node, "timestamp")));
+                var timestamp = AdfJson.Attr(node, "timestamp");
+                if (Day(timestamp) is { } day) {
+                    pieces.Add(new Piece(new DocDate(day), []));
+                } else {
+                    AddPlain(pieces, timestamp);
+                }
                 break;
             case "status":
                 var text = AdfJson.Attr(node, "text");
                 if (!string.IsNullOrEmpty(text)) {
-                    pieces.Add(new Piece(new DocStatus(text, StatusColor(AdfJson.Attr(node, "color"))), []));
+                    pieces.Add(new Piece(new DocStatus(text, StatusColor(AdfJson.Attr(node, "color")), AdfJson.Attr(node, "style") == "bold"), []));
                 }
                 break;
             case "inlineCard":
-                pieces.Add(new Piece(Card(node), []));
+                pieces.Add(new Piece(Card(node, block: false), []));
                 break;
             case "media":
             case "mediaInline":
@@ -311,7 +395,11 @@ internal sealed class AdfReader(AdfMediaMap media) {
                 "em" => new Mark(MarkKind.Italic, ""),
                 "strike" => new Mark(MarkKind.Strike, ""),
                 "underline" => new Mark(MarkKind.Underline, ""),
-                "link" when AdfHref.Allowed(AdfJson.Attr(mark, "href")) is { } href => new Mark(MarkKind.Link, href),
+                "link" when AdfHref.Allowed(AdfJson.Attr(mark, "href")) is { } href => new Mark(MarkKind.Link, href, LinkTitle(AdfJson.Attr(mark, "title"))),
+                "textColor" when AdfColor.Text(AdfJson.Attr(mark, "color")) is { } color => new Mark(MarkKind.TextColor, color),
+                "backgroundColor" when AdfColor.Background(AdfJson.Attr(mark, "color")) is { } color => new Mark(MarkKind.Background, color),
+                "subsup" when AdfJson.Attr(mark, "type") == "sub" => new Mark(MarkKind.Sub, ""),
+                "subsup" when AdfJson.Attr(mark, "type") == "sup" => new Mark(MarkKind.Sup, ""),
                 _ => null,
             };
             code |= AdfJson.Type(mark) == "code";
@@ -333,22 +421,31 @@ internal sealed class AdfReader(AdfMediaMap media) {
         if (attachment == null) {
             return new DocText(AdfToDoc.MissingImageText);
         }
-        return attachment.IsImage
-            ? new DocAttachment(attachment.Id, attachment.FileName)
-            : new DocText($"{attachment.FileName} (open in Jira)");
+        if (!attachment.IsImage) {
+            return new DocFile(attachment.Id, attachment.FileName);
+        }
+        var width = Pixels(AdfJson.Number(node, "width"));
+        var height = Pixels(AdfJson.Number(node, "height"));
+        return width != null && height != null
+            ? new DocAttachment(attachment.Id, attachment.FileName, width, height)
+            : new DocAttachment(attachment.Id, attachment.FileName);
     }
 
-    private static DocInline Card(JsonElement node) {
+    private static DocInline Card(JsonElement node, bool block) {
         var url = AdfJson.Attr(node, "url");
         var href = AdfHref.Allowed(url);
-        return href != null ? new DocLink(href, [new DocText(url!)]) : new DocText(url ?? "");
+        return href != null ? new DocCard(href, block) : new DocText(url ?? "");
     }
 
-    private static void AddParagraph(List<DocBlock> output, List<Piece> pieces) {
+    private static void AddParagraph(List<DocBlock> output, List<Piece> pieces, DocBlockFormat format = default) {
         var inlines = TrimLines(Group(pieces));
         pieces.Clear();
+        AddParagraph(output, inlines, format);
+    }
+
+    private static void AddParagraph(List<DocBlock> output, List<DocInline> inlines, DocBlockFormat format = default) {
         if (!IsBlank(inlines)) {
-            output.Add(new DocParagraph(inlines));
+            output.Add(new DocParagraph(inlines, format));
         }
     }
 
@@ -404,7 +501,10 @@ internal sealed class AdfReader(AdfMediaMap media) {
                     output.Add(new DocStyled(styled.Style, MoveEdgeWhitespace(styled.Content)));
                     break;
                 case DocLink link:
-                    output.Add(new DocLink(link.Href, MoveEdgeWhitespace(link.Content)));
+                    output.Add(new DocLink(link.Href, MoveEdgeWhitespace(link.Content), link.Title));
+                    break;
+                case DocMarked marked:
+                    output.Add(new DocMarked(marked.Kind, MoveEdgeWhitespace(marked.Content), marked.Color));
                     break;
                 default:
                     Append(output, node);
@@ -457,7 +557,7 @@ internal sealed class AdfReader(AdfMediaMap media) {
             var bestEnd = i;
             var neutral = IsNeutral(pieces[i].Leaf);
             foreach (var mark in pieces[i].Marks) {
-                if (applied.Contains(mark) || neutral && mark.Kind != MarkKind.Link && mark.Kind != MarkKind.Underline) {
+                if (applied.Contains(mark) || neutral && !ShowsOnWhitespace(mark.Kind)) {
                     continue;
                 }
                 var end = RunEnd(pieces, i, to, mark);
@@ -473,7 +573,7 @@ internal sealed class AdfReader(AdfMediaMap media) {
             applied.Add(outer);
             var children = Group(pieces, i, bestEnd, applied);
             applied.RemoveAt(applied.Count - 1);
-            output.Add(outer.Kind == MarkKind.Link ? new DocLink(outer.Href, children) : new DocStyled(Style(outer.Kind), children));
+            output.Add(Wrap(outer, children));
             i = bestEnd;
         }
         return output;
@@ -512,13 +612,90 @@ internal sealed class AdfReader(AdfMediaMap media) {
         }
     }
 
-    private static DocStyle Style(MarkKind kind) {
-        return kind switch {
-            MarkKind.Bold => DocStyle.Bold,
-            MarkKind.Italic => DocStyle.Italic,
-            MarkKind.Strike => DocStyle.Strike,
-            MarkKind.Underline => DocStyle.Underline,
-            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+    // Underline, highlight and a link show on whitespace too, so they keep it.
+    private static bool ShowsOnWhitespace(MarkKind kind) => kind is MarkKind.Link or MarkKind.Underline or MarkKind.Background;
+
+    private static DocInline Wrap(Mark mark, List<DocInline> children) {
+        return mark.Kind switch {
+            MarkKind.Link => new DocLink(mark.Value, children, mark.Title),
+            MarkKind.Bold => new DocStyled(DocStyle.Bold, children),
+            MarkKind.Italic => new DocStyled(DocStyle.Italic, children),
+            MarkKind.Strike => new DocStyled(DocStyle.Strike, children),
+            MarkKind.Underline => new DocStyled(DocStyle.Underline, children),
+            MarkKind.TextColor => new DocMarked(DocMarkKind.TextColor, children, mark.Value),
+            MarkKind.Background => new DocMarked(DocMarkKind.Background, children, mark.Value),
+            MarkKind.Sub => new DocMarked(DocMarkKind.Sub, children),
+            MarkKind.Sup => new DocMarked(DocMarkKind.Sup, children),
+            _ => throw new ArgumentOutOfRangeException(nameof(mark)),
+        };
+    }
+
+    private static string? LinkTitle(string? title) => string.IsNullOrWhiteSpace(title) ? null : title;
+
+    // Alignment and indentation are block marks on paragraphs and headings.
+    private static DocBlockFormat BlockFormat(JsonElement node) {
+        var align = DocAlign.Start;
+        var indent = 0;
+        foreach (var mark in AdfJson.Children(node, "marks")) {
+            switch (AdfJson.Type(mark)) {
+                case "alignment":
+                    align = AdfJson.Attr(mark, "align") switch {
+                        "center" => DocAlign.Center,
+                        "end" => DocAlign.End,
+                        _ => align,
+                    };
+                    break;
+                case "indentation" when AdfJson.Number(mark, "level") is { } level && level >= 1 && level <= 6 && level == Math.Floor(level):
+                    indent = (int)level;
+                    break;
+            }
+        }
+        return new DocBlockFormat(align, indent);
+    }
+
+    private static DocCellFormat CellFormat(JsonElement cell) {
+        var widths = new List<int>();
+        if (AdfJson.TryAttr(cell, "colwidth", out var colwidth) && colwidth.ValueKind == JsonValueKind.Array) {
+            foreach (var width in colwidth.EnumerateArray().Take(MaxColumns)) {
+                if (width.ValueKind == JsonValueKind.Number && width.TryGetDouble(out var value) && Pixels(value) is { } pixels) {
+                    widths.Add(pixels);
+                }
+            }
+        }
+        return new DocCellFormat(
+            Span(AdfJson.Number(cell, "colspan")),
+            Span(AdfJson.Number(cell, "rowspan")),
+            widths.Count > 0 ? widths : null,
+            AdfColor.Background(AdfJson.Attr(cell, "background")));
+    }
+
+    private const int MaxColumns = 64;
+    private const int MaxPixels = 10_000;
+
+    private static int Span(double? value) {
+        return value is { } span && span >= 1 && span <= MaxColumns ? (int)span : 1;
+    }
+
+    private static int? Pixels(double? value) {
+        return value is { } pixels && pixels >= 1 && pixels <= MaxPixels ? (int)Math.Round(pixels) : null;
+    }
+
+    private static double? Percent(double? value) {
+        return value is { } percent && percent > 0 && percent <= 100 ? Math.Round(percent, 2) : null;
+    }
+
+    private static double ColumnWidth(double? value) => Percent(value) ?? 0;
+
+    private static DocLayout Layout(string? layout) {
+        return layout switch {
+            "center" => DocLayout.Center,
+            "wide" => DocLayout.Wide,
+            "full-width" => DocLayout.FullWidth,
+            "align-start" => DocLayout.AlignStart,
+            "align-end" => DocLayout.AlignEnd,
+            "wrap-left" => DocLayout.WrapLeft,
+            "wrap-right" => DocLayout.WrapRight,
+            _ => DocLayout.Default,
         };
     }
 
@@ -551,8 +728,10 @@ internal sealed class AdfReader(AdfMediaMap media) {
         return panelType switch {
             "note" => DocPanelKind.Note,
             "warning" => DocPanelKind.Warning,
-            "success" or "tip" => DocPanelKind.Success,
+            "success" => DocPanelKind.Success,
+            "tip" => DocPanelKind.Tip,
             "error" => DocPanelKind.Error,
+            "custom" => DocPanelKind.Custom,
             _ => DocPanelKind.Info,
         };
     }
@@ -569,13 +748,13 @@ internal sealed class AdfReader(AdfMediaMap media) {
     }
 
     // ADF dates are UTC midnight as milliseconds since the epoch.
-    private static string? FormatDate(string? timestamp) {
+    private static DateOnly? Day(string? timestamp) {
         if (!long.TryParse(timestamp, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var milliseconds)
             || milliseconds < DateTimeOffset.MinValue.ToUnixTimeMilliseconds()
             || milliseconds > DateTimeOffset.MaxValue.ToUnixTimeMilliseconds()) {
-            return timestamp;
+            return null;
         }
-        return DateTimeOffset.FromUnixTimeMilliseconds(milliseconds).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        return DateOnly.FromDateTime(DateTimeOffset.FromUnixTimeMilliseconds(milliseconds).UtcDateTime);
     }
 
     private static string PlainText(DocNode node) {
@@ -586,6 +765,10 @@ internal sealed class AdfReader(AdfMediaMap media) {
             DocLineBreak => " ",
             DocStatus status => status.Text,
             DocAttachment attachment => attachment.Alt,
+            DocFile file => file.Name,
+            DocUser user => user.Name,
+            DocDate date => date.Day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            DocCard card => card.Href,
             _ => string.Concat(node.Children.Select(PlainText)),
         };
     }

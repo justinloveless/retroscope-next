@@ -1,8 +1,9 @@
 // The viewed round's issue at the centre of the stage (docs/followups/UX1.md): always shown, scrolled by the
-// stage clear of the docked hand, edited as in the drawer, and driven by navigation and the spotlight.
+// stage clear of the docked hand, edited as in the drawer (rich-editor.spec.js), and driven by navigation and the
+// spotlight.
 import { expect, test } from '../_harness/fixtures.js';
 import { BOB, R2 } from '../poker-table/_poker.js';
-import { R1, ROOM, issueView, openTable, round, setupJira } from './_jira.js';
+import { R1, ROOM, drawer, isPhone, issueView, openTable, round, setupJira } from './_jira.js';
 
 const detail = (key, extra) => ({
   key,
@@ -17,21 +18,6 @@ const detail = (key, extra) => ({
 });
 
 const paragraph = (v) => ({ t: 'p', c: [{ t: 'text', v }] });
-
-/** Puts the caret at the start of the editor's last list item. */
-async function caretInLastItem(page) {
-  await page.evaluate(() => {
-    const input = document.querySelector('.jira-description-editor [contenteditable="true"]');
-    input.focus();
-    const item = [...input.querySelectorAll('li')].at(-1);
-    const text = document.createTreeWalker(item, NodeFilter.SHOW_TEXT).nextNode();
-    const range = document.createRange();
-    range.setStart(text, 0);
-    range.collapse(true);
-    getSelection().removeAllRanges();
-    getSelection().addRange(range);
-  });
-}
 
 test('a long description scrolls fully clear of the hand', async ({ page, fake }) => {
   setupJira(fake, { rounds: [round(R1, 1, { ticketKey: 'RS-30' })] });
@@ -87,38 +73,62 @@ test('a spotlight move shows its round’s issue at the centre', async ({ page, 
   await expect(issueView(page).getByRole('button', { name: /^Edit summary/ })).toHaveText('Remember the delivery address');
 });
 
-test('the description is edited in place, keeping its islands and sending descriptionBase', async ({ page, fake }) => {
-  const { jira } = setupJira(fake, { rounds: [round(R1, 1, { ticketKey: 'RS-12' })] });
+test('the centre’s fields keep every empty field in words, leave out a missing reporter and fit the view', async ({ page, fake }) => {
+  setupJira(fake, { rounds: [round(R1, 1, { ticketKey: 'RS-40' })] });
+  fake.route('GET', '/api/teams/:teamId/jira/issues/RS-40', {
+    body: detail('RS-40', { fields: { summary: 'Summary of RS-40', status: 'To Do', statusCategory: 'new', issueType: 'Story', priority: null, labels: [], points: null } }),
+  });
   await openTable(page);
   const view = issueView(page);
-  await expect(view).toHaveAttribute('data-key', 'RS-12');
-  const before = jira.issues.get('RS-12').updated;
 
-  await view.getByRole('button', { name: 'Edit description' }).click();
-  await expect(view.locator('.jira-description-editor .island')).toHaveAttribute('contenteditable', 'false');
-  await caretInLastItem(page);
-  await page.keyboard.type('Then ');
-  await view.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(view.locator('.jira-meta-label')).toHaveText(['Status', 'Type', 'Priority', 'Assignee', 'Points', 'Parent', 'Sprint', 'Labels', 'Updated']);
+  await expect(view.locator('.jira-field-assignee')).toHaveText('Unassigned');
+  await expect(view.locator('.jira-field-points')).toHaveText('Not estimated');
+  await expect(view.locator('.jira-field-sprint')).toHaveText('Backlog');
+  await expect(view.locator('.jira-field-priority')).toHaveText('None');
+  await expect(view.locator('.jira-meta-parent dd')).toHaveText('No parent');
+  await expect(view.locator('.jira-meta-labels dd')).toHaveText('No labels');
 
-  await expect(view.locator('.jira-description li').last()).toHaveText('Then asks for the CVC');
-  const patch = jira.calls.filter((c) => c.method === 'PATCH').at(-1).body;
-  expect(patch.descriptionBase).toBe(before);
-  expect(patch.description).toContain('[[island:t0b1e5c0ffee]]');
+  const right = await view.locator('.jira-meta').evaluate((el) => el.getBoundingClientRect().right);
+  const widest = await view.locator('.jira-meta :is(.jira-chip, .jira-meta-item)').evaluateAll((els) => Math.max(...els.map((el) => el.getBoundingClientRect().right)));
+  expect(widest).toBeLessThanOrEqual(right + 0.5);
 });
 
-test('a description edited in Jira meanwhile is refused as stale and the centre reloads', async ({ page, fake }) => {
-  const { jira } = setupJira(fake, { rounds: [round(R1, 1, { ticketKey: 'RS-12' })] });
+test('the centre’s parent chip opens the parent in the drawer and keeps the round’s issue at the centre', async ({ page, fake }) => {
+  setupJira(fake, { rounds: [round(R1, 1, { ticketKey: 'RS-12' })] });
   await openTable(page);
-  const view = issueView(page);
-  await expect(view).toHaveAttribute('data-key', 'RS-12');
+  await expect(issueView(page)).toHaveAttribute('data-key', 'RS-12');
 
-  await view.getByRole('button', { name: 'Edit description' }).click();
-  await caretInLastItem(page);
-  await page.keyboard.type('Later ');
-  jira.touch('RS-12', { summary: 'Pay with a saved card (edited in Jira)' });
-  await view.getByRole('button', { name: 'Save', exact: true }).click();
+  await issueView(page).locator('.jira-meta-parent').getByRole('button').click();
+  await expect(drawer(page)).toHaveAttribute('data-key', 'RS-1');
+  await expect(issueView(page)).toHaveAttribute('data-key', 'RS-12');
+});
 
-  await expect(page.getByText(/RS-12 changed in Jira meanwhile/)).toBeVisible();
-  await expect(view.getByRole('button', { name: /^Edit summary/ })).toHaveText('Pay with a saved card (edited in Jira)');
-  await expect(view.locator('.jira-description-editor')).toHaveCount(0);
+test('a wide centre lays parent, sprint and labels out in one row, a narrow one in a column', async ({ page, fake }) => {
+  test.skip(isPhone(page), 'phones have no side panels to collapse');
+  setupJira(fake, { rounds: [round(R1, 1, { ticketKey: 'RS-12' })] });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openTable(page);
+  const place = issueView(page).locator('.jira-meta-place .jira-meta-item');
+  // Items of one row are centred on it, so a row is told by its middle, not its top.
+  const rows = () => place.evaluateAll((els) => els
+    .map((el) => { const { top, bottom } = el.getBoundingClientRect(); return (top + bottom) / 2; })
+    .sort((a, b) => a - b)
+    .filter((middle, i, all) => i === 0 || middle - all[i - 1] > 6).length);
+  const width = () => issueView(page).locator('.jira-meta').evaluate((el) => el.getBoundingClientRect().width);
+  await expect(place).toHaveCount(3);
+
+  for (const name of ['Collapse Jira panel', 'Collapse round panel']) {
+    const tab = page.getByRole('button', { name });
+    if (await tab.isVisible()) {
+      await tab.click();
+    }
+  }
+  await expect.poll(width).toBeGreaterThanOrEqual(576);
+  await expect.poll(rows).toBe(1);
+
+  await page.getByRole('button', { name: 'Open Jira panel' }).click();
+  await page.getByRole('button', { name: 'Open round panel' }).click();
+  await expect.poll(width).toBeLessThan(576);
+  await expect.poll(rows).toBe(3);
 });

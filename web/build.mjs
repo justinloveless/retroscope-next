@@ -1,6 +1,7 @@
 // Front-end build (DESIGN §g.7): esbuild bundle with route chunks, content-hashed assets, brotli and
 // gzip siblings, manifest.json, csp.json (theme-script hash), size budgets and the banned-sink check.
-// Runs with nothing but Node built-ins and esbuild, because the image's web stage installs only those.
+// Runs with nothing but Node built-ins and esbuild. The image's web stage installs web/package.json, so the
+// ProseMirror runtime dependencies (UX11) are there to bundle.
 import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { copyFile, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -22,7 +23,7 @@ const FAIL_OVER_BUDGET = 1.10;
 // entry's CSS, which would put every screen's styles on every page). kit.css @imports the partials.
 const STYLE_PARTIALS = new Set(['tokens.css', 'base.css']);
 const ROUTE_STYLES = {
-  'poker/index.js': ['neotro.css'],
+  'poker/index.js': ['neotro.css', 'jira.css', 'rich-editor.css'],
   'retro/index.js': ['retro.css'],
   'team/index.js': ['team.css'],
 };
@@ -42,14 +43,92 @@ export function findBannedSinks(source) {
   return found;
 }
 
+// Dependency files rewritten before the sink scan (UX11), each pinned to the sha256 of the exact file reviewed.
+// prosemirror-view parses pasted HTML by assigning innerHTML (readHTML). Under trusted-types 'none' that throws
+// anyway, and the editor's own clipboard handlers run first, but the assignment must not ship at all: readHTML
+// becomes a function that throws, the copy and drag paths write plain text only, and the comments naming the sink
+// go. Any other bytes, a version bump included, fail the build until someone reviews the new file and the pin.
+const VENDOR_REWRITES = {
+  'prosemirror-view/dist/index.js': {
+    sha256: '3cc9270e7b27a3b5a1bfc9ce3d63a8d7bf9c65eb2a811152d1a7ea478d2751e3',
+    edits: [
+      {
+        from: '// Trick from jQuery -- some elements must be wrapped in other\n',
+        to: '"<td>..</td>"` the table cells are ignored.\n',
+        with: '',
+      },
+      {
+        from: '    // With the require-trusted-types-for CSP, Chrome will block\n',
+        to: '    // a way that makes the browser allow us to use its parser again.\n',
+        with: '',
+      },
+      {
+        from: 'function readHTML(html) {\n',
+        to: '    return elt;\n}\n',
+        with: 'function readHTML(html) {\n    throw new Error("HTML clipboard parsing is disabled (web/build.mjs)");\n}\n',
+      },
+      {
+        from: '        data.setData("text/html", dom.innerHTML);\n',
+        with: '',
+      },
+      {
+        from: '            doPaste(view, target.textContent, target.innerHTML, plain, event);\n',
+        with: '            doPaste(view, target.textContent, null, plain, event);\n',
+      },
+      {
+        from: '    event.dataTransfer.setData(brokenClipboardAPI ? "Text" : "text/html", dom.innerHTML);\n',
+        with: '    event.dataTransfer.setData(brokenClipboardAPI ? "Text" : "text/plain", text);\n',
+      },
+    ],
+  },
+};
+
+function vendorKey(path) {
+  const normalized = path.split(sep).join('/');
+  const at = normalized.lastIndexOf('/node_modules/');
+  return at < 0 ? null : normalized.slice(at + '/node_modules/'.length);
+}
+
+/**
+ * Applies the pinned rewrite for a dependency file, or returns the source unchanged when none is listed. Throws
+ * when the file is not the reviewed one, or an edit does not match exactly once.
+ */
+export function rewriteVendor(path, source, rewrites = VENDOR_REWRITES) {
+  const key = vendorKey(path);
+  const rewrite = key === null ? undefined : rewrites[key];
+  if (!rewrite) {
+    return source;
+  }
+  const digest = createHash('sha256').update(source).digest('hex');
+  if (digest !== rewrite.sha256) {
+    throw new Error(`${key} is not the reviewed file (sha256 ${digest}, pinned ${rewrite.sha256}); review its sinks and the rewrite in web/build.mjs, then update the pin`);
+  }
+  let out = source;
+  for (const edit of rewrite.edits) {
+    const start = out.indexOf(edit.from);
+    const end = edit.to === undefined ? start + edit.from.length : out.indexOf(edit.to, start);
+    if (start < 0 || end < 0 || out.indexOf(edit.from, start + 1) >= 0) {
+      throw new Error(`${key}: rewrite does not match exactly once: ${JSON.stringify(edit.from)}`);
+    }
+    out = out.slice(0, start) + edit.with + out.slice(edit.to === undefined ? end : end + edit.to.length);
+  }
+  return out;
+}
+
 // Fails the build on any banned DOM sink in a bundled script (§g.3); Trusted Types blocks them at
-// runtime too, but the build catches them before a browser does.
+// runtime too, but the build catches them before a browser does. Dependency rewrites run first, so the scan
+// sees what ships.
 export function bannedSinksPlugin() {
   return {
     name: 'banned-sinks',
     setup(build) {
       build.onLoad({ filter: /\.[cm]?js$/ }, async (args) => {
-        const contents = await readFile(args.path, 'utf8');
+        let contents;
+        try {
+          contents = rewriteVendor(args.path, await readFile(args.path, 'utf8'));
+        } catch (error) {
+          return { errors: [{ text: error.message, location: { file: args.path, line: 0, column: 0 } }] };
+        }
         const found = findBannedSinks(contents);
         if (found.length > 0) {
           return {
@@ -315,6 +394,16 @@ async function styleEntries() {
   return names.sort().map((n) => `styles/${n}`);
 }
 
+// The inputs were scanned; this checks what ships, in case a plugin or esbuild itself ever put a sink back.
+export async function scanBuiltScripts(dir, files) {
+  for (const file of files.filter((f) => f.endsWith('.js'))) {
+    const found = findBannedSinks(await readFile(join(dir, file), 'utf8'));
+    if (found.length > 0) {
+      throw new Error(`banned DOM sink "${found[0].sink}" in the built ${relative(dir, join(dir, file))}`);
+    }
+  }
+}
+
 export async function buildWeb({ dist = join(root, 'dist'), budgetsFile = join(root, 'budgets.json'), log = console.log } = {}) {
   const { routes } = await import(pathToFileURL(join(root, 'src/routes.js')).href);
   const assetsDir = join(dist, 'assets');
@@ -355,6 +444,7 @@ export async function buildWeb({ dist = join(root, 'dist'), budgetsFile = join(r
   });
 
   const outputs = js.metafile.outputs;
+  await scanBuiltScripts(root, Object.keys(outputs));
   const fromJs = Object.entries(outputs).filter(([file]) => file.endsWith('.css')).map(([file]) => file);
   if (fromJs.length > 0) {
     throw new Error(`stylesheets imported from scripts (${fromJs.join(', ')}); put them in web/styles and list them in ROUTE_STYLES`);

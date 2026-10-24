@@ -108,6 +108,7 @@ internal sealed class InlineWriter {
             DocStyled { Style: DocStyle.Bold } bold => $"**{Inlines(bold.Content, enclosingItalic)}**",
             DocStyled { Style: DocStyle.Strike } strike => $"~~{Inlines(strike.Content, enclosingItalic)}~~",
             DocCode code => WriteCode(code.Value),
+            DocLink { Title: not null } => throw MarkupWriter.Unrepresentable(node),
             DocLink link => $"[{(link.Content.Count > 0 ? Inlines(link.Content, '\0') : EscapeText(link.Href))}]({EncodeHref(link.Href)})",
             DocMention mention => $"{MentionPrefix}{mention.UserId:D}:{Label(mention.Name, MaxMentionNameLength, "user")}]]",
             DocImage image => $"![{Label(image.Alt, MaxImageAltLength, "")}{ImagePrefix}{image.BlobId:D})",

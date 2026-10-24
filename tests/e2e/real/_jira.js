@@ -11,6 +11,10 @@ export function playground(testInfo) {
 }
 
 export const isPhone = (page) => page.viewportSize().width < 768;
+/** The browse panel's open or collapse tab on desktop, the bottom bar's Browse Jira button on phones. */
+export const jiraEntry = (page) => page.getByRole('button', { name: /^(?:Open Jira panel|Collapse Jira panel|Browse Jira)$/ });
+/** Opens the browse sheet on a phone. */
+export const openSheet = (page) => page.getByRole('navigation', { name: 'Session controls' }).getByRole('button', { name: 'Browse Jira' }).click();
 export const row = (page, key) => page.locator(`.jira-row[data-key="${key}"]`);
 export const bucket = (page, name) => page.locator('.jira-bucket').filter({ has: page.locator('.jira-bucket-name', { hasText: name }) });
 export const drawer = (page) => page.locator('.jira-drawer');
@@ -34,10 +38,10 @@ export async function jiraTable(open, testInfo, names) {
 export async function openBrowse(page, path) {
   await page.goto(path);
   await page.locator('.nt-table').waitFor();
-  await expect(page.locator('.jira-toggle')).toBeVisible();
+  await expect(jiraEntry(page)).toBeVisible();
   const panel = page.locator('.jira-browse');
   if (isPhone(page)) {
-    await page.locator('.jira-toggle').click();
+    await openSheet(page);
   }
   await expect(panel).toBeVisible();
   await expect(panel).toHaveAttribute('aria-busy', 'false');

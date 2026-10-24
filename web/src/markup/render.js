@@ -1,12 +1,11 @@
 // DocNode → DOM for cards, comments, action items and Jira views. Builds nodes with
 // createElement/createTextNode/setAttribute only and re-checks every field, because Jira DocNodes
-// arrive from the server rather than from parse().
+// arrive from the server rather than from parse(). The ADF-only kinds (panels, tables, layouts…)
+// render through options.extend (jira.js), so retro pages never load that code.
 
 import {
   MAX_BLOCK_DEPTH,
   MAX_INLINE_DEPTH,
-  PANEL_KINDS,
-  STATUS_COLORS,
   isAllowedHref,
   isAttachmentId,
   isIslandId,
@@ -22,9 +21,6 @@ const SIMPLE_TAGS = {
   li: 'li',
   quote: 'blockquote',
   hr: 'hr',
-  tr: 'tr',
-  th: 'th',
-  td: 'td',
   b: 'strong',
   i: 'em',
   s: 's',
@@ -45,6 +41,8 @@ const TRUNCATED = 'content truncated';
  * @param {(node: object) => string | null | undefined} [options.imageSrc] same-origin URL for an img or
  *   attachment node; null renders a placeholder. Defaults to /blob/{id} for board images.
  * @param {Map<string, object>} [options.islands] island nodes by id, for refs parsed from markup
+ * @param {(node: object, api: object) => Node | null | undefined} [options.extend] renders the kinds it
+ *   knows (undefined leaves the node to the core renderer); api = {el, text, append, image}
  * @returns {DocumentFragment}
  */
 export function render(doc, options = {}) {
@@ -53,6 +51,7 @@ export function render(doc, options = {}) {
     resolveMention: options.resolveMention ?? (() => null),
     imageSrc: options.imageSrc ?? defaultImageSrc,
     islands: options.islands ?? new Map(),
+    extend: options.extend,
   };
   const fragment = ctx.document.createDocumentFragment();
   appendChildren(ctx, fragment, doc?.c, 1);
@@ -101,6 +100,21 @@ function renderNode(ctx, node, depth) {
     return e;
   };
 
+  if (ctx.extend) {
+    const api = {
+      el,
+      text,
+      append: (e, children = node.c, at = depth + 1) => {
+        appendChildren(ctx, e, children, at);
+        return e;
+      },
+      image: (n) => renderImage(ctx, n, el, withText),
+    };
+    const out = ctx.extend(node, api);
+    if (out !== undefined) {
+      return out;
+    }
+  }
   if (Object.hasOwn(SIMPLE_TAGS, node.t)) {
     return withChildren(el(SIMPLE_TAGS[node.t]));
   }
@@ -129,31 +143,6 @@ function renderNode(ctx, node, depth) {
     }
     case 'code':
       return withText(el('code'), node.v);
-    case 'panel':
-      return withChildren(el('div', 'panel', `panel-${PANEL_KINDS.has(node.kind) ? node.kind : 'info'}`));
-    case 'table': {
-      const table = el('table');
-      table.append(withChildren(el('tbody')));
-      return table;
-    }
-    case 'expand': {
-      const details = el('details', 'expand');
-      details.append(withText(el('summary'), node.title));
-      return withChildren(details);
-    }
-    case 'tasks':
-      return withChildren(el('ul', 'tasks'));
-    case 'task': {
-      const box = el('input');
-      box.setAttribute('type', 'checkbox');
-      box.setAttribute('disabled', '');
-      if (node.done === true) {
-        box.setAttribute('checked', '');
-      }
-      const li = el('li', 'task');
-      li.append(box);
-      return withChildren(li);
-    }
     case 'island':
       return renderIsland(ctx, node, depth, el);
     case 'a': {
@@ -177,8 +166,6 @@ function renderNode(ctx, node, depth) {
     case 'img':
     case 'attachment':
       return renderImage(ctx, node, el, withText);
-    case 'status':
-      return withText(el('span', 'status', `status-${STATUS_COLORS.has(node.color) ? node.color : 'neutral'}`), node.v);
     default:
       // Unknown kinds keep their content, never their markup.
       if (Array.isArray(node.c)) {
@@ -216,6 +203,11 @@ function renderImage(ctx, node, el, withText) {
   img.setAttribute('src', src);
   img.setAttribute('alt', typeof node.alt === 'string' ? node.alt : '');
   img.setAttribute('loading', 'lazy');
+  // A Jira image's own size, so the page keeps its aspect ratio while it loads.
+  if (Number.isInteger(node.w) && Number.isInteger(node.h) && node.w > 0 && node.h > 0) {
+    img.setAttribute('width', String(node.w));
+    img.setAttribute('height', String(node.h));
+  }
   return img;
 }
 

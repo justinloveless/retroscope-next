@@ -45,9 +45,21 @@ public sealed class IslandStore(JiraClient client, Credentials credentials, Jira
     /// <summary>The islands of the description as Jira has it now, when that is still the version at
     /// <paramref name="updated"/>; null when the issue has moved on since (the write is stale).</summary>
     public async Task<IslandSet?> IslandsAsync(TeamId team, string issueKey, string updated, CancellationToken cancellationToken) {
+        var detail = await CurrentAsync(team, issueKey, updated, cancellationToken);
+        return detail is null ? null : new IslandSet(detail.Description.Islands, detail.Description.Editable);
+    }
+
+    /// <summary>The issue as Jira has it now, when that is still the version at <paramref name="updated"/>; null when
+    /// the issue has moved on since (the write is stale).</summary>
+    public async Task<IssueDetail?> CurrentAsync(TeamId team, string issueKey, string updated, CancellationToken cancellationToken) {
+        var detail = await FreshAsync(team, issueKey, cancellationToken);
+        return detail.Updated == updated ? detail : null;
+    }
+
+    /// <summary>The issue read from Jira now rather than from the cache: an edit must start from Jira's copy.</summary>
+    public Task<IssueDetail> FreshAsync(TeamId team, string issueKey, CancellationToken cancellationToken) {
         cache.Remove(DetailKey(team, issueKey));
-        var detail = await GetAsync(team, issueKey, cancellationToken);
-        return detail.Updated == updated ? new IslandSet(detail.Description.Islands, detail.Description.Editable) : null;
+        return GetAsync(team, issueKey, cancellationToken);
     }
 
     /// <summary>The issue's attachments, which an attachment request must be one of.</summary>

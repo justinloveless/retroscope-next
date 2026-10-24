@@ -21,8 +21,8 @@ These came from the owner at the start of the project and shape every decision. 
      - JSON serialisation outside the source-generated contexts in `Server/Json` and `Core/Protocol`;
      - EF Core. Data access is Npgsql's slim builder only.
    - **Warnings are errors.** `Directory.Build.props` sets `TreatWarningsAsErrors`, and `aot-smoke` fails on any AOT or trim warning.
-   - **Dependencies are pinned by tests.** `DependencyRuleTests` pins each project's NuGet references (Core: BCrypt.Net-Next; Server: Npgsql; Importer: AngleSharp and Npgsql), so a new package fails it. That needs the owner's agreement.
-   - **Front end.** It is plain ES modules, and esbuild is its only dependency. Chunk sizes are gated by `web/budgets.json`: a build warns over budget and fails at more than 10 % over.
+   - **Dependencies are pinned by tests.** `DependencyRuleTests` pins each project's NuGet references (Core: BCrypt.Net-Next; Server: Npgsql; Importer: AngleSharp and Npgsql), so a new package fails it. That needs the owner's agreement. `tests/web-unit/core/deps.test.js` pins the web packages the same way.
+   - **Front end.** It is plain ES modules. esbuild is the only build dependency, and the ProseMirror packages (UX11) are the only runtime ones, bundled into the lazy `rich-editor` chunk. `web/build.mjs` rewrites `prosemirror-view` so no HTML parser ships. Chunk sizes are gated by `web/budgets.json`: a build warns over budget and fails at more than 10 % over.
    - **Delivery.** Static assets are precompressed, and pages ship a boot snapshot (`Hosting/Boot.cs`) so a room paints after one round trip.
 3. **Realtime must be rock solid.** Every shared room state has exactly one writer: a single-threaded `RoomActor` per poker session, board or team.
    - **Write path.** Clients send intents, never rows.

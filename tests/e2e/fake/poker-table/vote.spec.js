@@ -79,7 +79,7 @@ test('keyboard: digits pick, Shift+digit votes between, L locks, A abstains, R r
   expect((await lastCommand(fake, 'poker.abstain.set')).d).toEqual({ roundId: R1, abstain: true });
   await page.keyboard.press('r');
   expect((await lastCommand(fake, 'poker.round.reveal')).d).toEqual({ roundId: R1 });
-  await expect(page.locator('.nt-stack')).toHaveCount(1);
+  await expect(page.locator('.nt-pile')).toHaveCount(1);
 });
 
 test('shortcuts stay quiet while the ticket field has focus', async ({ page, fake }) => {

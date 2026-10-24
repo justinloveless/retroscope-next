@@ -1,7 +1,8 @@
 // The results overlay (docs/followups/UX2.md, item 5): on a reveal a translucent, non-modal "Results" dialog
 // opens over the issue with one pile of face-up cards per point value (a between vote counts on both ends,
-// abstains pile on their own) and the winner marked. Minimize folds it into the dock's compact bar, Show
-// results brings it back, and each tab remembers a minimized round until it is revealed again.
+// abstains pile on their own) and the winner marked, centred in the stage above the dock. Minimize folds it
+// away, leaving the dock with Show results and the round's next steps (docs/decisions/UX7.md); Show results
+// brings it back, and each tab remembers a minimized round until it is revealed again.
 import { expect, test } from '../_harness/fixtures.js';
 import { BOB, CODE, DOT, GUS, ME, R1, R2, ROOM, openTable, revealed, round, setupPoker, snapshot } from './_poker.js';
 
@@ -42,7 +43,24 @@ test('a reveal opens the results for every open tab, with a pile per value and t
   await peer.context().close();
 });
 
-test('Minimize folds the results into the dock bar and Show results brings them back', async ({ page, fake }) => {
+test('the results sit centred in the stage above the dock', async ({ page, fake }) => {
+  const votes = setupPoker(fake, { others: OTHERS });
+  await openTable(page);
+  fake.tx(ROOM, [revealed(R1, votes, BOB.pid, 5)]);
+  await expect(results(page)).toBeVisible();
+  const box = await results(page).evaluate((el) => {
+    el.getAnimations().forEach((a) => a.finish());
+    const field = el.parentElement.getBoundingClientRect();
+    const dock = parseFloat(getComputedStyle(el.closest('.nt-table')).getPropertyValue('--nt-dock-h'));
+    const r = el.getBoundingClientRect();
+    return { above: r.top - field.top, below: field.bottom - dock - r.bottom, left: r.left - field.left, right: field.right - r.right };
+  });
+  expect(box.above).toBeGreaterThan(8);
+  expect(Math.abs(box.above - box.below)).toBeLessThanOrEqual(2);
+  expect(Math.abs(box.left - box.right)).toBeLessThanOrEqual(2);
+});
+
+test('Minimize leaves Show results and the round actions in the dock, and Show results brings them back', async ({ page, fake }) => {
   const votes = setupPoker(fake, { others: OTHERS });
   await openTable(page);
   fake.tx(ROOM, [revealed(R1, votes, BOB.pid, 5)]);
@@ -51,8 +69,13 @@ test('Minimize folds the results into the dock bar and Show results brings them 
   await results(page).getByRole('button', { name: 'Minimize' }).click();
   await expect(results(page)).toBeHidden();
   const bar = page.locator('.nt-dock .nt-actions');
-  await expect(bar.locator('.nt-winner')).toHaveText('Winning Points: 5 pts');
-  await expect(bar.locator('.nt-stack-pill')).toHaveText(['1 x 3–5 pts', '1 x 5 pts']);
+  // Without Jira, Show results sits in the bar with the round's next steps; the winner, the vote pills and
+  // Replay stay with the results.
+  expect(await bar.getByRole('button').evaluateAll((buttons) => buttons.map((b) => b.textContent.trim())))
+    .toEqual(['Show results', 'End', 'Continue']);
+  await expect(page.locator('.nt-dock .nt-winner')).toHaveCount(0);
+  await expect(page.locator('.nt-dock .nt-stacks')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Replay round' })).toHaveCount(0);
   const show = bar.getByRole('button', { name: 'Show results' });
   await expect(show).toBeFocused();
 
