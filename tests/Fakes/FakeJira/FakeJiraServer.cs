@@ -91,6 +91,9 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
 
     public string SprintFieldId { get; set; } = "customfield_10020";
 
+    /// <summary>The <c>estimation</c> every board's configuration answers with; null leaves it out, as a Kanban board does.</summary>
+    public JsonObject? BoardEstimation { get; set; } = FieldEstimation("customfield_10016", "Story point estimate");
+
     public IReadOnlyList<FakeJiraRequest> Requests => [.. _requests];
 
     public static async Task<FakeJiraServer> StartAsync() {
@@ -236,6 +239,11 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
         Field("customfield_10028", "Story Points", "com.atlassian.jira.plugin.system.customfieldtypes:float"),
     ];
 
+    public static JsonObject FieldEstimation(string fieldId, string displayName) => new() {
+        ["type"] = "field",
+        ["field"] = new JsonObject { ["fieldId"] = fieldId, ["displayName"] = displayName },
+    };
+
     public static JsonObject Field(string id, string name, string? custom) {
         var field = new JsonObject { ["id"] = id, ["name"] = name, ["custom"] = custom is not null };
         if (custom is not null) {
@@ -371,6 +379,15 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
             case "GET" when (m = BoardPath().Match(path)).Success:
                 return Boards.FirstOrDefault(b => (long)b["id"]! == long.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)) is { } board
                     ? (200, board.DeepClone())
+                    : NotFound("Board does not exist.");
+            case "GET" when (m = BoardConfigurationPath().Match(path)).Success:
+                return Boards.FirstOrDefault(b => (long)b["id"]! == long.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)) is { } configured
+                    ? (200, new JsonObject {
+                        ["id"] = configured["id"]!.DeepClone(),
+                        ["name"] = configured["name"]!.DeepClone(),
+                        ["type"] = configured["type"]!.DeepClone(),
+                        ["estimation"] = BoardEstimation?.DeepClone(),
+                    })
                     : NotFound("Board does not exist.");
             case "GET" when (m = BoardSprintsPath().Match(path)).Success: {
                 var states = ((string?)query["state"] ?? "active,future,closed").Split(',');
@@ -647,6 +664,9 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
 
     [GeneratedRegex(@"^/rest/agile/1\.0/board/([0-9]+)$")]
     private static partial Regex BoardPath();
+
+    [GeneratedRegex(@"^/rest/agile/1\.0/board/([0-9]+)/configuration$")]
+    private static partial Regex BoardConfigurationPath();
 
     [GeneratedRegex(@"^/rest/agile/1\.0/board/([0-9]+)/sprint$")]
     private static partial Regex BoardSprintsPath();
