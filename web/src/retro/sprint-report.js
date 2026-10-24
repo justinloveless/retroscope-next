@@ -203,7 +203,7 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
   const sheet = createSideSheet({ label: 'Sprint report', width: WIDTH, onClose: () => close() });
   sheet.el.classList.add('retro-sprint-sheet');
   sheet.title.textContent = 'Sprint report';
-  const refresh = createButton({ label: 'Refresh', icon: 'refresh-cw', iconOnly: true, variant: 'ghost', size: 'icon', onClick: () => load(shown, { force: true }) });
+  const refresh = createButton({ label: 'Refresh', icon: 'refresh-cw', iconOnly: true, variant: 'ghost', size: 'icon', onClick: () => load(wanted, { force: true }) });
   sheet.tools.append(refresh.el);
   const picker = createChoice({ label: 'Sprint', options: [], className: 'retro-sprint-picker', onChange: (value) => pick(Number(value)) });
   picker.el.hidden = true;
@@ -212,7 +212,8 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
 
   let request = 0;
   let abort = null;
-  let shown = null;
+  // The latest load's sprint, so Refresh during a pending pick reloads the pick rather than the painted sprint.
+  let wanted = null;
   let painted = false;
 
   function status(text, { role = 'status', retry = null } = {}) {
@@ -221,6 +222,7 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
 
   async function load(sprintId, { force = false } = {}) {
     const mine = ++request;
+    wanted = sprintId;
     abort?.abort();
     abort = new AbortController();
     content.setAttribute('aria-busy', 'true');
@@ -259,7 +261,7 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
     }
     content.setAttribute('aria-busy', 'false');
     const model = viewModel(body, { siteHost });
-    shown = model.selected === null ? sprintId : Number(model.selected);
+    wanted = model.selected === null ? sprintId : Number(model.selected);
     picker.update({ options: model.picker, value: model.selected ?? '' });
     picker.el.hidden = model.picker.length === 0;
     painted = !model.empty;
