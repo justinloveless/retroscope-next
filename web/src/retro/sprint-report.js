@@ -347,7 +347,7 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
     // The items are new nodes, so a keyboard user's place in the menu moves to the same sprint's new item.
     if (focusedId != null) {
       const again = [...items.children].find((item) => item.dataset.id === focusedId);
-      (again ?? items.querySelector('[aria-checked="true"]') ?? items.firstElementChild ?? more).focus();
+      (again ?? items.querySelector('[aria-checked="true"]') ?? items.firstElementChild ?? more).focus({ preventScroll: true });
     }
   }
 
@@ -385,6 +385,7 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
   }
 
   function openMenu() {
+    atBottom = false;
     menu.open();
     const item = items.querySelector('[aria-checked="true"]') ?? items.firstElementChild;
     if (item) {
