@@ -22,4 +22,12 @@ public sealed class SchemaSnapshotTests(PostgresFixture postgres) {
         }
         Assert.Equal(await File.ReadAllTextAsync(SnapshotPath, TestContext.Current.CancellationToken), dump);
     }
+
+    [Fact]
+    public async Task A_cloned_database_has_the_schema_of_a_freshly_migrated_one() {
+        var fresh = await postgres.CreateDatabaseAsync(Migrator.FromEmbeddedScripts());
+        var clone = await postgres.CreateDatabaseAsync();
+
+        Assert.Equal(await postgres.DumpSchemaAsync(fresh), await postgres.DumpSchemaAsync(clone));
+    }
 }
