@@ -123,6 +123,9 @@ commit `100cb90` "Integrate Neotro").
 (`retro-audio`), and neither the bucket nor the repository records where the track came from or under what
 licence. Without a licence that permits redistribution, it stays out (§0.1).
 
+A deployment may play its own track instead: the server serves the file named by `MUSIC_FILE`, mounted
+into the container at deploy time (`docs/decisions/UX13.md`). That file is never part of this repository
+or its images, and its licence is the deployer's responsibility.
 ## ADF JSON schema (`tests/fixtures/adf-schema/57.7.2/full.json`), test fixture only
 
 This file is not shipped. `AdfSchemaTests` reads it to pin the editor's ADF allow-list (`Core/Adf/AdfSchema.cs`)

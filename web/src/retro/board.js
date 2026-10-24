@@ -85,7 +85,7 @@ export function moveId(ids, id, index) {
   return order.every((x, i) => x === ids[i]) ? null : order;
 }
 
-export function createBoard({ room, socket, me, boardId, features = [] }) {
+export function createBoard({ room, socket, me, boardId, features = [], timerMusic = false }) {
   const columns = new Map();
   const commentCounts = new WeakMap();
   const cleanups = [];
@@ -94,6 +94,8 @@ export function createBoard({ room, socket, me, boardId, features = [] }) {
     boardId,
     features,
     me,
+    // Whether the deployment has a timer track (UX13), from the boot JSON.
+    timerMusic,
     // The tab's socket, so features that join another room (the team link) share its cid.
     socket,
     view: () => room.view,

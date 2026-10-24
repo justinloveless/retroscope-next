@@ -17,7 +17,8 @@
 #   ./build.sh e2e <glob>          Playwright specs under tests/e2e/ against deploy/compose.test.yml
 #   ./build.sh preview [fake|real] fake (default): the web build on the demo fake server with simulated teammates,
 #                                  http://localhost:5173. real: the server (dotnet run) with Postgres 18 and Mailpit
-#                                  from deploy/compose.preview.yml on http://localhost:8080 (needs Docker)
+#                                  from deploy/compose.preview.yml on http://localhost:8080 (needs Docker). Both serve
+#                                  the retro timer track from MUSIC_FILE when it is set (UX13)
 #   ./build.sh screenshots         smoke-checks the demo, then captures every route and key state, light and dark,
 #                                  desktop and iPhone, into artifacts/screenshots (index.html is the contact sheet)
 #

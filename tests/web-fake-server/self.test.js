@@ -268,6 +268,52 @@ describe('HTTP', () => {
   });
 });
 
+describe('timer track', () => {
+  const bytes = Buffer.from(Array.from({ length: 1000 }, (_, i) => i % 256));
+  let file;
+
+  beforeEach(async () => {
+    file = join(dist.dir, 'track.wav');
+    await writeFile(file, bytes);
+  });
+
+  test('without a file the route is 404 and the retro boot has no flag', async () => {
+    assert.equal((await fetch(`${fake.url}/media/timer-music`)).status, 404);
+    fake.boot = { build: 'fake', me: null };
+    assert.equal((await (await fetch(`${fake.url}/api/boot?path=/retro/ABC`)).json()).timerMusic, undefined);
+  });
+
+  test('a configured file is served whole, by range, and revalidated by ETag', async () => {
+    fake.musicFile = file;
+    const whole = await fetch(`${fake.url}/media/timer-music`);
+    assert.equal(whole.status, 200);
+    assert.equal(whole.headers.get('content-type'), 'audio/wav');
+    assert.equal(whole.headers.get('accept-ranges'), 'bytes');
+    assert.equal(whole.headers.get('x-content-type-options'), 'nosniff');
+    assert.deepEqual(Buffer.from(await whole.arrayBuffer()), bytes);
+
+    const part = await fetch(`${fake.url}/media/timer-music`, { headers: { Range: 'bytes=100-199' } });
+    assert.equal(part.status, 206);
+    assert.equal(part.headers.get('content-range'), 'bytes 100-199/1000');
+    assert.deepEqual(Buffer.from(await part.arrayBuffer()), bytes.subarray(100, 200));
+
+    const tail = await fetch(`${fake.url}/media/timer-music`, { headers: { Range: 'bytes=-10' } });
+    assert.deepEqual(Buffer.from(await tail.arrayBuffer()), bytes.subarray(990));
+    const past = await fetch(`${fake.url}/media/timer-music`, { headers: { Range: 'bytes=2000-' } });
+    assert.equal(past.status, 416);
+    await past.arrayBuffer();
+    const again = await fetch(`${fake.url}/media/timer-music`, { headers: { 'If-None-Match': whole.headers.get('etag') } });
+    assert.equal(again.status, 304);
+  });
+
+  test('the boot of a retro board, and only a retro board, says a track exists', async () => {
+    fake.musicFile = file;
+    fake.boot = { build: 'fake', me: null };
+    assert.equal((await (await fetch(`${fake.url}/api/boot?path=/retro/ABC`)).json()).timerMusic, true);
+    assert.equal((await (await fetch(`${fake.url}/api/boot?path=/poker/ABC`)).json()).timerMusic, undefined);
+  });
+});
+
 describe('WebSocket protocol', () => {
   test('hello gets welcome then a snapshot per sub; ping gets pong on the shifted clock', async () => {
     fake.clockOffsetMs = 30_000;

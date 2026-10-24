@@ -14,6 +14,10 @@ public static class HostingModule {
         services.AddSingleton<SecurityHeaders>();
         services.AddSingleton<StaticAssets>();
         services.AddSingleton<Shell>();
+        services.AddSingleton(sp => TimerMusic.FromConfiguration(
+            configuration,
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger<TimerMusic>()));
+        services.AddSingleton<IBootContributor, TimerMusicBootContributor>();
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton(sp => new RateLimiter(sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<EmailBudget>();
@@ -55,5 +59,6 @@ public static class HostingModule {
         Health.Map(app);
         Shell.Map(app);
         LegacyInvite.Map(app);
+        TimerMusic.Map(app);
     }
 }

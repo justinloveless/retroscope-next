@@ -31,6 +31,9 @@ Every shipped asset has a recorded source in `THIRD_PARTY.md`. The card art (`we
 and the app icons and logo are the project owner's own or licensed work (`THIRD_PARTY.md`; `docs/decisions/U37.md`,
 decision 9). Before shipping any new third-party asset, add a section for it there.
 
+The optional timer track (`MUSIC_FILE`) is not a shipped asset: the deployer mounts it on the VPS, and its licence is
+theirs to hold (`deploy/COOLIFY_SETUP.md` §5.12, `docs/decisions/UX13.md`). Never commit it to the repository.
+
 ## 2. Host requirements
 
 - **2 vCPU / 2 GB RAM minimum.** Coolify's control plane needs about 2 CPU / 2 GB itself and runs on the same box
@@ -112,6 +115,7 @@ Required unless a default is shown. Generate each 32-byte key with `openssl rand
 | `ENTRA_TENANT_DOMAINS` (empty) | `tid=acme.com\|acme.io,…`: email domains trusted for each tenant without `xms_edov`. |
 | `JIRA_HOST_ALLOWLIST` (empty) | Extra exact Jira host names beyond `*.atlassian.net`. |
 | `BLOB_BYTES_MAX` (2147483648) | Global ceiling on all board images together, in bytes. |
+| `MUSIC_FILE` (empty) | Absolute path, inside the container, of an optional retro timer track (`.mp3`, `.ogg`, `.oga` or `.m4a`, up to 32 MiB), served at `/media/timer-music`. Checked once at startup: a missing, unreadable, oversized or wrongly typed file logs `Timer music is off: <reason>` and the timer plays its generated music. Needs the `volumes` mount in the compose file (COOLIFY_SETUP §5.12). A file overwritten in place (same format) is served from the next request; a new path or format needs a restart. |
 | `LEADER_ACQUIRE_SECONDS` (60) | How long a starting app waits for the leader lease before exiting. Not in the compose file; add it only to change it. |
 | Importer only | `IMPORT_SOURCE_PG`, `IMPORT_SEAL_PUBKEY`, `IMPORT_ADMIN_EMAILS` (comma-separated emails that become app admins; any other `role='admin'` in the source is ignored and reported), `IMPORT_STORAGE_URL`. Remove them after cutover. `retroscope-import verify` also needs the production `APP_KEYS` and `ANON_TAG_KEY`. See `deploy/IMPORT_RUNBOOK.md` (U46). |
 
