@@ -24,10 +24,12 @@ public sealed partial class SprintReportTests(PostgresFixture postgres) {
 
         Assert.Equal(JsonNode.Parse(ClosedSprintReport)!.ToJsonString(), report.ToJsonString());
         Assert.DoesNotContain(host.Jira.Requests, r => DeprecatedAgile().IsMatch(r.Path));
-        var search = JsonNode.Parse(Assert.Single(host.Jira.Requests, r => r.Path == "/rest/api/3/search/jql").Body)!;
-        Assert.Equal("sprint = 231 AND issuetype not in (Epic, subtaskIssueTypes()) ORDER BY Rank ASC", (string)search["jql"]!);
-        Assert.Contains("resolutiondate", search["fields"]!.AsArray().Select(f => (string)f!));
-        Assert.Contains("statuscategorychangedate", search["fields"]!.AsArray().Select(f => (string)f!));
+        var search = Assert.Single(host.Jira.Requests, r => r.Path == "/rest/api/3/search/jql");
+        Assert.Equal("sprint = 231 AND issuetype not in (Epic, subtaskIssueTypes()) ORDER BY Rank ASC", (string)JsonNode.Parse(search.Body)!["jql"]!);
+        // FakeJira returns every field whatever was asked, so only the request proves real Jira would send these.
+        Assert.Superset(
+            new HashSet<string> { "resolutiondate", "statuscategorychangedate", JiraHttpHost.PointsField, JiraHttpHost.SprintField },
+            SearchedFields(search).ToHashSet());
     }
 
     [Fact]
