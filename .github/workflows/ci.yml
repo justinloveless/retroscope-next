@@ -40,7 +40,8 @@ jobs:
           tree="$(git rev-parse 'HEAD^{tree}')"
           skip=false
           runs="$(gh api "repos/$REPO/actions/artifacts?name=ci-pass-$tree&per_page=100" \
-            | jq -r --argjson repo "$REPO_ID" '.artifacts[] | select((.expired | not) and .workflow_run.head_repository_id == $repo) | .workflow_run.id')"
+            | jq -r --argjson repo "$REPO_ID" '.artifacts[] | select((.expired | not) and .workflow_run.head_repository_id == $repo) | .workflow_run.id')" \
+            || { echo "::warning::could not look up earlier runs; running the tests"; runs=""; }
           for id in $runs; do
             if gh api "repos/$REPO/actions/runs/$id" \
               | jq -e '.path == ".github/workflows/ci.yml" and .event == "pull_request" and .conclusion == "success"' >/dev/null; then
@@ -69,7 +70,9 @@ jobs:
       - name: AOT inputs
         id: aot
         if: steps.prior.outputs.skip != 'true'
-        run: echo "key=$(./build.sh aot-key)" >> "$GITHUB_OUTPUT"
+        run: |
+          key="$(./build.sh aot-key)"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
 
       # aot-smoke reuses the server binary when nothing it is compiled from changed (build.sh aot_key).
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

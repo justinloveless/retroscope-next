@@ -59,15 +59,27 @@ jobs:
 
       - name: AOT inputs
         id: aot
-        run: echo "key=$(./build.sh aot-key)" >> "$GITHUB_OUTPUT"
+        run: |
+          key="$(./build.sh aot-key)"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: aot-cache
         with:
           path: artifacts/aot-cache
           key: aot-server-${{ steps.aot.outputs.key }}
 
       - name: AOT smoke
         run: ./build.sh aot-smoke
+
+      # A cache entry is visible to every run on github.ref, so only that ref's own code may write it. A manual preview
+      # runs from main but builds another branch, and its binary must never reach main's images.
+      - name: Save the AOT server binary
+        if: steps.aot-cache.outputs.cache-hit != 'true' && github.sha == (inputs.ref || github.sha)
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: artifacts/aot-cache
+          key: aot-server-${{ steps.aot.outputs.key }}
 
       - name: Image names
         id: names
