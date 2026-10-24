@@ -222,14 +222,15 @@ aot_publish() {
   fi
 }
 
-# The paths deploy/Dockerfile copies into its build stage, and the toolchain that compiles them.
+# The paths deploy/Dockerfile copies into its build stage, the publish recipe, and the toolchain that compiles them.
 AOT_INPUTS=(global.json Directory.Build.props Directory.Packages.props .editorconfig db src/Retroscope.Core src/Retroscope.Server)
 aot_key() {
   local files
-  files="$(git ls-files -co --exclude-standard -- "${AOT_INPUTS[@]}" | while IFS= read -r f; do [[ -f "$f" ]] && echo "$f"; done | LC_ALL=C sort)"
+  files="$(git ls-files -z -co --exclude-standard -- "${AOT_INPUTS[@]}" \
+    | while IFS= read -r -d '' f; do if [[ -f "$f" ]]; then printf '%s\n' "$f"; fi; done | LC_ALL=C sort)"
   {
     paste -d ' ' <(git hash-object --stdin-paths <<<"$files") <(printf '%s\n' "$files")
-    host_rid
+    declare -f aot_publish host_rid
     dotnet --version
     clang --version 2>/dev/null | head -1 || true
     echo "${ImageOS:-} ${ImageVersion:-}"
@@ -389,7 +390,8 @@ cmd_aot_smoke() {
   local key="" cached=""
   if [[ -n "$RS_AOT_CACHE" ]]; then
     key="$(aot_key)"
-    cached="$RS_AOT_CACHE/$key"
+    [[ "$key" =~ ^[0-9a-f]{40}$ ]] || die "could not compute the AOT input key"
+    cached="$RS_AOT_CACHE/aot-$key"
   fi
   if [[ -n "$cached" && -x "$cached/retroscope" ]]; then
     log "AOT server: reusing the binary built from the same inputs (${key:0:12})"
@@ -398,8 +400,8 @@ cmd_aot_smoke() {
     log "AOT publish: server"
     aot_publish src/Retroscope.Server "$ARTIFACTS/aot/server" "$ARTIFACTS/aot/server.log"
     if [[ -n "$cached" ]]; then
-      rm -rf "$RS_AOT_CACHE"
       mkdir -p "$RS_AOT_CACHE"
+      rm -rf "$RS_AOT_CACHE"/aot-*
       cp -R "$ARTIFACTS/aot/server" "$cached"
     fi
   fi
