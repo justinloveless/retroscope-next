@@ -6,9 +6,9 @@ import { createPopover, pointAnchor } from './popover.js';
 /**
  * Action menu. items: [{action, label, icon, destructive, disabled} | 'separator'].
  * onSelect(action) runs after the menu closes. Bind it to a trigger with attach(button), or open it
- * at a point with openAt(x, y) for context menus.
+ * at a point with openAt(x, y) for context menus. onClose() runs whenever it closes.
  */
-export function createMenu({ items, onSelect, label, placement = 'bottom-start' }) {
+export function createMenu({ items, onSelect, label, placement = 'bottom-start', onClose }) {
   let trigger = null;
   const list = h('div', { class: 'menu-list' });
   const popover = createPopover({
@@ -18,6 +18,7 @@ export function createMenu({ items, onSelect, label, placement = 'bottom-start' 
     label,
     className: 'menu',
     placement,
+    onClose,
   });
   popover.el.removeAttribute('tabindex');
   const roving = rovingTabindex(popover.el, { selector: '[role=menuitem]', orientation: 'vertical' });
@@ -80,7 +81,8 @@ export function createMenu({ items, onSelect, label, placement = 'bottom-start' 
     },
     openAt(x, y) {
       trigger = document.activeElement;
-      popover.open(pointAnchor(x, y));
+      // A point cannot take focus, so Escape hands it back to whatever held it when the menu opened.
+      popover.open({ ...pointAnchor(x, y), focus: () => trigger?.focus?.() });
       focusFirst();
     },
     close: popover.close,

@@ -6,6 +6,7 @@ import { createButton } from '../../../web/src/ui/button.js';
 import { confirmDialog } from '../../../web/src/ui/confirm.js';
 import { createMenu } from '../../../web/src/ui/menu.js';
 import { createResizable } from '../../../web/src/ui/resizable.js';
+import { createSidePanel } from '../../../web/src/ui/side-panel.js';
 import { createSwitch } from '../../../web/src/ui/switch.js';
 import { createTabs } from '../../../web/src/ui/tabs.js';
 import { toast } from '../../../web/src/ui/toast.js';
@@ -185,4 +186,46 @@ test('resizable clamps width and resizes with arrow keys', () => {
   handle.update({ width: 100 });
   assert.equal(handle.width, 240);
   assert.equal(handle.el.getAttribute('aria-valuenow'), '240');
+});
+
+test('side panel handles: grip strip, collapse tab while open, open tab while closed', () => {
+  const body = doc.createElement('div');
+  const panel = doc.createElement('aside');
+  panel.id = 'side';
+  body.append(panel);
+  doc.body.append(body);
+  const asked = [];
+  const commits = [];
+  const side = createSidePanel({ panel, edge: 'left', name: 'Jira panel', openIcon: 'search', width: 300, open: true, onToggle: (open) => asked.push(open), onCommit: (w) => commits.push(w) });
+  const strip = panel.querySelector('[role="separator"]');
+  const collapse = panel.querySelector('.drawer-collapse');
+  const opener = body.querySelector('.drawer-open');
+  assert.equal(strip.getAttribute('aria-label'), 'Resize Jira panel');
+  assert.ok(strip.querySelector('.resize-grip'));
+  assert.equal(collapse.getAttribute('aria-label'), 'Collapse Jira panel');
+  assert.equal(collapse.getAttribute('aria-controls'), 'side');
+  assert.equal(opener.getAttribute('aria-label'), 'Open Jira panel');
+  assert.equal(opener.hidden, true);
+  assert.equal(panel.hidden, false);
+  strip.dispatchEvent(key('ArrowRight'));
+  assert.deepEqual(commits, [316]);
+
+  collapse.dispatchEvent(new FakeEvent('click', { bubbles: true }));
+  assert.deepEqual(asked, [false]);
+  assert.equal(panel.hidden, false, 'the owner decides when the panel closes');
+  side.setOpen(false, { focus: true });
+  assert.equal(panel.hidden, true);
+  assert.equal(opener.hidden, false);
+  assert.equal(opener.getAttribute('aria-expanded'), 'false');
+  assert.equal(doc.activeElement, opener);
+  opener.dispatchEvent(new FakeEvent('click', { bubbles: true }));
+  assert.deepEqual(asked, [false, true]);
+  side.setOpen(true, { focus: true });
+  assert.equal(collapse.getAttribute('aria-expanded'), 'true');
+  assert.equal(doc.activeElement, collapse);
+
+  side.destroy();
+  assert.equal(body.querySelector('.drawer-open'), null);
+  assert.equal(panel.querySelector('.drawer-collapse'), null);
+  assert.equal(panel.hidden, true);
 });

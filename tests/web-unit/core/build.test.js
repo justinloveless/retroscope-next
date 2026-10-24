@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import * as esbuild from 'esbuild';
-import { bannedSinksPlugin, budgetName, buildWeb, checkBudgets, findBannedSinks, measureChunks } from '../../../web/build.mjs';
+import { bannedSinksPlugin, budgetName, buildWeb, checkBudgets, findBannedSinks, measureChunks, rewriteVendor, scanBuiltScripts } from '../../../web/build.mjs';
 
 const web = fileURLToPath(new URL('../../../web', import.meta.url));
 const repo = fileURLToPath(new URL('../../..', import.meta.url));
@@ -261,4 +261,91 @@ test('no file under web/src uses a banned sink', async () => {
     }
   }
   assert.deepEqual(found, []);
+});
+
+const PM_VIEW = join(repo, 'node_modules', 'prosemirror-view', 'dist', 'index.js');
+
+// A bundle of one file planted as node_modules/prosemirror-view/dist/index.js, through the sink plugin.
+async function bundlePlantedView(name, source) {
+  const dir = join(work, name);
+  await mkdir(join(dir, 'node_modules', 'prosemirror-view', 'dist'), { recursive: true });
+  await writeFile(join(dir, 'node_modules', 'prosemirror-view', 'dist', 'index.js'), source);
+  await writeFile(join(dir, 'node_modules', 'prosemirror-view', 'package.json'), '{"name":"prosemirror-view","type":"module","module":"dist/index.js"}\n');
+  await writeFile(join(dir, 'entry.js'), "import * as view from 'prosemirror-view';\nconsole.log(view);\n");
+  return esbuild.build({
+    absWorkingDir: dir,
+    entryPoints: ['entry.js'],
+    bundle: true,
+    write: false,
+    logLevel: 'silent',
+    external: ['prosemirror-model', 'prosemirror-state', 'prosemirror-transform'],
+    plugins: [bannedSinksPlugin()],
+  });
+}
+
+test('the reviewed prosemirror-view loses every banned sink and its HTML parser', async () => {
+  const source = await readFile(PM_VIEW, 'utf8');
+  assert.ok(findBannedSinks(source).length > 0, 'the published file has sinks to remove');
+  const rewritten = rewriteVendor(PM_VIEW, source);
+  assert.deepEqual(findBannedSinks(rewritten), []);
+  assert.match(rewritten, /function readHTML\(html\) \{\n {4}throw new Error\("HTML clipboard parsing is disabled/);
+  assert.doesNotMatch(rewritten, /=\s*maybeWrapTrusted\(/, 'nothing calls the Trusted Types wrapper');
+});
+
+test('a modified prosemirror-view fails the build until the pin is reviewed', async () => {
+  const source = await readFile(PM_VIEW, 'utf8');
+  await assert.rejects(bundlePlantedView('pm-modified', `${source}\n// one more line\n`), (error) => {
+    assert.equal(error.errors.length, 1);
+    assert.match(error.errors[0].text, /prosemirror-view\/dist\/index\.js is not the reviewed file \(sha256 [0-9a-f]{64}, pinned 3cc9270e/);
+    return true;
+  });
+  await bundlePlantedView('pm-reviewed', source);
+});
+
+test('a rewrite that no longer matches exactly once fails instead of shipping the file unchanged', () => {
+  const source = 'a\nb\na\n';
+  const sha256 = createHash('sha256').update(source).digest('hex');
+  const rewrites = (from) => ({ 'x/index.js': { sha256, edits: [{ from, with: '' }] } });
+  assert.throws(() => rewriteVendor('/p/node_modules/x/index.js', source, rewrites('a\n')), /does not match exactly once/);
+  assert.throws(() => rewriteVendor('/p/node_modules/x/index.js', source, rewrites('c\n')), /does not match exactly once/);
+  assert.equal(rewriteVendor('/p/node_modules/x/index.js', source, rewrites('b\n')), 'a\na\n');
+  assert.equal(rewriteVendor('/p/src/x/index.js', source, rewrites('b\n')), source, 'only dependency files are rewritten');
+});
+
+test('no built chunk holds a banned sink, and the rich editor chunk carries the rewritten view', async () => {
+  const dist = join(work, 'dist');
+  const scripts = Object.keys(built.manifest.files).filter((path) => path.endsWith('.js'));
+  let rewritten = 0;
+  for (const path of scripts) {
+    const code = await readFile(join(dist, path), 'utf8');
+    assert.deepEqual(findBannedSinks(code), [], path);
+    assert.doesNotMatch(code, /innerHTML/, path);
+    rewritten += code.includes('HTML clipboard parsing is disabled') ? 1 : 0;
+  }
+  assert.equal(rewritten, 1, 'prosemirror-view is bundled once, rewritten');
+});
+
+test('the rich editor is a lazy chunk with its own budgets, inside them', async () => {
+  const budgets = JSON.parse(await readFile(join(web, 'budgets.json'), 'utf8')).chunks;
+  for (const name of ['rich-editor', 'css:rich-editor']) {
+    const size = built.sizes.find((s) => s.name === name);
+    assert.ok(size, `${name} is measured`);
+    assert.ok(budgets[name] > 0, `${name} has a budget`);
+    assert.ok(size.bytes <= budgets[name], `${name}: ${size.bytes} B within ${budgets[name]} B`);
+  }
+  assert.ok(!built.manifest.entry.some((file) => file.includes('rich-editor')), 'not in the entry');
+  const drawer = built.sizes.find((s) => s.name === 'jira-drawer');
+  assert.ok(drawer.bytes < 22528, 'the drawer does not absorb the editor');
+});
+
+test('a sink in a built script fails the output scan, which buildWeb runs on every emitted script', async () => {
+  const dir = join(work, 'planted-output');
+  await mkdir(join(dir, 'chunks'), { recursive: true });
+  await writeFile(join(dir, 'chunks', 'ok.js'), 'export const a = 1;\n');
+  await writeFile(join(dir, 'chunks', 'bad.js'), 'export function f(x, y) {\n  x.innerHTML = y;\n}\n');
+  await writeFile(join(dir, 'chunks', 'style.css'), '.innerHTML {}\n');
+  await scanBuiltScripts(dir, ['chunks/ok.js', 'chunks/style.css']);
+  await assert.rejects(scanBuiltScripts(dir, ['chunks/ok.js', 'chunks/bad.js']), /banned DOM sink "innerHTML" in the built chunks\/bad\.js/);
+  const source = await readFile(join(web, 'build.mjs'), 'utf8');
+  assert.match(source, /await scanBuiltScripts\(root, Object\.keys\(outputs\)\);/);
 });

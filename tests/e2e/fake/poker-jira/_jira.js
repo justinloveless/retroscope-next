@@ -127,11 +127,17 @@ export function setupJira(fake, {
 /** Phones get the panels as sheets (neotro.css hides the side panels below 768 px). */
 export const isPhone = (page) => page.viewportSize().width < 768;
 
+/**
+ * The visible way into the browse panel once the team's Jira is known: the panel's open or collapse tab on
+ * desktop, the bottom bar's Browse Jira button on phones.
+ */
+export const jiraEntry = (page) => page.getByRole('button', { name: /^(?:Open Jira panel|Collapse Jira panel|Browse Jira)$/ });
+
 /** Opens the poker page and waits until the Jira feature has read the team's configuration. */
 export async function openTable(page, path) {
   await page.goto(path ?? `/teams/${TEAM}/poker/NEOTRO1234`);
   await page.locator('.nt-table').waitFor();
-  await expect(page.locator('.jira-toggle')).toBeVisible();
+  await expect(jiraEntry(page)).toBeVisible();
 }
 
 /** Opens the poker page and the Browse Jira panel (a sheet on phones, the left panel on desktop). */
@@ -139,7 +145,7 @@ export async function openBrowse(page, path) {
   await openTable(page, path);
   const panel = page.locator('.jira-browse');
   if (isPhone(page)) {
-    await page.locator('.jira-toggle').click();
+    await page.getByRole('navigation', { name: 'Session controls' }).getByRole('button', { name: 'Browse Jira' }).click();
   }
   await expect(panel).toBeVisible();
   await expect(panel).toHaveAttribute('aria-busy', 'false');

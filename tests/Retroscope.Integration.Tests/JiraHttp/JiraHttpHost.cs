@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
@@ -43,7 +44,8 @@ internal sealed class JiraHttpHost : IAsyncDisposable {
     public const string PointsField = "customfield_10016";
     public const string SprintField = "customfield_10020";
 
-    private JiraHttpHost(WebApplication app, TestDatabase database, FakeJiraServer jira, FakeTimeProvider time, Uri http) {
+    private JiraHttpHost(WebApplication app, TestDatabase database, FakeJiraServer jira, FakeTimeProvider time, Uri http, ConcurrentQueue<string> logs) {
+        Logs = logs;
         App = app;
         Database = database;
         Jira = jira;
@@ -53,6 +55,9 @@ internal sealed class JiraHttpHost : IAsyncDisposable {
     }
 
     public WebApplication App { get; }
+
+    /// <summary>Every log line the server wrote, at every level, with its exception if any.</summary>
+    public ConcurrentQueue<string> Logs { get; }
 
     public TestDatabase Database { get; }
 
@@ -76,6 +81,9 @@ internal sealed class JiraHttpHost : IAsyncDisposable {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
+        var logs = new ConcurrentQueue<string>();
+        builder.Logging.SetMinimumLevel(LogLevel.Trace);
+        builder.Logging.AddProvider(new CapturingLoggerProvider(logs));
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> {
             ["PUBLIC_URL"] = Origin,
             ["WEB_ROOT"] = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "rs-no-web-build"),
@@ -138,7 +146,7 @@ internal sealed class JiraHttpHost : IAsyncDisposable {
         await app.StartAsync(Token);
 
         var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
-        return new JiraHttpHost(app, database, jira, time, new Uri(address));
+        return new JiraHttpHost(app, database, jira, time, new Uri(address), logs);
     }
 
     // Seeding: rows other units' routes would have written, inserted as the owner.
@@ -249,8 +257,13 @@ internal sealed class JiraHttpHost : IAsyncDisposable {
 
     public Task<HttpResponseMessage> GetAsync(Principal who, string path) => SendAsync(HttpMethod.Get, who, path, null);
 
-    public async Task<HttpResponseMessage> SendAsync(HttpMethod method, Principal who, string path, object? body) {
+    /// <param name="expectContinue">Sends <c>Expect: 100-continue</c>, so a body the server refuses by its declared length
+    /// is never streamed.</param>
+    public async Task<HttpResponseMessage> SendAsync(HttpMethod method, Principal who, string path, object? body, bool expectContinue = false) {
         using var request = new HttpRequestMessage(method, path);
+        if (expectContinue) {
+            request.Headers.ExpectContinue = true;
+        }
         request.Headers.Add(CallerHeader, $"user:{who.Id}:{who.DisplayName}");
         request.Headers.Add(CsrfFilter.HeaderName, "1");
         request.Headers.Add("Origin", Origin);
@@ -268,8 +281,8 @@ internal sealed class JiraHttpHost : IAsyncDisposable {
     }
 
     /// <summary>A problem response: its status and code.</summary>
-    public async Task<(int Status, JsonNode Body)> ProblemAsync(HttpMethod method, Principal who, string path, object? body = null) {
-        using var response = await SendAsync(method, who, path, body);
+    public async Task<(int Status, JsonNode Body)> ProblemAsync(HttpMethod method, Principal who, string path, object? body = null, bool expectContinue = false) {
+        using var response = await SendAsync(method, who, path, body, expectContinue);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
         return ((int)response.StatusCode, JsonNode.Parse(await response.Content.ReadAsStringAsync(Token))!);
     }
@@ -305,6 +318,23 @@ internal sealed class JiraHttpHost : IAsyncDisposable {
         var connection = new NpgsqlConnection(builder.ConnectionString);
         await connection.OpenAsync(Token);
         return connection;
+    }
+
+    private sealed class CapturingLoggerProvider(ConcurrentQueue<string> logs) : ILoggerProvider {
+        public ILogger CreateLogger(string categoryName) => new CapturingLogger(categoryName, logs);
+
+        public void Dispose() {
+        }
+    }
+
+    private sealed class CapturingLogger(string category, ConcurrentQueue<string> logs) : ILogger {
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            logs.Enqueue($"{logLevel} {category}: {formatter(state, exception)} {exception}");
     }
 
     // "user:<principal uuid>:<display name>"

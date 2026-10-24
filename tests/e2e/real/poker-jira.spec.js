@@ -3,7 +3,7 @@
 // the holder disconnects), the drawer (hover prefetch, a description edit that keeps its table and screenshot) and
 // submitted points that everyone sees.
 import { expect, test } from './_real.js';
-import { bucket, drawer, isPhone, jiraTable, openBrowse, row } from './_jira.js';
+import { bucket, drawer, isPhone, jiraTable, openBrowse, openSheet, row } from './_jira.js';
 import { chooseSpotlight, handCard, shownRound } from './_poker.js';
 
 test('browse buckets and filters, add one issue and a bucket, and see Pointing and Pointed', async ({ open }, testInfo) => {
@@ -67,7 +67,7 @@ test('the holder previews an issue for everyone, commits it, and a preview left 
   await chooseSpotlight(ann.page, 'Spotlight this round');
   await expect(bob.page.locator('.nt-spotlight')).toHaveAttribute('data-role', 'other');
   if (isPhone(ann.page)) {
-    await ann.page.locator('.jira-toggle').click();
+    await openSheet(ann.page);
   }
 
   await row(ann.page, ground.key(9)).locator('.jira-row-open').click();
@@ -119,12 +119,13 @@ test('the drawer prefetches on hover and edits the summary and a description wit
   await expect(sheet.getByRole('button', { name: 'View screenshot.png' }).locator('img')).toBeVisible();
 
   const lastItem = await sheet.locator('.jira-description li').last().textContent();
+  // The rich editor (UX12) edits the table in place; the save goes out as descriptionAdf.
   await sheet.getByRole('button', { name: 'Edit description' }).click();
-  await expect(sheet.locator('.jira-description-editor .island').first()).toHaveAttribute('contenteditable', 'false');
+  await expect(sheet.locator('.rich-editor td').first()).toHaveText('Visa');
+  await ann.page.evaluate(() => document.querySelector('.rich-editor').focus());
+  await ann.page.waitForTimeout(80);
   await ann.page.evaluate(() => {
-    const input = document.querySelector('.jira-description-editor [contenteditable="true"]');
-    input.focus();
-    const item = [...input.querySelectorAll('li')].at(-1);
+    const item = [...document.querySelectorAll('.rich-editor li')].at(-1);
     const text = document.createTreeWalker(item, NodeFilter.SHOW_TEXT).nextNode();
     const range = document.createRange();
     range.setStart(text, 0);
@@ -132,11 +133,14 @@ test('the drawer prefetches on hover and edits the summary and a description wit
     getSelection().removeAllRanges();
     getSelection().addRange(range);
   });
-  await ann.page.keyboard.type('Then ');
+  await ann.page.waitForTimeout(80);
+  await ann.page.keyboard.type('Then ', { delay: 25 });
   await sheet.getByRole('button', { name: 'Save', exact: true }).click();
   // The stack keeps FakeJira's state between runs, so the item grows by one "Then " per run.
   const item = `Then ${lastItem}`;
-  await expect(sheet.locator('.jira-description li').last()).toHaveText(item);
+  // The open editor's own list matches .jira-description li too, so read the view only once the editor has closed.
+  await expect(sheet.locator('.rich-editor')).toHaveCount(0);
+  await expect(sheet.locator('.jira-description .jira-prose li').last()).toHaveText(item);
   await expect(sheet.locator('.jira-description .island td').first()).toHaveText('Visa');
 
   const summary = `Pay with a stored card at ${Date.now()}`;

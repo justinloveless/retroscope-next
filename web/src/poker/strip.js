@@ -98,9 +98,11 @@ export function createStrip(ctx) {
   const newRound = createButton({ label: 'New round', icon: 'plus', iconOnly: true, variant: 'default', press: true, size: 'sm', onClick: startRound });
   const nextOpen = createButton({ label: 'Next open round', icon: 'play', iconOnly: true, variant: 'default', press: true, size: 'sm', onClick: gotoNextOpen });
   const el = h('section', { class: 'nt-strip', 'aria-label': 'Round strip', dataset: { settle: settleMode(scroller) } },
-    h('div', { class: 'nt-strip-view' }, scroller),
-    h('div', { class: 'nt-strip-tools' }, nextOpen.el, newRound.el));
+    h('div', { class: 'nt-strip-view' }, scroller));
+  // The round tools sit in the toolbar beside Previous/Next round, as in the original (docs/decisions/UX7.md).
+  const tools = h('span', { class: 'nt-round-tools' }, nextOpen.el, newRound.el);
   ctx.slots.strip.append(el);
+  ctx.slots.rounds.append(tools);
 
   const chips = new Map();
   const menu = createMenu({ items: [], label: 'Round actions', onSelect: (action) => menuActions[action]?.() });
@@ -540,6 +542,7 @@ export function createStrip(ctx) {
       clearTimeout(settleTimer);
       menu.destroy();
       el.remove();
+      tools.remove();
     },
   };
 }

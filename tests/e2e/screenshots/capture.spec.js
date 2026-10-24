@@ -29,11 +29,10 @@ async function raiseHand(page) {
   await page.waitForTimeout(400);
 }
 
-/** The Browse Jira panel: open by default on desktop, a sheet behind the toolbar button on phones. */
+/** The Browse Jira panel: open by default on desktop, a sheet behind the bottom bar's button on phones. */
 async function jiraPanel(page) {
-  await expect(page.locator('.jira-toggle')).toBeVisible();
   if (page.viewportSize().width < 768) {
-    await page.locator('.jira-toggle').click();
+    await page.getByRole('navigation', { name: 'Session controls' }).getByRole('button', { name: 'Browse Jira' }).click();
   }
   await expect(page.locator('.jira-browse')).toHaveAttribute('aria-busy', 'false');
   await expect(page.locator('.jira-row').first()).toBeVisible();

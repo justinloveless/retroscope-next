@@ -94,14 +94,16 @@ export function mount(root, boot = {}, app = {}) {
   const nextButton = createButton({ label: 'Next round', icon: 'chevron-right', iconOnly: true, variant: 'default', press: true, size: 'sm', onClick: () => step(1) });
   const roundName = h('span', { class: 'nt-round-name', 'aria-live': 'polite' });
   const extras = h('div', { class: 'nt-toolbar-extras' });
+  const rounds = h('nav', { class: 'nt-toolbar-center', 'aria-label': 'Rounds' }, prevButton.el, roundName, nextButton.el);
   const toolbar = h('header', { class: 'nt-toolbar' },
     h('div', { class: 'nt-toolbar-start' }, backLink, codeChip, copy.el),
-    h('nav', { class: 'nt-toolbar-center', 'aria-label': 'Rounds' }, prevButton.el, roundName, nextButton.el),
+    rounds,
     extras);
   const banner = h('p', { class: 'nt-offline', role: 'status', hidden: true, text: 'Reconnecting… your changes are saved and will sync.' });
   const strip = h('div', { class: 'nt-strip-slot' });
-  const left = h('aside', { class: 'nt-panel nt-panel-left', hidden: true });
-  const right = h('aside', { class: 'nt-panel nt-panel-right', hidden: true });
+  const left = h('aside', { class: 'nt-panel nt-panel-left', id: 'nt-panel-left', hidden: true });
+  const right = h('aside', { class: 'nt-panel nt-panel-right', id: 'nt-panel-right', hidden: true });
+  const bottom = h('div', { class: 'nt-bottom-extras' });
   const center = h('main', { class: 'nt-center' });
   const page = h('div', { class: 'neotro' }, toolbar, banner, strip, h('div', { class: 'nt-body' }, left, center, right));
   root.replaceChildren(page);
@@ -433,7 +435,7 @@ export function mount(root, boot = {}, app = {}) {
       room.select((view) => [view, room.extras, room.kicked], shallowEq, render),
       watchStatus(),
     ];
-    const slots = { toolbar: extras, strip, left, right, center, page, issue: table.issue, issueScroller: table.scroller, results: table.results };
+    const slots = { toolbar: extras, rounds, bottom, strip, left, right, center, page, issue: table.issue, issueScroller: table.scroller, results: table.results };
     const ctx = { room, socket, me, actions, navigate, get viewed() { return viewed; }, slots };
     features = FEATURES.map((feature) => feature(ctx));
     render();

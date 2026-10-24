@@ -49,22 +49,22 @@
     "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"u","c":[{"t":"text","v":"under"}]}]}]}
   },
   {
-    "name": "mention shows its display text",
+    "name": "mention is a pill with its display text",
     "mode": "render",
     "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"ping "},{"type":"mention","attrs":{"id":"5b10ac8d82e05b22cc7d4ef5","text":"@Ann Lee","accessLevel":""}},{"type":"text","text":" and "},{"type":"mention","attrs":{"id":"abc","text":"Bo"}}]}]},
-    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"ping @Ann Lee and @Bo"}]}]}
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"ping "},{"t":"user","v":"@Ann Lee"},{"t":"text","v":" and "},{"t":"user","v":"@Bo"}]}]}
   },
   {
     "name": "emoji, date and status",
     "mode": "render",
     "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"emoji","attrs":{"shortName":":smile:","id":"1f604","text":"😄"}},{"type":"text","text":" "},{"type":"emoji","attrs":{"shortName":":custom:"}},{"type":"text","text":" due "},{"type":"date","attrs":{"timestamp":"1767225600000"}},{"type":"text","text":" "},{"type":"status","attrs":{"text":"IN PROGRESS","color":"blue","localId":"s1"}},{"type":"status","attrs":{"text":"ODD","color":"#ff0000"}}]}]},
-    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"😄 :custom: due 2026-01-01 "},{"t":"status","v":"IN PROGRESS","color":"blue"},{"t":"status","v":"ODD","color":"neutral"}]}]}
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"😄 :custom: due "},{"t":"date","v":"2026-01-01"},{"t":"text","v":" "},{"t":"status","v":"IN PROGRESS","color":"blue"},{"t":"status","v":"ODD","color":"neutral"}]}]}
   },
   {
-    "name": "inline card becomes a link",
+    "name": "inline card becomes a card",
     "mode": "render",
     "adf": {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"see "},{"type":"inlineCard","attrs":{"url":"https://example.atlassian.net/browse/RS-1"}}]}]},
-    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"see "},{"t":"a","href":"https://example.atlassian.net/browse/RS-1","c":[{"t":"text","v":"https://example.atlassian.net/browse/RS-1"}]}]}]}
+    "doc": {"t":"doc","c":[{"t":"p","c":[{"t":"text","v":"see "},{"t":"card","href":"https://example.atlassian.net/browse/RS-1"}]}]}
   },
   {
     "name": "hard break",

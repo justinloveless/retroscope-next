@@ -1,6 +1,6 @@
 import { expect, test } from '../_harness/fixtures.js';
 import { BOB, CODE, R2, setupPoker, snapshot } from '../poker-table/_poker.js';
-import { ME, R1, ROOM, TEAM, commands, round, sent, setupJira } from './_jira.js';
+import { ME, R1, ROOM, TEAM, commands, jiraEntry, round, sent, setupJira } from './_jira.js';
 
 const revealed = (extra = {}) => round(R1, 1, { ticketKey: 'RS-12', state: 'revealed', winner: 5, revealedAt: 1792497600000, ...extra });
 const submitBox = (page) => page.locator('.jira-submit');
@@ -31,6 +31,63 @@ test('a revealed round suggests the winner; submitting shows pending, then the r
   ]);
   await expect(submitBox(page)).toHaveAttribute('data-state', 'ok');
   await expect(submitBox(page).getByRole('status')).toHaveText('RS-12 has 8 pts in Jira · submitted by Ada');
+});
+
+test('minimized results put Show results beside the Submit button', async ({ page, fake }) => {
+  setupJira(fake, { rounds: [revealed()] });
+  await openTable(page);
+  await expect(page.getByRole('dialog', { name: 'Results' })).toBeVisible();
+  await page.getByRole('dialog', { name: 'Results' }).getByRole('button', { name: 'Minimize' }).click();
+
+  const send = submitBox(page).getByRole('button', { name: 'Submit 5 pts to RS-12' });
+  const show = page.getByRole('button', { name: 'Show results' });
+  await expect(show).toBeFocused();
+  await expect(submitBox(page).getByRole('button', { name: 'Show results' })).toBeVisible();
+  const [a, b] = [await send.boundingBox(), await show.boundingBox()];
+  expect(Math.abs((a.y + a.height / 2) - (b.y + b.height / 2))).toBeLessThanOrEqual(2);
+  expect(b.x).toBeGreaterThan(a.x);
+  await expect(page.locator('.nt-dock .nt-winner')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Replay round' })).toHaveCount(0);
+
+  await show.click();
+  await expect(page.getByRole('dialog', { name: 'Results' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Results' }).getByRole('button', { name: 'Replay round' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Show results' })).toHaveCount(0);
+});
+
+test('a round minimized before the team’s Jira settings arrive moves Show results beside Submit when they do', async ({ page, fake }) => {
+  setupJira(fake, { rounds: [revealed()] });
+  await openTable(page);
+  await page.getByRole('dialog', { name: 'Results' }).getByRole('button', { name: 'Minimize' }).click();
+  await expect(submitBox(page).getByRole('button', { name: 'Show results' })).toBeVisible();
+
+  // The reload restores the minimized round from this tab's memory; the team's settings are held back.
+  let release;
+  const held = new Promise((resolve) => {
+    release = resolve;
+  });
+  await page.route(`**/api/teams/${TEAM}`, async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.reload();
+  await page.locator('.nt-table').waitFor();
+  const bar = page.locator('.nt-dock .nt-actions');
+  await expect(bar.getByRole('button', { name: 'Show results' })).toBeVisible();
+  await expect(submitBox(page)).toBeHidden();
+
+  release();
+  await expect(submitBox(page).getByRole('button', { name: 'Show results' })).toBeVisible();
+  await expect(bar.getByRole('button', { name: 'Show results' })).toHaveCount(0);
+});
+
+test('a minimized ended round with Jira keeps only the submit row, and the empty bar goes', async ({ page, fake }) => {
+  setupJira(fake, { rounds: [revealed({ active: false })] });
+  await openTable(page);
+  await page.getByRole('dialog', { name: 'Results' }).getByRole('button', { name: 'Minimize' }).click();
+  await expect(submitBox(page).getByRole('button', { name: 'Show results' })).toBeFocused();
+  await expect(submitBox(page).getByRole('button', { name: 'Submit 5 pts to RS-12' })).toBeVisible();
+  await expect(page.locator('.nt-dock-bar')).toBeHidden();
 });
 
 test('the suggested chip is the nearest to the winner, the higher one on a tie', async ({ page, fake }) => {
@@ -96,7 +153,7 @@ test('admins of such a team can', async ({ page, fake }) => {
 test('the chips are not shown while the round is voting', async ({ page, fake }) => {
   setupJira(fake, { rounds: [round(R1, 1, { ticketKey: 'RS-12' })] });
   await openTable(page);
-  await expect(page.locator('.jira-toggle')).toBeVisible();
+  await expect(jiraEntry(page)).toBeVisible();
   await expect(submitBox(page)).toBeHidden();
 });
 
@@ -105,7 +162,8 @@ test('quick sessions and teams without Jira get no Jira UI and no Jira requests'
   await page.goto(`/poker/${CODE}`);
   await page.locator('.nt-table').waitFor();
   await page.waitForTimeout(300);
-  await expect(page.locator('.jira-toggle')).toBeHidden();
+  await expect(jiraEntry(page)).toHaveCount(0);
+  await expect(page.locator('.nt-panel-left')).toBeHidden();
   await expect(submitBox(page)).toHaveCount(0);
   expect(fake.requests.filter((r) => r.path.startsWith('/api/teams/'))).toEqual([]);
 
@@ -115,8 +173,10 @@ test('quick sessions and teams without Jira get no Jira UI and no Jira requests'
   await page.locator('.nt-table').waitFor();
   await expect.poll(() => fake.requests.filter((r) => r.path === `/api/teams/${TEAM}`).length).toBe(1);
   await page.waitForTimeout(300);
-  await expect(page.locator('.jira-toggle')).toBeHidden();
+  await expect(jiraEntry(page)).toHaveCount(0);
+  await expect(page.locator('.nt-panel-left')).toBeHidden();
   await expect(submitBox(page)).toHaveCount(0);
-  expect(fake.requests.filter((r) => r.path.includes('/jira'))).toEqual([]);
+  // No Jira call and no Jira chunk; only the poker route's jira.css stylesheet loads either way.
+  expect(fake.requests.filter((r) => r.path.includes('/jira') && !/^\/assets\/jira-[A-Z0-9]+\.css$/.test(r.path))).toEqual([]);
   expect(commands(fake, 'poker.jira.submitPoints')).toHaveLength(0);
 });

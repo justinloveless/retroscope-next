@@ -1,0 +1,386 @@
+/* The rich description editor (UX11, UX12). ProseMirror's own rules (prosemirror-view, -gapcursor and -tables
+   style sheets, MIT, see THIRD_PARTY.md) plus the editor's frame, toolbar and token views; the content itself
+   takes jira.css, so editing looks like reading. */
+
+.ProseMirror {
+  position: relative;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  white-space: break-spaces;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0;
+}
+
+.ProseMirror pre {
+  white-space: pre-wrap;
+}
+
+.ProseMirror li {
+  position: relative;
+}
+
+.ProseMirror-hideselection *::selection { background: transparent; }
+.ProseMirror-hideselection { caret-color: transparent; }
+
+.ProseMirror [draggable][contenteditable=false] { user-select: text; }
+
+.ProseMirror-selectednode {
+  outline: 2px solid hsl(var(--ring));
+}
+
+li.ProseMirror-selectednode {
+  outline: none;
+}
+
+li.ProseMirror-selectednode::after {
+  content: "";
+  position: absolute;
+  left: -32px;
+  right: -2px;
+  top: -2px;
+  bottom: -2px;
+  border: 2px solid hsl(var(--ring));
+  pointer-events: none;
+}
+
+img.ProseMirror-separator {
+  display: inline !important;
+  border: none !important;
+  margin: 0 !important;
+}
+
+.ProseMirror-gapcursor {
+  display: none;
+  pointer-events: none;
+  position: absolute;
+}
+
+.ProseMirror-gapcursor::after {
+  content: "";
+  display: block;
+  position: absolute;
+  top: -2px;
+  width: 20px;
+  border-top: 1px solid hsl(var(--foreground));
+  animation: rich-cursor-blink 1.1s steps(2, start) infinite;
+}
+
+@keyframes rich-cursor-blink {
+  to { visibility: hidden; }
+}
+
+.ProseMirror-focused .ProseMirror-gapcursor {
+  display: block;
+}
+
+.ProseMirror .tableWrapper {
+  overflow-x: auto;
+}
+
+.ProseMirror td,
+.ProseMirror th {
+  vertical-align: top;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.ProseMirror .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  z-index: 20;
+  background-color: hsl(var(--ring));
+  pointer-events: none;
+}
+
+.ProseMirror.resize-cursor {
+  cursor: col-resize;
+}
+
+.ProseMirror .selectedCell::after {
+  z-index: 2;
+  position: absolute;
+  content: "";
+  inset: 0;
+  background: hsl(var(--ring) / 0.25);
+  pointer-events: none;
+}
+
+/* The frame: Jira's toolbar on top of the document, one bordered surface. */
+/* The drawer's sections are grid items: without min-width 0 the toolbar's row would widen the column. */
+.rich-holder { min-width: 0; }
+
+.rich-frame {
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid hsl(var(--input));
+  border-radius: var(--radius-sm);
+  background: hsl(var(--background));
+}
+
+.rich-frame:focus-within {
+  border-color: hsl(var(--ring));
+  box-shadow: 0 0 0 1px hsl(var(--ring));
+}
+
+.rich-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  padding: 0.25rem;
+  border-bottom: 1px solid hsl(var(--border));
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: hsl(var(--background));
+}
+
+/* The centre view pads and fades the top of its scroller (neotro.css .nt-issue), so text would show above a toolbar
+   stuck below that padding. While the editor is open the toolbar sticks flush to the top, and only the bottom fades. */
+.nt-issue:has(.rich-toolbar) {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--nt-dock-h) - 1rem), transparent calc(100% - var(--nt-dock-h) * 0.4));
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--nt-dock-h) - 1rem), transparent calc(100% - var(--nt-dock-h) * 0.4));
+}
+
+.nt-issue .rich-toolbar { top: -0.75rem; }
+
+.rich-toolbar .rich-tool {
+  flex: none;
+  width: 1.875rem;
+  height: 1.875rem;
+  color: hsl(var(--foreground));
+}
+
+.rich-toolbar .rich-tool .icon { width: 1rem; height: 1rem; }
+.rich-toolbar .rich-tool[aria-pressed="true"],
+.rich-toolbar .rich-tool.is-active {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+  box-shadow: inset 0 -2px 0 hsl(var(--ring));
+}
+
+.rich-toolbar .rich-tool:disabled { opacity: 0.4; }
+
+.rich-toolbar .rich-block-type {
+  width: 7.25rem;
+  gap: 0.25rem;
+  justify-content: space-between;
+  padding: 0 0.375rem 0 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.rich-block-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The text-style menu shows each style as it looks, as Jira's does. */
+.menu[aria-label="Text styles"] .menu-item[data-action^="h"] > span { font-weight: 600; }
+.menu[aria-label="Text styles"] .menu-item[data-action="h1"] > span { font-size: 1.5rem; }
+.menu[aria-label="Text styles"] .menu-item[data-action="h2"] > span { font-size: 1.25rem; }
+.menu[aria-label="Text styles"] .menu-item[data-action="h3"] > span { font-size: 1.125rem; }
+.menu[aria-label="Text styles"] .menu-item[data-action="h4"] > span { font-size: 1rem; }
+.menu[aria-label="Text styles"] .menu-item[data-action="h5"] > span { font-size: 0.875rem; }
+.menu[aria-label="Text styles"] .menu-item[data-action="h6"] > span { font-size: 0.75rem; color: hsl(var(--muted-foreground)); }
+
+/* Groups are set apart by space rather than rules, which would start a wrapped row. */
+.rich-toolbar-group {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.rich-toolbar-group:last-child { margin-inline-start: auto; }
+
+/* Text colour and highlight: the icon, with the colour in use over its underline. */
+.rich-color-tool { position: relative; }
+
+/* Drawn over the icon's own underline, and only once a colour is in use. */
+.rich-color-bar {
+  position: absolute;
+  left: calc(50% - 0.4375rem);
+  width: 0.875rem;
+  bottom: calc(50% - 0.5rem);
+  height: 3px;
+  border-radius: 1px;
+}
+
+.rich-color-bar:not([style*="background"]) { display: none; }
+
+.rich-swatches {
+  display: grid;
+  grid-template-columns: repeat(7, 1.75rem);
+  gap: 0.25rem;
+  padding: 0.375rem;
+}
+
+.rich-swatch {
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: 3px;
+  background: hsl(var(--background));
+  cursor: pointer;
+}
+
+.rich-swatch:hover { box-shadow: 0 0 0 2px hsl(var(--ring) / 0.5); }
+.rich-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px hsl(var(--ring)); }
+
+.rich-swatch.is-none {
+  background: linear-gradient(to top right, transparent calc(50% - 1px), hsl(var(--destructive)) 50%, transparent calc(50% + 1px)), hsl(var(--background));
+}
+
+.rich-link-form {
+  display: grid;
+  gap: 0.5rem;
+  width: min(20rem, calc(100vw - 2rem));
+  padding: 0.5rem;
+}
+
+.rich-link-actions { display: flex; justify-content: flex-end; gap: 0.375rem; }
+.rich-link-error { margin: 0; color: hsl(var(--destructive)); font-size: 0.75rem; }
+
+.rich-content .rich-editor {
+  min-height: 8rem;
+  max-height: min(70dvh, 40rem);
+  overflow-y: auto;
+  padding: 0.5rem 0.75rem 0.75rem;
+  outline: none;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.rich-content .rich-editor > :first-child { margin-top: 0; }
+
+.rich-editor a.rich-link { cursor: text; }
+
+/* Tasks: the box stays clickable, the text editable beside it. */
+.rich-editor li.task > .task-text { flex: 1 1 auto; min-width: 0; }
+.rich-editor li.task > input { cursor: pointer; }
+.rich-editor li.decision > .decision-text { flex: 1 1 auto; min-width: 0; }
+
+/* An expand: its title is an input, its collapse view state only. */
+.rich-expand {
+  margin: 0.5rem 0;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--jp-border);
+  border-radius: 3px;
+}
+
+.rich-expand-head { display: flex; align-items: center; gap: 0.375rem; }
+
+.rich-expand-toggle {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--jp-subtle);
+  cursor: pointer;
+}
+
+.rich-expand-toggle::before {
+  content: "";
+  display: inline-block;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+}
+
+.rich-expand.is-open .rich-expand-toggle::before { transform: rotate(45deg); }
+.rich-expand:not(.is-open) > .expand-body { display: none; }
+
+.rich-expand-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 500;
+  outline: none;
+}
+
+/* The server's tokens: content Jira keeps, shown read-only and saved back byte for byte. */
+.rich-opaque {
+  margin: 0.5rem 0;
+  border: 1px dashed var(--jp-border);
+  border-radius: 3px;
+  color: inherit;
+  user-select: none;
+}
+
+.rich-opaque-head {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.5rem;
+  color: var(--jp-subtle);
+  font-size: 0.75rem;
+}
+
+.rich-opaque-label { color: hsl(var(--foreground)); font-weight: 600; }
+.rich-opaque-note { margin-left: auto; }
+.rich-opaque-icon { display: inline-flex; }
+.rich-opaque-icon .icon { width: 0.875rem; height: 0.875rem; }
+.rich-opaque-preview { padding: 0 0.5rem 0.25rem; opacity: 0.85; pointer-events: none; }
+.rich-opaque-preview > :last-child { margin-bottom: 0; }
+
+.rich-opaque-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 0.375rem;
+  border: 1px dashed var(--jp-border);
+  border-radius: 3px;
+  color: var(--jp-subtle);
+  font-size: 0.8125em;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.rich-opaque-mark {
+  text-decoration: underline dotted var(--jp-subtle);
+  text-underline-offset: 0.2em;
+}
+
+.rich-media img { display: block; max-width: 100%; height: auto; }
+.rich-emoji { font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; }
+
+.ProseMirror-selectednode.rich-opaque,
+.ProseMirror-selectednode.rich-opaque-chip {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+
+/* After a refused save: the conflict or the code, above the kept draft. */
+.rich-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+}
+
+.rich-banner p { margin: 0; flex: 1 1 14rem; }
+.rich-banner.is-conflict { background: var(--jp-warning-bg); color: var(--jp-warning-text); }
+.rich-banner.is-invalid { background: var(--jp-error-bg); color: var(--jp-error-text); }
+.rich-banner.is-restored { background: var(--jp-info-bg); color: var(--jp-info-text); }
+.rich-banner code { font-family: var(--font-mono); font-size: 0.75rem; }
+
+/* Touch targets on phones, narrow enough that the toolbar keeps to two rows on a 390 px phone. */
+@media (max-width: 40rem) {
+  .rich-toolbar { column-gap: 0.25rem; }
+  .rich-toolbar .rich-tool { width: 2rem; height: 2.25rem; }
+  .rich-toolbar .rich-block-type { width: 7.5rem; }
+  .rich-content .rich-editor { max-height: none; }
+}

@@ -48,12 +48,18 @@ test('the list follows reveals live and an entry opens its round', async ({ page
   await expect(entries.nth(5)).toContainText('Jira: sending 3 pts…');
 });
 
-test('the panel collapses to a side tab, remembers it, and reopens', async ({ page, fake }) => {
+test('the panel collapses to a tab on the screen edge, remembers it, and reopens', async ({ page, fake }) => {
   setupStrip(fake);
   await openStrip(page);
-  await page.getByRole('button', { name: 'Collapse panel' }).click();
+  await expect(page.getByRole('button', { name: 'Collapse panel' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Collapse round panel' }).click();
   await expect(history(page)).toBeHidden();
-  await expect(page.getByRole('button', { name: 'Open round panel' })).toBeFocused();
+  const open = page.getByRole('button', { name: 'Open round panel' });
+  await expect(open).toBeFocused();
+  await expect(open).toHaveAttribute('aria-expanded', 'false');
+  await expect(open).toHaveAttribute('aria-controls', 'nt-panel-right');
+  const box = await open.boundingBox();
+  expect(Math.round(box.x + box.width)).toBe(page.viewportSize().width);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('rs.panels')).right.open)).toBe(false);
 
   await page.reload();
@@ -61,6 +67,7 @@ test('the panel collapses to a side tab, remembers it, and reopens', async ({ pa
   await expect(history(page)).toBeHidden();
   await page.getByRole('button', { name: 'Open round panel' }).click();
   await expect(history(page)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Collapse round panel' })).toBeFocused();
 });
 
 test('the panel resizes between 240 and 480 px with the keyboard and keeps its width', async ({ page, fake }) => {

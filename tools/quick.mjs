@@ -34,6 +34,7 @@ const TEST_FOLDERS = {
 const WEB_NET = ['outbox', 'room', 'socket', 'supersede', 'fake-server'].map((n) => `tests/web-unit/net/${n}.test.js`);
 const WEB_CORE_DOM = ['a11y', 'h', 'list', 'router', 'ui'].map((n) => `tests/web-unit/core/${n}.test.js`);
 const POKER_LAYOUT = ['geometry', 'avatar-corner', 'column', 'mirror', 'print'].map((n) => `tests/web-unit/poker/${n}.test.js`);
+const RICH = ['adf', 'block-marks', 'clipboard', 'commands', 'editor-plugins', 'input-rules', 'rules', 'schema', 'tokens'].map((n) => `tests/web-unit/rich/${n}.test.js`);
 const FAKE_SERVER = ['tests/web-fake-server/self.test.js', 'tests/web-fake-server/demo/demo.test.js', 'tests/web-unit/net/fake-server.test.js'];
 const SIM = true;
 
@@ -49,6 +50,7 @@ const RULES = [
   [/^src\/Retroscope\.Core\/(Protocol|Ids)\//, { core: ['Protocol'], node: ['tests/web-unit/net/supersede.test.js', ...FAKE_SERVER] }],
   [/^src\/Retroscope\.Core\/Markup\//, { core: ['Markup', 'Adf'], node: ['tests/web-unit/markup.test.js'] }],
   [/^src\/Retroscope\.Core\/Adf\//, { core: ['Adf'] }],
+  [/^src\/Retroscope\.Core\/Adf\/AdfColor\.cs$/, { node: ['tests/web-unit/markup.test.js'] }],
   [/^src\/Retroscope\.Core\/Security\//, { core: ['Security'] }],
   [/^src\/Retroscope\.Core\/Text\//, { core: ['Text', 'Retro'] }],
   [/^src\/Retroscope\.Core\//, { core: 'all', fallback: true }],
@@ -73,7 +75,9 @@ const RULES = [
   [/^src\/Retroscope\.Server\/(Auth\/|Endpoints\/(Auth|Guest|Me)Endpoints)/, { integration: ['AuthCore'], fallback: true }],
   [/^src\/Retroscope\.Server\/Endpoints\/(Poker|Retro|Dashboard|Mentions|Templates|Endorsements)Endpoints/, { integration: ['RoomHttp'] }],
   [/^src\/Retroscope\.Server\/Endpoints\/(Teams|Invites)Endpoints/, { integration: ['TeamHttp'] }],
-  [/^src\/Retroscope\.Server\/Endpoints\/JiraEndpoints/, { integration: ['JiraHttp'] }],
+  // RouteInventoryTests (Hosting) holds every route to a policy and a rate limit.
+  [/^src\/Retroscope\.Server\/Endpoints\/JiraEndpoints/, { integration: ['JiraHttp', 'Hosting'] }],
+  [/^src\/Retroscope\.Server\/Json\/JiraHttpJsonContext\.cs$/, { integration: ['JiraHttp'] }],
   [/^src\/Retroscope\.Server\/(Endpoints\/AdminEndpoints|Jobs\/(Retention|TeamPurge|TokenSweep)Job)/, { integration: ['Admin'] }],
   [/^src\/Retroscope\.Server\/Endpoints\/BlobEndpoints/, { integration: ['Blobs'] }],
   [/^src\/Retroscope\.Server\/Jira\/PokerJiraPort/, { integration: ['PokerRoom'] }],
@@ -95,17 +99,25 @@ const RULES = [
 
   [/^tests\/Retroscope\.Sim\//, { sim: SIM }],
   [/^tests\/Retroscope\.Core\.Tests\/(Poker\/ViewerModel|Retro\/RetroViewerModel)\.cs$/, { core: ['Poker', 'Retro'], sim: SIM }],
+  [/^tests\/Retroscope\.Integration\.Tests\/JiraHttp\/(JiraHttpHost|JiraSocket)\.cs$/, { integration: ['JiraHttp'] }],
+  [/^tests\/Retroscope\.Core\.Tests\/Adf\/AdfGen\.cs$/, { core: ['Adf'] }],
   [/^tests\/Retroscope\.(Core|Integration|Importer)\.Tests\//, { fallback: true, testProject: true }],
   [/^tests\/Fakes\//, { integration: ['JiraClient', 'JiraHttp', 'Oidc', 'Email'] }],
   [/^tests\/fixtures\/markup\//, { core: ['Markup', 'Adf'], node: ['tests/web-unit/markup.test.js'] }],
-  [/^tests\/fixtures\/adf\//, { core: ['Adf'] }],
+  [/^tests\/fixtures\/adf\//, { core: ['Adf'], node: ['tests/web-unit/rich/adf.test.js'] }],
+  [/^tests\/fixtures\/adf-schema\//, { core: ['Adf'] }],
   [/^tests\/golden\/transcripts\//, { core: ['Poker', 'Retro'], node: ['tests/web-unit/reducers.test.js', 'tests/web-fake-server/self.test.js'] }],
   [/^tests\/golden\//, { golden: true, node: ['tests/web-unit/golden-cli.test.js'], core: ['Poker', 'Retro'], fallback: true }],
   [/^tests\/authz-matrix\.csv$/, { core: ['Authz'] }],
   [/^tests\/schema\.snapshot\.sql$/, { integration: ['Schema'] }],
   [/^tests\/web-unit\/core\/_dom\.js$/, { node: WEB_CORE_DOM.concat('tests/web-unit/editor.test.js') }],
   [/^tests\/web-unit\/net\/_fakes\.js$/, { node: WEB_NET }],
+  [/^tests\/web-unit\/rich\/_project\.js$/, { node: RICH }],
   [/^tests\/web-fake-server\//, { node: FAKE_SERVER }],
+  // commands.test.js opens every edit view the fake serves.
+  [/^tests\/web-fake-server\/edit-views\.gen\.json$/, { node: ['tests/web-unit/rich/commands.test.js'] }],
+  // WebFakeAdfTests renders the fixtures' ADF and regenerates edit-views.gen.json from their projection.
+  [/^tests\/web-fake-server\/((fixtures|demo)\/jira|edit-views\.gen)\.json$/, { core: ['Adf'] }],
   [/^tests\/e2e\//, { note: 'Run the changed spec alone: ./build.sh fake-e2e "<area>/<file>.spec.js".' }],
 
   [/^web\//, { web: true }],
@@ -115,6 +127,12 @@ const RULES = [
   [/^web\/src\/ui\//, { node: ['tests/web-unit/core/ui.test.js'] }],
   [/^web\/src\/markup\//, { node: ['tests/web-unit/markup.test.js', 'tests/web-unit/editor.test.js'] }],
   [/^web\/src\/markup\/(doc|parse)\.js$/, { node: ['tests/web-fake-server/self.test.js'] }],
+  [/^web\/src\/markup\/doc\.js$/, { node: RICH }],
+  [/^web\/src\/rich\//, { node: [...RICH, 'tests/web-unit/core/build.test.js'] }],
+  // AdfSchemaWebMirrorTests and AdfColorWebMirrorTests hold the editor's allow-list and palette to Core/Adf.
+  [/^web\/src\/rich\/(adf-schema|palette)\.json$/, { core: ['Adf'] }],
+  // The fake's read view maps colours through the editor's palette.
+  [/^web\/src\/rich\/palette\.json$/, { node: FAKE_SERVER }],
   [/^web\/src\/net\/outbox\.js$/, { node: WEB_NET }],
   [/^web\/src\/net\/socket\.js$/, { node: ['tests/web-unit/net/fake-server.test.js'] }],
   [/^web\/src\/net\/protocol\.gen\.js$/, {
@@ -123,8 +141,11 @@ const RULES = [
   [/^web\/src\/poker\/model\.js$/, { node: ['tests/web-unit/reducers.test.js', 'tests/web-fake-server/demo/demo.test.js'] }],
   [/^web\/src\/poker\/(geometry|seats)\.js$/, { node: POKER_LAYOUT }],
   [/^web\/src\/poker\/drag\.js$/, { node: ['tests/web-unit/poker/drag-zones.test.js'] }],
+  [/^web\/src\/poker\/issue-drawer\.js$/, { node: ['tests/web-unit/core/build.test.js'] }],
   [/^web\/src\/routes\.js$/, { node: ['tests/web-unit/scaffold/routes.test.js', 'tests/web-unit/core/router.test.js', 'tests/web-fake-server/self.test.js', 'tests/web-unit/core/build.test.js'] }],
+  [/^web\/styles\/jira\.css$/, { node: ['tests/web-unit/markup.test.js'] }],
   [/^(web\/styles\/|web\/(build\.mjs|budgets\.json|package\.json)$|package-lock\.json$)/, { node: ['tests/web-unit/core/build.test.js', 'tests/web-unit/core/theme.test.js'] }],
+  [/^(package\.json|package-lock\.json|web\/package\.json|THIRD_PARTY\.md)$/, { node: ['tests/web-unit/core/deps.test.js'] }],
   [/^(web\/assets\/|tools\/make-sprite\.mjs$|THIRD_PARTY\.md$)/, { node: ['tests/web-unit/assets.test.js'] }],
 
   [/^deploy\/(docker-compose|compose\.test)\.yml$/, { integration: ['Deploy'] }],

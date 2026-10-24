@@ -5,6 +5,10 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isAllowedDoc } from '../../web/src/markup/allow.js';
+import { DIALECT_JIRA_DESCRIPTION } from '../../web/src/markup/doc.js';
+import { parse } from '../../web/src/markup/parse.js';
+import { adfToDoc } from './adf.js';
 import { TestClient } from './client.js';
 import { json, problem } from './http.js';
 import { checkClientFrame, checkServerFrame } from './protocol.js';
@@ -608,7 +612,8 @@ describe('fake Jira proxy', () => {
     const meta = await (await write('POST', '/meta', { keys: ['RS-12', 'RS-404'] })).json();
     assert.deepEqual(meta.items.map((i) => [i.key, i.parentSummary]), [['RS-12', 'Checkout epic']]);
     const detail = await (await fetch(`${base()}/issues/RS-12`)).json();
-    assert.deepEqual(detail.islandIds, ['t0b1e5c0ffee']);
+    assert.deepEqual(detail.islandIds, ['t0b1e5c0ffee', 'r1chL1ne0001', 'pane1Warn001', 'shotMedia001', 'rs12Note0001', 'rs12Roadmap1']);
+    assert.ok(isAllowedDoc(detail.description), 'the fixture islands use the DocNode wire shape');
     const island = detail.description.c.find((n) => n.t === 'island');
     assert.equal(island.c[0].t, 'table');
     assert.equal(detail.comments[0].body.t, 'doc');
@@ -635,6 +640,68 @@ describe('fake Jira proxy', () => {
     assert.equal(edited.status, 409);
   });
 
+  test('the rich editor loads the projected ADF of a fixture issue, or ADF built from markup', async () => {
+    fake.jira({ teamId: TEAM });
+    const view = await (await fetch(`${base()}/issues/RS-12/description`)).json();
+    const detail = await (await fetch(`${base()}/issues/RS-12`)).json();
+    assert.equal(view.updated, detail.updated);
+    assert.equal(view.editable, true);
+    assert.deepEqual(view.adf.content.map((n) => n.type), ['paragraph', 'table', 'paragraph', 'panel', 'mediaSingle', 'paragraph', 'rsOpaque', 'bulletList']);
+    assert.deepEqual(view.media, [{ id: view.adf.content[4].content[0].attrs.id, attachmentId: '20001', name: 'screenshot.png', image: true, w: 640, h: 360 }]);
+    assert.deepEqual(view.opaque.map((p) => [p.kind, p.label]), [['inlineExtension', 'Sprint 10'], ['extension', 'Payments roadmap']]);
+    assert.deepEqual(view.marks.map((m) => m.kind), ['annotation']);
+    assert.equal(typeof view.adf.content[5].attrs.rsKeep, 'string');
+    assert.equal(view.limits.nodes, 5000);
+    const plain = await (await fetch(`${base()}/issues/RS-13/description`)).json();
+    assert.equal(plain.adf.type, 'doc');
+    assert.deepEqual([plain.opaque, plain.marks], [[], []]);
+  });
+
+  test('rich description writes need the current updated value and restore tokens byte for byte', async () => {
+    const jira = fake.jira({ teamId: TEAM });
+    const original = jira.issues.get('RS-12').adf;
+    const { updated, adf, opaque } = await (await fetch(`${base()}/issues/RS-12/description`)).json();
+    const conflict = await write('PATCH', '/issues/RS-12', { description: 'x', descriptionAdf: adf, descriptionBase: updated });
+    assert.equal((await conflict.json()).fields.descriptionAdf, 'conflict');
+    const unknown = { ...adf, content: [...adf.content, { type: 'rsOpaque', attrs: { ref: 'AAAAAAAAAAAAAAAA' } }] };
+    assert.equal((await write('PATCH', '/issues/RS-12', { descriptionAdf: unknown, descriptionBase: updated })).status, 409);
+    const twice = { ...adf, content: [...adf.content, adf.content[6]] };
+    const duplicated = await write('PATCH', '/issues/RS-12', { descriptionAdf: twice, descriptionBase: updated });
+    assert.equal(duplicated.status, 400);
+    assert.deepEqual((await duplicated.json()).fields, { descriptionAdf: 'opaque_duplicated', 'descriptionAdf.at': 'content.8' });
+
+    const edited = { ...adf, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Rewritten', marks: [{ type: 'strong' }] }] }, ...adf.content.slice(1)] };
+    const saved = await write('PATCH', '/issues/RS-12', { descriptionAdf: edited, descriptionBase: updated });
+    assert.equal(saved.status, 200);
+    const after = await saved.json();
+    assert.deepEqual(after.description.c[0], { t: 'p', c: [{ t: 'b', c: [{ t: 'text', v: 'Rewritten' }] }] });
+    assert.equal(after.description.c[1].t, 'island');
+    const issue = jira.issues.get('RS-12');
+    for (const part of opaque) {
+      assert.ok(issue.adfText.includes(jira.originals('RS-12').opaque[part.ref][0]), `${part.kind} kept byte for byte`);
+    }
+    assert.deepEqual(issue.adf.content.slice(1), original.content.slice(1));
+    const again = await (await fetch(`${base()}/issues/RS-12/description`)).json();
+    assert.deepEqual(again.adf, edited);
+    assert.equal(again.opaque.length, 2);
+
+    const stale = await write('PATCH', '/issues/RS-12', { descriptionAdf: edited, descriptionBase: updated });
+    assert.equal(stale.status, 409);
+    const cleared = await write('PATCH', '/issues/RS-12', { descriptionAdf: null, descriptionBase: after.updated });
+    assert.deepEqual((await cleared.json()).description, { t: 'doc', c: [] });
+  });
+
+  test('the read view rebuilt from ADF is the one the fixtures serve from markup and islands', async () => {
+    const { readFile } = await import('node:fs/promises');
+    for (const [file, key] of [['fixtures/jira.json', 'RS-12'], ['demo/jira.json', 'DEMO-123']]) {
+      const issue = JSON.parse(await readFile(join(here, file), 'utf8')).issues.find((i) => i.key === key);
+      const doc = parse(issue.description, { dialect: DIALECT_JIRA_DESCRIPTION });
+      const fromAdf = adfToDoc(issue.adf, issue.attachments);
+      const normal = (d) => ({ ...d, c: d.c.map((n) => (n.t === 'island' ? { ...n, id: 'island', c: n.c?.length ? n.c : [issue.islands[n.id]] } : n)) });
+      assert.deepEqual(normal(fromAdf), normal(doc), key);
+    }
+  });
+
   test('points, comments, create, transitions and links are kept', async () => {
     const jira = fake.jira({ teamId: TEAM });
     assert.equal((await write('PUT', '/issues/RS-12/points', { points: 2.5 })).status, 200);
@@ -645,7 +712,7 @@ describe('fake Jira proxy', () => {
     const created = await (await write('POST', '/issues', { summary: 'From retro', description: 'Do it' })).json();
     assert.equal(created.key, 'RS-32');
     const clone = await (await write('POST', '/issues', { summary: 'Clone', cloneFrom: 'RS-12' })).json();
-    assert.deepEqual((await (await fetch(`${base()}/issues/${clone.key}`)).json()).islandIds, ['t0b1e5c0ffee']);
+    assert.deepEqual((await (await fetch(`${base()}/issues/${clone.key}`)).json()).islandIds, ['t0b1e5c0ffee', 'r1chL1ne0001', 'pane1Warn001', 'shotMedia001', 'rs12Note0001', 'rs12Roadmap1']);
     assert.equal((await write('POST', '/issues/RS-13/transition', { transitionId: '31' })).status, 204);
     assert.equal(jira.issues.get('RS-13').statusCategory, 'done');
     const link = await (await write('POST', '/issues/RS-13/links', { typeId: '10000', targetKey: 'RS-12' })).json();

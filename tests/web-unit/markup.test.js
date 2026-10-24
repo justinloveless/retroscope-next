@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { checkMarkup, parse } from '../../web/src/markup/parse.js';
+import { isAllowedDoc } from '../../web/src/markup/allow.js';
+import { colorValue, formatDay, isDocColor, jiraRenderer } from '../../web/src/markup/jira.js';
 import { render } from '../../web/src/markup/render.js';
 import {
   DIALECT_JIRA,
   DIALECT_JIRA_DESCRIPTION,
   DIALECT_RETRO,
   imageBlobIds,
-  isAllowedDoc,
   islandIds,
   mentionIds,
   toMarkup,
@@ -41,11 +42,24 @@ class FakeNode {
   }
 }
 
+// The CSSOM is the only way a style reaches the page (style-src 'self'); html() shows it as `cssom`.
+class FakeStyle {
+  constructor() {
+    this.props = new Map();
+  }
+
+  setProperty(name, value) {
+    assert.equal(typeof value, 'string');
+    this.props.set(name, value);
+  }
+}
+
 class FakeElement extends FakeNode {
   constructor(tag) {
     super('element');
     this.tagName = tag;
     this.attributes = new Map();
+    this.style = new FakeStyle();
   }
 
   setAttribute(name, value) {
@@ -82,8 +96,10 @@ function html(node) {
   if (node.kind === 'fragment') {
     return inner;
   }
-  const attrs = [...node.attributes].map(([k, v]) => ` ${k}="${v.replace(/"/g, '&quot;')}"`).join('');
-  return node.tagName === 'br' || node.tagName === 'hr' || node.tagName === 'img' || node.tagName === 'input'
+  const cssom = [...node.style.props].map(([k, v]) => `${k}: ${v}`).join('; ');
+  const attrs = [...node.attributes].map(([k, v]) => ` ${k}="${v.replace(/"/g, '&quot;')}"`).join('')
+    + (cssom ? ` cssom="${cssom}"` : '');
+  return node.tagName === 'br' || node.tagName === 'hr' || node.tagName === 'img' || node.tagName === 'input' || node.tagName === 'col'
     ? `<${node.tagName}${attrs}>`
     : `<${node.tagName}${attrs}>${inner}</${node.tagName}>`;
 }
@@ -92,17 +108,25 @@ function renderHtml(doc, options = {}) {
   return html(render(doc, { document: fakeDocument, ...options }));
 }
 
+const BLOCK_CLASS = ['class'];
 const ALLOWED_ELEMENTS = {
-  p: [], br: [], strong: [], em: [], s: [], u: [], code: ['data-lang'], pre: [], ul: ['class'], ol: ['start'],
-  li: ['class'], blockquote: [], hr: [], h1: [], h2: [], h3: [], h4: [], h5: [], h6: [],
-  a: ['href', 'rel', 'target'], img: ['src', 'alt', 'loading'], span: ['class', 'data-mention-id'],
-  div: ['class', 'data-island-id'], table: [], tbody: [], tr: [], th: ['colspan', 'rowspan'], td: ['colspan', 'rowspan'],
-  details: ['class'], summary: [], input: ['type', 'disabled', 'checked'],
+  p: BLOCK_CLASS, br: [], strong: [], em: [], s: [], u: [], sub: [], sup: [], code: ['data-lang'], pre: [], ul: ['class'],
+  ol: ['start'], li: ['class'], blockquote: [], hr: [], h1: BLOCK_CLASS, h2: BLOCK_CLASS, h3: BLOCK_CLASS, h4: BLOCK_CLASS,
+  h5: BLOCK_CLASS, h6: BLOCK_CLASS, a: ['href', 'rel', 'target', 'title', 'class'], img: ['src', 'alt', 'loading', 'width', 'height'],
+  span: ['class', 'data-mention-id', 'aria-hidden'], div: ['class', 'data-island-id'], table: ['class'], colgroup: [], col: [],
+  tbody: [], tr: [], th: ['colspan', 'rowspan', 'class'], td: ['colspan', 'rowspan', 'class'], details: ['class'], summary: [],
+  input: ['type', 'disabled', 'checked'], figure: ['class'], figcaption: [], time: ['class', 'datetime'], i: ['data-icon'],
 };
+
+// Every CSSOM value the renderers write: a palette variable, a strict hex colour, a size or a flex weight.
+const SAFE_STYLE = /^(?:var\(--jc-[a-z]+(?:-[a-z]+)?\)|#[0-9a-f]{6}|\d+(?:\.\d+)?(?:px|%)?)$/;
 
 function assertSafeDom(node) {
   if (node.kind === 'element') {
     assert.ok(Object.hasOwn(ALLOWED_ELEMENTS, node.tagName), `element <${node.tagName}>`);
+    for (const [name, value] of node.style.props) {
+      assert.match(value, SAFE_STYLE, `<${node.tagName}> ${name}: ${value}`);
+    }
     for (const [name, value] of node.attributes) {
       assert.ok(ALLOWED_ELEMENTS[node.tagName].includes(name), `<${node.tagName} ${name}>`);
       if (name === 'href') {
@@ -311,6 +335,14 @@ test('mention names come from the resolver, never from the token', () => {
   );
 });
 
+const fakeIcon = (name) => {
+  const i = fakeDocument.createElement('i');
+  i.setAttribute('data-icon', name);
+  return i;
+};
+const extend = jiraRenderer({ icon: fakeIcon, fileHref: () => 'https://example.atlassian.net/browse/K-1' });
+const jiraHtml = (d, options = {}) => renderHtml(d, { extend, ...options });
+
 test('Jira DocNodes render with every field re-checked', () => {
   const jira = doc(
     h(2, t('Title')),
@@ -324,19 +356,208 @@ test('Jira DocNodes render with every field re-checked', () => {
   assert.ok(isAllowedDoc(jira));
   const imageSrc = (n) => (n.t === 'attachment' ? `/api/teams/t/jira/issues/K-1/attachments/${n.id}` : null);
   assert.equal(
-    renderHtml(jira, { imageSrc }),
-    '<h2>Title</h2><hr><div class="panel panel-warning"><p>careful</p></div>'
-      + '<table><tbody><tr><th><p>h</p></th><td><p>c</p></td></tr></tbody></table>'
-      + '<details class="expand"><summary>More</summary><p>hidden</p></details>'
+    jiraHtml(jira, { imageSrc }),
+    '<h2>Title</h2><hr><div class="panel panel-warning"><span class="panel-icon" aria-hidden="true"><i data-icon="triangle-alert"></i></span>'
+      + '<div class="panel-body"><p>careful</p></div></div>'
+      + '<div class="table-wrap"><table><tbody><tr><th><p>h</p></th><td><p>c</p></td></tr></tbody></table></div>'
+      + '<details class="expand"><summary>More</summary><div class="expand-body"><p>hidden</p></div></details>'
       + '<ul class="tasks"><li class="task"><input type="checkbox" disabled="" checked="">done</li>'
       + '<li class="task"><input type="checkbox" disabled="">open</li></ul>'
       + '<p><u>u</u><span class="status status-blue">IN PROGRESS</span>'
       + '<img src="/api/teams/t/jira/issues/K-1/attachments/10042" alt="shot.png" loading="lazy"></p>',
   );
   assert.equal(
+    renderHtml(doc({ t: 'panel', kind: 'info', c: [p(t('kept'))] }, p({ t: 'status', v: 'S', color: 'red' }))),
+    '<p>kept</p><p>S</p>',
+    'without the Jira extension, ADF-only kinds keep only their content',
+  );
+  assert.equal(
     renderHtml(doc(p({ t: 'attachment', id: '1', alt: '' }))),
     '<p><span class="image-missing">image (open in Jira)</span></p>',
   );
+});
+
+test('Jira colour marks, sub/sup, link titles, alignment and indentation', () => {
+  const jira = doc(
+    { t: 'p', align: 'center', c: [
+      { t: 'fg', color: 'blue-bolder', c: [t('blue')] },
+      { t: 'bg', color: '#a1b2c3', c: [{ t: 'sup', c: [t('2')] }, { t: 'sub', c: [t('n')] }] },
+      { t: 'a', href: 'https://example.com', title: 'Tip', c: [t('link')] },
+    ] },
+    { t: 'p', indent: 3, c: [t('in')] },
+    { t: 'h', level: 3, align: 'end', indent: 1, c: [t('Head')] },
+    { t: 'p', align: 'left', indent: 9, c: [t('plain')] },
+  );
+  assert.ok(isAllowedDoc(doc(...jira.c.slice(0, 3))));
+  assert.equal(
+    jiraHtml(jira),
+    '<p class="align-center"><span class="text-color" cssom="color: var(--jc-blue-bolder)">blue</span>'
+      + '<span class="highlight" cssom="background-color: #a1b2c3"><sup>2</sup><sub>n</sub></span>'
+      + '<a href="https://example.com" rel="noopener noreferrer nofollow" target="_blank" title="Tip">link</a></p>'
+      + '<p class="indent-3">in</p><h3 class="align-end indent-1">Head</h3><p>plain</p>',
+  );
+  assert.equal(colorValue('surface'), 'var(--jc-surface)');
+  for (const bad of ['#ABCDEF', '#abc', 'red', 'blue-bright', 'var(--x)', '#fff;x', null, 7]) {
+    assert.equal(colorValue(bad), null, String(bad));
+  }
+});
+
+test('every palette token Core sends is accepted by the client and themed by jira.css', () => {
+  const tokens = new Set([...readFileSync(`${ROOT}src/Retroscope.Core/Adf/AdfColor.cs`, 'utf8').matchAll(/\] = "([a-z-]+)",/g)].map((m) => m[1]));
+  assert.ok(tokens.size > 20, `found ${tokens.size} tokens in AdfColor.cs`);
+  const css = readFileSync(`${ROOT}web/styles/jira.css`, 'utf8');
+  const block = (selector) => {
+    const start = css.indexOf(`${selector} {`);
+    assert.ok(start >= 0, selector);
+    return css.slice(start, css.indexOf('}', start));
+  };
+  const themes = { light: block(':root[data-theme="light"]'), dark: block(':root[data-theme="dark"]'), system: block(':root:not([data-theme])') };
+  for (const token of tokens) {
+    assert.ok(isDocColor(token), `${token} is not a client palette token`);
+    for (const [theme, body] of Object.entries(themes)) {
+      assert.match(body, new RegExp(`--jc-${token}:`), `${theme} theme lacks --jc-${token}`);
+    }
+  }
+});
+
+test('Jira panels of every kind, custom colour and emoji', () => {
+  const kinds = ['info', 'note', 'tip', 'success', 'warning', 'error'];
+  const icons = ['info', 'clipboard-list', 'lightbulb', 'circle-check', 'triangle-alert', 'circle-x'];
+  assert.equal(
+    jiraHtml(doc(...kinds.map((kind) => ({ t: 'panel', kind, c: [] })))),
+    kinds.map((kind, i) => `<div class="panel panel-${kind}"><span class="panel-icon" aria-hidden="true"><i data-icon="${icons[i]}"></i></span>`
+      + '<div class="panel-body"></div></div>').join(''),
+  );
+  assert.equal(
+    jiraHtml(doc(
+      { t: 'panel', kind: 'custom', color: 'green-subtlest', icon: '🚀', c: [p(t('go'))] },
+      { t: 'panel', kind: 'custom', color: 'url(x)', c: [] },
+      { t: 'panel', kind: 'bogus', c: [] },
+    )),
+    '<div class="panel panel-custom" cssom="background-color: var(--jc-green-subtlest)"><span class="panel-icon panel-emoji" aria-hidden="true">🚀</span>'
+      + '<div class="panel-body"><p>go</p></div></div>'
+      + '<div class="panel panel-custom"><div class="panel-body"></div></div>'
+      + '<div class="panel panel-info"><span class="panel-icon" aria-hidden="true"><i data-icon="info"></i></span><div class="panel-body"></div></div>',
+  );
+});
+
+test('Jira tables keep spans, widths, cell colours and the number column', () => {
+  const cell = (kind, text, extra = {}) => ({ t: kind, ...extra, c: [p(t(text))] });
+  const table = {
+    t: 'table', layout: 'center', numbered: true, width: 400,
+    c: [
+      { t: 'tr', c: [cell('th', 'A', { colwidth: [100] }), cell('th', 'B', { colspan: 2, colwidth: [80, 120], bg: 'blue-subtlest' })] },
+      { t: 'tr', c: [cell('th', 'r', { rowspan: 2 }), cell('td', 'x', { bg: '#fafafa' }), cell('td', 'y')] },
+      { t: 'tr', c: [cell('td', 'z', { colspan: 99, rowspan: 1, bg: 'nope' })] },
+    ],
+  };
+  assert.ok(isAllowedDoc(doc({ ...table, c: table.c.slice(0, 2) })));
+  assert.equal(
+    jiraHtml(doc(table)),
+    '<div class="table-wrap"><table cssom="width: 342px">'
+      + '<colgroup><col cssom="width: 42px"><col cssom="width: 100px"><col cssom="width: 80px"><col cssom="width: 120px"></colgroup><tbody>'
+      + '<tr><th class="number"></th><th><p>A</p></th><th colspan="2" cssom="background-color: var(--jc-blue-subtlest)"><p>B</p></th></tr>'
+      + '<tr><td class="number">1</td><th rowspan="2"><p>r</p></th><td cssom="background-color: #fafafa"><p>x</p></td><td><p>y</p></td></tr>'
+      + '<tr><td class="number">2</td><td><p>z</p></td></tr></tbody></table></div>',
+  );
+  assert.equal(
+    jiraHtml(doc({ t: 'table', c: [{ t: 'tr', c: [cell('td', 'a', { colwidth: [50, 60] })] }] })),
+    '<div class="table-wrap"><table><tbody><tr><td><p>a</p></td></tr></tbody></table></div>',
+    'column widths that do not match the spans leave the table to size itself',
+  );
+  assert.equal(
+    jiraHtml(doc({ t: 'table', width: 900, c: [{ t: 'tr', c: [cell('td', 'a')] }] })),
+    '<div class="table-wrap"><table cssom="width: 900px"><tbody><tr><td><p>a</p></td></tr></tbody></table></div>',
+    'without column widths the table width applies',
+  );
+  assert.equal(
+    jiraHtml(doc({ t: 'table', width: 1e9, c: [{ t: 'tr', c: [cell('td', 'a')] }] })),
+    '<div class="table-wrap"><table><tbody><tr><td><p>a</p></td></tr></tbody></table></div>',
+    'an out-of-range table width is ignored',
+  );
+});
+
+test('Jira layouts, expands, nested tasks and decisions', () => {
+  const jira = doc(
+    { t: 'layout', c: [{ t: 'col', width: 33.33, c: [p(t('one'))] }, { t: 'col', width: 0, c: [p(t('two'))] }] },
+    { t: 'expand', title: 'Details', c: [p(t('inside'))] },
+    { t: 'tasks', c: [{ t: 'task', done: false, c: [t('parent')] }, { t: 'tasks', c: [{ t: 'task', done: true, c: [t('child')] }] }] },
+    { t: 'decisions', c: [{ t: 'decision', done: true, c: [t('yes')] }, { t: 'decision', done: false, c: [t('maybe')] }] },
+  );
+  assert.ok(isAllowedDoc(jira));
+  assert.equal(
+    jiraHtml(jira),
+    '<div class="layout"><div class="layout-col" cssom="flex-grow: 33.33"><p>one</p></div><div class="layout-col"><p>two</p></div></div>'
+      + '<details class="expand"><summary>Details</summary><div class="expand-body"><p>inside</p></div></details>'
+      + '<ul class="tasks"><li class="task"><input type="checkbox" disabled="">parent</li>'
+      + '<li class="task-nest"><ul class="tasks"><li class="task"><input type="checkbox" disabled="" checked="">child</li></ul></li></ul>'
+      + '<ul class="decisions"><li class="decision is-decided"><span class="decision-icon" aria-hidden="true"><i data-icon="split"></i></span>yes</li>'
+      + '<li class="decision"><span class="decision-icon" aria-hidden="true"><i data-icon="split"></i></span>maybe</li></ul>',
+  );
+});
+
+test('Jira media keeps its layout, width and caption; files are chips', () => {
+  const imageSrc = (n) => (n.t === 'attachment' ? `/att/${n.id}` : null);
+  const jira = doc(
+    { t: 'media', layout: 'wrap-left', width: 320, unit: 'px', caption: [t('The '), b(t('flow'))], c: [{ t: 'attachment', id: '7', alt: 'flow.png', w: 1280, h: 720 }] },
+    { t: 'media', layout: 'center', width: 50, unit: '%', c: [{ t: 'attachment', id: '8', alt: 'b.png' }] },
+    { t: 'files', c: [{ t: 'attachment', id: '9', alt: 'c.png' }, { t: 'file', id: '10', name: 'spec.pdf' }] },
+    { t: 'media', layout: 'sideways', width: 99999, unit: 'px', c: [t('image (open in Jira)')] },
+  );
+  assert.ok(isAllowedDoc(doc(...jira.c.slice(0, 3))));
+  assert.equal(
+    jiraHtml(jira, { imageSrc }),
+    '<figure class="media layout-wrap-left" cssom="width: 320px"><img src="/att/7" alt="flow.png" loading="lazy" width="1280" height="720">'
+      + '<figcaption>The <strong>flow</strong></figcaption></figure>'
+      + '<figure class="media layout-center" cssom="width: 50%"><img src="/att/8" alt="b.png" loading="lazy"></figure>'
+      + '<div class="media-group"><img src="/att/9" alt="c.png" loading="lazy">'
+      + '<a class="file-chip" href="https://example.atlassian.net/browse/K-1" rel="noopener noreferrer nofollow" target="_blank" title="Open in Jira">'
+      + '<span class="file-icon" aria-hidden="true"><i data-icon="paperclip"></i></span>spec.pdf</a></div>'
+      + '<figure class="media">image (open in Jira)</figure>',
+  );
+  const unlinked = renderHtml(doc(p({ t: 'file', id: '10', name: 'a.txt' })), { extend: jiraRenderer({ fileHref: () => 'javascript:x' }) });
+  assert.equal(unlinked, '<p><span class="file-chip"><span class="file-icon" aria-hidden="true"></span>a.txt</span></p>');
+});
+
+test('Jira lozenges: status styles, mention pill, date, cards', () => {
+  const jira = doc(p(
+    { t: 'status', v: 'DONE', color: 'green', bold: true },
+    { t: 'status', v: 'Odd', color: 'pink' },
+    { t: 'user', v: '@Ann Lee' },
+    { t: 'date', v: '2026-01-02' },
+    { t: 'date', v: '2026-1-2' },
+    { t: 'card', href: 'https://example.atlassian.net/browse/RS-3' },
+    { t: 'card', href: 'https://example.com/a/b', block: true },
+    { t: 'card', href: 'javascript:alert(1)' },
+  ));
+  assert.equal(
+    jiraHtml(jira),
+    '<p><span class="status status-green is-bold">DONE</span><span class="status status-neutral">Odd</span>'
+      + '<span class="jira-user">@Ann Lee</span>'
+      + `<time class="date-lozenge" datetime="2026-01-02">${formatDay('2026-01-02')}</time>`
+      + '<a class="smart-card" href="https://example.atlassian.net/browse/RS-3" rel="noopener noreferrer nofollow" target="_blank">'
+      + '<span class="card-icon" aria-hidden="true"><i data-icon="link"></i></span>RS-3</a>'
+      + '<a class="smart-card is-block" href="https://example.com/a/b" rel="noopener noreferrer nofollow" target="_blank">'
+      + '<span class="card-icon" aria-hidden="true"><i data-icon="link"></i></span>example.com/a/b</a></p>',
+  );
+  assert.equal(formatDay('2026-01-02'), new Date(Date.UTC(2026, 0, 2)).toLocaleDateString(undefined, { timeZone: 'UTC', dateStyle: 'medium' }));
+  assert.equal(formatDay('2026-02-30T00'), null);
+});
+
+test('hostile Jira fields never reach the DOM or the CSSOM', () => {
+  const hostile = doc(
+    { t: 'p', align: '" onclick="x', indent: '1;x', c: [{ t: 'fg', color: 'red;background:url(//evil.com)', c: [t('fg')] }] },
+    { t: 'panel', kind: 'custom', color: 'expression(alert(1))', icon: '<img src=x onerror=alert(1)>'.repeat(3), c: [] },
+    { t: 'table', layout: '"><script>', width: '1px;x', numbered: 'yes', c: [{ t: 'tr', c: [{ t: 't d', c: [] }, { t: 'td', colspan: '2" onclick="x', rowspan: 1e9, colwidth: ['9px;x'], bg: '#12345g', c: [] }] }] },
+    { t: 'media', layout: 'x onclick', width: '50%;x', unit: 'vh', caption: 'not an array', c: [{ t: 'attachment', id: '1/../x', alt: '', w: '1" onload="x', h: 2 }] },
+    { t: 'col', width: '1;x', c: [] },
+    p({ t: 'card', href: '//evil.com' }, { t: 'date', v: '"><script>' }, { t: 'a', href: 'javascript:x', title: 't', c: [t('js')] }, { t: 'file', id: '1', name: '<b>' }),
+  );
+  assert.equal(isAllowedDoc(hostile), false);
+  const fragment = render(hostile, { document: fakeDocument, extend, imageSrc: (n) => `/a/${n.id}` });
+  assertSafeDom(fragment);
+  const out = html(fragment);
+  assert.doesNotMatch(out, /<script|<img src="x|javascript:|onclick|onload|onerror=alert|evil\.com|\.\.\/|expression|url\(/);
 });
 
 test('islands render their content, a supplied subtree, or a placeholder', () => {
@@ -395,7 +616,7 @@ test('renderer depth is capped', () => {
 
 test('renderer and parser source use no banned sinks', () => {
   const banned = /\b(innerHTML|outerHTML|insertAdjacentHTML|document\.write|setHTMLUnsafe|createContextualFragment|DOMParser|eval)\b|new Function/;
-  for (const file of ['parse.js', 'render.js', 'doc.js']) {
+  for (const file of ['parse.js', 'render.js', 'doc.js', 'jira.js', 'allow.js']) {
     assert.doesNotMatch(readFileSync(`${ROOT}web/src/markup/${file}`, 'utf8'), banned, file);
   }
 });

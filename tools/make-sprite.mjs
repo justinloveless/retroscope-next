@@ -16,18 +16,21 @@ export const CARD_GUTTER = 2;
 
 export const LUCIDE_VERSION = '1.49.0';
 export const ICONS = [
-  'archive', 'arrow-left', 'arrow-right', 'arrow-up-down', 'award', 'bell', 'building-complex', 'calendar',
-  'check', 'chevron-down', 'chevron-left', 'chevron-right', 'chevron-up', 'circle', 'circle-alert',
-  'circle-check', 'circle-check-big', 'circle-x', 'clipboard-list', 'clock', 'copy', 'corner-up-left',
+  'archive', 'arrow-left', 'arrow-right', 'arrow-up-down', 'award', 'baseline', 'bell', 'bold', 'building-complex',
+  'calendar', 'check', 'chevron-down', 'chevron-left', 'chevron-right', 'chevron-up', 'circle', 'circle-alert',
+  'circle-check', 'circle-check-big', 'circle-x', 'clipboard-list', 'clock', 'code', 'copy', 'corner-up-left',
   'credit-card', 'crosshair', 'crown', 'dot', 'download', 'ellipsis', 'external-link', 'eye', 'eye-off',
   'face-slightly-smiling', 'face-slightly-smiling-plus', 'folder-kanban', 'folder-open', 'funnel',
-  'gallery-horizontal-end', 'grip-vertical', 'hash', 'house', 'image', 'info', 'layers', 'layout-dashboard',
-  'link', 'link-2', 'list-ordered', 'list-plus', 'loader-circle', 'lock', 'log-in', 'log-out', 'mail',
-  'maximize-2', 'menu', 'message-circle', 'message-square', 'moon', 'music', 'palette', 'panel-left', 'pause',
-  'pen', 'pencil', 'play', 'plus', 'power', 'power-off', 'refresh-cw', 'rotate-ccw', 'save', 'scan-search',
-  'search', 'send', 'settings', 'settings-2', 'share-2', 'shield', 'shield-alert', 'spade', 'sparkles',
-  'spotlight', 'square-pen', 'star', 'sun', 'tag', 'thumbs-up', 'timer', 'trash', 'triangle-alert', 'trophy',
-  'undo-2', 'upload', 'user', 'user-check', 'user-minus', 'user-plus', 'users', 'volume-x', 'vote', 'x', 'zap',
+  'gallery-horizontal-end', 'grip-vertical', 'hash', 'highlighter', 'house', 'image', 'info', 'italic', 'layers',
+  'layout-dashboard', 'lightbulb', 'link', 'link-2', 'list', 'list-indent-decrease', 'list-indent-increase',
+  'list-ordered', 'list-plus', 'list-todo', 'loader-circle', 'lock', 'log-in', 'log-out', 'mail', 'maximize-2',
+  'menu', 'message-circle', 'message-square', 'minus', 'moon', 'music', 'palette', 'panel-left', 'paperclip',
+  'pause', 'pen', 'pencil', 'play', 'plus', 'power', 'power-off', 'puzzle', 'redo-2', 'refresh-cw',
+  'remove-formatting', 'rotate-ccw', 'save', 'scan-search', 'search', 'send', 'settings', 'settings-2', 'share-2',
+  'shield', 'shield-alert', 'spade', 'sparkles', 'split', 'spotlight', 'square-code', 'square-pen', 'star',
+  'strikethrough', 'sun', 'tag', 'text-quote', 'thumbs-up', 'timer', 'trash', 'triangle-alert', 'trophy', 'type',
+  'underline', 'undo-2', 'unlink', 'upload', 'user', 'user-check', 'user-minus', 'user-plus', 'users', 'volume-x',
+  'vote', 'x', 'zap',
 ];
 
 const SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);

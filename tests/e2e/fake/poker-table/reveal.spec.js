@@ -13,10 +13,12 @@ test('a server auto-reveal flips every seated card 300 ms later and groups the r
   votes.set(ME.pid, { points: 8, locked: true, abstained: false });
   fake.tx(ROOM, [revealed(R1, votes, null, 5)]);
 
-  const stacks = page.locator('.nt-stack');
-  await expect(stacks).toHaveCount(3);
-  await expect(page.locator('.nt-stack-pill')).toHaveText(['1 x 3–5 pts', '2 x 5 pts', '1 x 8 pts']);
-  await expect(stacks.nth(1)).toHaveAttribute('aria-label', '2 x 5 pts: Bob, Dot');
+  // A between vote lies on both of its piles.
+  const piles = page.locator('.nt-pile');
+  await expect(piles).toHaveCount(3);
+  await expect(page.locator('.nt-pile-value')).toHaveText(['1 x 3 pts', '3 x 5 pts', '1 x 8 pts']);
+  await expect(piles.nth(1)).toHaveAttribute('aria-label', '5 pts, 3 votes, winner: Bob, Gus, Dot');
+  await expect(seat(page, GUS)).toHaveAttribute('aria-label', 'Gus (guest), voted 3 to 5');
   await expect(page.locator('.nt-winner')).toHaveText('Winning Points: 5 pts');
   await expect(page.locator('.nt-hand')).toBeHidden();
 
@@ -45,7 +47,7 @@ test('the flip waits 300 ms and turns over in 0.6 s', async ({ page, fake }) => 
       }
     }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
     new MutationObserver(() => {
-      if (document.querySelector('.nt-stack') && !window.__revealedAt) {
+      if (document.querySelector('.nt-pile') && !window.__revealedAt) {
         window.__revealedAt = performance.now();
       }
     }).observe(document.body, { subtree: true, childList: true });
@@ -95,7 +97,7 @@ test('Reveal Cards sends reveal; Replay, End and Continue drive the round', asyn
 
   await page.getByRole('button', { name: 'Reveal Cards' }).click();
   expect((await lastCommand(fake, 'poker.round.reveal')).d).toEqual({ roundId: R1 });
-  await expect(page.locator('.nt-stack')).toHaveCount(1);
+  await expect(page.locator('.nt-pile')).toHaveCount(1);
 
   await page.getByRole('button', { name: 'Replay round' }).click();
   expect((await lastCommand(fake, 'poker.round.replay')).d).toEqual({ roundId: R1 });

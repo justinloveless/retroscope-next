@@ -1,5 +1,5 @@
 // Phones and round changes (§g.8): below 768 px the toolbar controls move into a bottom bar with a
-// History sheet, and a horizontal swipe on the table changes round (direction locks after 10 px when
+// History sheet (and the Browse Jira sheet that jiraFeature puts in `slots.bottom`), and a horizontal swipe on the table changes round (direction locks after 10 px when
 // |dx| > 1.2·|dy|, the table follows with damping sign(dx)·|dx|^0.75, 50 px commits, 200 ms settle).
 // Every round change slides the table in from the side it came from (280 ms). Motion honours
 // prefers-reduced-motion.
@@ -49,7 +49,7 @@ export function createMobile(ctx) {
   const controls = h('div', { class: 'nt-bottom-controls' });
   const historyButton = createButton({ label: 'Round history', icon: 'list-ordered', iconOnly: true, variant: 'default', press: true, size: 'sm', onClick: openHistory });
   const bar = h('nav', { class: 'nt-bottom-bar', 'aria-label': 'Session controls', hidden: true },
-    controls, h('span', { class: 'nt-bottom-sep', 'aria-hidden': 'true' }), historyButton.el);
+    controls, h('span', { class: 'nt-bottom-sep', 'aria-hidden': 'true' }), ctx.slots.bottom, historyButton.el);
   ctx.slots.page.append(bar);
 
   let view = null;

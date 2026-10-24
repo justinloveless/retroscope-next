@@ -25,6 +25,8 @@ public static class MarkupWriter {
 
     private static string WriteBlock(DocBlock block) {
         return block switch {
+            DocParagraph paragraph when paragraph.Format != default => throw Unrepresentable(block),
+            DocHeading heading when heading.Format != default => throw Unrepresentable(block),
             DocParagraph paragraph => EscapeLineStarts(InlineWriter.Write(paragraph.Content)),
             DocHeading heading => $"{new string('#', heading.Level)} {InlineWriter.Write(heading.Content).Replace('\n', ' ')}",
             DocBulletList list => string.Join('\n', list.Items.Select(item => WriteItem("-", item))),

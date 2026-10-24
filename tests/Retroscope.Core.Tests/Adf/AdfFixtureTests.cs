@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Retroscope.Core.Adf;
 using Retroscope.Core.Markup;
+using Retroscope.Core.Tests.Markup;
 
 namespace Retroscope.Core.Tests.Adf;
 
@@ -14,7 +15,9 @@ public sealed class AdfFixtureTests {
         "text", "hardBreak", "mention", "emoji", "date", "status", "inlineCard", "placeholder",
     ];
 
-    private static readonly string[] MarkTypes = ["strong", "em", "strike", "underline", "code", "link", "textColor", "alignment"];
+    private static readonly string[] MarkTypes = [
+        "strong", "em", "strike", "underline", "code", "link", "textColor", "backgroundColor", "subsup", "alignment", "indentation",
+    ];
 
     public static TheoryData<string, string> Cases() {
         var data = new TheoryData<string, string>();
@@ -74,6 +77,21 @@ public sealed class AdfFixtureTests {
 
         using var written = JsonDocument.Parse(adf);
         Assert.Equal(Content(original, description), Content(written.RootElement, description));
+    }
+
+    // UX8: the display-only kinds and attributes reach the client only inside islands, so the editor and
+    // MarkupWriter never see them.
+    [Theory]
+    [MemberData(nameof(DescriptionCases))]
+    public void Blocks_outside_islands_hold_only_markup_kinds(string file, string name) {
+        var testCase = AdfFixtures.Find(file, name);
+        var description = AdfToDoc.Description(testCase.GetProperty("adf"), AdfFixtures.Attachments(testCase));
+        if (!description.Editable) {
+            return;
+        }
+        var editable = new Doc(description.Doc.Blocks.Where(block => block is not DocIsland).ToList());
+
+        Assert.Null(DocKinds.DisallowedIn(editable, MarkupDialect.JiraDescription));
     }
 
     [Fact]

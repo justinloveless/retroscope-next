@@ -1,16 +1,20 @@
 // The Jira issue drawer (§f, §g.7 chunk jira-drawer; parity: original JiraIssueDrawer). Details come from
 // the proxy's 60 s detail cache and a 60 s client cache that a 600 ms hover prefetch fills. Every field
-// edit is a proxy write followed by a reload. The description is edited as markup with the issue's
-// opaque islands (tables, screenshots, panels…) as read-only atoms, and saved with `descriptionBase`, so
-// a concurrent edit in Jira answers `stale` instead of being overwritten.
+// edit is a proxy write followed by a reload. The description is edited in the rich editor (UX12, its own
+// lazy chunk) on the edit view's ADF and saved as `descriptionAdf` with `descriptionBase`, so a concurrent
+// edit in Jira answers `stale` instead of being overwritten. A description the edit view marks not editable
+// falls back to the markup editor, with the issue's opaque islands as read-only atoms.
 
 import { h, replaceContent } from '../core/h.js';
+import { initials } from '../core/fmt.js';
 import { http } from '../core/http.js';
 import { createEditor } from '../markup/editor.js';
+import { jiraRenderer } from '../markup/jira.js';
 import { DIALECT_JIRA, DIALECT_JIRA_DESCRIPTION, toMarkup } from '../markup/doc.js';
 import { checkMarkup } from '../markup/parse.js';
 import { render } from '../markup/render.js';
 import { createButton } from '../ui/button.js';
+import { confirmDialog } from '../ui/confirm.js';
 import { createDialog } from '../ui/dialog.js';
 import { icon } from '../ui/icons.js';
 import { issueTypeGlyph, priorityGlyph, statusBadge } from '../ui/glyphs.js';
@@ -21,6 +25,8 @@ import { toast } from '../ui/toast.js';
 export const CACHE_MS = 60_000;
 const ASSIGNEE_DEBOUNCE_MS = 280;
 const KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_]*-\d+$/;
+// How long after the drawer opens the editor chunk may start downloading where requestIdleCallback is missing.
+const PREFETCH_FALLBACK_MS = 300;
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 
 const ROW = { display: 'flex', 'align-items': 'center', gap: '0.375rem', 'flex-wrap': 'wrap' };
@@ -31,6 +37,32 @@ const PROSE = { 'font-size': '0.875rem', 'line-height': '1.5', 'overflow-wrap': 
 
 // Shared by every drawer of the tab: `${teamId}:${key}` → {at, promise}.
 const cache = new Map();
+// Unsaved description drafts, kept when the view moves to another issue or closes, so that neither the user nor
+// someone else's navigation (a spotlight move, the next round) throws one away: `${teamId}:${key}` → {edit, adf}.
+// Memory only, like every Jira text.
+const drafts = new Map();
+
+/** The rich description editor's chunk (UX11, UX12). */
+export function loadRichEditor() {
+  return import('../rich/rich-editor.js');
+}
+
+// Users who can edit get the editor chunk while the drawer sits idle, so "Edit description" opens at once.
+let editorPrefetched = false;
+function prefetchRichEditor() {
+  if (editorPrefetched) {
+    return;
+  }
+  editorPrefetched = true;
+  const start = () => loadRichEditor().catch(() => {
+    editorPrefetched = false;
+  });
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(start, { timeout: 2000 });
+  } else {
+    setTimeout(start, PREFETCH_FALLBACK_MS);
+  }
+}
 
 /** The description as editable markup (islands as `[[island:id]]` refs), or null when it has no markup form. */
 export function descriptionMarkup(description) {
@@ -49,6 +81,18 @@ function islandsOf(description) {
 function when(iso) {
   const ms = Date.parse(iso);
   return Number.isNaN(ms) ? '' : new Date(ms).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+const SHORT_DAY = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
+const LONG_DAY = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
+
+// A day without its year when it falls in this one, so the record line stays on one line in the narrow centre.
+function day(iso) {
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) {
+    return '';
+  }
+  return (new Date(ms).getFullYear() === new Date().getFullYear() ? SHORT_DAY : LONG_DAY).format(ms);
 }
 
 function heading(text) {
@@ -70,11 +114,15 @@ function createIssueView(ctx, host) {
   let preview = null;
   let token = 0;
   let editor = null;
+  // The rich editor's session: {edit, editor, holder, status, busy}, or {opening: true} while it loads.
+  let rich = null;
   let composer = null;
   let disposables = [];
 
   const issuePath = (path = '') => `${base}/issues/${encodeURIComponent(key)}${path}`;
   const imageSrc = (node) => (node.t === 'attachment' ? `${base}/issues/${encodeURIComponent(key)}/attachments/${encodeURIComponent(node.id)}` : null);
+  // A file the proxy does not serve opens the issue in Jira, where its attachments are.
+  const extend = jiraRenderer({ icon, fileHref: () => (jira.siteHost ? `https://${jira.siteHost}/browse/${encodeURIComponent(key)}` : null) });
 
   function fetchIssue(k, force = false) {
     const id = `${teamId}:${k}`;
@@ -97,10 +145,18 @@ function createIssueView(ctx, host) {
     disposables = [];
   }
 
-  function resetEditors() {
+  function resetEditors({ quiet = false } = {}) {
+    if (rich?.editor?.isDirty()) {
+      drafts.set(rich.id, { edit: rich.edit, adf: rich.editor.getAdf() });
+      if (!quiet) {
+        toast(`Your unsaved changes to the ${rich.key} description are kept. Choose Edit description on ${rich.key} to go on.`, { duration: 8000 });
+      }
+    }
     editor?.destroy();
+    rich?.editor?.destroy();
     composer?.destroy();
     editor = null;
+    rich = null;
     composer = null;
   }
 
@@ -117,6 +173,9 @@ function createIssueView(ctx, host) {
     }
     sheet.title.textContent = k;
     sheet.open();
+    if (canEdit) {
+      prefetchRichEditor();
+    }
     if (switched && sheet.inline) {
       sheet.scroller.scrollTop = 0;
     }
@@ -147,10 +206,10 @@ function createIssueView(ctx, host) {
     }
   }
 
-  function close() {
+  function close({ quiet = false } = {}) {
     token++;
     dispose();
-    resetEditors();
+    resetEditors({ quiet });
     sheet.hide();
     issue = null;
     key = null;
@@ -188,24 +247,27 @@ function createIssueView(ctx, host) {
       toast(explain(error), { variant: 'error', duration: 6000 });
       return;
     }
-    const menu = createMenu({ label, items: entries, onSelect });
+    // The menu opens at a point rather than on the button, so the button's expanded state is kept here.
+    const menu = createMenu({ label, items: entries, onSelect, onClose: () => button.setAttribute('aria-expanded', 'false') });
     disposables.push(menu);
     const rect = button.getBoundingClientRect();
     menu.openAt(rect.left, rect.bottom + 4);
+    button.setAttribute('aria-expanded', 'true');
   }
 
+  // A field as a chip: a menu button for editors, plain text for everyone else.
   function fieldButton(name, label, content, onClick) {
     if (!canEdit) {
-      return h('span', { class: `jira-field-${name}`, style: ROW }, content);
+      return h('span', { class: ['jira-chip', 'is-static', `jira-field-${name}`] }, content);
     }
     const button = h('button', {
       type: 'button',
-      class: ['btn', 'btn-ghost', 'btn-sm', `jira-field-${name}`],
+      class: ['jira-chip', `jira-field-${name}`],
       'aria-label': label,
       'aria-haspopup': 'true',
-      style: { ...ROW, 'justify-content': 'flex-start' },
+      'aria-expanded': 'false',
       on: { click: () => onClick(button) },
-    }, content);
+    }, content, icon('chevron-down', { className: 'jira-chip-caret' }));
     return button;
   }
 
@@ -404,32 +466,249 @@ function createIssueView(ctx, host) {
     replaceContent(sheet.tools, clone, copy.el, external, refresh.el);
   }
 
+  // The fields under the summary (UX14): what people change while pointing as labelled chips, then where the issue
+  // sits (parent, sprint, labels) and its record (reporter, dates) as quieter lines. Every field stays visible when
+  // empty, in words rather than a dash.
   function fields() {
     const f = issue.fields;
-    const rows = [
-      ['Status', fieldButton('status', `Change status: ${f.status}`, statusBadge(f.status, f.statusCategory), changeStatus)],
-      ['Type', fieldButton('type', `Change issue type: ${f.issueType}`, [issueTypeGlyph(f.issueType), h('span', { text: f.issueType ?? '' })], changeIssueType)],
-      ['Priority', fieldButton('priority', `Change priority: ${f.priority ?? 'none'}`, [priorityGlyph(f.priority), h('span', { text: f.priority ?? 'None' })], changePriority)],
-      ['Assignee', fieldButton('assignee', `Change assignee: ${f.assignee?.displayName ?? 'Unassigned'}`, h('span', { text: f.assignee?.displayName ?? 'Unassigned' }), changeAssignee)],
-      ['Story points', fieldButton('points', `Change story points: ${f.points ?? 'none'}`, h('span', { text: f.points == null ? '–' : String(f.points) }), changePoints)],
-      ['Sprint', fieldButton('sprint', `Change sprint: ${f.sprint?.name ?? 'Backlog'}`, h('span', { text: f.sprint?.name ?? 'Backlog' }), changeSprint)],
-      ['Reporter', h('span', { text: f.reporter?.displayName ?? '–' })],
-      ['Parent', f.parent ? h('span', { class: 'badge', text: f.parent.summary ? `${f.parent.key} · ${f.parent.summary}` : f.parent.key }) : h('span', { text: '–' })],
-      ['Labels', f.labels?.length ? h('span', { style: ROW }, f.labels.map((label) => h('span', { class: 'badge', text: label }))) : h('span', { text: '–' })],
-      ['Created', h('span', { text: when(f.created) })],
-      ['Updated', h('span', { text: when(issue.updated) })],
-    ];
-    return h('dl', { class: 'jira-fields', style: { display: 'grid', 'grid-template-columns': 'max-content 1fr', gap: '0.25rem 0.75rem', 'align-items': 'center', 'margin-top': '0.75rem', 'font-size': '0.8125rem' } },
-      rows.map(([label, value]) => [h('dt', { style: MUTED, text: label }), h('dd', { style: { margin: '0', 'min-width': '0' } }, value)]));
+    const item = (name, label, value) => h('div', { class: ['jira-meta-item', `jira-meta-${name}`] },
+      h('dt', { class: 'jira-meta-label', text: label }), h('dd', null, value));
+    const text = (value, empty) => h('span', { class: empty ? 'is-unset' : null, text: value });
+    const assignee = f.assignee?.displayName ?? null;
+    // The initials come from an attribute, so the chip's text stays the name alone.
+    const avatar = h('span', { class: ['jira-avatar', assignee ? null : 'is-empty'], 'data-initials': assignee ? initials(assignee) : null, 'aria-hidden': 'true' });
+    // The short date is for the eye; a screen reader gets the full date and time, which hover alone would hide.
+    const time = (iso) => [h('time', { datetime: iso, title: when(iso), 'aria-hidden': 'true', text: day(iso) }), h('span', { class: 'sr-only', text: when(iso) })];
+    const parent = f.parent
+      ? h('button', { type: 'button', class: ['jira-chip', 'jira-parent'], title: f.parent.summary ?? null, on: { click: () => (ctx.openLinked ?? open)(f.parent.key) } },
+        icon('folder-kanban'), h('span', { class: 'jira-parent-key', text: f.parent.key }), f.parent.summary ? h('span', { class: 'jira-parent-summary', text: f.parent.summary }) : null)
+      : text('No parent', true);
+    return h('div', { class: 'jira-fields jira-meta' },
+      // Two groups, so a narrow view breaks the row between the issue's state and its people rather than orphaning one chip.
+      h('div', { class: 'jira-meta-chips' }, h('dl', { class: 'jira-meta-group' },
+        item('status', 'Status', fieldButton('status', `Change status: ${f.status}`, statusBadge(f.status, f.statusCategory), changeStatus)),
+        item('type', 'Type', fieldButton('type', `Change issue type: ${f.issueType}`, [issueTypeGlyph(f.issueType), text(f.issueType ?? '')], changeIssueType)),
+        item('priority', 'Priority', fieldButton('priority', `Change priority: ${f.priority ?? 'none'}`, [priorityGlyph(f.priority), text(f.priority ?? 'None', !f.priority)], changePriority))),
+      h('dl', { class: 'jira-meta-group' },
+        item('assignee', 'Assignee', fieldButton('assignee', `Change assignee: ${assignee ?? 'Unassigned'}`, [avatar, text(assignee ?? 'Unassigned', !assignee)], changeAssignee)),
+        item('points', 'Points', fieldButton('points', `Change story points: ${f.points ?? 'none'}`, f.points == null ? text('Not estimated', true) : h('span', { class: 'jira-points', text: String(f.points) }), changePoints)))),
+      h('dl', { class: 'jira-meta-place' },
+        item('parent', 'Parent', parent),
+        item('sprint', 'Sprint', fieldButton('sprint', `Change sprint: ${f.sprint?.name ?? 'Backlog'}`, [icon('calendar'), h('span', { class: f.sprint ? null : 'is-unset', title: f.sprint?.name ?? null, text: f.sprint?.name ?? 'Backlog' })], changeSprint)),
+        item('labels', 'Labels', f.labels?.length ? h('span', { class: 'jira-label-list' }, f.labels.map((label) => h('span', { class: 'badge', text: label }))) : text('No labels', true))),
+      h('dl', { class: 'jira-meta-record' },
+        f.reporter ? item('reporter', 'Reporter', text(f.reporter.displayName)) : null,
+        f.created ? item('created', 'Created', time(f.created)) : null,
+        issue.updated ? item('updated', 'Updated', time(issue.updated)) : null));
+  }
+
+  function markupEditor(markup, islands) {
+    editor = createEditor({ value: markup, dialect: DIALECT_JIRA_DESCRIPTION, islands, imageSrc, extend, label: 'Description', placeholder: 'Describe the issue' });
+    editor.el.classList.add('jira-description-editor');
+    editor.input.style.setProperty('min-height', '8rem');
+    editor.input.style.setProperty('padding', '0.5rem');
+    editor.input.style.setProperty('border', '1px solid hsl(var(--input))');
+    editor.input.style.setProperty('border-radius', 'var(--radius-sm)');
+    paint();
+    editor.focus();
+  }
+
+  // The edit view and the editor chunk load together; a description Jira does not hold as ADF keeps the markup
+  // editor (UX12: the fallback until phase 12).
+  async function startRichEdit() {
+    const k = key;
+    const draft = drafts.get(`${teamId}:${k}`);
+    rich = { opening: true };
+    paint();
+    let module;
+    let edit;
+    try {
+      [module, edit] = await Promise.all([loadRichEditor(), draft ? draft.edit : http.get(issuePath('/description'))]);
+    } catch (error) {
+      if (k === key) {
+        rich = null;
+        paint();
+        toast(explain(error), { variant: 'error', duration: 6000 });
+      }
+      return;
+    }
+    if (k !== key || !rich?.opening) {
+      return;
+    }
+    rich = null;
+    if (draft) {
+      openRich(module, edit, draft.adf);
+      return;
+    }
+    if (edit.editable === false) {
+      const description = issue.description ?? { t: 'doc', c: [] };
+      const markup = descriptionMarkup(description);
+      if (markup !== null && issue.editable !== false) {
+        markupEditor(markup, islandsOf(description));
+      } else {
+        paint();
+        toast('This description can only be edited in Jira.', { variant: 'error', duration: 6000 });
+      }
+      return;
+    }
+    openRich(module, edit);
+  }
+
+  function openRich(module, edit, draft = null) {
+    const id = `${teamId}:${key}`;
+    const holder = h('div', { class: 'rich-holder' });
+    let created;
+    try {
+      created = module.createRichEditor({
+        host: holder,
+        edit,
+        draft,
+        imageSrc: (id) => imageSrc({ t: 'attachment', id }),
+        renderDoc: (doc) => render(doc, { imageSrc, extend }),
+        icon,
+        label: 'Description',
+      });
+    } catch {
+      drafts.delete(id);
+      paint();
+      toast('This description cannot be opened in the editor; edit it in Jira.', { variant: 'error', duration: 6000 });
+      return;
+    }
+    rich = { id, key, module, edit, editor: created, holder, status: draft ? { kind: 'restored' } : null, busy: false };
+    paint();
+    created.focus();
+  }
+
+  // Ends the session for good: its draft is saved or discarded.
+  function closeRich() {
+    if (rich?.id) {
+      drafts.delete(rich.id);
+    }
+    rich?.editor?.destroy();
+    rich = null;
+  }
+
+  // A stale answer means only that the issue changed. When its description is still the one the draft started from
+  // (the change was another field: a points submit, the drawer's own edits, someone else's), the draft moves onto
+  // the new version, as Jira itself would take it.
+  async function rebase(session) {
+    try {
+      const fresh = await http.get(`${base}/issues/${encodeURIComponent(session.key)}/description`);
+      if (fresh.editable === false || session.module.canonicalAdf(fresh.adf) !== session.module.canonicalAdf(session.edit.adf)) {
+        return false;
+      }
+      session.edit = { ...session.edit, updated: fresh.updated };
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function saveRich() {
+    const session = rich;
+    if (!session.editor.isDirty()) {
+      closeRich();
+      paint();
+      return;
+    }
+    session.busy = true;
+    session.status = null;
+    paint();
+    const adf = session.editor.getAdf();
+    const send = () => http.patch(`${base}/issues/${encodeURIComponent(session.key)}`, { descriptionAdf: adf, descriptionBase: session.edit.updated });
+    try {
+      try {
+        await send();
+      } catch (error) {
+        if (error.code !== 'stale' || !(await rebase(session))) {
+          throw error;
+        }
+        await send();
+      }
+    } catch (error) {
+      session.busy = false;
+      if (error.code === 'stale') {
+        session.status = { kind: 'stale' };
+      } else if (error.code === 'invalid' && typeof error.fields?.descriptionAdf === 'string') {
+        session.status = { kind: 'invalid', code: error.fields.descriptionAdf, at: error.fields['descriptionAdf.at'] ?? null };
+      } else {
+        toast(explain(error), { variant: 'error', duration: 6000 });
+      }
+      if (rich === session) {
+        paint();
+      }
+      return;
+    }
+    drafts.delete(session.id);
+    cache.delete(session.id);
+    if (rich !== session) {
+      return;
+    }
+    closeRich();
+    toast(`Updated ${key}`, { variant: 'success' });
+    await load(true);
+  }
+
+  async function cancelRich() {
+    if (rich.editor.isDirty() && !(await confirmDialog({
+      title: 'Discard your changes?',
+      message: 'Your edits to the description have not been saved.',
+      confirmLabel: 'Discard',
+      cancelLabel: 'Keep editing',
+      destructive: true,
+    }))) {
+      rich?.editor?.focus();
+      return;
+    }
+    closeRich();
+    paint();
+  }
+
+  // After a stale save: the draft stays until its author chooses to load Jira's version over it.
+  async function reloadRich() {
+    if (!(await confirmDialog({
+      title: 'Load the latest description?',
+      message: `Your draft is replaced by the description as it is in Jira now. Copy anything you want to keep first.`,
+      confirmLabel: 'Discard draft and reload',
+      cancelLabel: 'Keep my draft',
+      destructive: true,
+    }))) {
+      return;
+    }
+    closeRich();
+    cache.delete(`${teamId}:${key}`);
+    await load(true);
+    await startRichEdit();
+  }
+
+  function richBanner(status) {
+    if (status?.kind === 'restored') {
+      return h('div', { class: 'rich-banner is-restored', role: 'status' },
+        h('p', { text: 'Your unsaved changes are back. Save them, or Cancel to discard them.' }));
+    }
+    if (status?.kind === 'stale') {
+      return h('div', { class: 'rich-banner is-conflict', role: 'alert' },
+        h('p', { text: `${key} changed in Jira after you started editing, so your changes were not saved. Your draft is kept below.` }),
+        createButton({ label: 'Reload', icon: 'refresh-cw', variant: 'secondary', size: 'sm', className: 'rich-reload', onClick: reloadRich }).el);
+    }
+    if (status?.kind === 'invalid') {
+      return h('div', { class: 'rich-banner is-invalid', role: 'alert' },
+        h('p', null, 'Jira did not accept the description: ', h('code', { text: status.code }), status.at ? [' at ', h('code', { text: status.at })] : null, '.'));
+    }
+    return null;
   }
 
   function descriptionSection() {
     const description = issue.description ?? { t: 'doc', c: [] };
     const islands = islandsOf(description);
-    const markup = descriptionMarkup(description);
-    const editable = canEdit && issue.editable !== false && markup !== null;
     const section = h('section', { class: 'jira-description', 'aria-label': 'Description', style: SECTION });
     const head = h('header', { style: { ...ROW, 'justify-content': 'space-between' } }, heading('Description'));
+    if (rich?.editor) {
+      const save = createButton({ label: 'Save', variant: 'primary', size: 'sm', className: 'rich-save', busy: rich.busy, disabled: rich.busy, onClick: saveRich });
+      const cancel = createButton({ label: 'Cancel', variant: 'secondary', size: 'sm', className: 'rich-cancel', disabled: rich.busy, onClick: cancelRich });
+      section.append(...[head, richBanner(rich.status), rich.holder, h('div', { style: ROW }, save.el, cancel.el)].filter(Boolean));
+      return section;
+    }
     if (editor) {
       const save = createButton({
         label: 'Save',
@@ -463,26 +742,23 @@ function createIssueView(ctx, host) {
       section.append(head, editor.el, h('div', { style: ROW }, save.el, cancel.el));
       return section;
     }
-    if (editable) {
+    if (canEdit && issue.editable !== false) {
+      if (drafts.has(`${teamId}:${key}`)) {
+        head.append(h('span', { class: 'rich-draft-note', style: { ...MUTED, 'margin-inline-start': 'auto' }, text: 'Unsaved changes' }));
+      }
       head.append(createButton({
-        label: 'Edit description',
+        label: rich?.opening ? 'Opening the editor…' : 'Edit description',
         icon: 'pencil',
         variant: 'ghost',
         size: 'sm',
-        onClick() {
-          editor = createEditor({ value: markup, dialect: DIALECT_JIRA_DESCRIPTION, islands, imageSrc, label: 'Description', placeholder: 'Describe the issue' });
-          editor.el.classList.add('jira-description-editor');
-          editor.input.style.setProperty('min-height', '8rem');
-          editor.input.style.setProperty('padding', '0.5rem');
-          editor.input.style.setProperty('border', '1px solid hsl(var(--input))');
-          editor.input.style.setProperty('border-radius', 'var(--radius-sm)');
-          paint();
-          editor.focus();
-        },
+        className: 'jira-edit-description',
+        busy: rich?.opening === true,
+        disabled: rich?.opening === true,
+        onClick: startRichEdit,
       }).el);
     }
     const body = h('div', { class: 'jira-prose', style: PROSE });
-    body.append(render(description, { islands, imageSrc }));
+    body.append(render(description, { islands, imageSrc, extend }));
     if (!body.hasChildNodes()) {
       body.append(h('p', { style: MUTED, text: 'No description.' }));
     }
@@ -591,7 +867,7 @@ function createIssueView(ctx, host) {
     const list = h('ul', { class: 'jira-comments', style: { 'list-style': 'none', margin: '0', padding: '0', display: 'grid', gap: '0.75rem' } },
       comments.map((c) => h('li', { class: 'jira-comment', dataset: { id: c.id } },
         h('p', { style: MUTED }, h('strong', { text: c.author ?? 'Someone' }), ` · ${when(c.created)}`),
-        h('div', { class: 'jira-prose', style: PROSE }, render(c.body, { imageSrc })))));
+        h('div', { class: 'jira-prose', style: PROSE }, render(c.body, { imageSrc, extend })))));
     const section = h('section', { class: 'jira-comments-section', 'aria-label': 'Comments', style: SECTION }, heading(`Comments (${commentTotal})`));
     if (canEdit) {
       composer ??= createEditor({ dialect: DIALECT_JIRA, label: 'Add a comment', placeholder: 'Add a comment…', onSubmit: postComment });
@@ -705,7 +981,7 @@ function createIssueView(ctx, host) {
       fetchIssue(k).catch(() => {});
     },
     destroy() {
-      close();
+      close({ quiet: true });
       sheet.el.remove();
     },
   };
