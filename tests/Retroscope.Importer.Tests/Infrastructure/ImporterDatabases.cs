@@ -16,7 +16,8 @@ public sealed class ImporterPostgres : ICollectionFixture<ImporterDatabases> {
 /// <item>a fake Supabase source per test, cloned from a template built once from <c>Supabase/</c>: platform stubs
 /// (auth, storage, cron), the historical schema dump, every migration the dump does not already contain, and the
 /// foreign tables known only from <c>types.ts</c>, and the default tenant row;</item>
-/// <item>a target per test, migrated with <c>db/migrations/*.sql</c>.</item>
+/// <item>a target per test, cloned from a template migrated once with <c>db/migrations/*.sql</c>. A clone does not
+/// copy database-level settings or grants, so migrations must not rely on those.</item>
 /// </list>
 /// Both connect as the container superuser, which stands in for <c>retroscope_owner</c> (no role-level timeouts, so
 /// database-level settings apply unless the importer overrides them).
@@ -24,6 +25,7 @@ public sealed class ImporterPostgres : ICollectionFixture<ImporterDatabases> {
 public sealed class ImporterDatabases : IAsyncLifetime {
     public const string Image = "postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873";
     private const string Template = "supabase_template";
+    private const string TargetTemplate = "target_template";
 
     // Migrations that fail on top of the dump because the dump already contains what they create.
     private static readonly HashSet<string> InDump = [
@@ -82,6 +84,14 @@ public sealed class ImporterDatabases : IAsyncLifetime {
         }
         await ExecuteFileAsync(template, Path.Combine(SupabaseDirectory, "90-foreign-tables.sql"));
         await ExecuteFileAsync(template, Path.Combine(SupabaseDirectory, "95-baseline-rows.sql"));
+
+        await ExecuteAsync(Admin(), $"create database {TargetTemplate}");
+        var target = WithDatabase(TargetTemplate);
+        foreach (var migration in Directory.GetFiles(Path.Combine(RepositoryRoot, "db", "migrations"), "*.sql").Order(StringComparer.Ordinal)) {
+            await ExecuteFileAsync(target, migration);
+        }
+        // Cloning fails while any session is connected to the template, so none may connect to it.
+        await ExecuteAsync(Admin(), $"alter database {TargetTemplate} with is_template true allow_connections false");
         NpgsqlConnection.ClearAllPools();
     }
 
@@ -96,12 +106,8 @@ public sealed class ImporterDatabases : IAsyncLifetime {
 
     public async Task<string> CreateTargetAsync() {
         var name = $"dst_{Guid.NewGuid():N}";
-        await ExecuteAsync(Admin(), $"create database {name}");
-        var target = WithDatabase(name);
-        foreach (var migration in Directory.GetFiles(Path.Combine(RepositoryRoot, "db", "migrations"), "*.sql").Order(StringComparer.Ordinal)) {
-            await ExecuteFileAsync(target, migration);
-        }
-        return target;
+        await ExecuteAsync(Admin(), $"create database {name} template {TargetTemplate}");
+        return WithDatabase(name);
     }
 
     public static ImporterSettings Settings(string source, string target, string? sealPublicKeyPem = null) => new() {
