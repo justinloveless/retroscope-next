@@ -116,7 +116,8 @@ public sealed class SprintReportService(JiraClient client, Credentials credentia
             },
             cancellationToken);
 
-    private async Task<SprintReport> BuildAsync(TeamId team, JiraTeamConfig config, JiraSprint sprint) {
+    private async Task<SprintReport> BuildAsync(TeamId team, JiraTeamConfig stored, JiraSprint sprint) {
+        var config = await WithDiscoveredFieldsAsync(team, stored);
         var reported = Reported(sprint);
         var fields = ReportFields(config);
         var jql = Jql.InSprint(sprint.Id);
@@ -153,6 +154,21 @@ public sealed class SprintReportService(JiraClient client, Credentials credentia
         }
 
         return new SprintReport(sprint.Id, sprint.Goal, pointsKnown, truncated, SprintClassifier.Totals(facts, pointsKnown), rows);
+    }
+
+    /// <summary>
+    /// Fills a missing points or sprint field from the site's field catalogue, as a config save would. Imported teams
+    /// keep both null until an admin saves the settings; the discovered ids serve this report only and are never stored.
+    /// </summary>
+    private async Task<JiraTeamConfig> WithDiscoveredFieldsAsync(TeamId team, JiraTeamConfig config) {
+        if (config.PointsFieldId is not null && config.SprintFieldId is not null) {
+            return config;
+        }
+        var discovered = JiraMap.DiscoverFields(await client.GetFieldsAsync(team, CancellationToken.None));
+        return config with {
+            PointsFieldId = config.PointsFieldId ?? discovered.PointsFieldId,
+            SprintFieldId = config.SprintFieldId ?? discovered.SprintFieldId,
+        };
     }
 
     // A closed sprint without a readable completion date falls back to its end date; with neither, nothing counts as late.
