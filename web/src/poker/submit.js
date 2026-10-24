@@ -6,8 +6,10 @@
 
 import { h, replaceContent } from '../core/h.js';
 import { http } from '../core/http.js';
+import { jiraMessage } from '../core/jira-errors.js';
 import { createButton } from '../ui/button.js';
 import { createSidePanel } from '../ui/side-panel.js';
+import { createSideSheet } from '../ui/side-sheet.js';
 import { toast } from '../ui/toast.js';
 import { readPanels, writePanel } from './history.js';
 import { roundById, uuidv7 } from './model.js';
@@ -15,31 +17,6 @@ import { roundById, uuidv7 } from './model.js';
 export const SUBMIT_CHIPS = [1, 2, 3, 5, 8, 13, 21];
 const MOBILE = '(max-width: 767px)';
 const IDLE_PREFETCH_MS = 1500;
-
-const JIRA_ERRORS = {
-  jira_auth_failed: 'Jira refused the team’s credentials. A team admin can update them in Team Settings.',
-  jira_forbidden: 'The team’s Jira account may not do that.',
-  jira_not_found: 'Jira could not find that issue.',
-  jira_rate_limited: 'Jira is busy. Try again in a moment.',
-  jira_unavailable: 'Jira is unavailable right now. Try again in a moment.',
-  jira_not_configured: 'Jira is not set up for this team.',
-  jira_pending: 'A submit for this round is still in progress.',
-  stale: 'The issue changed in Jira meanwhile.',
-  forbidden: 'You are not allowed to do that.',
-  network: 'You are offline. Try again when the connection is back.',
-};
-
-/** A sentence for a failed Jira call: an ApiError, a nack ({code, detail}), a bare code, or anything thrown. */
-export function jiraMessage(error) {
-  const code = typeof error === 'string' ? error : error?.code;
-  if (code === 'jira_validation' && error?.fields) {
-    const first = Object.values(error.fields).find((v) => typeof v === 'string');
-    if (first) {
-      return first;
-    }
-  }
-  return JIRA_ERRORS[code] ?? (error?.detail || 'Something went wrong with Jira.');
-}
 
 /** The chip a revealed round suggests: the winner, or the nearest chip (the higher one on a tie). */
 export function defaultChip(winner) {
@@ -55,77 +32,6 @@ function personName(view, pid) {
 
 function formatPoints(points) {
   return `${points} ${points === 1 ? 'pt' : 'pts'}`;
-}
-
-/** A fixed side sheet (non-modal, so menus and toasts stay above it). Escape and the close button call onClose. */
-export function createSheet({ side = 'right', label, width = '36rem', onClose }) {
-  const close = createButton({ label: 'Close', icon: 'x', iconOnly: true, variant: 'ghost', size: 'icon', onClick: () => onClose() });
-  const body = h('div', { class: 'jira-sheet-body', style: { flex: '1', overflow: 'auto', padding: '0 1rem 1rem' } });
-  const title = h('h2', { class: 'jira-sheet-title', style: { 'font-size': '1rem', 'font-weight': '600', flex: '1', 'min-width': '0' } });
-  const tools = h('div', { style: { display: 'flex', gap: '0.25rem', 'align-items': 'center' } });
-  const el = h('aside', {
-    class: ['jira-sheet', `jira-sheet-${side}`],
-    role: 'dialog',
-    'aria-label': label,
-    tabindex: '-1',
-    hidden: true,
-    style: {
-      position: 'fixed',
-      top: '0',
-      bottom: '0',
-      [side]: '0',
-      width: `min(${width}, 100vw)`,
-      'z-index': '900',
-      display: 'flex',
-      'flex-direction': 'column',
-      background: 'hsl(var(--background))',
-      color: 'hsl(var(--foreground))',
-      'border-inline': '1px solid hsl(var(--border))',
-      'box-shadow': 'var(--shadow-lg)',
-    },
-    on: {
-      keydown(event) {
-        if (event.key === 'Escape' && !event.defaultPrevented) {
-          event.preventDefault();
-          onClose();
-        }
-      },
-    },
-  },
-  h('header', { style: { display: 'flex', 'align-items': 'center', gap: '0.5rem', padding: '0.75rem 1rem' } }, title, tools, close.el),
-  body);
-  let returnFocus = null;
-  return {
-    el,
-    body,
-    title,
-    tools,
-    get isOpen() {
-      return !el.hidden;
-    },
-    open() {
-      if (!el.isConnected) {
-        document.body.append(el);
-      }
-      if (el.hidden) {
-        returnFocus = document.activeElement;
-        el.hidden = false;
-        el.focus();
-      }
-    },
-    hide() {
-      if (!el.hidden) {
-        el.hidden = true;
-        if (returnFocus?.isConnected) {
-          returnFocus.focus();
-        }
-        returnFocus = null;
-      }
-    },
-    destroy() {
-      el.remove();
-    },
-  };
 }
 
 /** The submit chips and the shared submit state of one revealed round. */
@@ -243,7 +149,7 @@ export function jiraFeature(ctx) {
     me,
     uuidv7,
     explain: jiraMessage,
-    createSheet,
+    createSheet: createSideSheet,
     openIssue,
     prefetchIssue,
     addRounds,
@@ -346,7 +252,7 @@ export function jiraFeature(ctx) {
       return;
     }
     if (mobile()) {
-      sheet ??= createSheet({ side: 'left', label: 'Browse Jira', width: '28rem', onClose: () => setPanel(false, false) });
+      sheet ??= createSideSheet({ side: 'left', label: 'Browse Jira', width: '28rem', onClose: () => setPanel(false, false) });
       sheet.body.append(panel.el);
       sheet.open();
     } else if (panel.el.parentNode !== slots.left) {
