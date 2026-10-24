@@ -29,11 +29,13 @@ public sealed record JiraReportGroupView(string Outcome, int Count, decimal? Poi
 /// <param name="Groups">Always the three outcomes, in order.</param>
 public sealed record JiraSprintReportBody(long SprintId, string? Goal, bool PointsKnown, bool Truncated, IReadOnlyList<JiraReportGroupView> Groups);
 
+/// <param name="HasMoreSprints">Older closed sprints can be listed by asking for more.</param>
 /// <param name="Empty"><c>no_board</c>, <c>no_sprints</c> or null.</param>
-public sealed record JiraSprintReportView(IReadOnlyList<JiraReportSprintItem> Sprints, string? Empty, JiraSprintReportBody? Report);
+public sealed record JiraSprintReportView(IReadOnlyList<JiraReportSprintItem> Sprints, bool HasMoreSprints, string? Empty, JiraSprintReportBody? Report);
 
 public static partial class JiraEndpoints {
-    private static async Task<IResult> SprintReportAsync(HttpContext context, Guid teamId, string? sprint, JiraGate gate, SprintReportService reports) {
+    private static async Task<IResult> SprintReportAsync(
+        HttpContext context, Guid teamId, string? sprint, string? sprints, JiraGate gate, SprintReportService reports) {
         var (call, refusal) = await gate.CheckAsync(context, teamId, Capability.Subscribe, needsConfig: true);
         if (refusal is not null) {
             return refusal;
@@ -45,9 +47,16 @@ public static partial class JiraEndpoints {
             }
             sprintId = parsed;
         }
+        var closedSprints = SprintReportService.DefaultClosedSprints;
+        if (sprints is not null) {
+            if (!NumericId().IsMatch(sprints) || !int.TryParse(sprints, NumberStyles.None, CultureInfo.InvariantCulture, out closedSprints)
+                || closedSprints is < 1 or > SprintReportService.PickerSize) {
+                return Problem.Result(StatusCodes.Status400BadRequest, "invalid", new Dictionary<string, string> { ["sprints"] = "invalid" });
+            }
+        }
 
         return await GuardAsync(async () => {
-            var result = await reports.GetAsync(call!.Team, sprintId, context.RequestAborted);
+            var result = await reports.GetAsync(call!.Team, sprintId, closedSprints, context.RequestAborted);
             return Ok(SprintReportView(result), JiraHttpJsonContext.Default.JiraSprintReportView);
         });
     }
@@ -55,6 +64,7 @@ public static partial class JiraEndpoints {
     private static JiraSprintReportView SprintReportView(SprintReportResult result) => new(
         [.. result.Sprints.Select(s => new JiraReportSprintItem(
             s.Id, s.Name, SprintReportService.IsClosed(s) ? "closed" : "active", s.StartDate, s.EndDate, s.CompleteDate))],
+        result.HasMoreSprints,
         result.Empty switch {
             ReportEmpty.NoBoard => "no_board",
             ReportEmpty.NoSprints => "no_sprints",

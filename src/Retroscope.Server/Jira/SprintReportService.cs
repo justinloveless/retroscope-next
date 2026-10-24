@@ -30,20 +30,23 @@ public enum ReportEmpty {
     NoSprints,
 }
 
-/// <param name="Sprints">The picker: active sprints, then closed ones, newest first.</param>
-public sealed record SprintReportResult(IReadOnlyList<JiraSprint> Sprints, SprintReport? Report, ReportEmpty? Empty);
+/// <param name="Sprints">The picker's slice: active sprints, then closed ones, newest first.</param>
+/// <param name="HasMoreSprints">The picker holds older closed sprints than the slice.</param>
+public sealed record SprintReportResult(IReadOnlyList<JiraSprint> Sprints, bool HasMoreSprints, SprintReport? Report, ReportEmpty? Empty);
 
 /// <summary>
 /// The sprint report of a team retro board (UX17): a snapshot of one sprint of the team's board, read with a single
 /// JQL search and sorted by <see cref="SprintClassifier"/>. The picker of recent sprints is cached for 5 minutes and is
-/// the allow-list of sprints a report can be asked for, so no other sprint id is ever sent to Jira. A closed sprint's
-/// report is cached for 15 minutes, an active one's for 60 s; both carry the issue keys they show.
+/// the allow-list of sprints a report can be asked for, so no other sprint id is ever sent to Jira; each answer lists
+/// only a slice of it, which the client widens on demand. A closed sprint's report is cached for 15 minutes, an active
+/// one's for 60 s; both carry the issue keys they show.
 /// </summary>
 public sealed class SprintReportService(JiraClient client, Credentials credentials, JiraCache cache) {
     public static readonly TimeSpan PickerTtl = TimeSpan.FromMinutes(5);
     public static readonly TimeSpan ClosedTtl = TimeSpan.FromMinutes(15);
     public static readonly TimeSpan ActiveTtl = TimeSpan.FromSeconds(60);
-    public const int PickerSize = 30;
+    public const int PickerSize = 100;
+    public const int DefaultClosedSprints = 4;
     public const int PageSize = 100;
     public const int MaxPages = 10;
 
@@ -61,18 +64,22 @@ public sealed class SprintReportService(JiraClient client, Credentials credentia
     private static bool IsActive(JiraSprint sprint) => string.Equals(sprint.State, "active", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// The picker and the report of <paramref name="sprintId"/>, or of the most recently closed sprint (else the newest
-    /// active one) when it is null. Throws <see cref="JiraException"/>: not found for a sprint the picker does not list.
+    /// The report of <paramref name="sprintId"/>, or of the most recently closed sprint (else the newest active one) when
+    /// it is null, with the picker's slice of <see cref="Slice"/>. Throws <see cref="JiraException"/>: not found for a
+    /// sprint the picker does not list.
     /// </summary>
-    public async Task<SprintReportResult> GetAsync(TeamId team, long? sprintId, CancellationToken cancellationToken) {
+    /// <param name="closedSprints">How many closed sprints the slice lists, 1 to <see cref="PickerSize"/>.</param>
+    public async Task<SprintReportResult> GetAsync(TeamId team, long? sprintId, int closedSprints, CancellationToken cancellationToken) {
+        ArgumentOutOfRangeException.ThrowIfLessThan(closedSprints, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(closedSprints, PickerSize);
         var config = await credentials.LoadAsync(team, cancellationToken) ?? throw new JiraException(JiraError.NotConfigured);
         if (config.BoardId is not { } board) {
-            return new SprintReportResult([], null, ReportEmpty.NoBoard);
+            return new SprintReportResult([], false, null, ReportEmpty.NoBoard);
         }
 
         var picker = await PickerAsync(team, board, cancellationToken);
         if (picker.Count == 0) {
-            return new SprintReportResult(picker, null, ReportEmpty.NoSprints);
+            return new SprintReportResult([], false, null, ReportEmpty.NoSprints);
         }
 
         var id = sprintId ?? (picker.FirstOrDefault(IsClosed) ?? picker[0]).Id;
@@ -86,7 +93,19 @@ public sealed class SprintReportService(JiraClient client, Credentials credentia
                 return (built, 256L + built.Rows.Sum(row => 160L + 2L * (row.Summary?.Length ?? 0)), tags);
             },
             cancellationToken);
-        return new SprintReportResult(picker, report, null);
+        var (sprints, hasMore) = Slice(picker, id, closedSprints);
+        return new SprintReportResult(sprints, hasMore, report, null);
+    }
+
+    /// <summary>
+    /// The active sprints of <paramref name="picker"/> and its newest <paramref name="closedSprints"/> closed ones,
+    /// stretched to reach <paramref name="selected"/> so the picker can name the sprint it shows; and whether the picker
+    /// holds more.
+    /// </summary>
+    private static (IReadOnlyList<JiraSprint> Sprints, bool HasMore) Slice(IReadOnlyList<JiraSprint> picker, long selected, int closedSprints) {
+        var active = picker.Count(s => !IsClosed(s));
+        var shown = Math.Min(picker.Count, Math.Max(active + closedSprints, picker.TakeWhile(s => s.Id != selected).Count() + 1));
+        return ([.. picker.Take(shown)], shown < picker.Count);
     }
 
     /// <summary>The fields the report reads; both done dates are named, since a search returns only what it asks for.</summary>
