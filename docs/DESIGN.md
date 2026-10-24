@@ -1306,7 +1306,7 @@ The only inline script is the pre-paint theme snippet; `build.mjs` emits its has
 | not configured | `jira_not_configured` | 409 |
 
 **Endpoints used** (Cloud platform REST v3 + Agile 1.0; all v2 and wiki paths are dropped):
-- Read: `GET /rest/api/3/myself` (test); `GET /rest/api/3/field` (discover points/sprint fields at config save, cached 6 h, stored in config; never treat `customfield_10020` as points); `GET /rest/agile/1.0/board?projectKeyOrId=` and `GET /rest/agile/1.0/board/{id}` (resolved once at config save, stored); `GET /rest/agile/1.0/board/{id}/sprint?state=active,future` (paged); `GET /rest/agile/1.0/sprint/{id}/issue` and `GET /rest/agile/1.0/board/{id}/backlog` (ranked browse); `POST /rest/api/3/search/jql` with `nextPageToken` (JQL browse, orphan sprints, `key in (…)` metadata chunks of 50); `GET /rest/api/3/issue/{key}?fields=…` (detail and exact-key fast path); `GET /rest/api/3/issue/{key}/comment?orderBy=-created&maxResults=20`; `GET /rest/api/3/issue/{key}/editmeta`; `GET /rest/api/3/issue/{key}/transitions`; `GET /rest/api/3/project/{key}`; `GET /rest/api/3/issueLinkType`; `GET /rest/api/3/user/assignable/search`; `GET /rest/api/3/attachment/content/{id}?redirect=false`; createmeta successor for issue-type fallback.
+- Read: `GET /rest/api/3/myself` (test); `GET /rest/api/3/field` (discover points/sprint fields at config save, cached 6 h, stored in config; never treat `customfield_10020` as points); `GET /rest/agile/1.0/board?projectKeyOrId=` and `GET /rest/agile/1.0/board/{id}` (resolved once at config save, stored); `GET /rest/agile/1.0/board/{id}/sprint?state=active,future` (paged); `GET /rest/agile/1.0/board/{id}/sprint?state=active` and `?state=closed` (the sprint report's picker: the closed list is read from its tail when Jira sends `total`, else paged forward, at most 30 pages, keeping the newest 30; UX17); `GET /rest/agile/1.0/sprint/{id}/issue` and `GET /rest/agile/1.0/board/{id}/backlog` (ranked browse); `POST /rest/api/3/search/jql` with `nextPageToken` (JQL browse, orphan sprints, `key in (…)` metadata chunks of 50, and the sprint report's `sprint = N` search, at most 10 pages of 100); `GET /rest/api/3/issue/{key}?fields=…` (detail and exact-key fast path); `GET /rest/api/3/issue/{key}/comment?orderBy=-created&maxResults=20`; `GET /rest/api/3/issue/{key}/editmeta`; `GET /rest/api/3/issue/{key}/transitions`; `GET /rest/api/3/project/{key}`; `GET /rest/api/3/issueLinkType`; `GET /rest/api/3/user/assignable/search`; `GET /rest/api/3/attachment/content/{id}?redirect=false`; createmeta successor for issue-type fallback.
 - Write: `PUT /rest/api/3/issue/{key}` (summary, ADF description, assignee, priority, issuetype, **points through the configured field id only**, decimal allowed); `POST /rest/api/3/issue/{key}/transitions`; `POST /rest/agile/1.0/sprint/{id}/issue`; `POST /rest/agile/1.0/backlog/{boardId}/issue`; `POST /rest/api/3/issue/{key}/comment` (ADF, prefixed "Sent from Retroscope by {server-resolved display name}"); `POST /rest/api/3/issueLink`; `DELETE /rest/api/3/issueLink/{id}`; `POST /rest/api/3/issue` (create, clone). Split is dropped (F16).
 - The exact createmeta successor path, the backlog-move path, `search/jql` pagination and the attachment `redirect=false` parameter are **verified against developer.atlassian.com in U19 before coding (unverified)**.
 - **Detail field set** (F21): `summary, description, status, priority, assignee, reporter, issuetype, parent, labels, attachment, issuelinks, created, updated, project`, the sprint field, the points field, and `comment` (first 20).
@@ -1328,6 +1328,7 @@ The only inline script is the pre-paint theme snippet; `build.mjs` emits its has
 | `PUT issues/{key}/sprint {sprintId\|null}` | invalidates key |
 | `GET issues/{key}/options` | project types/priorities/link types 1 h; transitions per (key, status) 60 s |
 | `GET sprints` | 5 min |
+| `GET sprint-report?sprint=` | The retro sprint report (UX17): the picker (active sprints, then the newest 30 closed ones) and one sprint's report, `{sprints, empty, report}`. The picker is cached 5 min per (team, board) and is the allow-list: any other sprint id is 404 `jira_not_found` without calling Jira. The report is cached per (team, sprint), 15 min for a closed sprint and 60 s for the active one, tagged with the team and every issue key it shows. A missing sprint or points field in the config is discovered from the cached field list for the report only, never written back |
 | `GET issues/{key}/assignable?q=` | 60 s per query |
 | `POST issues/{key}/comments {body(markup)}` | |
 | `POST issues/{key}/links`, `DELETE issues/{key}/links/{id}` | The link must be in the issue's own link list (read from Jira), otherwise 404 without calling Jira (UF12) |
@@ -1389,14 +1390,15 @@ web/src/
   markup/ parse.js render.js doc.js             # markup ⇄ DocNode; DocNode → DOM (cards, comments, Jira)
          editor.js caret.js undo.js            # the shared editor (U34a spike → production); islands for Jira
   ui/    button.js dialog.js menu.js popover.js tooltip.js toast.js tabs.js switch.js choice.js
-         avatar.js resizable.js confirm.js icons.js glyphs.js
+         avatar.js resizable.js confirm.js icons.js glyphs.js side-sheet.js
   screens/ landing.js auth.js dashboard.js account.js mentions.js invite.js admin.js teams.js
   team/  index.js boards.js poker-list.js members.js action-items.js kudos.js settings.js jira-settings.js templates.js
   poker/ index.js model.js table.js seats.js hand.js drag.js reveal.js strip.js spotlight.js settings.js
          observers.js history.js mobile.js keyboard.js
          jira-browse.js (chunk: jira-browse)  issue-drawer.js submit.js (chunk: jira-drawer)
   retro/ index.js model.js board.js column.js card.js comments.js composer.js stages.js readiness.js
-         timer.js focus.js config.js share.js actions.js prev-actions.js kudos.js
+         timer.js focus.js config.js share.js actions.js prev-actions.js kudos.js sprint.js
+         sprint-report.js (chunk: sprint-report)
 web/styles/ tokens.css base.css kit.css neotro.css retro.css team.css
 web/assets/ cards.png (9-frame sprite) m6x11plus.woff2 (Latin subset) icons.svg (Lucide subset, ISC); no music track (UX13: MUSIC_FILE at deploy time)
 ```
@@ -1464,6 +1466,7 @@ web/assets/ cards.png (9-frame sprite) m6x11plus.woff2 (Latin subset) icons.svg 
 | rich-editor (ProseMirror description editor, UX11–UX12; lazy, loaded only for users who can edit, prefetched when the drawer or centre view opens for one) | ≤ 87.5 KB |
 | css:rich-editor (linked on the poker route) | ≤ 2 KB |
 | retro (board, cards, comments, stages, timer, focus, kudos, actions) | ≤ 32 KB |
+| sprint-report (the retro sprint report panel, UX17; lazy, loaded on the first open or on pointer intent) | ≤ 3.5 KB |
 | team / shell pages | ≤ 10 KB each |
 | CSS kit + tokens | ≤ 10 KB |
 | `cards.png` sprite | ~12 KB |
