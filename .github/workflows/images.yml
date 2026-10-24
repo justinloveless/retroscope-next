@@ -56,6 +56,15 @@ jobs:
       - name: Native AOT toolchain
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang zlib1g-dev
 
+      - name: AOT inputs
+        id: aot
+        run: echo "key=$(./build.sh aot-key)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: artifacts/aot-cache
+          key: aot-server-${{ steps.aot.outputs.key }}
+
       - name: AOT smoke
         run: ./build.sh aot-smoke
 
@@ -86,6 +95,10 @@ jobs:
         with:
           context: .
           file: deploy/Dockerfile
+          # The stages aot-smoke staged, so the image holds the binary it probed (build.sh cmd_aot_smoke).
+          build-contexts: |
+            build=artifacts/aot/image/build
+            web=artifacts/aot/image/web
           platforms: linux/amd64
           push: true
           tags: ${{ steps.names.outputs.app }}:${{ steps.names.outputs.tag }}
