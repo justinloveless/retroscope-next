@@ -91,9 +91,11 @@ test('rows link to the issue in Jira and carry the points, status and where unfi
     chips: [{ kind: 'carried', text: 'Carried in' }, { kind: 'next', text: '→ Sprint 9' }],
   });
   assert.deepEqual(byKey['RS-7'].chips, [{ kind: 'backlog', text: '→ Backlog' }]);
-  assert.deepEqual(byKey['RS-11'].chips, [{ kind: 'backlog', text: '→ Backlog' }], 'done after close, from the backlog');
+  assert.deepEqual(byKey['RS-11'].chips, [], 'done after close, and not in a later sprint');
   assert.deepEqual(byKey['RS-9'].chips, [{ kind: 'carried', text: 'Carried in' }], 'done work went nowhere');
   assert.equal(byKey['RS-8'].points, '3 pts');
+  const sprint7 = viewModel(bodyFor(99), { siteHost: SITE }).groups.flatMap((g) => g.rows);
+  assert.deepEqual(sprint7.find((r) => r.key === 'RS-9').chips, [{ kind: 'next', text: '→ Sprint 8' }], 'done after close, in the next sprint');
   assert.equal(viewModel(bodyFor(100), { siteHost: null }).groups[0].rows[0].href, null);
 });
 
