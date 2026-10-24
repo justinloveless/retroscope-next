@@ -121,8 +121,8 @@ export function createPopover(props) {
     open,
     close,
     toggle: () => (el.hidden ? open() : close()),
-    // For content that grows or shrinks while open, so the height cap follows it.
-    reposition: () => reposition(),
+    // For content that grows or shrinks while open: placed at once, so the cap follows before the next paint.
+    reposition: () => place(el, anchor.getBoundingClientRect(), props.placement),
     get isOpen() {
       return !el.hidden;
     },
