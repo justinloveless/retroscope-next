@@ -101,6 +101,9 @@ test('on a wide screen the panel sits beside the columns; on a phone it covers t
   } else {
     expect(Math.round(panel.x + panel.width)).toBe(viewport.width);
     expect(columns.x + columns.width).toBeLessThanOrEqual(panel.x + 1);
+    const header = await page.locator('.app-header').boundingBox();
+    expect(panel.y).toBeGreaterThanOrEqual(header.y + header.height - 1);
+    await page.locator('.app-header-end button:visible').last().click({ trial: true });
   }
 });
 
