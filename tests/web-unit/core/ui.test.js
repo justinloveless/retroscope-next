@@ -182,6 +182,11 @@ test('place() caps an overflowing popover from its scroll height, so placing it 
   popover.destroy();
 });
 
+test('an anchor scrolled out of view never leaves a popover taller than the viewport', () => {
+  assert.deepEqual(fit({ width: 200, height: 1000 }, anchorAt(2000), VIEW), { top: 8, left: 100, maxHeight: 752 });
+  assert.deepEqual(fit({ width: 200, height: 1000 }, anchorAt(-2000), VIEW, 'top-start'), { top: 8, left: 100, maxHeight: 752 });
+});
+
 test('popoverOpen reports an open menu until it closes or is destroyed', () => {
   const menu = createMenu({ items: [{ action: 'a', label: 'A' }], onSelect() {} });
   const trigger = doc.createElement('button');
