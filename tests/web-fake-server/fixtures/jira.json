@@ -13,6 +13,61 @@
     { "id": 101, "name": "Sprint 9", "state": "active", "startDate": "2026-10-12T09:00:00.000Z", "endDate": "2026-10-26T09:00:00.000Z" },
     { "id": 102, "name": "Sprint 10", "state": "future", "startDate": "2026-10-26T09:00:00.000Z", "endDate": "2026-11-09T09:00:00.000Z" }
   ],
+  "sprintReport": {
+    "default": 100,
+    "sprints": [
+      { "id": 101, "name": "Sprint 9", "state": "active", "startDate": "2026-10-12T09:00:00.000Z", "endDate": "2026-10-26T09:00:00.000Z", "completeDate": null },
+      { "id": 100, "name": "Sprint 8", "state": "closed", "startDate": "2026-09-28T09:00:00.000Z", "endDate": "2026-10-12T09:00:00.000Z", "completeDate": "2026-10-12T10:30:00.000Z" },
+      { "id": 99, "name": "Sprint 7", "state": "closed", "startDate": "2026-09-14T09:00:00.000Z", "endDate": "2026-09-28T09:00:00.000Z", "completeDate": "2026-09-28T11:00:00.000Z" }
+    ],
+    "reports": {
+      "99": {
+        "sprintId": 99, "goal": "Guest checkout", "pointsKnown": true, "truncated": false,
+        "groups": [
+          { "outcome": "done", "count": 1, "points": 8, "issues": [
+            { "key": "RS-5", "summary": "Check out as a guest", "issueType": "Story", "status": "Done", "statusCategory": "done", "assignee": "Ada Fake", "points": 8, "carriedIn": false, "next": null }
+          ] },
+          { "outcome": "doneAfter", "count": 1, "points": 2, "issues": [
+            { "key": "RS-9", "summary": "Refund totals round down", "issueType": "Bug", "status": "Done", "statusCategory": "done", "assignee": "Grace Fixture", "points": 2, "carriedIn": false, "next": "Sprint 8" }
+          ] },
+          { "outcome": "notDone", "count": 1, "points": 0, "issues": [
+            { "key": "RS-12", "summary": "Pay with a saved card", "issueType": "Story", "status": "To Do", "statusCategory": "new", "assignee": null, "points": null, "carriedIn": false, "next": "Sprint 8" }
+          ] }
+        ]
+      },
+      "100": {
+        "sprintId": 100, "goal": "Take card payments end to end", "pointsKnown": true, "truncated": false,
+        "groups": [
+          { "outcome": "done", "count": 3, "points": 5, "issues": [
+            { "key": "RS-8", "summary": "Validate the card expiry date", "issueType": "Story", "status": "Done", "statusCategory": "done", "assignee": "Ada Fake", "points": 3, "carriedIn": false, "next": null },
+            { "key": "RS-9", "summary": "Refund totals round down", "issueType": "Bug", "status": "Done", "statusCategory": "done", "assignee": "Grace Fixture", "points": 2, "carriedIn": true, "next": null },
+            { "key": "RS-10", "summary": "Upgrade the payment SDK", "issueType": "Task", "status": "Done", "statusCategory": "done", "assignee": null, "points": null, "carriedIn": false, "next": null }
+          ] },
+          { "outcome": "doneAfter", "count": 1, "points": 5, "issues": [
+            { "key": "RS-11", "summary": "Email a receipt after checkout", "issueType": "Story", "status": "Done", "statusCategory": "done", "assignee": "Ada Fake", "points": 5, "carriedIn": false, "next": null }
+          ] },
+          { "outcome": "notDone", "count": 3, "points": 8, "issues": [
+            { "key": "RS-12", "summary": "Pay with a saved card", "issueType": "Story", "status": "To Do", "statusCategory": "new", "assignee": null, "points": null, "carriedIn": true, "next": "Sprint 9" },
+            { "key": "RS-13", "summary": "Show order summary before paying", "issueType": "Story", "status": "To Do", "statusCategory": "new", "assignee": "Ada Fake", "points": 5, "carriedIn": false, "next": "Sprint 9" },
+            { "key": "RS-7", "summary": "Keep the cart between visits", "issueType": "Story", "status": "In Progress", "statusCategory": "indeterminate", "assignee": "Grace Fixture", "points": 3, "carriedIn": false, "next": null }
+          ] }
+        ]
+      },
+      "101": {
+        "sprintId": 101, "goal": null, "pointsKnown": true, "truncated": false,
+        "groups": [
+          { "outcome": "done", "count": 1, "points": 2, "issues": [
+            { "key": "RS-14", "summary": "Fix rounding of totals", "issueType": "Bug", "status": "Done", "statusCategory": "done", "assignee": "Grace Fixture", "points": 2, "carriedIn": false, "next": null }
+          ] },
+          { "outcome": "doneAfter", "count": 0, "points": 0, "issues": [] },
+          { "outcome": "notDone", "count": 2, "points": 5, "issues": [
+            { "key": "RS-12", "summary": "Pay with a saved card", "issueType": "Story", "status": "To Do", "statusCategory": "new", "assignee": null, "points": null, "carriedIn": true, "next": null },
+            { "key": "RS-13", "summary": "Show order summary before paying", "issueType": "Story", "status": "To Do", "statusCategory": "new", "assignee": "Ada Fake", "points": 5, "carriedIn": true, "next": null }
+          ] }
+        ]
+      }
+    }
+  },
   "users": [
     { "accountId": "fake-acc-1", "displayName": "Ada Fake" },
     { "accountId": "fake-acc-2", "displayName": "Grace Fixture" }

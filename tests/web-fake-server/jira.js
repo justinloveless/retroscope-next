@@ -24,6 +24,14 @@ const PIXEL = Buffer.from(
 
 const BROWSE_STATUSES = new Set(['new', 'indeterminate', 'done']);
 const COMMENT_PAGE = 20;
+const DAY_MS = 24 * 3600 * 1000;
+const SPRINT_ID = /^[1-9]\d*$/;
+
+// A sprint date in a fixture's sprintReport block: Jira's ISO string, or a day offset from `now` (the demo's
+// sprints follow its clock), resolved to 08:00 UTC of that day.
+function sprintDate(value, now) {
+  return typeof value === 'number' ? new Date(Math.floor(now / DAY_MS) * DAY_MS + value * DAY_MS + 8 * 3600 * 1000).toISOString() : value;
+}
 
 function descriptionDoc(issue) {
   // A rich save replaces the markup with ADF.
@@ -66,7 +74,7 @@ function commentView(comment) {
   };
 }
 
-export function installJira(server, { teamId, fixture = DEFAULT_JIRA_FIXTURE, configured = true } = {}) {
+export function installJira(server, { teamId, fixture = DEFAULT_JIRA_FIXTURE, configured = true, now = Date.now() } = {}) {
   if (!teamId) {
     throw new Error('fake.jira({teamId}) needs the team id the specs browse under');
   }
@@ -115,6 +123,13 @@ export function installJira(server, { teamId, fixture = DEFAULT_JIRA_FIXTURE, co
     }
     return issue;
   }
+
+  const reportSprints = (data.sprintReport?.sprints ?? []).map((sprint) => ({
+    ...sprint,
+    startDate: sprintDate(sprint.startDate, now),
+    endDate: sprintDate(sprint.endDate, now),
+    completeDate: sprintDate(sprint.completeDate, now),
+  }));
 
   const sprintOf = (issue) => data.sprints.find((s) => s.id === issue.sprintId) ?? null;
   const parentSummary = (issue) => (issue.parentKey ? issues.get(issue.parentKey)?.summary ?? null : null);
@@ -266,6 +281,22 @@ export function installJira(server, { teamId, fixture = DEFAULT_JIRA_FIXTURE, co
     'GET /': () => json(control.config),
     'GET /browse': ({ query }) => json(browse(query)),
     'GET /sprints': () => json({ sprints: data.sprints }),
+    // The picker plus one sprint's report (default: the block's `default`), as the server's sprint-report route.
+    'GET /sprint-report': ({ query }) => {
+      const asked = query.get('sprint');
+      if (asked !== null && !SPRINT_ID.test(asked)) {
+        return problem(400, 'invalid', { fields: { sprint: 'invalid' } });
+      }
+      if (control.config.boardId == null) {
+        return json({ sprints: [], empty: 'no_board', report: null });
+      }
+      if (reportSprints.length === 0) {
+        return json({ sprints: [], empty: 'no_sprints', report: null });
+      }
+      const id = asked === null ? data.sprintReport.default : Number(asked);
+      const report = reportSprints.some((s) => s.id === id) ? data.sprintReport.reports[id] : undefined;
+      return report ? json({ sprints: reportSprints, empty: null, report }) : problem(404, 'jira_not_found');
+    },
     'POST /meta': ({ body }) => {
       const keys = Array.isArray(body?.keys) ? body.keys : null;
       if (!keys || keys.length > 100) {
