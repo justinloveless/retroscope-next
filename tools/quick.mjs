@@ -32,6 +32,7 @@ const TEST_FOLDERS = {
 };
 
 const WEB_NET = ['outbox', 'room', 'socket', 'supersede', 'fake-server'].map((n) => `tests/web-unit/net/${n}.test.js`);
+const SHORTCUTS = ['poker', 'retro'].map((n) => `tests/web-unit/${n}/keyboard.test.js`);
 const WEB_CORE_DOM = ['a11y', 'h', 'list', 'router', 'ui'].map((n) => `tests/web-unit/core/${n}.test.js`);
 const POKER_LAYOUT = ['geometry', 'avatar-corner', 'column', 'mirror', 'print'].map((n) => `tests/web-unit/poker/${n}.test.js`);
 const RICH = ['adf', 'block-marks', 'clipboard', 'commands', 'editor-plugins', 'input-rules', 'rules', 'schema', 'tokens'].map((n) => `tests/web-unit/rich/${n}.test.js`);
@@ -110,7 +111,7 @@ const RULES = [
   [/^tests\/golden\//, { golden: true, node: ['tests/web-unit/golden-cli.test.js'], core: ['Poker', 'Retro'], fallback: true }],
   [/^tests\/authz-matrix\.csv$/, { core: ['Authz'] }],
   [/^tests\/schema\.snapshot\.sql$/, { integration: ['Schema'] }],
-  [/^tests\/web-unit\/core\/_dom\.js$/, { node: WEB_CORE_DOM.concat('tests/web-unit/editor.test.js') }],
+  [/^tests\/web-unit\/core\/_dom\.js$/, { node: WEB_CORE_DOM.concat('tests/web-unit/editor.test.js', ...SHORTCUTS) }],
   [/^tests\/web-unit\/net\/_fakes\.js$/, { node: WEB_NET }],
   [/^tests\/web-unit\/rich\/_project\.js$/, { node: RICH }],
   [/^tests\/web-fake-server\//, { node: FAKE_SERVER }],
@@ -124,6 +125,8 @@ const RULES = [
   [/^web\/src\/core\/router\.js$/, { node: ['tests/web-fake-server/self.test.js'] }],
   [/^web\/src\/core\/(theme|theme-boot)\.js$/, { node: ['tests/web-unit/core/theme.test.js', 'tests/web-unit/core/build.test.js'] }],
   [/^web\/src\/core\/clock\.js$/, { node: ['tests/web-unit/net/socket.test.js'] }],
+  [/^web\/src\/core\/a11y\.js$/, { node: SHORTCUTS }],
+  [/^web\/src\/ui\/(popover|menu)\.js$/, { node: SHORTCUTS }],
   [/^web\/src\/ui\//, { node: ['tests/web-unit/core/ui.test.js'] }],
   [/^web\/src\/markup\//, { node: ['tests/web-unit/markup.test.js', 'tests/web-unit/editor.test.js'] }],
   [/^web\/src\/markup\/(doc|parse)\.js$/, { node: ['tests/web-fake-server/self.test.js'] }],
