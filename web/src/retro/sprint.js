@@ -61,7 +61,13 @@ export const sprintFeature = {
         boardId: ctx.boardId,
         siteHost: jira.siteHost,
         dock: toolbar.closest('.retro-board'),
-        onClose: () => button.el.setAttribute('aria-expanded', 'false'),
+        onClose() {
+          button.el.setAttribute('aria-expanded', 'false');
+          // Safari does not focus a clicked button, so the sheet may have no opener to give focus back to.
+          if (!button.el.hidden) {
+            button.el.focus();
+          }
+        },
       });
       report.toggle();
       button.el.setAttribute('aria-expanded', String(report.isOpen));

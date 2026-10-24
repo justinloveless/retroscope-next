@@ -52,8 +52,11 @@ function chipsOf(issue, outcome, closed) {
   if (issue.carriedIn) {
     chips.push({ kind: 'carried', text: 'Carried in' });
   }
-  if (closed && outcome !== 'done') {
-    chips.push(issue.next ? { kind: 'next', text: `→ ${issue.next}` } : { kind: 'backlog', text: '→ Backlog' });
+  // Work finished after the close says where it was finished only when that was a later sprint.
+  if (closed && issue.next) {
+    chips.push({ kind: 'next', text: `→ ${issue.next}` });
+  } else if (closed && outcome === 'notDone') {
+    chips.push({ kind: 'backlog', text: '→ Backlog' });
   }
   return chips;
 }
