@@ -144,11 +144,15 @@ test('it plays through a gain into the page context at the chosen volume', () =>
   track.play(0);
   assert.deepEqual(graph, [['source', 'gain'], ['gain', 'destination']]);
   close(gains[0].gain.value, TRACK_LEVEL * 0.75);
+  assert.deepEqual(gains[0].gain.glides, [], 'a new gain starts at the level');
   sound.volume = 0.25;
   track.play(250);
   assert.deepEqual(graph.length, 2, 'the element is connected once');
   assert.equal(gains.length, 1);
   close(gains[0].gain.value, TRACK_LEVEL * 0.25);
+  assert.deepEqual(gains[0].gain.glides, [[TRACK_LEVEL * 0.25, 7]], 'a change glides from the context time');
+  track.play(500);
+  assert.equal(gains[0].gain.glides.length, 1, 'an unchanged volume sets nothing');
 });
 
 test('only the first gesture primes the element, and none after it has played', async () => {
