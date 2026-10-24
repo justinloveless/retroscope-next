@@ -390,6 +390,8 @@
   z-index: var(--z-popover);
   min-width: 8rem;
   max-width: calc(100vw - 1rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 0.25rem;
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius-md);
