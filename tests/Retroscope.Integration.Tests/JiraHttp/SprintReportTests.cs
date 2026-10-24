@@ -74,6 +74,32 @@ public sealed partial class SprintReportTests(PostgresFixture postgres) {
         Assert.DoesNotContain(host.Jira.Requests, r => r.Path == "/rest/api/3/search/jql");
     }
 
+    [Fact]
+    public async Task A_sprint_that_closes_between_the_active_and_closed_reads_is_listed_and_reported_as_closed() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (ada, team) = await BrowseTests.TeamAsync(host);
+        SeedSprints(host);
+        host.Jira.Script(
+            "GET",
+            "/rest/agile/1.0/board/7/sprint",
+            new FakeJiraResponse(200, """
+                {"startAt":0,"maxResults":50,"isLast":true,"values":[
+                  {"id":231,"name":"Sprint 42","state":"active","startDate":"2026-10-05T09:00:00.000Z","endDate":"2026-10-19T09:00:00.000Z"},
+                  {"id":232,"name":"Sprint 43","state":"active","startDate":"2026-10-19T09:00:00.000Z","endDate":"2026-11-02T09:00:00.000Z"}]}
+                """),
+            new FakeJiraResponse(200, """
+                {"startAt":0,"maxResults":50,"isLast":true,"values":[
+                  {"id":230,"name":"Sprint 41","state":"closed","startDate":"2026-09-21T09:00:00.000Z","endDate":"2026-10-05T09:00:00.000Z","completeDate":"2026-10-05T15:00:00.000Z"},
+                  {"id":231,"name":"Sprint 42","state":"closed","startDate":"2026-10-05T09:00:00.000Z","endDate":"2026-10-19T09:00:00.000Z","completeDate":"2026-10-19T16:00:00.000Z","goal":"Ship checkout polish"}]}
+                """));
+
+        var report = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, Report));
+
+        Assert.Equal(["232 active", "231 closed", "230 closed"], report["sprints"]!.AsArray().Select(s => $"{s!["id"]} {s["state"]}"));
+        Assert.Equal(231, (long)report["report"]!["sprintId"]!);
+        Assert.Contains(("doneAfter", "RS-3"), Rows(report["report"]!["groups"]!.AsArray()).Select(r => (r.Outcome, (string)r.Row["key"]!)));
+    }
+
     [Theory]
     [InlineData("abc")]
     [InlineData("0")]
