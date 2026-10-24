@@ -451,6 +451,10 @@ html:has(.retro-kudos-dock:not([hidden])) { scroll-padding-bottom: calc(3.5rem +
 }
 .retro-sprint { display: flex; flex-direction: column; gap: 1rem; padding-top: 0.25rem; }
 .retro-sprint-picker { width: 100%; }
+.retro-sprint-menu { width: min(24rem, calc(100vw - 1rem)); }
+.retro-sprint-more { margin-top: 0.25rem; border-top: 1px solid hsl(var(--border)); border-radius: 0; color: hsl(var(--muted-foreground)); }
+.retro-sprint-more[aria-disabled="true"] { cursor: progress; }
+.retro-sprint-more .spinner { width: 0.875rem; height: 0.875rem; }
 .retro-sprint-head { display: grid; gap: 0.25rem; }
 .retro-sprint-head:empty { display: none; }
 .retro-sprint-goal { margin: 0; font-size: 0.875rem; overflow-wrap: anywhere; }

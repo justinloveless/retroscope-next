@@ -3,18 +3,24 @@
 // with where it went. The viewer picks the sprint and the pick is remembered per board (the sprint id only);
 // Jira text lives in memory only (tenet 4).
 
+import { rovingTabindex } from '../core/a11y.js';
 import { plural } from '../core/fmt.js';
 import { h, replaceContent } from '../core/h.js';
 import { http } from '../core/http.js';
 import { jiraMessage } from '../core/jira-errors.js';
 import { createButton } from '../ui/button.js';
-import { createChoice } from '../ui/choice.js';
 import { issueTypeGlyph, statusBadge } from '../ui/glyphs.js';
+import { icon } from '../ui/icons.js';
+import { createPopover } from '../ui/popover.js';
 import { createSideSheet } from '../ui/side-sheet.js';
 import { toast } from '../ui/toast.js';
 
 export const CACHE_MS = 60_000;
 export const PICK_KEY = 'rs.sprint';
+// Closed sprints the picker lists at first, how many more each "Load more" asks for, and the server's limit.
+export const SPRINTS = 4;
+const MORE = 8;
+const MAX_SPRINTS = 100;
 const WIDTH = '26rem';
 
 const OUTCOMES = {
@@ -40,8 +46,11 @@ export const TRUNCATED = 'This sprint has more issues than the report reads; the
 
 const day = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
 
-// Shared by every panel of the tab: `${teamId}:${sprintId | 'default'}` → {at, promise}.
+// Shared by every panel of the tab: `${teamId}:${sprintId | 'default'}` → {at, promise}. The key leaves out how many
+// sprints were listed: a panel keeps the longest list it has seen, so a cached shorter one only costs nothing.
 const cache = new Map();
+
+export const sprintLabel = (s) => (s.state === 'active' ? `${s.name} (active)` : s.name);
 
 function formatDay(value) {
   const at = value ? Date.parse(value) : Number.NaN;
@@ -91,7 +100,7 @@ export function viewModel(body, { siteHost }) {
   }
   return {
     empty: report ? null : body?.empty ?? 'no_sprints',
-    picker: sprints.map((s) => ({ value: String(s.id), label: s.state === 'active' ? `${s.name} (active)` : s.name })),
+    picker: sprints.map((s) => ({ value: String(s.id), label: sprintLabel(s) })),
     selected: sprint ? String(sprint.id) : null,
     heading: sprint && {
       name: sprint.name,
@@ -123,17 +132,18 @@ function fresh(entry) {
 }
 
 /**
- * GET …/sprint-report, cached in memory for a minute per team and sprint, shared while in flight, dropped on
- * failure. A forced fetch replaces every fresh entry that showed the same sprint, the default one included.
+ * GET …/sprint-report listing `sprints` closed sprints, cached in memory for a minute per team and sprint, shared
+ * while in flight, dropped on failure. A forced fetch replaces every fresh entry that showed the same sprint, the
+ * default one included.
  */
-export function fetchReport(teamId, sprintId, { signal, force = false } = {}) {
+export function fetchReport(teamId, sprintId, { signal, force = false, sprints = SPRINTS } = {}) {
   const id = `${teamId}:${sprintId ?? 'default'}`;
   const hit = cache.get(id);
   if (!force && fresh(hit)) {
     return hit.promise;
   }
-  const query = sprintId == null ? '' : `?sprint=${encodeURIComponent(sprintId)}`;
-  const promise = http.get(`/api/teams/${encodeURIComponent(teamId)}/jira/sprint-report${query}`, { signal });
+  const query = sprintId == null ? '' : `sprint=${encodeURIComponent(sprintId)}&`;
+  const promise = http.get(`/api/teams/${encodeURIComponent(teamId)}/jira/sprint-report?${query}sprints=${sprints}`, { signal });
   const at = Date.now();
   cache.set(id, { at, promise, own: null });
   promise.then((body) => {
@@ -229,16 +239,117 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
   sheet.title.textContent = 'Sprint report';
   const refresh = createButton({ label: 'Refresh', icon: 'refresh-cw', iconOnly: true, variant: 'ghost', size: 'icon', onClick: () => load(wanted, { force: true }) });
   sheet.tools.append(refresh.el);
-  const picker = createChoice({ label: 'Sprint', options: [], className: 'retro-sprint-picker', onChange: (value) => pick(Number(value)) });
-  picker.el.hidden = true;
+  const picker = h('button', { type: 'button', class: 'select choice retro-sprint-picker', 'aria-haspopup': 'menu', 'aria-expanded': 'false', hidden: true });
+  const items = h('div', { class: 'menu-list' });
+  const more = h('button', { type: 'button', role: 'menuitem', class: 'menu-item retro-sprint-more', tabindex: '-1' });
+  const menu = createPopover({ anchor: picker, content: [items, more], role: 'menu', label: 'Sprints', className: 'menu retro-sprint-menu' });
+  menu.el.removeAttribute('tabindex');
+  const roving = rovingTabindex(menu.el, { selector: '.menu-item', orientation: 'vertical' });
   const content = h('div', { class: 'retro-sprint-content' });
-  sheet.body.append(h('div', { class: 'retro-sprint' }, picker.el, content));
+  sheet.body.append(h('div', { class: 'retro-sprint' }, picker, content));
 
   let request = 0;
   let abort = null;
   // The latest load's sprint, so Refresh during a pending pick reloads the pick rather than the painted sprint.
   let wanted = null;
   let painted = false;
+  // The picker of this opening: the longest sprint list a response gave, and how many closed sprints to ask for.
+  let list = { sprints: [], more: false };
+  let count = SPRINTS;
+  let selected = null;
+  let loadingMore = false;
+  let opening = 0;
+
+  function take(body, force) {
+    const sprints = Array.isArray(body?.sprints) ? body.sprints : [];
+    // Every response lists a prefix of the same sprints (active, then closed newest first), so the longer one holds the other.
+    if (force || sprints.length >= list.sprints.length) {
+      list = { sprints, more: body?.hasMoreSprints === true };
+    }
+  }
+
+  function renderPicker() {
+    const chosen = list.sprints.find((s) => String(s.id) === selected);
+    picker.hidden = list.sprints.length === 0;
+    picker.textContent = chosen ? sprintLabel(chosen) : '';
+    picker.setAttribute('aria-label', `Sprint: ${picker.textContent}`);
+    items.replaceChildren(...list.sprints.map((s) => {
+      const on = String(s.id) === selected;
+      return h('button', { type: 'button', role: 'menuitemradio', class: 'menu-item', 'aria-checked': String(on), tabindex: '-1', dataset: { id: s.id } },
+        icon(on ? 'check' : 'circle'), h('span', { text: sprintLabel(s) }));
+    }));
+    more.hidden = !list.more;
+    more.setAttribute('aria-disabled', String(loadingMore));
+    more.replaceChildren(loadingMore ? h('span', { class: 'spinner', 'aria-hidden': 'true' }) : icon('chevron-down'),
+      h('span', { text: loadingMore ? 'Loading sprints…' : 'Load more sprints' }));
+    roving.refresh();
+    if (menu.isOpen) {
+      menu.reposition();
+    }
+  }
+
+  async function loadMore() {
+    if (loadingMore || !list.more) {
+      return;
+    }
+    const mine = opening;
+    const added = list.sprints.length;
+    const focused = more.contains(document.activeElement);
+    count = Math.min(MAX_SPRINTS, list.sprints.filter((s) => s.state === 'closed').length + MORE);
+    loadingMore = true;
+    renderPicker();
+    try {
+      take(await fetchReport(teamId, wanted, { force: true, sprints: count }), true);
+    } catch (error) {
+      if (mine === opening) {
+        toast(jiraMessage(error, ERRORS), { variant: 'error', duration: 6000 });
+      }
+    }
+    if (mine !== opening) {
+      return;
+    }
+    loadingMore = false;
+    renderPicker();
+    // Keyboard users who chose "Load more" land on the first sprint it added.
+    if (focused) {
+      (items.children[added] ?? more).focus();
+    }
+  }
+
+  function openMenu() {
+    menu.open();
+    const item = items.querySelector('[aria-checked="true"]') ?? items.firstElementChild;
+    if (item) {
+      roving.refresh();
+      item.tabIndex = 0;
+      item.focus();
+    }
+  }
+
+  picker.addEventListener('click', () => (menu.isOpen ? menu.close() : openMenu()));
+  picker.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown' && !menu.isOpen) {
+      event.preventDefault();
+      openMenu();
+    }
+  });
+  menu.el.addEventListener('click', (event) => {
+    const item = event.target.closest('[role=menuitemradio]');
+    if (item) {
+      menu.close();
+      picker.focus();
+      if (item.getAttribute('aria-checked') !== 'true') {
+        pick(Number(item.dataset.id));
+      }
+    } else if (event.target.closest('.retro-sprint-more')) {
+      loadMore();
+    }
+  });
+  menu.el.addEventListener('scroll', () => {
+    if (menu.el.scrollTop + menu.el.clientHeight >= menu.el.scrollHeight - 24) {
+      loadMore();
+    }
+  }, { passive: true });
 
   function status(text, { role = 'status', retry = null } = {}) {
     replaceContent(content, h('p', { class: 'retro-sprint-status', role, text }), retry);
@@ -256,7 +367,7 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
     }
     let body;
     try {
-      body = await fetchReport(teamId, sprintId, { signal: abort.signal, force });
+      body = await fetchReport(teamId, sprintId, { signal: abort.signal, force, sprints: count });
     } catch (error) {
       if (mine !== request || error?.name === 'AbortError') {
         return;
@@ -286,8 +397,9 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
     content.setAttribute('aria-busy', 'false');
     const model = viewModel(body, { siteHost });
     wanted = model.selected === null ? sprintId : Number(model.selected);
-    picker.update({ options: model.picker, value: model.selected ?? '' });
-    picker.el.hidden = model.picker.length === 0;
+    selected = model.selected;
+    take(body, force);
+    renderPicker();
     painted = !model.empty;
     if (model.empty) {
       status(EMPTY[model.empty] ?? EMPTY.no_sprints);
@@ -312,7 +424,12 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
       return;
     }
     request++;
+    opening++;
     abort?.abort();
+    menu.close();
+    list = { sprints: [], more: false };
+    count = SPRINTS;
+    loadingMore = false;
     sheet.hide();
     dock?.classList.remove('has-side-sheet');
     onClose?.();
@@ -332,7 +449,8 @@ export function createSprintReport({ teamId, boardId, siteHost, dock, onClose })
     close,
     destroy() {
       close();
-      picker.destroy();
+      roving.destroy();
+      menu.destroy();
       sheet.destroy();
     },
   };
