@@ -1,7 +1,11 @@
-// Shared setup for specs against deploy/compose.test.yml: Traefik's self-signed https front, Mailpit, and a fresh
-// client address per test so the server's per-IP limits (5 signups an hour) never couple tests together. The
-// stack trusts X-Test-Client-Ip from its proxy the way production trusts CF-Connecting-IP behind Cloudflare.
+// Shared setup for specs against deploy/compose.test.yml: Traefik's self-signed https front, Mailpit, the stack's
+// database (psql in its db container), and a fresh client address per test so the server's per-IP limits (5 signups
+// an hour) never couple tests together. The stack trusts X-Test-Client-Ip from its proxy the way production trusts
+// CF-Connecting-IP behind Cloudflare.
+import { execFile } from 'node:child_process';
 import { randomInt, randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { expect, test as base } from '@playwright/test';
 
 export const BASE = process.env.RS_E2E_BASE_URL?.startsWith('https:')
@@ -11,6 +15,45 @@ export const MAILPIT = `http://localhost:${process.env.RS_TEST_MAILPIT_PORT ?? 1
 export const PASSWORD = 'correct horse battery staple';
 
 export const clientIp = () => `10.${randomInt(256)}.${randomInt(256)}.${randomInt(1, 255)}`;
+
+const run = promisify(execFile);
+const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
+const COMPOSE = ['compose', '-f', `${ROOT}deploy/compose.test.yml`];
+
+// bcrypt cost 4 of PASSWORD. Seeded accounts sign in through the real login route, and at cost 10 the HashGate (one
+// hash at a time, 2 s queue) would answer 503 to a dozen parallel sign-ins on the stack's 0.6 vCPU.
+const SEED_HASH = '$2a$04$6x8JWnT3vccNDWa3GtzOROA19eccXMuJ/ZQs3MfUCjIfmf6S6BKRS';
+
+/** Runs `statement` with psql in the stack's db container; returns rows as arrays of strings. */
+export async function sql(statement) {
+  const { stdout } = await run('docker', [...COMPOSE, 'exec', '-T', 'db', 'psql', '-U', 'retroscope_owner', '-d', 'retroscope',
+    '-v', 'ON_ERROR_STOP=1', '-At', '-F', '\t', '-c', statement]);
+  return stdout.split('\n').filter((line) => line.length > 0).map((line) => line.split('\t'));
+}
+
+export const compose = (...args) => run('docker', [...COMPOSE, ...args], { timeout: 180_000 });
+
+const literal = (value) => `'${String(value).replaceAll("'", "''")}'`;
+
+/**
+ * Inserts accounts straight into the database: signing up through the route sends a verification mail per person,
+ * and the global email budget (200/h) would run out within one run of the matrix. The auth specs sign up for real.
+ */
+export async function seedUsers(names, { verified = true, ordered = false } = {}) {
+  // `ordered` makes the ids sort in the order of `names` (seats sort by principal id), for the visual baselines.
+  const id = (i) => (ordered ? `${i.toString(16)}${randomUUID().slice(1)}` : randomUUID());
+  const users = names.map((name, i) => ({ id: id(i), email: `e2e-${randomUUID()}@example.test`, name }));
+  await sql(`
+    insert into principals (id, kind) values ${users.map((u) => `(${literal(u.id)}, 'user')`).join(', ')};
+    insert into users (id, email, email_verified_at, password_hash, full_name) values ${users.map((u) =>
+    `(${literal(u.id)}, ${literal(u.email)}, ${verified ? 'now()' : 'null'}, ${literal(SEED_HASH)}, ${literal(u.name)})`).join(', ')};`);
+  return users;
+}
+
+export async function signIn(request, user) {
+  const response = await request.post('/api/auth/login', json({ email: user.email, password: PASSWORD }));
+  expect(response.status(), await response.text()).toBe(200);
+}
 
 export const test = base.extend({
   baseURL: async ({}, use) => use(BASE),
