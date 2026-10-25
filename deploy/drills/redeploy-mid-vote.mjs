@@ -5,7 +5,7 @@
 //   node deploy/drills/redeploy-mid-vote.mjs [--players 6] [--before 8] [--after 10]
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
-import { parseArgs, psql, request, sleep, user } from './client.mjs';
+import { parseArgs, psql, room, seedAccounts, sleep, team, user } from './client.mjs';
 import { Tab } from './tab.mjs';
 
 const args = parseArgs(process.argv.slice(2));
@@ -26,17 +26,14 @@ function redeploy() {
   });
 }
 
-const users = [];
-for (let i = 0; i < PLAYERS; i++) users.push(await user(`Drill ${i + 1}`));
-const created = await request('POST', '/api/poker', { body: {}, cookie: users[0].cookie, ip: users[0].ip });
-if (created.status !== 201 && created.status !== 200) throw new Error(`create ${created.status} ${created.text}`);
-const { id, code } = JSON.parse(created.text);
-for (const u of users.slice(1)) {
-  const lookup = await request('GET', `/api/poker/by-code/${code}`, { cookie: u.cookie, ip: u.ip });
-  if (lookup.status !== 200) throw new Error(`by-code ${lookup.status}`);
-}
-const room = `poker:${id}`;
-const tabs = users.map((u) => new Tab(u, room));
+// The session belongs to a team (UX18): the first player owns it, seeded verified through the database; the others
+// sign up through the route and join through the team's link invite.
+const users = await seedAccounts(['Drill 1']);
+for (let i = 1; i < PLAYERS; i++) users.push(await user(`Drill ${i + 1}`));
+const { id: teamId } = await team(users[0], `Drill ${new Date().toISOString()}`, users.slice(1));
+const { id, code } = await room(users[0], teamId, 'poker');
+const roomKey = `poker:${id}`;
+const tabs = users.map((u) => new Tab(u, roomKey));
 await Promise.all(tabs.map((tab) => tab.connect()));
 const roundId = tabs[0].snapshot.currentRoundId ?? tabs[0].snapshot.rounds[0].id;
 log(`${PLAYERS} players in session ${code}`);
