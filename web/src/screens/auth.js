@@ -77,7 +77,8 @@ async function magicView(frame) {
       if (!currentMe()?.user) {
         await refreshMe();
       }
-      await navigate('/dashboard', { replace: true });
+      // '/' resumes a pending invite (UX18 decision 13), else finds the user's team.
+      await navigate('/', { replace: true });
     } catch (error) {
       alert.textContent = errorText(error, LINK_ERRORS);
       alert.hidden = false;
@@ -146,7 +147,7 @@ async function verifyView(frame) {
   }
   store(PENDING_VERIFY, null);
   await refreshMe().catch(() => {});
-  replaceContent(frame.main, notice('Your email is verified.', link('/dashboard', 'Continue', { class: 'btn btn-primary' })));
+  replaceContent(frame.main, notice('Your email is verified.', link('/', 'Continue', { class: 'btn btn-primary' })));
 }
 
 export function mount(root) {
