@@ -7,6 +7,7 @@ using Retroscope.Core.Authz;
 using Retroscope.Core.Ids;
 using Retroscope.Core.Protocol;
 using Retroscope.Core.Room;
+using Retroscope.Server.Realtime.Stores;
 
 namespace Retroscope.Server.Data.Repos;
 
@@ -87,13 +88,20 @@ public static class TeamRoles {
     };
 }
 
+/// <summary>A row of the team's board list (UX18 decision 11).</summary>
+/// <param name="Stage">Meaningful only when <paramref name="StagesEnabled"/>.</param>
+/// <param name="LastActivityAt">The board's last committed write, to the minute.</param>
 public sealed record BoardListItem(
     BoardId Id,
     string Code,
     string Title,
     bool Archived,
     long? ArchivedAt,
-    long CreatedAt);
+    long CreatedAt,
+    RetroStage Stage,
+    bool StagesEnabled,
+    int CardCount,
+    long LastActivityAt);
 
 /// <param name="MaxVotes">Null means unlimited.</param>
 public sealed record BoardSettings(
@@ -239,11 +247,12 @@ public sealed class RetroListsRepo(NpgsqlDataSource dataSource) {
         int limit,
         CancellationToken cancellationToken) {
         await using var command = dataSource.CreateCommand("""
-            select id, code, title, archived_at, created_at
-            from retro_boards
-            where team_id = $1 and deleted_at is null and (archived_at is not null) = $2
-              and ($3::timestamptz is null or (created_at, id) < ($3, $4))
-            order by created_at desc, id desc
+            select b.id, b.code, b.title, b.archived_at, b.created_at, b.stage, b.stages_enabled,
+                   (select count(*)::int from retro_cards c where c.board_id = b.id), b.last_activity_at
+            from retro_boards b
+            where b.team_id = $1 and b.deleted_at is null and (b.archived_at is not null) = $2
+              and ($3::timestamptz is null or (b.created_at, b.id) < ($3, $4))
+            order by b.created_at desc, b.id desc
             limit $5
             """);
         command.Parameters.Add(new() { Value = team.Value });
@@ -263,7 +272,11 @@ public sealed class RetroListsRepo(NpgsqlDataSource dataSource) {
                     reader.GetString(2),
                     archivedAt is not null,
                     archivedAt?.ToUnixTimeMilliseconds(),
-                    createdAt.ToUnixTimeMilliseconds()),
+                    createdAt.ToUnixTimeMilliseconds(),
+                    RetroSql.ParseStage(reader.GetString(5)),
+                    reader.GetBoolean(6),
+                    reader.GetInt32(7),
+                    reader.GetFieldValue<DateTimeOffset>(8).ToUnixTimeMilliseconds()),
                 new ListCursor(createdAt, id)));
         }
         return Page.Of(rows, limit);

@@ -10,13 +10,15 @@ public sealed record ParentKeyCount([property: JsonIgnore(Condition = JsonIgnore
 /// <param name="Pointed">Revealed rounds that are not pending previews.</param>
 /// <param name="Total">Rounds that are not pending previews, the same count the room posts to the team (U21).</param>
 /// <param name="ParentKeys">Per parent key over rounds with a real ticket, in order of first appearance in the strip.</param>
+/// <param name="LastActivityAt">The session's last committed write, to the minute; nothing says a session is live.</param>
 public sealed record PokerSessionListItem(
     SessionId Id,
     string Code,
     long CreatedAt,
     int Pointed,
     int Total,
-    IReadOnlyList<ParentKeyCount> ParentKeys);
+    IReadOnlyList<ParentKeyCount> ParentKeys,
+    long LastActivityAt);
 
 public sealed record SessionOwner(TeamId? Team);
 
@@ -73,7 +75,7 @@ public sealed class PokerListsRepo(NpgsqlDataSource dataSource) {
         int limit,
         CancellationToken cancellationToken) {
         await using var command = dataSource.CreateCommand("""
-            select s.id, s.code, s.created_at, coalesce(r.pointed, 0), coalesce(r.total, 0), k.keys, k.counts
+            select s.id, s.code, s.created_at, coalesce(r.pointed, 0), coalesce(r.total, 0), k.keys, k.counts, s.last_activity_at
             from poker_sessions s
             left join lateral (
               select count(*) filter (where state = 'revealed')::int as pointed, count(*)::int as total
@@ -109,7 +111,8 @@ public sealed class PokerListsRepo(NpgsqlDataSource dataSource) {
                     createdAt.ToUnixTimeMilliseconds(),
                     reader.GetInt32(3),
                     reader.GetInt32(4),
-                    [.. keys.Zip(counts, (key, count) => new ParentKeyCount(key, count))]),
+                    [.. keys.Zip(counts, (key, count) => new ParentKeyCount(key, count))],
+                    reader.GetFieldValue<DateTimeOffset>(7).ToUnixTimeMilliseconds()),
                 new ListCursor(createdAt, id)));
         }
         return Page.Of(rows, limit);
