@@ -129,6 +129,8 @@ export function createHeader() {
   // What the page told the header (app.js setHeaderTeam, setHeaderTab); reset when the path changes.
   let pageTeam = null;
   let pageTab;
+  // The poker screen hides the header behind its toolbar until it shows a page of the shell instead (no access).
+  let revealed = false;
   let shown = null;
   let sheet = null;
   let dock = null;
@@ -238,6 +240,11 @@ export function createHeader() {
 
   const stop = session.select((s) => s.me, Object.is, render);
 
+  function place() {
+    el.hidden = POKER_ROUTES.has(route) && !revealed;
+    document.documentElement.classList.toggle('app-has-header', !el.hidden);
+  }
+
   return {
     el,
     /** Called after every navigation with the matched route pattern (null when nothing matched). */
@@ -246,11 +253,16 @@ export function createHeader() {
         path = location.pathname;
         pageTeam = null;
         pageTab = undefined;
+        revealed = false;
       }
       route = pattern;
       params = next;
-      el.hidden = POKER_ROUTES.has(route);
-      document.documentElement.classList.toggle('app-has-header', !el.hidden);
+      place();
+      render();
+    },
+    reveal() {
+      revealed = true;
+      place();
       render();
     },
     setTeam(teamId) {

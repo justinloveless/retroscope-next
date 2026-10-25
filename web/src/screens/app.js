@@ -115,6 +115,11 @@ export function setHeaderTab(tab) {
   header?.setTab(tab);
 }
 
+/** Shows the header on a page that hides it (the poker screen) once that page shows a shell screen instead. */
+export function revealHeader() {
+  header?.reveal();
+}
+
 /** Live values of one of the user's teams ({name, role, openActions}) from a room that holds them. */
 export function patchTeam(teamId, values) {
   const me = currentMe();

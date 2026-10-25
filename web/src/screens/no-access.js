@@ -1,11 +1,12 @@
 // "You can't open this page" (UX18 decision 2): one screen for a page that does not exist and for one that
 // belongs to a team the user is not on, so it never tells the two apart or names what was asked for. A
 // member removed while a room is open sees "You no longer have access" instead. The router's not-found and
-// the team, retro and poker screens show it; it draws its own <main>, so give it a container outside one.
+// the team, retro and poker screens show it; it draws its own <main>, so give it a container outside one. The
+// header shows above it, on the poker screen too.
 
 import { h, replaceContent } from '../core/h.js';
 import { icon } from '../ui/icons.js';
-import { currentUser, homeTeam, refreshMe, setHeaderTab } from './app.js';
+import { currentUser, homeTeam, refreshMe, revealHeader, setHeaderTab } from './app.js';
 import { navLink, signOutNow, teamPath } from './header.js';
 
 const COPY = {
@@ -59,6 +60,7 @@ export function showNoAccess(root, { removed = false } = {}) {
   root.replaceChildren(main);
   document.title = `${title} · Retroscope`;
   setHeaderTab(null);
+  revealHeader();
   if (removed) {
     // The team is still in `me` until it is reloaded; "Back to" then names a team the user is still on.
     refreshMe().then(renderActions, () => {});
