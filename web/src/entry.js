@@ -56,8 +56,9 @@ const root = h('div', { class: 'app-view' });
 host.replaceChildren(header.el, root);
 setHeader(header);
 
-// A signed-out visitor on a member page signs in first, and a signed-in '/' goes to the user's team. The
-// server redirects full page loads itself; this covers in-app navigation and servers that do not (the fake).
+// A signed-out visitor on a member page signs in first, and a signed-in '/' goes home (app.js homePath). The
+// server redirects full page loads itself; this covers in-app navigation and a server that does not (the
+// fake leaves the sign-in gate to the client).
 const redirect = (url, route) => redirectFor(url, route?.path ?? null);
 const asked = new URL(location.href);
 const moved = redirect(asked, resolve(routes, asked)?.route);

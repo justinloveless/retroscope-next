@@ -52,9 +52,11 @@ export function homeTeam(me = currentMe()) {
 }
 
 /**
- * Where '/' takes a signed-in user (UX18 decision 8, as the server's redirect does): a pending invite
- * first, then the last team, then the first team, else the create-or-join screen. Signed out, '/' is
- * the welcome page.
+ * Where '/' takes a signed-in user on in-app navigation (UX18 decision 8): a pending invite first, then the
+ * last team, then the first team, else the create-or-join screen. Signed out, '/' is the welcome page. A full
+ * page load of '/' never reaches this: the server's redirect applies the team part only, as it cannot see the
+ * invite in this browser's storage, so a member's reload lands on their team. Sign-in returns to the invite
+ * itself (sign-in.js), and the create-or-join screen resumes it (teams.js).
  */
 export function homePath(me = currentMe(), invite = pendingInvite()) {
   if (!me?.user) {
@@ -73,7 +75,7 @@ const PUBLIC_ROUTES = new Set(['/', '/login', '/auth/*', '/invite']);
 /**
  * Where the router sends `url` (matched to the route pattern `route`, null when none matches) instead of
  * showing it: a signed-out visitor goes to sign in first and comes back, and a signed-in visit to '/'
- * finds the user's team. Null shows `url`. Unknown paths are not gated, as the server answers them 404.
+ * goes to homePath. Null shows `url`. Unknown paths are not gated, as the server answers them 404.
  */
 export function redirectFor(url, route, me = currentMe()) {
   if (!me?.user) {

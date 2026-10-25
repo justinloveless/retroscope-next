@@ -1,8 +1,9 @@
 // /invite#t=<token>: the way into a team (UX18 decision 13). The token stays out of the address bar and out
 // of server logs (S23). It waits as the pending invite (pending-invite.js, localStorage with an expiry) while
-// the visitor signs in, possibly through an emailed link opened in another tab, and '/' resumes it; accepting,
-// declining or signing out clears it. A signed-out visitor is offered "Email me a sign-in link" first: the
-// link signs in, creates the account if needed and verifies the address, which an email invite requires.
+// the visitor signs in, possibly through an emailed link opened in another tab, and the landing after sign-in
+// resumes it; accepting, declining or signing out clears it. A signed-out visitor is offered "Email me a
+// sign-in link" first: the link signs in, creates the account if needed and verifies the address, which an
+// email invite requires.
 
 import { h, patch, replaceContent } from '../core/h.js';
 import { http } from '../core/http.js';

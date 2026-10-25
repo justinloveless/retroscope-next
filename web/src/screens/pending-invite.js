@@ -1,7 +1,9 @@
 // The pending team invite (UX18 decision 13). Invites are the only way into a team, and signing in can take a
 // visitor through an emailed link that opens in another tab, so the token waits in localStorage (`rs.invite`)
 // with an expiry instead of in this tab's sessionStorage. It is cleared on accept, on sign-out and when it
-// expires, and '/' resumes it (app.js homePath).
+// expires. An in-app '/' resumes it (app.js homePath), the sign-in card returns to it (sign-in.js) and the
+// create-or-join screen opens it (teams.js). The server never sees it, so a member's full page load of '/'
+// goes to their team, and the invite waits for the next of those.
 
 const KEY = 'rs.invite';
 

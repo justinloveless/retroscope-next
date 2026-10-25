@@ -1,6 +1,7 @@
 // '/' for a signed-out visitor (UX18 decision 15): a short product page with sign-in and sign-up. A signed-in
-// visit never shows it: the server and the router send it to the user's team, a pending invite or the
-// create-or-join screen. Without guests or quick sessions there is nothing to start before signing in.
+// visit never shows it. On a full page load the server sends it to the user's team or the create-or-join
+// screen; in-app, the router does the same but lets a pending invite win (app.js homePath). Without guests or
+// quick sessions there is nothing to start before signing in.
 
 import { h } from '../core/h.js';
 import { icon } from '../ui/icons.js';
