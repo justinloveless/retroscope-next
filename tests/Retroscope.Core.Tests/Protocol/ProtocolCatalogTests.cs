@@ -38,8 +38,7 @@ public sealed partial class ProtocolCatalogTests {
 
     private static readonly Type[] WireEnums = [
         typeof(RoomKind), typeof(Room.PrincipalKind), typeof(Room.TeamRole), typeof(RoundState), typeof(VoteStatus),
-        typeof(PointerCause), typeof(JiraSubmitStatus), typeof(RetroStage), typeof(TimerState), typeof(BoardVisibility),
-        typeof(ColumnColor),
+        typeof(PointerCause), typeof(JiraSubmitStatus), typeof(RetroStage), typeof(TimerState), typeof(ColumnColor),
     ];
 
     [Fact]
