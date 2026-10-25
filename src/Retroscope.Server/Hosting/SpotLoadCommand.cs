@@ -33,14 +33,15 @@ public static class SpotLoadCommand {
 
     private const string Usage = "usage: retroscope spot-load [--sample N]   (N from 1 to 10000, default 20)";
 
-    // Rooms that should open: not deleted, and not belonging to a soft-deleted team (those load as missing by design).
+    // Rooms that should open: not deleted, and belonging to a team that is not soft-deleted. A room of a deleted team,
+    // or a leftover team-less room (UX18), loads as missing by design.
     private const string PokerSql = """
-        select s.id from poker_sessions s left join teams t on t.id = s.team_id
+        select s.id from poker_sessions s join teams t on t.id = s.team_id
         where t.deleted_at is null order by random() limit $1
         """;
 
     private const string BoardSql = """
-        select b.id from retro_boards b left join teams t on t.id = b.team_id
+        select b.id from retro_boards b join teams t on t.id = b.team_id
         where b.deleted_at is null and t.deleted_at is null order by random() limit $1
         """;
 
