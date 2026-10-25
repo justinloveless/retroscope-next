@@ -1,6 +1,7 @@
 // An axe scan of the core screens against the real stack (§j), in light and dark. axe-core is evaluated through the
 // automation protocol, which the page's CSP does not govern, so the scan adds no script the app would refuse.
 // Every violation fails the test; the findings of the first scan were fixed by UF16 (docs/decisions/UF16.md).
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { createBoard, createPoker, createTeam, expect, json, seedUsers, test } from './_real.js';
@@ -44,11 +45,14 @@ for (const theme of ['light', 'dark']) {
     const poker = await createPoker(page.request, team.id);
     const board = await createBoard(page.request, team.id);
     const screens = [
-      ['/dashboard', 'h1'],
+      ['/teams', 'h1'],
       [`/teams/${team.id}`, 'h1'],
+      [`/teams/${team.id}?tab=retros`, 'h1'],
       [`/teams/${team.id}/poker/${poker.code}`, '.nt-table'],
       [`/retro/${board.code}`, '.retro-column-list'],
       ['/account', 'h1'],
+      // "You can't open this page", for a team that does not exist and one the user is not in alike.
+      [`/teams/${randomUUID()}`, 'h1'],
     ];
     for (const [path, ready] of screens) {
       await page.goto(path);

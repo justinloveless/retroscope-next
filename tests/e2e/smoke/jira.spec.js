@@ -1,11 +1,9 @@
 // The Jira proxy end to end: TLS to FakeJira under the stack's CA, through the client's public-address rule.
-import { expect, json, test, verifiedUser } from './_stack.js';
+import { createTeam, expect, json, seedOwner, test } from './_stack.js';
 
 test('a team admin connects Jira and browses the board buckets through the proxy', async ({ page }) => {
-  await verifiedUser(page.request, 'Jo Jira');
-  const team = await page.request.post('/api/teams', json({ name: `Smoke ${Date.now()}` }));
-  expect(team.status()).toBe(201);
-  const { id } = await team.json();
+  await seedOwner(page.request, 'Jo Jira');
+  const { id } = await createTeam(page.request, [], `Smoke ${Date.now()}`);
 
   const config = await page.request.put(`/api/teams/${id}/jira`, json({
     siteHost: 'acme.atlassian.net',

@@ -2,7 +2,7 @@
 // nobody in the DOM, on the wire or in the database, and votes with their per-person limit.
 import { expect, sql, test } from './_real.js';
 import { recordFrames } from './_poker.js';
-import { addCard, cardsIn, column, editorIn, pasteImage, retroBoard, typeCard } from './_retro.js';
+import { addCard, cardsIn, column, configure, editorIn, pasteImage, retroBoard, typeCard } from './_retro.js';
 
 test('a card mentions a teammate and carries a pasted image; both reach the others', async ({ open }) => {
   const { players } = await retroBoard(open, ['Ann Card', 'Bob Card', 'Cy Card']);
@@ -78,8 +78,10 @@ test('an anonymous card names nobody in the page, on the wire or in the database
 });
 
 test('votes count for everyone and stop at the per-person limit', async ({ open }) => {
-  const { players } = await retroBoard(open, ['Ann Votes', 'Bob Votes'], { team: false });
+  const { players } = await retroBoard(open, ['Ann Votes', 'Bob Votes']);
   const [ann, bob] = players;
+  // A team board allows any number of votes unless its settings cap them.
+  await configure(ann.page, { maxVotes: 3 });
   for (const text of ['One', 'Two', 'Three', 'Four']) {
     await addCard(bob.page, 'Good', text);
   }
@@ -91,7 +93,6 @@ test('votes count for everyone and stop at the per-person limit', async ({ open 
     await vote(ann.page, text).click();
     await expect(vote(ann.page, text)).toHaveAttribute('aria-pressed', 'true');
   }
-  // Quick boards allow three votes per person (parity).
   await expect(vote(ann.page, 'Four')).toBeDisabled();
   await expect(vote(ann.page, 'Four')).toHaveAttribute('title', 'You have used all your votes');
   for (const text of ['One', 'Two', 'Three']) {

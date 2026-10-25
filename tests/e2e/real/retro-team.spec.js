@@ -1,9 +1,9 @@
 // A team's retros over the real server (§j): action items reaching the team tab and Jira and coming back as
-// previous action items on the next board, kudos with the per-board limit and the recipient's celebration,
-// a board made from a new template, and a password-protected board.
+// previous action items on the next board, kudos with the per-board limit and the recipient's celebration, and
+// a board made from a new template on the team's Retros section.
 import { connectJira, createBoard, createTeam, expect, seedUsers, test } from './_real.js';
 import { playground } from './_jira.js';
-import { addCard, cardsIn, column, retroBoard } from './_retro.js';
+import { addCard, cardsIn, retroBoard } from './_retro.js';
 
 test('an action item reaches the team tab and Jira, and comes back on the next board', async ({ open }, testInfo) => {
   const { players, team } = await retroBoard(open, ['Ann Action', 'Bob Action']);
@@ -72,8 +72,9 @@ test('a board made from a new template has its columns', async ({ open }) => {
   await dialog.getByRole('button', { name: 'Create template' }).click();
   await expect(page.locator('.team-template').filter({ hasText: 'Mad Sad Glad' })).toBeVisible();
 
-  await page.goto(`/teams/${team.id}`);
-  await page.getByRole('button', { name: 'New board' }).first().click();
+  await page.goto(`/teams/${team.id}?tab=retros`);
+  await expect(page.getByRole('heading', { level: 1, name: 'Retros' })).toBeVisible();
+  await page.getByRole('button', { name: 'New board' }).click();
   const form = page.getByRole('dialog', { name: 'New retro board' });
   await form.getByLabel('Title').fill('From the template');
   await form.getByRole('button', { name: /^Template:/ }).click();
@@ -81,27 +82,4 @@ test('a board made from a new template has its columns', async ({ open }) => {
   await form.getByRole('button', { name: 'Create board' }).click();
   await expect(page).toHaveURL(/\/retro\//);
   await expect(page.locator('.retro-column-list > .retro-column .retro-column-title')).toHaveText(['Glad', 'Sad', 'Kudos', 'Action Items']);
-});
-
-test('a password board lets a visitor in only with the password', async ({ open }) => {
-  const { players, board } = await retroBoard(open, ['Ann Password']);
-  const [ann] = players;
-  await ann.page.getByRole('button', { name: 'Share' }).click();
-  const share = ann.page.getByRole('dialog', { name: 'Share this board' });
-  await share.getByRole('radio', { name: 'People with the password' }).check();
-  await share.getByLabel('New board password').fill('hunter22');
-  await share.getByRole('button', { name: 'Save' }).click();
-  await expect(share.getByText('This board needs a password. Share it along with the link.')).toBeVisible();
-
-  const [visitorUser] = await seedUsers(['Vic Visitor']);
-  const visitor = await open(visitorUser);
-  await visitor.page.goto(`/retro/${board.code}`);
-  await visitor.page.getByLabel('Board password').fill('wrong one');
-  await visitor.page.getByRole('button', { name: 'Open board' }).click();
-  await expect(visitor.page.getByRole('alert')).toHaveText('That password is not right.');
-  await visitor.page.getByLabel('Board password').fill('hunter22');
-  await visitor.page.getByRole('button', { name: 'Open board' }).click();
-  await expect(column(visitor.page, 'Good')).toBeVisible();
-  await addCard(visitor.page, 'Good', 'Glad to be here');
-  await expect(cardsIn(ann.page, 'Good').filter({ hasText: 'Glad to be here' })).toHaveCount(1);
 });

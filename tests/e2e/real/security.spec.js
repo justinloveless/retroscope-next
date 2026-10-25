@@ -1,11 +1,20 @@
-// The XSS corpus against the real stack (§j security): markup-looking card text, javascript: links, a hostile display
+// Security against the real stack (§j). The XSS corpus: markup-looking card text, javascript: links, a hostile display
 // name mentioned on a card, and hostile ADF from Jira. Every context fails the test on a dialog, a CSP violation or a
-// page error (_real.js); here the DOM is also searched for event-handler attributes and script URLs.
-import { createBoard, createTeam, expect, json, seedUsers, test } from './_real.js';
+// page error (_real.js); here the DOM is also searched for event-handler attributes and script URLs. Members only
+// (UX18 decisions 1, 2): a signed-out visitor is sent to sign in before any page of a team, a non-member gets exactly
+// the answer a team or room that does not exist gets (S9), and a member removed while a board is open loses it.
+import { randomInt, randomUUID } from 'node:crypto';
+import { BASE, PASSWORD, createBoard, createPoker, createTeam, expect, json, seedUsers, test } from './_real.js';
 import { drawer, isPhone, jiraTable, openBrowse, row } from './_jira.js';
-import { addCard, cardsIn, openBoard, typeCard } from './_retro.js';
+import { addCard, cardsIn, column, openBoard, retroBoard, typeCard } from './_retro.js';
 
 const HOSTILE_NAME = '<img src=x onerror=alert(16)>';
+const NO_ACCESS = "You can't open this page";
+const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+
+/** A well-formed room code that no room has: ten random letters of the code alphabet. */
+const missingCode = () => Array.from({ length: 10 }, () => CROCKFORD[randomInt(CROCKFORD.length)]).join('');
+const field = (page, label) => page.getByLabel(label, { exact: true }).filter({ visible: true });
 
 /** Every element carrying an on* attribute, and every link or frame whose URL is not http(s), mailto, a path or a blob. */
 async function liveScript(page) {
@@ -81,4 +90,130 @@ test('hostile ADF from Jira renders without live links or handlers', async ({ op
   }
   await ann.page.waitForTimeout(500);
   expect(await liveScript(ann.page)).toEqual([]);
+});
+
+test('a signed-out visitor is sent to sign in before any page of a team, and comes back to it after', async ({ open }) => {
+  const [annUser] = await seedUsers(['Ann Gate']);
+  const ann = await open(annUser);
+  const team = await createTeam(ann.page.request);
+  const poker = await createPoker(ann.page.request, team.id);
+  const board = await createBoard(ann.page.request, team.id);
+  const visitor = await open();
+
+  // The gate answers before any room lookup, so a room that does not exist gets the same answer as one that does.
+  for (const path of [
+    `/teams/${team.id}`,
+    `/teams/${team.id}?tab=retros`,
+    `/teams/${team.id}/settings`,
+    `/teams/${team.id}/poker/${poker.code}`,
+    `/poker/${poker.code}`,
+    `/retro/${board.code}`,
+    `/retro/${missingCode()}`,
+    '/teams',
+    '/account',
+    '/mentions',
+    '/admin/users',
+  ]) {
+    const response = await visitor.page.request.get(path, { maxRedirects: 0 });
+    expect(response.status(), path).toBe(302);
+    expect(response.headers()['cache-control'], path).toBe('no-store');
+    const to = new URL(response.headers().location, BASE);
+    expect(to.origin, path).toBe(new URL(BASE).origin);
+    expect(to.pathname, path).toBe('/login');
+    expect(to.searchParams.get('return'), path).toBe(path);
+  }
+  for (const path of ['/', '/login', '/invite', '/auth/verify']) {
+    expect((await visitor.page.request.get(path, { maxRedirects: 0 })).status(), path).toBe(200);
+  }
+
+  await visitor.page.goto(`/retro/${board.code}`);
+  await expect(visitor.page).toHaveURL(/\/login\?return=/);
+  await field(visitor.page, 'Email').fill(annUser.email);
+  await field(visitor.page, 'Password').fill(PASSWORD);
+  await visitor.page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(visitor.page).toHaveURL(new RegExp(`/retro/${board.code}$`));
+  await expect(column(visitor.page, 'Good')).toBeVisible();
+});
+
+test('a non-member gets the same answer as for a team or room that does not exist', async ({ open }) => {
+  const [annUser, ollyUser] = await seedUsers(['Ann Private', 'Olly Outsider']);
+  const ann = await open(annUser);
+  const olly = await open(ollyUser);
+  const team = await createTeam(ann.page.request, [], `Hidden team ${randomUUID().slice(0, 8)}`);
+  const poker = await createPoker(ann.page.request, team.id);
+  const board = await createBoard(ann.page.request, team.id, { title: 'Hidden board title' });
+  const nobody = { team: randomUUID(), code: missingCode() };
+
+  const answer = async (path) => {
+    const response = await olly.page.request.get(path, { headers: { 'X-RS': '1' } });
+    return { status: response.status(), type: response.headers()['content-type'], body: await response.text() };
+  };
+  for (const [theirs, missing] of [
+    [`/api/teams/${team.id}`, `/api/teams/${nobody.team}`],
+    [`/api/teams/${team.id}/members`, `/api/teams/${nobody.team}/members`],
+    [`/api/teams/${team.id}/boards`, `/api/teams/${nobody.team}/boards`],
+    [`/api/teams/${team.id}/poker-sessions`, `/api/teams/${nobody.team}/poker-sessions`],
+    [`/api/teams/${team.id}/action-items`, `/api/teams/${nobody.team}/action-items`],
+    [`/api/poker/by-code/${poker.code}`, `/api/poker/by-code/${nobody.code}`],
+    [`/api/retro/by-code/${board.code}`, `/api/retro/by-code/${nobody.code}`],
+  ]) {
+    const seen = await answer(theirs);
+    expect(seen.status, theirs).toBe(404);
+    expect(seen, theirs).toEqual(await answer(missing));
+  }
+
+  // A room page's boot document carries the room's snapshot for members only.
+  const boot = async (path) => (await olly.page.request.get(`/api/boot?path=${encodeURIComponent(path)}`)).json();
+  for (const [theirs, missing] of [
+    [`/retro/${board.code}`, `/retro/${nobody.code}`],
+    [`/poker/${poker.code}`, `/poker/${nobody.code}`],
+    [`/teams/${team.id}/poker/${poker.code}`, `/teams/${nobody.team}/poker/${nobody.code}`],
+  ]) {
+    const seen = await boot(theirs);
+    expect(seen.room, theirs).toBeUndefined();
+    expect(seen, theirs).toEqual(await boot(missing));
+  }
+
+  // One screen for all of them, which names neither the team nor the room. A context of its own, with its own
+  // address, so these page loads do not share the per-address budget of room-code lookups (30 a minute) above.
+  const browsing = await open(ollyUser);
+  const screens = new Set();
+  for (const path of [
+    `/teams/${team.id}`,
+    `/teams/${nobody.team}`,
+    `/teams/${team.id}?tab=retros`,
+    `/retro/${board.code}`,
+    `/retro/${nobody.code}`,
+    `/teams/${team.id}/poker/${poker.code}`,
+    `/poker/${nobody.code}`,
+  ]) {
+    await browsing.page.goto(path);
+    const heading = browsing.page.getByRole('heading', { level: 1, name: NO_ACCESS });
+    await expect(heading, path).toBeVisible();
+    screens.add(await browsing.page.getByRole('main').filter({ has: heading }).innerText());
+    for (const secret of [team.name, 'Hidden board title']) {
+      expect(await browsing.page.locator('body').innerText(), path).not.toContain(secret);
+      expect(await browsing.page.title(), path).not.toContain(secret);
+    }
+  }
+  expect([...screens]).toHaveLength(1);
+});
+
+test('a member removed while the board is open is told they no longer have access', async ({ open }) => {
+  const { players, team, board } = await retroBoard(open, ['Ann Remover', 'Bob Removed']);
+  const [ann, bob] = players;
+  await addCard(bob.page, 'Good', 'Written while still a member');
+
+  const removed = await ann.page.request.delete(`/api/teams/${team.id}/members/${bob.user.id}`,
+    { headers: { 'X-RS': '1', Origin: BASE } });
+  expect(removed.ok(), await removed.text()).toBe(true);
+  await expect(bob.page.getByRole('heading', { level: 1, name: 'You no longer have access' })).toBeVisible({ timeout: 15_000 });
+  await expect(bob.page.locator('.retro-card')).toHaveCount(0);
+  await expect(cardsIn(ann.page, 'Good').filter({ hasText: 'Written while still a member' })).toHaveCount(1);
+
+  // From then on the board is one of the pages Bob cannot open, like any other.
+  const lookup = await bob.page.request.get(`/api/retro/by-code/${board.code}`, { headers: { 'X-RS': '1' } });
+  expect(lookup.status()).toBe(404);
+  await bob.page.reload();
+  await expect(bob.page.getByRole('heading', { level: 1, name: NO_ACCESS })).toBeVisible();
 });

@@ -3,7 +3,7 @@
 // player votes within one second. Prints acks/s, ack latency percentiles and the app's and db's peak memory and CPU.
 //   node deploy/drills/load.mjs [--rooms 20] [--players 8] [--rate 0.3] [--seconds 60]
 import { execFileSync } from 'node:child_process';
-import { parseArgs, percentile, request, sleep, user } from './client.mjs';
+import { parseArgs, percentile, room, seedAccounts, sleep, team, user } from './client.mjs';
 import { Tab } from './tab.mjs';
 
 const args = parseArgs(process.argv.slice(2));
@@ -26,14 +26,16 @@ function stats() {
   }));
 }
 
-log(`signing up ${ROOMS * PLAYERS} players`);
+// Every room is a session of a team (UX18): its first player owns the team, seeded verified through the database;
+// the others sign up through the route and join through the team's link invite.
+log(`seeding ${ROOMS} team owners and signing up ${ROOMS * (PLAYERS - 1)} players`);
+const owners = await seedAccounts(Array.from({ length: ROOMS }, (_, r) => `Load ${r + 1}.1`));
 const tabs = [];
 for (let r = 0; r < ROOMS; r++) {
-  const users = await Promise.all(Array.from({ length: PLAYERS }, (_, p) => user(`Load ${r + 1}.${p + 1}`)));
-  const created = await request('POST', '/api/poker', { body: {}, cookie: users[0].cookie, ip: users[0].ip });
-  const { id, code } = JSON.parse(created.text);
-  await Promise.all(users.slice(1).map((u) => request('GET', `/api/poker/by-code/${code}`, { cookie: u.cookie, ip: u.ip })));
-  tabs.push(...users.map((u) => Object.assign(new Tab(u, `poker:${id}`), { roomIndex: r })));
+  const others = await Promise.all(Array.from({ length: PLAYERS - 1 }, (_, p) => user(`Load ${r + 1}.${p + 2}`)));
+  const { id: teamId } = await team(owners[r], `Load ${r + 1}`, others);
+  const { id } = await room(owners[r], teamId, 'poker');
+  tabs.push(...[owners[r], ...others].map((u) => Object.assign(new Tab(u, `poker:${id}`), { roomIndex: r })));
 }
 await Promise.all(tabs.map((tab) => tab.connect()));
 const rounds = new Map(tabs.map((tab) => [tab.room, tab.snapshot.currentRoundId ?? tab.snapshot.rounds[0].id]));
