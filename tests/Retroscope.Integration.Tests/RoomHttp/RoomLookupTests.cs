@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Retroscope.Integration.Tests.Schema;
+using Retroscope.Server.Hosting;
 
 namespace Retroscope.Integration.Tests.RoomHttp;
 
@@ -55,20 +56,41 @@ public sealed partial class RoomLookupTests(PostgresFixture postgres) {
     [Fact]
     public async Task Code_lookups_share_the_resolver_limit_per_ip() {
         await using var app = await RoomHttpApp.StartAsync(postgres);
-        var guest = RoomHttpApp.Guest(await app.GuestAsync());
+        var outsider = RoomHttpApp.User(await app.UserAsync());
 
         for (var i = 0; i < 30; i++) {
-            using var response = await app.GetAsync(i % 2 == 0 ? "/api/poker/by-code/MISSING01" : "/api/retro/by-code/MISSING01", guest, "192.0.2.50");
+            using var response = await app.GetAsync(i % 2 == 0 ? "/api/poker/by-code/MISSING01" : "/api/retro/by-code/MISSING01", outsider, "192.0.2.50");
             Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         }
-        using var limited = await app.GetAsync("/api/retro/by-code/MISSING01", guest, "192.0.2.50");
-        using var boot = await app.GetAsync("/api/boot?path=/retro/MISSING01", guest, "192.0.2.50");
-        using var other = await app.GetAsync("/api/retro/by-code/MISSING01", guest, "192.0.2.51");
+        using var limited = await app.GetAsync("/api/retro/by-code/MISSING01", outsider, "192.0.2.50");
+        using var boot = await app.GetAsync("/api/boot?path=/retro/MISSING01", outsider, "192.0.2.50");
+        using var other = await app.GetAsync("/api/retro/by-code/MISSING01", outsider, "192.0.2.51");
 
         Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
         Assert.Equal(HttpStatusCode.OK, boot.StatusCode);
         Assert.False(BootOf(await boot.Content.ReadAsStringAsync(RoomHttpApp.Token)).TryGetProperty("room", out _));
         Assert.Equal(HttpStatusCode.NotFound, other.StatusCode);
+    }
+
+    // UX18: only a member can be admitted, so a caller who is not signed in, or a legacy guest, is refused before the
+    // resolver spends any of the IP's lookups.
+    [Fact]
+    public async Task A_caller_who_is_not_signed_in_is_refused_without_spending_a_lookup() {
+        await using var app = await RoomHttpApp.StartAsync(postgres);
+        var guest = RoomHttpApp.Guest(await app.GuestAsync());
+        var outsider = RoomHttpApp.User(await app.UserAsync());
+
+        for (var i = 0; i < 20; i++) {
+            foreach (var path in new[] { "/api/poker/by-code/MISSING01", "/api/retro/by-code/MISSING01" }) {
+                using var anonymous = await app.GetAsync(path, null, "192.0.2.60");
+                using var legacy = await app.GetAsync(path, guest, "192.0.2.60");
+                Assert.Equal("unauthenticated", await RoomHttpApp.ProblemCodeAsync(anonymous, HttpStatusCode.Unauthorized));
+                Assert.Equal("unauthenticated", await RoomHttpApp.ProblemCodeAsync(legacy, HttpStatusCode.Unauthorized));
+            }
+        }
+        using var signedIn = await app.GetAsync("/api/retro/by-code/MISSING01", outsider, "192.0.2.60");
+
+        Assert.Equal(RoomResolver.HiddenCode, await RoomHttpApp.ProblemCodeAsync(signedIn, HttpStatusCode.NotFound));
     }
 
     [Fact]

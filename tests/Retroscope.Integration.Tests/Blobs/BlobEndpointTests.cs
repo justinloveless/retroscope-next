@@ -218,7 +218,7 @@ public sealed class BlobEndpointTests(PostgresFixture postgres) {
 
         Assert.Equal("401 unauthenticated", await OutcomeAsync(app, teamBoard, caller: null));
         Assert.Equal("404 not_found", await OutcomeAsync(app, teamBoard, $"user:{outsider}"));
-        Assert.Equal("404 not_found", await OutcomeAsync(app, teamBoard, $"guest:{guest}"));
+        Assert.Equal("401 unauthenticated", await OutcomeAsync(app, teamBoard, $"guest:{guest}"));
         Assert.Equal("404 not_found", await OutcomeAsync(app, quick, $"user:{member}"));
         Assert.Equal("404 not_found", await OutcomeAsync(app, Guid.CreateVersion7(), $"user:{member}"));
         Assert.Equal("404 not_found", await OutcomeAsync(app, deleted, $"user:{member}"));

@@ -10,20 +10,20 @@ namespace Retroscope.Integration.Tests.Hosting;
 public sealed class RoutePolicyTests {
     public static TheoryData<RoutePolicy, string?, int> Matrix() {
         var data = new TheoryData<RoutePolicy, string?, int>();
+        // A guest principal can no longer sign in (UX18); the column checks that one would be refused everywhere.
         var callers = new string?[] { null, "guest", "unverified", "user", "admin" };
         var expected = new Dictionary<RoutePolicy, int[]> {
             // anonymous, guest, unverified user, verified user, app admin
             [RoutePolicy.Public] = [204, 204, 204, 204, 204],
-            [RoutePolicy.Guest] = [401, 204, 204, 204, 204],
             [RoutePolicy.User] = [401, 401, 204, 204, 204],
             [RoutePolicy.VerifiedUser] = [401, 401, 403, 204, 204],
             [RoutePolicy.TeamMember] = [401, 401, 204, 204, 204],
             [RoutePolicy.TeamAdmin] = [401, 401, 204, 204, 204],
             [RoutePolicy.TeamOwner] = [401, 401, 204, 204, 204],
             [RoutePolicy.AppAdmin] = [401, 401, 403, 403, 204],
-            [RoutePolicy.BoardAccess] = [401, 204, 204, 204, 204],
-            [RoutePolicy.BoardManage] = [401, 204, 204, 204, 204],
-            [RoutePolicy.SessionManage] = [401, 204, 204, 204, 204],
+            [RoutePolicy.BoardAccess] = [401, 401, 204, 204, 204],
+            [RoutePolicy.BoardManage] = [401, 401, 204, 204, 204],
+            [RoutePolicy.SessionManage] = [401, 401, 204, 204, 204],
         };
         Assert.Equal(Enum.GetValues<RoutePolicy>().Length, expected.Count);
         foreach (var (policy, statuses) in expected) {
@@ -81,14 +81,14 @@ public sealed class RoutePolicyTests {
         await using var app = await TestApp.StartAsync(
             services: services => services.AddSingleton<ICallerResolver>(resolver),
             map: app => app.MapGet("/test/once", async (HttpContext context) => (await context.GetCallerAsync())?.Principal.DisplayName)
-                .RequireRoutePolicy(RoutePolicy.Guest)
+                .RequireRoutePolicy(RoutePolicy.User)
                 .RequireRateLimit(RateLimit.Define("test.once", RateRule.PerIp(100, TimeSpan.FromMinutes(1)), RateRule.PerPrincipal(100, TimeSpan.FromMinutes(1)))));
         using var request = TestApp.Get("/test/once");
-        request.Headers.Add(TestApp.CallerHeader, "guest");
+        request.Headers.Add(TestApp.CallerHeader, "user");
 
         using var response = await app.Client.SendAsync(request, TestContext.Current.CancellationToken);
 
-        Assert.Equal("Guest", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.Equal("Uma", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         Assert.Equal(1, resolver.Calls);
     }
 
