@@ -227,6 +227,7 @@ export function createHeader() {
       current(gear, shown.settings);
     }
     controls.bell.hidden = !me || route === '/teams';
+    current(controls.bell, route === '/mentions');
     controls.account.hidden = !me;
     burger.hidden = !me;
     if (me) {

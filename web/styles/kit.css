@@ -702,7 +702,8 @@
   font-weight: 600;
 }
 
-.app-gear[aria-current] { background: hsl(var(--accent)); }
+.app-gear[aria-current],
+.app-mentions[aria-current] { background: hsl(var(--accent)); }
 .app-mentions { position: relative; }
 
 .app-mentions-badge {
