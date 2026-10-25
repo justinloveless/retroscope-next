@@ -610,7 +610,7 @@ public static class TeamText {
             fields[field] = "required";
             return null;
         }
-        if (!GuestNames.IsPlainText(value) || Length(value) > max) {
+        if (!TextRules.IsPlainText(value) || Length(value) > max) {
             fields[field] = "invalid";
             return null;
         }
@@ -623,7 +623,7 @@ public static class TeamText {
         if (value is null) {
             return null;
         }
-        if (!GuestNames.IsPlainText(value.Replace('\n', ' ')) || Length(value) > max) {
+        if (!TextRules.IsPlainText(value.Replace('\n', ' ')) || Length(value) > max) {
             fields[field] = "invalid";
             return null;
         }

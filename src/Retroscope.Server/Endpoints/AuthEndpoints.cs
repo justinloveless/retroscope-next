@@ -96,7 +96,7 @@ public static class AuthEndpoints {
             fields["password"] = passwordProblem;
         }
         var fullName = body.FullName?.Trim() ?? "";
-        if (fullName.Length is 0 or > MeEndpoints.MaxFullNameLength || !GuestNames.IsPlainText(fullName)) {
+        if (fullName.Length is 0 or > MeEndpoints.MaxFullNameLength || !TextRules.IsPlainText(fullName)) {
             fields["fullName"] = fullName.Length == 0 ? "required" : "invalid";
         }
         if (fields.Count > 0) {

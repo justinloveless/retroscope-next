@@ -140,11 +140,11 @@ public static class MeEndpoints {
         TimeProvider time) {
         var fields = new Dictionary<string, string>();
         var fullName = body.FullName?.Trim();
-        if (fullName is not null && (fullName.Length is 0 or > MaxFullNameLength || !GuestNames.IsPlainText(fullName))) {
+        if (fullName is not null && (fullName.Length is 0 or > MaxFullNameLength || !TextRules.IsPlainText(fullName))) {
             fields["fullName"] = fullName.Length == 0 ? "required" : "invalid";
         }
         var nickname = body.Nickname?.Trim();
-        if (nickname is { Length: > 0 } && (nickname.Length > MaxNicknameLength || !GuestNames.IsPlainText(nickname))) {
+        if (nickname is { Length: > 0 } && (nickname.Length > MaxNicknameLength || !TextRules.IsPlainText(nickname))) {
             fields["nickname"] = "invalid";
         }
         if (body.Theme is not null && !Themes.Contains(body.Theme, StringComparer.Ordinal)) {
