@@ -260,6 +260,7 @@ Protocol version 1. One same-origin WebSocket per tab at `GET /ws`; every frame 
 | `roster` | PrincipalInfo[] |
 | `presence` | PrincipalInfo[] |
 | `teamId` | uuid (TeamId) |
+| `createdAt` | integer |
 | `spotlight?` | SpotlightInfo |
 | `currentRoundId?` | uuid (RoundId) |
 | `pointDescriptions?` | {string | string} |

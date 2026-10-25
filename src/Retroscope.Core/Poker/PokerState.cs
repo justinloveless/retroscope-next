@@ -14,6 +14,9 @@ public sealed class PokerState {
     /// <summary>The team the session belongs to; every session has one (UX18).</summary>
     public TeamId TeamId { get; set; }
 
+    /// <summary>When the session was created (<c>poker_sessions.created_at</c>); the toolbar names its day (UX18).</summary>
+    public DateTimeOffset CreatedAt { get; init; }
+
     public bool PresenceEnabled { get; set; } = true;
 
     public bool FollowSpotlight { get; set; } = true;
@@ -54,6 +57,7 @@ public sealed class PokerState {
             SessionId = SessionId,
             Code = Code,
             TeamId = TeamId,
+            CreatedAt = CreatedAt,
             PresenceEnabled = PresenceEnabled,
             FollowSpotlight = FollowSpotlight,
             Spotlight = Spotlight?.Clone(),

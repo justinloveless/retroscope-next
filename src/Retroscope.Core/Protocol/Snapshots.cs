@@ -4,6 +4,7 @@ namespace Retroscope.Core.Protocol;
 
 /// <param name="Votes">Every vote as other principals see it (status while voting, values once revealed).</param>
 /// <param name="Rounds">In display order.</param>
+/// <param name="CreatedAt">When the session was created, which the toolbar names as its day (UX18).</param>
 public sealed record PokerSnapshot(
     SessionId SessionId,
     string Code,
@@ -15,6 +16,7 @@ public sealed record PokerSnapshot(
     IReadOnlyList<PrincipalInfo> Roster,
     IReadOnlyList<PrincipalInfo> Presence,
     TeamId TeamId,
+    long CreatedAt,
     SpotlightInfo? Spotlight = null,
     RoundId? CurrentRoundId = null,
     IReadOnlyDictionary<string, string>? PointDescriptions = null,

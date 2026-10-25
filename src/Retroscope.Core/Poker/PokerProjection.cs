@@ -24,6 +24,7 @@ public static class PokerProjection {
             Sorted(state.Roster.Values),
             Sorted(presence),
             state.TeamId,
+            state.CreatedAt.ToUnixTimeMilliseconds(),
             state.Spotlight is { } spotlight ? new SpotlightInfo(spotlight.Holder, spotlight.RoundId) : null,
             state.CurrentRoundId,
             state.PointDescriptions,
