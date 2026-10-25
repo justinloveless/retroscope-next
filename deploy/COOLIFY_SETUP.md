@@ -677,7 +677,7 @@ Emails are stored in lower case (a `CHECK` constraint in `db/migrations/0001_ini
 
 Coolify redeploys a compose resource by stopping and recreating the containers. There is no rolling update. Clients see a short pause and reconnect.
 
-Every migration must be quick and compatible with the previous release, because the old binary stops before the new one starts (`deploy/RUNBOOK.md` section 11). UX18 is the one exception: its migration drops tables and columns the release before it reads, so take a backup right before deploying it, and never roll production back past it (`deploy/RUNBOOK.md` section 11).
+Every migration must be quick and compatible with the previous release, because the old binary stops before the new one starts (`deploy/RUNBOOK.md` section 11). UX18 is the one exception: its migration drops tables and columns the release before it reads, so take a backup before merging it to `main`, which deploys it automatically, and never roll production back past it (`deploy/RUNBOOK.md` section 11).
 
 Releases run from GitHub Actions. Only verified work reaches `main`, and `main` deploys itself after CI passes. Unverified work stays on a branch and goes to the preview slot (section 11.3). The deploy and preview workflows both call `deploy/coolify-deploy.sh`, which talks to the Coolify API.
 

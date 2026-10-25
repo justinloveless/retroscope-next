@@ -238,13 +238,17 @@ boards, sets `team_id NOT NULL` on both, and drops board visibility, the board p
 `board_access_grants`, `guest_tokens` and `team_favorites`. The release before UX18 reads those objects and cannot run
 on the new schema. The owner accepted this because one real team uses the app.
 
-- **Right before deploying UX18,** take a dump on demand (section 8) and copy it off the box.
+- **Before merging UX18 to `main`** (a push to `main` deploys itself once `ci` passes, section 3), take a dump on
+  demand (section 8) and copy it off the box.
 - **Never deploy a commit from before UX18 to a database that 0003 has changed,** through `deploy.yml` or by hand.
   Nothing stops it: the older migrator ignores an applied migration it does not know, and the app then fails on the
   dropped tables and columns.
-- **If the UX18 deploy fails,** fix forward. The other way back is to restore the dump taken before it (section 8,
-  with the app stopped), which takes the database back to before 0003, and then deploy the previous commit; it loses
-  everything written after the dump.
+- **If the UX18 deploy fails,** fix forward. The other way back loses everything written after the dump. Keep the app
+  stopped throughout, and never start the stopped UX18 app: its migrator would apply 0003 again.
+  1. Restore the dump taken before UX18 with section 8 steps 1–3 only, which takes the database back to before 0003.
+  2. If you run step 4's `spot-load`, use the **previous release's** app digest, never the UX18 one: `spot-load` takes
+     the lease and runs the migrator, so the UX18 binary would apply 0003 again.
+  3. Skip section 8 step 5. Deploy the previous commit with a manual `deploy.yml` run (section 3), which starts the app.
 - Anyone with the old app open loses their guest seat and must sign in; members' links keep working (section 9).
 
 Releases after UX18 follow the expand/contract rule again.
