@@ -40,7 +40,8 @@ test('team, poker and board pages share one socket and one client id', async ({ 
   await subscribed(POKER_ROOM);
 
   await follow(page, `/retro/${BOARD_CODE}`);
-  await expect(page.locator('.retro-column')).toHaveCount(3);
+  // The board's own columns; a member also sees the team's open action items beside them.
+  await expect(page.locator('.retro-column-list > .retro-column')).toHaveCount(3);
   await subscribed(BOARD_ROOM);
 
   await follow(page, teamUrl());
