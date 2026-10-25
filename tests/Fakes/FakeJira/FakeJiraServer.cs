@@ -89,6 +89,11 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
 
     public string PointsFieldId { get; set; } = "customfield_10016";
 
+    /// <summary>
+    /// Further fields an issue edit accepts, as a site whose edit screen carries both of its story points fields does.
+    /// </summary>
+    public HashSet<string> EditableFields { get; } = new(StringComparer.Ordinal);
+
     public string SprintFieldId { get; set; } = "customfield_10020";
 
     /// <summary>The <c>estimation</c> every board's configuration answers with; null leaves it out, as a Kanban board does.</summary>
@@ -472,7 +477,7 @@ public sealed partial class FakeJiraServer : IAsyncDisposable {
         var errors = new JsonObject();
         foreach (var (name, _) in update) {
             if (name != "summary" && name != "description" && name != "assignee" && name != "priority"
-                && name != "issuetype" && name != PointsFieldId) {
+                && name != "issuetype" && name != PointsFieldId && !EditableFields.Contains(name)) {
                 errors[name] = $"Field '{name}' cannot be set. It is not on the appropriate screen, or unknown.";
             }
         }
