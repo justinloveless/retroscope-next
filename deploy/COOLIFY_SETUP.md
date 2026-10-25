@@ -658,7 +658,7 @@ Do not test with `curl -sI .../api/me`. `-I` sends HEAD, and `/api/me` accepts o
 1. Open `https://<your-domain>` and sign up with email and password.
 2. Open the verification email and follow the link. If no mail arrives, read the app log for SMTP errors (section 16).
 3. Create a team.
-4. Start a poker session in the team. Open the same session in a second browser or a private window, join as another user or a guest, and vote in both. Votes appear live in both windows. That proves WebSockets work through Traefik.
+4. Start a poker session in the team. Every room belongs to a team and only its signed-in members open it, so add a second account first: under **Members**, create a link invite, open it in a second browser or a private window, sign up there (the emailed sign-in link is quickest) and accept. Open the session in both windows and vote in both. Votes appear live in both windows. That proves WebSockets work through Traefik.
 5. Open a retro board, add an anonymous card, then edit it. That is the first use of `ANON_TAG_KEY` (section 5.7). If it fails, check the app log for a key error.
 6. If you configured Google or Entra, sign out and sign in with each provider.
 
@@ -677,7 +677,7 @@ Emails are stored in lower case (a `CHECK` constraint in `db/migrations/0001_ini
 
 Coolify redeploys a compose resource by stopping and recreating the containers. There is no rolling update. Clients see a short pause and reconnect.
 
-Every migration must be quick and compatible with the previous release, because the old binary stops before the new one starts (`deploy/RUNBOOK.md` section 11).
+Every migration must be quick and compatible with the previous release, because the old binary stops before the new one starts (`deploy/RUNBOOK.md` section 11). UX18 is the one exception: its migration drops tables and columns the release before it reads, so take a backup right before deploying it, and never roll production back past it (`deploy/RUNBOOK.md` section 11).
 
 Releases run from GitHub Actions. Only verified work reaches `main`, and `main` deploys itself after CI passes. Unverified work stays on a branch and goes to the preview slot (section 11.3). The deploy and preview workflows both call `deploy/coolify-deploy.sh`, which talks to the Coolify API.
 
@@ -702,7 +702,7 @@ The `production` concurrency group is on the job, so a run whose job is skipped 
 2. Keep the branch at `main`. A run started from another branch is skipped, and the `production` environment refuses it.
 3. Enter the full 40-character SHA of the commit to deploy.
 
-The run checks that a `ci` run on a push to `main` succeeded for that SHA, then deploys it as in section 11.1, with that commit's compose file and digests. It does not skip older commits, so this is also the rollback. A rollback must respect the expand/contract rule: the older binary has to work with the newer schema.
+The run checks that a `ci` run on a push to `main` succeeded for that SHA, then deploys it as in section 11.1, with that commit's compose file and digests. It does not skip older commits, so this is also the rollback. A rollback must respect the expand/contract rule: the older binary has to work with the newer schema. Never roll back to a commit from before UX18: that binary reads tables and columns UX18's migration dropped, and nothing stops it from starting (`deploy/RUNBOOK.md` section 11).
 
 The digests come from the commit's `image-digests` artifact, which GitHub keeps for 90 days. The run looks for it on the commit's `ci` run, then on its `images` run, where commits built before `ci` built the images keep it. A commit whose artifact has expired, or that was built before the artifact existed, cannot be deployed this way. Use section 11.5 for it.
 
@@ -769,7 +769,7 @@ In Coolify:
 
 Use this if GitHub Actions or the Coolify API is unavailable.
 
-1. Find the green `ci` run for the commit on `main` and copy the `app` and `importer` digests from its summary (section 3.2). A commit built before `ci` built the images has them on its `images` run instead. Use a run on a push to `main`, not a preview build.
+1. Find the green `ci` run for the commit on `main` and copy the `app` and `importer` digests from its summary (section 3.2). Never pick a commit from before UX18 (section 11.2). A commit built before `ci` built the images has them on its `images` run instead. Use a run on a push to `main`, not a preview build.
 2. In Coolify, set the resource's git commit to that commit, so the compose file matches the images. The workflows leave it pinned to the last commit they deployed.
 3. Set `APP_DIGEST` and `IMPORTER_DIGEST`.
 4. Click **Redeploy**. A restart is not enough, because the new image must be pulled.
@@ -867,7 +867,7 @@ Summary of the order (`deploy/IMPORT_RUNBOOK.md` sections 5-9):
 7. Start the app, check `/healthz`, and sign in as an admin.
 8. Run `cutover` from the importer image on the db container's network.
 9. Delete `/root/rs-import.dump` from the VPS (`deploy/IMPORT_RUNBOOK.md` section 8).
-10. Switch DNS or the Coolify domain if needed. Old links keep working.
+10. Switch DNS or the Coolify domain if needed. Old links keep working for members of the room's team (`deploy/RUNBOOK.md` section 9).
 11. Rotate credentials and clean up (sections 11-12 of that runbook). Remove the `IMPORT_*` variables from Coolify afterwards.
 
 **Keep the importer secrets out of history and `ps`.** `deploy/IMPORT_RUNBOOK.md` section 2 says to keep the importer variables in a mode-600 env file, "never in shell history and never in the repository". The spot-load and cutover commands in that runbook pass `DATABASE_OWNER_URL` (which holds the owner password), `APP_KEYS`, and `ANON_TAG_KEY` as `-e VAR=value`, which leaks them into the VPS shell history and process list. Use an env file instead:
@@ -881,6 +881,8 @@ rm /root/rs.env      # when the import is done
 
 Or export each value after `read -rs VAR` and pass `-e VAR` with no value, so Docker copies it from your environment.
 
+Since UX18 every room belongs to a team. A forced re-import skips the source's team-less poker sessions and retro boards (the original's quick rooms) and counts them in the report, and it writes no board visibility, board passwords or favorites.
+
 Pulling the importer image on your own machine needs the same GHCR login as the VPS (section 3.3): `docker login ghcr.io --password-stdin` with a `read:packages` token. Rollback steps are in section 10 of `deploy/IMPORT_RUNBOOK.md`.
 
 ## 15. Measure on the VPS
@@ -889,9 +891,9 @@ Pulling the importer image on your own machine needs the same GHCR login as the 
 
 - [ ] Coolify and Traefik memory after a day idle: `docker stats --no-stream` and `free -m`. App, db, and backup must stay within their 536 MiB of limits.
 - [ ] App and db idle memory: adapt `deploy/drills/idle-memory.sh` to the Coolify container names. Targets: app under 120 MB, db under 180 MB.
-- [ ] WebSocket idle timeout through Coolify's Traefik: `RS_E2E_BASE_URL=https://<your-domain> node deploy/drills/ws-idle.mjs --seconds 300` exits 0.
+- [ ] WebSocket idle timeout through Coolify's Traefik: `RS_E2E_BASE_URL=https://<your-domain> RS_IDLE_EMAIL=<email> RS_IDLE_PASSWORD=<password> node deploy/drills/ws-idle.mjs --seconds 300` exits 0. Only signed-in users open sockets, so create an account for this check first; it needs no team and no verified address.
 - [ ] bcrypt hashes per second on the VPS CPU type.
-- [ ] Throughput and p99 latency with `deploy/drills/load.mjs` against a **staging copy** on the VPS, never production (it creates 160 accounts).
+- [ ] Throughput and p99 latency with `deploy/drills/load.mjs` against a **staging copy** started on the VPS from `deploy/compose.test.yml`, never production (it signs up 140 accounts and seeds 20 team owners through that stack's database).
 - [ ] Redeploy pause: clients are back within 15 s.
 - [ ] Trusted proxy subnet: the `audit_log` check in section 9.
 - [ ] No dynamic compression: the GET `curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' https://<your-domain>/` check in section 10.3 shows no `content-encoding`.
