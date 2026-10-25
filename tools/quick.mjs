@@ -63,6 +63,8 @@ const RULES = [
 
   [/^src\/Retroscope\.Server\/Realtime\/Transport\//, { integration: ['Transport'] }],
   [/^src\/Retroscope\.Server\/Realtime\/Actors\//, { integration: ['Actors'], sim: SIM }],
+  // An admitted subscription counts as a visit to the room's team (me.lastTeamId); MeTeamsTests (TeamHttp) holds it.
+  [/^src\/Retroscope\.Server\/Realtime\/Actors\/(RoomActor|ActorRuntime|ActorsModule|IRoomBinding)\.cs$/, { integration: ['TeamHttp'] }],
   [/^src\/Retroscope\.Server\/Realtime\/(Rooms|Stores)\/Poker/, { integration: ['PokerRoom'], sim: SIM }],
   [/^src\/Retroscope\.Server\/Realtime\/(Rooms|Stores)\/Retro/, { integration: ['RetroRoom'], sim: SIM }],
   [/^src\/Retroscope\.Server\/Realtime\/(Rooms|Stores)\/Team/, { integration: ['TeamRoom'], sim: SIM }],
