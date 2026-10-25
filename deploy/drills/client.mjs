@@ -1,7 +1,7 @@
 // A minimal Retroscope client for the drills against deploy/compose.test.yml: HTTPS requests and a raw WebSocket over
 // TLS (so close codes, PING and timing are all visible), speaking the wire protocol in docs/protocol.md, and psql in
-// the stack's db container. The stack's certificate is self-signed, so verification is off; never point this at
-// anything else.
+// the stack's db container. The local stack's certificate is self-signed, so verification is off for localhost only;
+// any other stack (ws-idle runs against the VPS, with a real account) must present a certificate that verifies.
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import https from 'node:https';
@@ -9,6 +9,8 @@ import tls from 'node:tls';
 
 export const BASE = new URL(process.env.RS_E2E_BASE_URL ?? `https://localhost:${process.env.RS_TEST_HTTPS_PORT ?? 18443}`);
 const ORIGIN = BASE.origin;
+const LOCAL = ['localhost', '127.0.0.1'].includes(BASE.hostname);
+const PORT = Number(BASE.port || 443);
 const PASSWORD = 'correct horse battery staple';
 
 export const clientIp = () => `10.${crypto.randomInt(256)}.${crypto.randomInt(256)}.${crypto.randomInt(1, 255)}`;
@@ -27,7 +29,7 @@ export function request(method, path, { body, cookie, ip } = {}) {
   if (body !== undefined) Object.assign(headers, { 'Content-Type': 'application/json', 'Content-Length': payload.length });
   if (cookie) headers.Cookie = cookie;
   return new Promise((resolve, reject) => {
-    const req = https.request(new URL(path, BASE), { method, headers, rejectUnauthorized: false }, (res) => {
+    const req = https.request(new URL(path, BASE), { method, headers, rejectUnauthorized: !LOCAL }, (res) => {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, text: Buffer.concat(chunks).toString() }));
@@ -134,7 +136,7 @@ export class Socket {
     const key = crypto.randomBytes(16).toString('base64');
     const expected = crypto.createHash('sha1').update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64');
     return new Promise((resolve, reject) => {
-      const socket = tls.connect({ host: BASE.hostname, port: Number(BASE.port), servername: BASE.hostname, rejectUnauthorized: false, ALPNProtocols: ['http/1.1'] }, () => {
+      const socket = tls.connect({ host: BASE.hostname, port: PORT, servername: BASE.hostname, rejectUnauthorized: !LOCAL, ALPNProtocols: ['http/1.1'] }, () => {
         socket.write([
           'GET /ws HTTP/1.1', `Host: ${BASE.host}`, 'Upgrade: websocket', 'Connection: Upgrade',
           `Sec-WebSocket-Key: ${key}`, 'Sec-WebSocket-Version: 13', `Origin: ${ORIGIN}`, `Cookie: ${cookie}`,
