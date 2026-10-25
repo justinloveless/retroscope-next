@@ -64,7 +64,7 @@ internal sealed class TeamRoomScope : IAsyncDisposable {
         await leader.StartAsync(Token);
         var scope = new TeamRoomScope(database, leader, Db.CreateDataSource(database.AppConnectionString));
         await scope.ExecAsync("insert into teams (id, name, point_descriptions) values ($1, 'Platform', '{\"1\":\"tiny\"}')", Team.Value);
-        await scope.ExecAsync("insert into retro_boards (id, code, team_id, title, visibility) values ($1, 'BOARD1', $2, 'Sprint 1', 'link')", Board.Value, Team.Value);
+        await scope.ExecAsync("insert into retro_boards (id, code, team_id, title) values ($1, 'BOARD1', $2, 'Sprint 1')", Board.Value, Team.Value);
         await scope.ExecAsync("""
             insert into retro_columns (id, board_id, title, color, sort_key, is_action_items) values ($1, $2, 'Actions', 'green', 0, true)
             """, ActionColumn.Value, Board.Value);

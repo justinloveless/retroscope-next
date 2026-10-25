@@ -79,7 +79,7 @@ public sealed class TeamListsTests(PostgresFixture postgres) {
         Assert.Equal(4, await host.ScalarAsync<int>("select sort_key from endorsement_types where id = $1", typeId));
 
         var board = Guid.CreateVersion7();
-        await host.ExecuteAsync("insert into retro_boards (id, code, team_id, title, visibility) values ($1, 'KUDOS00001', $2, 'Retro', 'team')", board, team);
+        await host.ExecuteAsync("insert into retro_boards (id, code, team_id, title) values ($1, 'KUDOS00001', $2, 'Retro')", board, team);
         var problemSolver = await host.ScalarAsync<Guid>("select id from endorsement_types where team_id = $1 and name = 'Problem Solver'", team);
         await EndorseAsync(host, board, team, typeId, owner, member, TimeSpan.Zero);
         await EndorseAsync(host, board, team, problemSolver, owner, member, TimeSpan.Zero);
@@ -118,7 +118,7 @@ public sealed class TeamListsTests(PostgresFixture postgres) {
         var member = await host.UserAsync("Mia");
         var team = await host.TeamAsync(owner, "Platform", (member, "member"));
         var board = Guid.CreateVersion7();
-        await host.ExecuteAsync("insert into retro_boards (id, code, team_id, title, visibility) values ($1, 'ITEMS00001', $2, 'Sprint 7', 'team')", board, team);
+        await host.ExecuteAsync("insert into retro_boards (id, code, team_id, title) values ($1, 'ITEMS00001', $2, 'Sprint 7')", board, team);
         var start = DateTimeOffset.UtcNow.AddDays(-10);
         var ids = new List<Guid>();
         for (var i = 0; i < 5; i++) {
@@ -168,7 +168,7 @@ public sealed class TeamListsTests(PostgresFixture postgres) {
         var board = Guid.CreateVersion7();
         var column = Guid.CreateVersion7();
         var card = Guid.CreateVersion7();
-        await host.ExecuteAsync("insert into retro_boards (id, code, team_id, title, visibility) values ($1, 'ITEMS00002', $2, 'Sprint 8', 'team')", board, team);
+        await host.ExecuteAsync("insert into retro_boards (id, code, team_id, title) values ($1, 'ITEMS00002', $2, 'Sprint 8')", board, team);
         await host.ExecuteAsync("insert into retro_columns (id, board_id, title, color, sort_key, is_action_items) values ($1, $2, 'Actions', 'yellow', 0, true)", column, board);
         await host.ExecuteAsync("insert into retro_cards (id, board_id, column_id, body, author_id) values ($1, $2, $3, 'Fix the build', $4)", card, board, column, owner.Guid);
         for (var i = 0; i < 2; i++) {

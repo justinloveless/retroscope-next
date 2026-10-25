@@ -141,8 +141,8 @@ public sealed class MeTests(PostgresFixture postgres) {
         var readable = Guid.CreateVersion7();
         var locked = Guid.CreateVersion7();
         await host.ExecuteAsync("""
-            insert into retro_boards (id, code, team_id, title, visibility)
-            values ($1, 'AAAAAAAAAA', $3, 'Ours', 'team'), ($2, 'BBBBBBBBBB', $4, 'Theirs', 'team')
+            insert into retro_boards (id, code, team_id, title)
+            values ($1, 'AAAAAAAAAA', $3, 'Ours'), ($2, 'BBBBBBBBBB', $4, 'Theirs')
             """, readable, locked, team, other);
         await host.ExecuteAsync("update users set mentions_seen_at = now() - interval '1 day' where id = $1", user.Value);
         await host.ExecuteAsync("""

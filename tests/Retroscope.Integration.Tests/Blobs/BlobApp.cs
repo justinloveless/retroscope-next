@@ -128,8 +128,8 @@ internal sealed class BlobApp : IAsyncDisposable {
         var id = Guid.CreateVersion7();
         await ExecuteAsync(
             """
-            insert into retro_boards (id, code, team_id, title, visibility, stage, stages_enabled, archived_at, deleted_at)
-            values ($1, $2, $3, 'Board', 'team', $4, $5, $6, $7)
+            insert into retro_boards (id, code, team_id, title, stage, stages_enabled, archived_at, deleted_at)
+            values ($1, $2, $3, 'Board', $4, $5, $6, $7)
             """,
             id,
             Guid.NewGuid().ToString("N")[..10],
@@ -138,14 +138,6 @@ internal sealed class BlobApp : IAsyncDisposable {
             stagesEnabled,
             archived ? DateTimeOffset.UtcNow : null,
             deleted ? DateTimeOffset.UtcNow : null);
-        return id;
-    }
-
-    /// <summary>A team-less board as the quick-board feature left them; nobody may open one (UX18).</summary>
-    public async Task<Guid> InsertQuickBoardAsync() {
-        var id = Guid.CreateVersion7();
-        await ExecuteAsync(
-            "insert into retro_boards (id, code, title, visibility) values ($1, $2, 'Board', 'link')", id, Guid.NewGuid().ToString("N")[..10]);
         return id;
     }
 

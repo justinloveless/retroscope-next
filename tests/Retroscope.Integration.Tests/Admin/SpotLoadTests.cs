@@ -84,8 +84,7 @@ public sealed class SpotLoadTests(PostgresFixture postgres) {
     }
 
     // A team with a member and an action item, its session with a voted round and its board with a named and an
-    // anonymous card; plus rooms that must not be sampled: a deleted board, a soft-deleted team's session and a
-    // leftover team-less session.
+    // anonymous card; plus rooms that must not be sampled: a deleted board and a soft-deleted team's session.
     private static async Task SeedAsync(AdminHost host) {
         var user = await host.CreateUserAsync("u@example.com");
         var now = host.Time.GetUtcNow();
@@ -114,7 +113,6 @@ public sealed class SpotLoadTests(PostgresFixture postgres) {
             "insert into team_action_items (id, team_id, text) values ($1, $2, 'Follow up')", Guid.CreateVersion7(), team.Value);
         var gone = await AdminEndpointTests.TeamAsync(host, "Gone", user.Id, deleted: true);
         await RetentionTests.SessionAsync(host, "SPOT02", now, gone);
-        await RetentionTests.SessionAsync(host, "SPOT03", now);
     }
 
     private static async Task<(int ExitCode, string Output)> RunBinaryAsync(TestDatabase database, params string[] args) {

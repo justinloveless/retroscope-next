@@ -195,9 +195,9 @@ internal sealed class RetroScope : IAsyncDisposable {
           ('{Team.Value}', '{Alice.Who.Id.Value}', 'owner'), ('{Team.Value}', '{Bob.Who.Id.Value}', 'member'),
           ('{OtherTeam.Value}', '{Alice.Who.Id.Value}', 'owner');
         insert into endorsement_types (id, team_id, name, emoji, sort_key) values ('{Kudos.Value}', '{Team.Value}', 'Kudos', '🎉', 0);
-        insert into retro_boards (id, code, team_id, title, created_by, visibility) values
-          ('{TeamBoard.Value}', 'TEAMBOARD1', '{Team.Value}', 'Sprint 1', '{Alice.Who.Id.Value}', 'team'),
-          ('{OtherBoard.Value}', 'OTHERBOARD', '{OtherTeam.Value}', 'Other', '{Alice.Who.Id.Value}', 'team');
+        insert into retro_boards (id, code, team_id, title, created_by) values
+          ('{TeamBoard.Value}', 'TEAMBOARD1', '{Team.Value}', 'Sprint 1', '{Alice.Who.Id.Value}'),
+          ('{OtherBoard.Value}', 'OTHERBOARD', '{OtherTeam.Value}', 'Other', '{Alice.Who.Id.Value}');
         insert into retro_columns (id, board_id, title, color, sort_key, is_action_items) values
           ('{Good.Value}', '{TeamBoard.Value}', 'Good', 'green', 0, false),
           ('{Actions.Value}', '{TeamBoard.Value}', 'Actions', 'blue', 1, true),

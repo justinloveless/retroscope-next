@@ -71,7 +71,7 @@ public sealed class RoomListTests(PostgresFixture postgres) {
         var team = await app.TeamAsync((member, "member"));
         for (var i = 0; i < 5; i++) {
             await app.ExecAsync(
-                "insert into retro_boards (id, code, team_id, title, visibility, created_at) values ($1, $2, $3, $4, 'team', now() - $5 * interval '1 minute')",
+                "insert into retro_boards (id, code, team_id, title, created_at) values ($1, $2, $3, $4, now() - $5 * interval '1 minute')",
                 Guid.CreateVersion7(),
                 $"PAGEBOARD{i}",
                 team,

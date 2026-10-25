@@ -76,17 +76,6 @@ public sealed class RoomResolverTests(PostgresFixture postgres) {
     }
 
     [Fact]
-    public async Task Leftover_rooms_without_a_team_are_hidden_even_when_access_would_allow() {
-        await using var room = await RoomAppAsync();
-        await room.InsertPokerAsync("QUICK00001", team: null);
-        await room.InsertQuickBoardAsync("QUICK00002");
-
-        Assert.Equal("hidden", await room.ResolveTextAsync("poker", "QUICK00001"));
-        Assert.Equal("hidden", await room.ResolveTextAsync("board", "QUICK00002"));
-        Assert.Empty(room.Access.Seen);
-    }
-
-    [Fact]
     public async Task Codes_are_only_looked_up_in_their_own_room_kind() {
         await using var room = await RoomAppAsync();
         var team = await room.InsertTeamAsync(deleted: false);
@@ -172,7 +161,7 @@ public sealed class RoomResolverTests(PostgresFixture postgres) {
             return id;
         }
 
-        public async Task<Guid> InsertPokerAsync(string code, Guid? team) {
+        public async Task<Guid> InsertPokerAsync(string code, Guid team) {
             var id = Guid.CreateVersion7();
             await ExecuteAsync("insert into poker_sessions (id, code, team_id) values ($1, $2, $3)", id, code, team);
             return id;
@@ -181,18 +170,11 @@ public sealed class RoomResolverTests(PostgresFixture postgres) {
         public async Task<Guid> InsertBoardAsync(string code, Guid team, bool deleted = false) {
             var id = Guid.CreateVersion7();
             await ExecuteAsync(
-                "insert into retro_boards (id, code, team_id, title, visibility, deleted_at) values ($1, $2, $3, 'Board', 'team', $4)",
+                "insert into retro_boards (id, code, team_id, title, deleted_at) values ($1, $2, $3, 'Board', $4)",
                 id,
                 code,
                 team,
                 deleted ? DateTimeOffset.UtcNow : null);
-            return id;
-        }
-
-        /// <summary>A team-less board as the quick-board feature left them; nobody may open one any more (UX18).</summary>
-        public async Task<Guid> InsertQuickBoardAsync(string code) {
-            var id = Guid.CreateVersion7();
-            await ExecuteAsync("insert into retro_boards (id, code, title, visibility) values ($1, $2, 'Board', 'link')", id, code);
             return id;
         }
 

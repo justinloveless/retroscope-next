@@ -310,7 +310,7 @@ public sealed class AdminEndpointTests(PostgresFixture postgres) {
         await socket.SubscribeAsync(RoomKey.Poker(session));
         var board = Guid.CreateVersion7();
         await host.ExecuteAsync(
-            "insert into retro_boards (id, code, team_id, title, visibility) values ($1, 'STATSB', $2, 'B', 'team')", board, team.Value);
+            "insert into retro_boards (id, code, team_id, title) values ($1, 'STATSB', $2, 'B')", board, team.Value);
         await host.ExecuteAsync("""
             insert into blobs (id, purpose, board_id, content_type, byte_size, sha256, bytes)
             values ($1, 'board_image', $2, 'image/png', 1234, sha256('x'), 'x')

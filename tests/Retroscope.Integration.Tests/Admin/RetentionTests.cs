@@ -1,7 +1,5 @@
-using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using Retroscope.Core.Ids;
-using Retroscope.Core.Poker;
 using Retroscope.Integration.Tests.Schema;
 using Retroscope.Server.Data;
 using Retroscope.Server.Jobs;
@@ -12,55 +10,43 @@ namespace Retroscope.Integration.Tests.Admin;
 [Trait("Category", "Admin")]
 [Collection(SharedPostgres.Name)]
 public sealed class RetentionTests(PostgresFixture postgres) {
-    private static readonly TimeSpan Idle = RetentionJob.QuickRoomIdle + TimeSpan.FromHours(1);
-
+    /// <summary>Every room belongs to a team (UX18): only the team purge removes rooms, however long they sit idle.</summary>
     [Fact]
-    public async Task Idle_quick_rooms_are_purged_with_their_cursors_and_activity_and_nothing_else() {
+    public async Task Idle_rooms_stay_with_their_cursors_and_activity() {
         await using var host = await StartAsync(postgres);
         var user = await host.CreateUserAsync("u@example.com");
         var now = host.Time.GetUtcNow();
-        var idleSession = await SessionAsync(host, "IDLE01", now - Idle);
-        var freshSession = await SessionAsync(host, "FRESH1", now - TimeSpan.FromDays(29));
         var team = await AdminEndpointTests.TeamAsync(host, "Team", user.Id);
-        var teamSession = await SessionAsync(host, "TEAM01", now - Idle, team);
-        var idleBoard = await BoardAsync(host, "IDLEB1", now - Idle);
-        var freshBoard = await BoardAsync(host, "FRESHB", now - TimeSpan.FromDays(29));
-        await ImageAsync(host, idleBoard, attached: true, now);
-        await CursorAsync(host, RoomKey.Poker(idleSession), user.Id, now);
-        await CursorAsync(host, RoomKey.Board(idleBoard), user.Id, now);
-        await CursorAsync(host, RoomKey.Poker(freshSession), user.Id, now);
-        await host.ExecuteAsync("insert into recent_activity (user_id, entity_kind, entity_id) values ($1, 'poker', $2)", user.Id.Value, idleSession.Value);
-        await host.ExecuteAsync("insert into recent_activity (user_id, entity_kind, entity_id) values ($1, 'board', $2)", user.Id.Value, idleBoard.Value);
+        var session = await SessionAsync(host, "IDLE01", now - TimeSpan.FromDays(365), team);
+        var board = await BoardAsync(host, "IDLEB1", now - TimeSpan.FromDays(365), team);
+        await CursorAsync(host, RoomKey.Poker(session), user.Id, now);
+        await CursorAsync(host, RoomKey.Board(board), user.Id, now);
+        await host.ExecuteAsync("insert into recent_activity (user_id, entity_kind, entity_id) values ($1, 'team', $2)", user.Id.Value, team.Value);
 
-        var report = await host.Service<RetentionJob>().RunAsync(Token);
+        await host.Service<RetentionJob>().RunAsync(Token);
 
-        Assert.Equal(1, report.QuickSessions);
-        Assert.Equal(1, report.QuickBoards);
-        Assert.False(await ExistsAsync(host, "poker_sessions", idleSession.Value));
-        Assert.False(await ExistsAsync(host, "retro_boards", idleBoard.Value));
-        Assert.True(await ExistsAsync(host, "poker_sessions", freshSession.Value));
-        Assert.True(await ExistsAsync(host, "poker_sessions", teamSession.Value));
-        Assert.True(await ExistsAsync(host, "retro_boards", freshBoard.Value));
-        Assert.Equal(0L, await host.ScalarAsync<long>("select count(*) from blobs where board_id = $1", idleBoard.Value));
-        Assert.Equal(
-            [RoomKey.Poker(freshSession).ToString()],
-            await StringsAsync(host, "select room_key from client_cursors"));
-        Assert.Equal(0L, await host.ScalarAsync<long>("select count(*) from recent_activity"));
+        Assert.True(await ExistsAsync(host, "poker_sessions", session.Value));
+        Assert.True(await ExistsAsync(host, "retro_boards", board.Value));
+        Assert.Equal(2L, await host.ScalarAsync<long>("select count(*) from client_cursors"));
+        Assert.Equal(1L, await host.ScalarAsync<long>("select count(*) from recent_activity"));
     }
 
     [Fact]
     public async Task A_server_that_loses_leadership_mid_pass_stops_deleting() {
         var host = await StartAsync(postgres);
         try {
+            var user = await host.CreateUserAsync("u@example.com");
             var now = host.Time.GetUtcNow();
-            for (var i = 0; i < 3; i++) {
-                await SessionAsync(host, $"FENCE{i}", now - Idle - TimeSpan.FromMinutes(i));
-            }
-            await TakeOverOnDeleteAsync(host, "poker_sessions");
+            var team = await AdminEndpointTests.TeamAsync(host, "Team", user.Id);
+            var board = await BoardAsync(host, "FENCE1", now, team);
+            await CursorAsync(host, RoomKey.Board(board), user.Id, now - TimeSpan.FromDays(15));
+            var loose = await ImageAsync(host, board, attached: false, now - TimeSpan.FromHours(25));
+            await TakeOverOnDeleteAsync(host, "client_cursors");
 
             await Assert.ThrowsAsync<FencingLostException>(() => host.Service<RetentionJob>().RunAsync(Token));
 
-            Assert.Equal(2L, await host.ScalarAsync<long>("select count(*) from poker_sessions"));
+            Assert.Equal(0L, await host.ScalarAsync<long>("select count(*) from client_cursors"));
+            Assert.True(await ExistsAsync(host, "blobs", loose));
             Assert.False(host.Service<Leader>().IsLeader);
         } finally {
             await DisposeAfterLossAsync(host);
@@ -68,39 +54,11 @@ public sealed class RetentionTests(PostgresFixture postgres) {
     }
 
     [Fact]
-    public async Task A_load_that_races_the_purge_waits_for_it_and_finds_no_room() {
-        await using var host = await StartAsync(postgres);
-        var session = await SessionAsync(host, "RACE01", host.Time.GetUtcNow() - Idle);
-        var room = RoomKey.Poker(session);
-
-        // Hold the row so the purge's delete blocks inside the closed key; a plain select would not wait for it.
-        await using var blocker = new NpgsqlConnection(host.Database.OwnerConnectionString);
-        await blocker.OpenAsync(Token);
-        await using var transaction = await blocker.BeginTransactionAsync(Token);
-        await using (var lockRow = new NpgsqlCommand("select 1 from poker_sessions where id = $1 for update", blocker)) {
-            lockRow.Parameters.Add(new() { Value = session.Value });
-            await lockRow.ExecuteNonQueryAsync(Token);
-        }
-        var purge = host.Service<RetentionJob>().RunAsync(Token);
-        await WaitUntilAsync(() => host.ScalarAsync<bool>("""
-            select exists (select 1 from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock' and query like '%delete from poker_sessions%')
-            """));
-
-        var load = host.Registry.QueryAsync<PokerState, PokerInput, bool>(room, view => ValueTask.FromResult(view.Found), Token);
-        await Task.Delay(300, Token);
-        Assert.False(load.IsCompleted, "A load ran while the room's rows were being deleted.");
-
-        await transaction.RollbackAsync(Token);
-        Assert.Equal(1, (await purge).QuickSessions);
-        Assert.False(await load);
-    }
-
-    [Fact]
     public async Task Stale_cursors_unattached_images_dead_mail_and_old_audit_rows_are_removed() {
         await using var host = await StartAsync(postgres);
         var user = await host.CreateUserAsync("u@example.com");
         var now = host.Time.GetUtcNow();
-        var board = await BoardAsync(host, "BOARD1", now);
+        var board = await BoardAsync(host, "BOARD1", now, await AdminEndpointTests.TeamAsync(host, "Team", user.Id));
         await CursorAsync(host, RoomKey.Board(board), user.Id, now - TimeSpan.FromDays(15));
         await CursorAsync(host, RoomKey.Poker(new SessionId(Guid.NewGuid())), user.Id, now - TimeSpan.FromDays(13));
         var oldLoose = await ImageAsync(host, board, attached: false, now - TimeSpan.FromHours(25));
@@ -131,7 +89,8 @@ public sealed class RetentionTests(PostgresFixture postgres) {
     public async Task Unattached_images_are_collected_in_batches_until_none_is_left() {
         await using var host = await StartAsync(postgres);
         var now = host.Time.GetUtcNow();
-        var board = await BoardAsync(host, "BOARD1", now);
+        var user = await host.CreateUserAsync("u@example.com");
+        var board = await BoardAsync(host, "BOARD1", now, await AdminEndpointTests.TeamAsync(host, "Team", user.Id));
         await host.ExecuteAsync("""
             insert into blobs (id, purpose, board_id, content_type, byte_size, sha256, bytes, created_at)
             select gen_random_uuid(), 'board_image', $1, 'image/png', 1, sha256('x'), 'x', $2
@@ -144,25 +103,24 @@ public sealed class RetentionTests(PostgresFixture postgres) {
         Assert.Equal(0L, await host.ScalarAsync<long>("select count(*) from blobs"));
     }
 
-    internal static async Task<SessionId> SessionAsync(AdminHost host, string code, DateTimeOffset lastActivity, TeamId? team = null) {
+    internal static async Task<SessionId> SessionAsync(AdminHost host, string code, DateTimeOffset lastActivity, TeamId team) {
         var id = new SessionId(Guid.CreateVersion7());
         await host.ExecuteAsync(
             "insert into poker_sessions (id, code, team_id, last_activity_at) values ($1, $2, $3, $4)",
             id.Value,
             code,
-            (object?)team?.Value ?? DBNull.Value,
+            team.Value,
             lastActivity);
         return id;
     }
 
-    internal static async Task<BoardId> BoardAsync(AdminHost host, string code, DateTimeOffset lastActivity, TeamId? team = null) {
+    internal static async Task<BoardId> BoardAsync(AdminHost host, string code, DateTimeOffset lastActivity, TeamId team) {
         var id = new BoardId(Guid.CreateVersion7());
         await host.ExecuteAsync(
-            "insert into retro_boards (id, code, team_id, title, visibility, last_activity_at) values ($1, $2, $3, 'Board', $4, $5)",
+            "insert into retro_boards (id, code, team_id, title, last_activity_at) values ($1, $2, $3, 'Board', $4)",
             id.Value,
             code,
-            (object?)team?.Value ?? DBNull.Value,
-            team is null ? "link" : "team",
+            team.Value,
             lastActivity);
         return id;
     }
@@ -221,14 +179,6 @@ public sealed class RetentionTests(PostgresFixture postgres) {
         try {
             await host.DisposeAsync();
         } catch (Exception e) when (e is LeadershipLostException || e.InnerException is LeadershipLostException) {
-        }
-    }
-
-    internal static async Task WaitUntilAsync(Func<Task<bool>> condition) {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        while (!await condition()) {
-            Assert.True(DateTime.UtcNow < deadline, "The condition did not hold within 10 s.");
-            await Task.Delay(25, Token);
         }
     }
 

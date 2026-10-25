@@ -21,7 +21,6 @@ public sealed class MentionsTests(PostgresFixture postgres) {
         await seed.CardAsync("my team", minutesAgo: 1, team: myTeam);
         await seed.CommentAsync("anonymous on my team", minutesAgo: 2, team: myTeam, anonymous: true);
         await seed.CardAsync("other team", minutesAgo: 3, team: otherTeam);
-        await seed.CardAsync("leftover quick board", minutesAgo: 4, team: null);
         await seed.CardAsync("deleted board", minutesAgo: 5, team: myTeam, deleted: true);
         await seed.CardAsync("names hidden", minutesAgo: 6, team: myTeam, showAuthors: false);
         await seed.CardAsync("deleted team", minutesAgo: 7, team: await DeletedTeamAsync(app, me));
@@ -101,8 +100,7 @@ public sealed class MentionsTests(PostgresFixture postgres) {
 
         public string Body => $"Thanks [[mention:{me}:Mia]]";
 
-        /// <param name="team">Null seeds a leftover team-less board, as the quick-board feature left them.</param>
-        public Task CardAsync(string title, int minutesAgo, Guid? team, bool deleted = false, bool showAuthors = true) {
+        public Task CardAsync(string title, int minutesAgo, Guid team, bool deleted = false, bool showAuthors = true) {
             return PostAsync(title, minutesAgo, team, deleted, showAuthors, comment: false, anonymous: false);
         }
 
@@ -113,7 +111,7 @@ public sealed class MentionsTests(PostgresFixture postgres) {
         private async Task PostAsync(
             string title,
             int minutesAgo,
-            Guid? team,
+            Guid team,
             bool deleted,
             bool showAuthors,
             bool comment,
@@ -123,15 +121,14 @@ public sealed class MentionsTests(PostgresFixture postgres) {
             var card = Guid.CreateVersion7();
             await app.ExecAsync(
                 """
-                insert into retro_boards (id, code, team_id, title, created_by, visibility, show_author_names, deleted_at)
-                values ($1, $2, $3, $4, $5, $6, $7, $8)
+                insert into retro_boards (id, code, team_id, title, created_by, show_author_names, deleted_at)
+                values ($1, $2, $3, $4, $5, $6, $7)
                 """,
                 board,
                 $"M{_boards++:D9}",
                 team,
                 title,
                 author,
-                team is null ? "link" : "team",
                 showAuthors,
                 deleted ? DateTimeOffset.UtcNow : null);
             await app.ExecAsync(

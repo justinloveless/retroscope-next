@@ -22,10 +22,6 @@ public sealed class SweepAndPurgeTests(PostgresFixture postgres) {
         var now = host.Time.GetUtcNow();
         var idle = await SessionAsync(host, user.Id, idle: now - TimeSpan.FromSeconds(1), absolute: now + TimeSpan.FromDays(1));
         var absolute = await SessionAsync(host, user.Id, idle: now + TimeSpan.FromDays(1), absolute: now);
-        var guest = Guid.CreateVersion7();
-        await host.ExecuteAsync("insert into principals (id, kind, display_name) values ($1, 'guest', 'Guest')", guest);
-        await host.ExecuteAsync("insert into guest_tokens (token_hash, principal_id, expires_at) values ($1, $2, $3)", Hash(), guest, now - TimeSpan.FromMinutes(1));
-        await host.ExecuteAsync("insert into guest_tokens (token_hash, principal_id, expires_at) values ($1, $2, $3)", Hash(), guest, now + TimeSpan.FromDays(1));
         await host.ExecuteAsync("""
             insert into auth_tokens (token_hash, purpose, user_id, email, expires_at) values ($1, 'magic_link', $2, 'u@example.com', $3)
             """, Hash(), user.Id.Value, now - TimeSpan.FromMinutes(1));
@@ -39,10 +35,9 @@ public sealed class SweepAndPurgeTests(PostgresFixture postgres) {
 
         var report = await host.Service<TokenSweepJob>().RunAsync(Token);
 
-        Assert.Equal(new TokenSweepReport(2, 1, 1, 2), report);
+        Assert.Equal(new TokenSweepReport(2, 1, 2), report);
         // The user's own session from CreateUserAsync is live and stays.
         Assert.Equal(1L, await host.ScalarAsync<long>("select count(*) from sessions"));
-        Assert.Equal(1L, await host.ScalarAsync<long>("select count(*) from guest_tokens"));
         Assert.Equal(["password_reset"], await StringsAsync(host, "select purpose from auth_tokens"));
         Assert.Equal([live.ToString()], await StringsAsync(host, "select id::text from team_invites"));
         Assert.DoesNotContain(expired.ToString(), await StringsAsync(host, "select id::text from team_invites"));
@@ -69,7 +64,6 @@ public sealed class SweepAndPurgeTests(PostgresFixture postgres) {
         await CursorAsync(host, RoomKey.Poker(session), owner.Id, now);
         await CursorAsync(host, RoomKey.Board(board), owner.Id, now);
         await CursorAsync(host, RoomKey.Poker(liveSession), owner.Id, now);
-        await host.ExecuteAsync("insert into recent_activity (user_id, entity_kind, entity_id) values ($1, 'board', $2)", owner.Id.Value, board.Value);
         await host.ExecuteAsync("insert into recent_activity (user_id, entity_kind, entity_id) values ($1, 'team', $2)", owner.Id.Value, doomed.Value);
         await host.ExecuteAsync("insert into recent_activity (user_id, entity_kind, entity_id) values ($1, 'team', $2)", owner.Id.Value, live.Value);
 
@@ -141,7 +135,7 @@ public sealed class SweepAndPurgeTests(PostgresFixture postgres) {
         var team = await AdminEndpointTests.TeamAsync(host, "Doomed", owner.Id);
         await host.ExecuteAsync("""
             insert into recent_activity (user_id, entity_kind, entity_id)
-            select $1, (array['team', 'board', 'poker'])[1 + n % 3], gen_random_uuid() from generate_series(1, 5000) n
+            select $1, 'team', gen_random_uuid() from generate_series(1, 5000) n
             """, owner.Id.Value);
         await host.ExecuteAsync("analyze recent_activity");
 

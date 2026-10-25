@@ -213,13 +213,11 @@ public sealed class BlobEndpointTests(PostgresFixture postgres) {
         await app.InsertActionItemsColumnAsync(discussingWithActions);
         var votingWithoutStages = await app.InsertBoardAsync(team, stage: "voting", stagesEnabled: false);
         var deleted = await app.InsertBoardAsync(team, deleted: true);
-        var quick = await app.InsertQuickBoardAsync();
         var guest = await app.InsertGuestAsync();
 
         Assert.Equal("401 unauthenticated", await OutcomeAsync(app, teamBoard, caller: null));
         Assert.Equal("404 not_found", await OutcomeAsync(app, teamBoard, $"user:{outsider}"));
         Assert.Equal("401 unauthenticated", await OutcomeAsync(app, teamBoard, $"guest:{guest}"));
-        Assert.Equal("404 not_found", await OutcomeAsync(app, quick, $"user:{member}"));
         Assert.Equal("404 not_found", await OutcomeAsync(app, Guid.CreateVersion7(), $"user:{member}"));
         Assert.Equal("404 not_found", await OutcomeAsync(app, deleted, $"user:{member}"));
         Assert.Equal("201", await OutcomeAsync(app, teamBoard, $"user:{member}"));
@@ -277,7 +275,6 @@ public sealed class BlobEndpointTests(PostgresFixture postgres) {
         var teamImage = await app.InsertBoardImageRowAsync(await app.InsertBoardAsync(team), 1);
         var archivedImage = await app.InsertBoardImageRowAsync(await app.InsertBoardAsync(team, archived: true), 1);
         var deletedImage = await app.InsertBoardImageRowAsync(await app.InsertBoardAsync(team, deleted: true), 1);
-        var quickImage = await app.InsertBoardImageRowAsync(await app.InsertQuickBoardAsync(), 1);
 
         Assert.Equal(HttpStatusCode.OK, await StatusAsync(app, teamImage, $"user:{member}"));
         Assert.Equal(HttpStatusCode.NotFound, await StatusAsync(app, teamImage, $"user:{outsider}"));
@@ -286,7 +283,6 @@ public sealed class BlobEndpointTests(PostgresFixture postgres) {
         Assert.Equal(HttpStatusCode.OK, await StatusAsync(app, archivedImage, $"user:{member}"));
         Assert.Equal(HttpStatusCode.NotFound, await StatusAsync(app, archivedImage, $"user:{outsider}"));
         Assert.Equal(HttpStatusCode.NotFound, await StatusAsync(app, deletedImage, $"user:{member}"));
-        Assert.Equal(HttpStatusCode.NotFound, await StatusAsync(app, quickImage, $"user:{member}"));
     }
 
     [Fact]

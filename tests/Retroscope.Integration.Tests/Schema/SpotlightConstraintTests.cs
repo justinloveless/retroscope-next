@@ -8,6 +8,7 @@ namespace Retroscope.Integration.Tests.Schema;
 [Collection(SharedPostgres.Name)]
 public sealed class SpotlightConstraintTests(PostgresFixture postgres) {
     private readonly Guid _holder = Guid.NewGuid();
+    private readonly Guid _team = Guid.NewGuid();
     private readonly Guid _session = Guid.NewGuid();
     private readonly Guid _round = Guid.NewGuid();
 
@@ -67,13 +68,15 @@ public sealed class SpotlightConstraintTests(PostgresFixture postgres) {
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var seed = new NpgsqlCommand("""
             insert into principals (id, kind, display_name) values (@holder, 'guest', 'Ada');
-            insert into poker_sessions (id, code) values (@session, 'ABCD');
+            insert into teams (id, name) values (@team, 'Team');
+            insert into poker_sessions (id, code, team_id) values (@session, 'ABCD', @team);
             insert into poker_rounds (id, session_id, number, sort_key) values (@round, @session, 1, 1);
             update poker_sessions set spotlight_holder_id = @holder, spotlight_round_id = @round, current_round_id = @round
              where id = @session;
             """, connection) {
             Parameters = {
                 new("holder", _holder),
+                new("team", _team),
                 new("session", _session),
                 new("round", _round),
             },
