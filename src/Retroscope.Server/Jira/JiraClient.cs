@@ -169,7 +169,8 @@ public sealed partial class JiraClient : IDisposable {
 
     /// <summary>
     /// Checks credentials that are not saved yet (config save): who they authenticate as, which fields hold points
-    /// and sprints, and the Agile board (by id, else the project's first scrum board, else its first board).
+    /// (the board's estimation field, else the first story points field) and sprints, and the Agile board (by id, else
+    /// the project's first scrum board, else its first board).
     /// A 401 here changes no stored status.
     /// </summary>
     public async Task<JiraProbeResult> ProbeAsync(
@@ -199,7 +200,22 @@ public sealed partial class JiraClient : IDisposable {
             board = values.FirstOrDefault(b => b.Type == "scrum") ?? (values.Count > 0 ? values[0] : null);
         }
 
-        return new JiraProbeResult(myself, JiraMap.DiscoverFields(fields), board);
+        var discovered = JiraMap.DiscoverFields(fields);
+        var estimation = board is null ? null : await ProbeEstimationFieldAsync(target, board.Id, cancellationToken);
+        return new JiraProbeResult(myself, discovered with { PointsFieldId = estimation ?? discovered.PointsFieldId }, board);
+    }
+
+    // The board's estimation field only refines the points field to store, so its failure must not fail the save.
+    private async Task<string?> ProbeEstimationFieldAsync(JiraTarget target, long boardId, CancellationToken cancellationToken) {
+        try {
+            return EstimationFieldId(await SendAsync(
+                target,
+                Get($"/rest/agile/1.0/board/{boardId}/configuration", "/rest/agile/1.0/board/{id}/configuration"),
+                JiraClientJsonContext.Default.JiraBoardConfiguration,
+                cancellationToken));
+        } catch (JiraException) {
+            return null;
+        }
     }
 
     /// <summary>The site's field catalogue, cached for 6 hours (field discovery runs at config save).</summary>

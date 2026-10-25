@@ -505,11 +505,14 @@ public static partial class JiraEndpoints {
             var myself = await client.GetMyselfAsync(call.Team, context.RequestAborted);
             var discovered = JiraMap.DiscoverFields(await client.GetFieldsAsync(call.Team, context.RequestAborted));
             JiraBoard? board = config.BoardId is { } id ? await client.GetBoardAsync(call.Team, id, context.RequestAborted) : null;
+            // The field a save without a chosen one would store.
+            var points = (board is null ? null : await client.BoardEstimationFieldOrNullAsync(call.Team, board.Id, context.RequestAborted))
+                ?? discovered.PointsFieldId;
             if (config.Status is not JiraConfigStatus.RotateRequired) {
                 await credentials.MarkStatusAsync(call.Team, JiraConfigStatus.Ok, context.RequestAborted);
             }
             return Ok(
-                new JiraTestView(true, myself.DisplayName, new JiraDiscovered(discovered.PointsFieldId, discovered.SprintFieldId, board?.Id)),
+                new JiraTestView(true, myself.DisplayName, new JiraDiscovered(points, discovered.SprintFieldId, board?.Id)),
                 JiraHttpJsonContext.Default.JiraTestView);
         } catch (JiraException e) {
             return ProbeProblem(e.Error);
