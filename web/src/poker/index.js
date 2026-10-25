@@ -44,6 +44,12 @@ import { askNewRound, createTable } from './table.js';
 
 const OFFLINE_BANNER_MS = 10_000;
 
+// The kicks that leave the user's access as it was: closing a room or a tab and trying again brings the session back.
+const LIMIT_KICKS = {
+  too_many_rooms: ['Too many rooms open', 'This tab has too many rooms open. Close one of them, then try again.'],
+  too_many_connections: ['Too many tabs open', 'This session is open in too many of your tabs. Close one of them, then try again.'],
+};
+
 // Optional parts of the screen (strip, spotlight, history, Jira) mount here. Each entry is
 // `(ctx) → {update(view, roundId), destroy()}`; see docs/decisions/U31.md.
 const FEATURES = [createStrip, createSpotlight, createObserverToggle, createSettings, jiraFeature, createHistory, createMobile];
@@ -339,7 +345,9 @@ export function mount(root, boot = {}, app = {}) {
       if (screen) {
         noAccess(screen);
       } else {
-        replaceContent(center, message('Too many rooms open', 'This tab has too many rooms open. Close one of them, then reload this page.'));
+        const [title, text] = LIMIT_KICKS[room.kicked] ?? LIMIT_KICKS.too_many_rooms;
+        replaceContent(center, message(title, text,
+          h('button', { type: 'button', class: 'btn btn-primary', on: { click: rejoin } }, 'Try again')));
       }
       return;
     }
@@ -482,6 +490,13 @@ export function mount(root, boot = {}, app = {}) {
     const ctx = { room, socket, me, actions, navigate, get viewed() { return viewed; }, slots };
     features = FEATURES.map((feature) => feature(ctx));
     render();
+  }
+
+  // After a limit kick: subscribes again, which the server answers with the session or the same kick.
+  function rejoin() {
+    const sessionCode = code;
+    close();
+    open(sessionCode, urlTeam);
   }
 
   function close() {

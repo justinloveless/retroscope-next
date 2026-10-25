@@ -15,9 +15,11 @@ const COPY = {
 };
 
 // A room's kick codes (protocol.gen.js KICK_CODES) that end the user's access: the room is gone, or the user is
-// no longer on its team. A tab over its room limit is not one of them: closing another room brings it back.
+// no longer on its team. The limits are not among them: a tab with too many rooms open, or a room open in too many
+// of the user's tabs. Access is unchanged, so the page says so itself and closing a room or a tab brings it back.
 const GONE = new Set(['deleted', 'not_found']);
 const REMOVED = new Set(['access_revoked', 'forbidden']);
+const LIMITS = new Set(['too_many_rooms', 'too_many_connections']);
 
 /** The screen a room's kick shows ({removed}), or null when the room should say so itself. */
 export function kickScreen(code) {
@@ -25,6 +27,11 @@ export function kickScreen(code) {
     return { removed: false };
   }
   return REMOVED.has(code) ? { removed: true } : null;
+}
+
+/** Whether a room's kick is a limit that closing a room or a tab clears, so the page offers Try again. */
+export function isLimitKick(code) {
+  return LIMITS.has(code);
 }
 
 /** Replaces `root`'s content with the screen; `removed` when the user just lost access to the page's team. */

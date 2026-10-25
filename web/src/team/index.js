@@ -7,7 +7,7 @@
 import { h, replaceContent } from '../core/h.js';
 import { getSocket, navigate, patchTeam } from '../screens/app.js';
 import { SECTIONS, sectionOf } from '../screens/header.js';
-import { showNoAccess } from '../screens/no-access.js';
+import { isLimitKick, showNoAccess } from '../screens/no-access.js';
 import { icon } from '../ui/icons.js';
 import { model, openActions } from './model.js';
 import { errorMessage, teamApi, toastError, loading } from './util.js';
@@ -148,8 +148,8 @@ export function mount(root, boot, app = {}) {
     });
     unwatch.push(context.room.select(() => context.room.kicked, Object.is, (code) => {
       if (code) {
-        // A tab over its room limit can come back; every other kick ends this user's access.
-        fail(code === 'too_many_rooms' ? { code } : 'removed');
+        // A tab over a limit can come back; every other kick ends this user's access.
+        fail(isLimitKick(code) ? { code } : 'removed');
       }
     }));
     unwatch.push(context.room.select((s) => s, Object.is, () => patchHeader(context)));

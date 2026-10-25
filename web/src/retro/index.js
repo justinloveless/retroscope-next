@@ -112,7 +112,7 @@ export function mount(root, boot, app = {}) {
       }),
     ];
     setHeaderTeam(room.view?.teamId ?? snap?.d?.teamId ?? null);
-    board = createBoard({ room, socket, me, boardId: id, features: FEATURES, timerMusic: boot.timerMusic === true });
+    board = createBoard({ room, socket, me, boardId: id, features: FEATURES, timerMusic: boot.timerMusic === true, onRetry: () => open(code) });
     replaceContent(el, board.el);
   }
 
