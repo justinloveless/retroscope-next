@@ -328,7 +328,7 @@ CREATE TABLE public.external_identities (
     subject text NOT NULL,
     user_id uuid NOT NULL,
     linked_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT external_identities_provider_check CHECK ((provider = ANY (ARRAY['google'::text, 'entra'::text]))),
+    CONSTRAINT external_identities_provider_check CHECK ((provider = 'google'::text)),
     CONSTRAINT external_identities_subject_check CHECK ((char_length(subject) <= 200))
 );
 
@@ -650,7 +650,7 @@ CREATE TABLE public.sessions (
     idle_expires_at timestamp with time zone NOT NULL,
     abs_expires_at timestamp with time zone NOT NULL,
     user_agent text,
-    CONSTRAINT sessions_auth_method_check CHECK ((auth_method = ANY (ARRAY['password'::text, 'google'::text, 'entra'::text, 'magic_link'::text]))),
+    CONSTRAINT sessions_auth_method_check CHECK ((auth_method = ANY (ARRAY['password'::text, 'google'::text, 'magic_link'::text]))),
     CONSTRAINT sessions_id_hash_check CHECK ((octet_length(id_hash) = 32)),
     CONSTRAINT sessions_user_agent_check CHECK ((char_length(user_agent) <= 200))
 );
