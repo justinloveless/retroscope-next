@@ -94,7 +94,7 @@ internal static class Secrecy {
 internal static class Digest {
     public static string Of(PokerState state) {
         var text = new StringBuilder();
-        text.Append($"{state.SessionId}|{state.TeamId}|{state.PresenceEnabled}|{state.FollowSpotlight}|{state.CurrentRoundId}|");
+        text.Append($"{state.SessionId}|{state.TeamId}|{state.CreatedAt:O}|{state.PresenceEnabled}|{state.FollowSpotlight}|{state.CurrentRoundId}|");
         text.Append($"{state.NextRoundNumber}|{state.WarmUntil:O}|{state.Deleted}|{state.Jira}|{state.PointDescriptions.Count}|");
         text.AppendJoin(',', state.Observers.Select(x => x.ToString()).Order(StringComparer.Ordinal)).Append('|');
         text.AppendJoin(',', state.Order).Append('|');

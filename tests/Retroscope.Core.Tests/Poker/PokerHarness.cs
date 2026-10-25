@@ -13,6 +13,9 @@ namespace Retroscope.Core.Tests.Poker;
 internal sealed class PokerHarness {
     public static readonly DateTimeOffset Start = new(2026, 10, 20, 12, 0, 0, TimeSpan.Zero);
 
+    /// <summary>When the session was created: before the room loads, and not in its id, which is no UUIDv7.</summary>
+    public static readonly DateTimeOffset Created = Start.AddHours(-2);
+
     private readonly Dictionary<PrincipalId, HashSet<ClientId>> _connected = [];
     private readonly HashSet<PrincipalId> _present = [];
     private readonly Dictionary<PrincipalId, Principal> _principals = [];
@@ -174,6 +177,7 @@ internal sealed class PokerHarness {
             SessionId = Session,
             Code = "TEAM01",
             TeamId = TeamId,
+            CreatedAt = Created,
             WarmUntil = Start,
             CurrentRoundId = R(1),
             NextRoundNumber = 2,
