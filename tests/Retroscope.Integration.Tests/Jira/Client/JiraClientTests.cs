@@ -742,6 +742,7 @@ public sealed class JiraClientTests(PostgresFixture postgres) {
     [Theory]
     [InlineData(404)]
     [InlineData(403)]
+    [InlineData(400)]
     public async Task A_board_that_is_gone_or_hidden_is_remembered_without_a_field_for_five_minutes(int status) {
         await using var h = await JiraHarness.StartAsync(postgres);
         h.Jira.AddBoard(7, "DUN");

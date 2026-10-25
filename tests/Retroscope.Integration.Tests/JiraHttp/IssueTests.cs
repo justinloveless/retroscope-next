@@ -231,6 +231,7 @@ public sealed class IssueTests(PostgresFixture postgres) {
     [Theory]
     [InlineData(404)]
     [InlineData(403)]
+    [InlineData(400)]
     public async Task A_board_that_is_gone_or_hidden_leaves_writes_on_the_stored_field(int status) {
         await using var host = await JiraHttpHost.StartAsync(postgres);
         var (ada, team) = await BrowseTests.TeamAsync(host);
