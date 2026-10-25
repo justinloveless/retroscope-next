@@ -23,7 +23,7 @@ public sealed class PokerStore(NpgsqlDataSource dataSource, Leader leader, Curso
         select s.code, s.team_id, s.presence_enabled, s.follow_spotlight,
                s.spotlight_holder_id, s.spotlight_client_id, s.spotlight_round_id, s.current_round_id,
                s.next_round_number, t.deleted_at is not null, t.point_descriptions::text,
-               j.team_id is not null, j.ticket_prefix, coalesce(j.members_can_edit, true)
+               j.team_id is not null, j.ticket_prefix, coalesce(j.members_can_edit, true), s.created_at
         from poker_sessions s
         join teams t on t.id = s.team_id
         left join team_jira_config j on j.team_id = s.team_id
@@ -286,6 +286,7 @@ public sealed class PokerStore(NpgsqlDataSource dataSource, Leader leader, Curso
             SessionId = new SessionId(room.Id),
             Code = reader.GetString(0),
             TeamId = new TeamId(reader.GetGuid(1)),
+            CreatedAt = reader.GetFieldValue<DateTimeOffset>(14),
             PresenceEnabled = reader.GetBoolean(2),
             FollowSpotlight = reader.GetBoolean(3),
             Spotlight = holder is { } h && spotlightRound is { } r
