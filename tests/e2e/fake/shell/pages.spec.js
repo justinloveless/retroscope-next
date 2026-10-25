@@ -88,6 +88,25 @@ test.describe("'/'", () => {
     }
   });
 
+  test('signed out it is the welcome page, and signing in there opens the team used last', async ({ page, fake }) => {
+    const setMe = useSession(fake, null);
+    fake.route('POST', '/api/auth/login', () => {
+      setMe(USER);
+      return json(USER);
+    });
+    await page.goto('/');
+    await expect(page.getByRole('heading', { level: 1, name: 'Planning poker and retros for your team' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Continue with Google' })).toHaveAttribute('href', '/auth/oidc/google/start?return=%2F');
+    await expect(page.getByRole('button', { name: 'Email me a sign-in link' })).toBeVisible();
+
+    await field(page, 'Email').fill('ada@example.com');
+    await field(page, 'Password').fill('correct horse battery');
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+
+    await expect(page).toHaveURL(new RegExp(`/teams/${TEAM_ID}$`));
+    await expect(page.getByRole('main').getByRole('heading', { level: 1, name: 'Poker' })).toBeVisible();
+  });
+
   test('opens create-or-join for a user in no team', async ({ page, fake }) => {
     useSession(fake, NEWCOMER);
     await page.goto('/');
