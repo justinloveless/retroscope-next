@@ -18,7 +18,7 @@ export function createKudosTab(ctx) {
   });
   const body = h('div');
   const el = h('section', { class: 'team-section', 'aria-label': 'Kudos' },
-    h('div', { class: 'team-toolbar' }, h('h2', { class: 'team-section-title', text: 'Kudos leaderboard' }), period.el),
+    h('div', { class: 'team-toolbar' }, h('h1', { class: 'team-title', text: 'Kudos' }), period.el),
     body);
 
   let entries = null;

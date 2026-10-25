@@ -155,7 +155,7 @@ export function mount(root) {
         return;
       }
       if (!user.isAdmin) {
-        replaceContent(frame.main, notice('This area is for app admins.', link('/dashboard', 'Back to the dashboard', { class: 'btn btn-primary' })));
+        replaceContent(frame.main, notice('This area is for app admins.', link('/', 'Back to your team', { class: 'btn btn-primary' })));
         return;
       }
       const name = location.pathname.split('/')[2];

@@ -1,8 +1,9 @@
 // Sign-in, sign-up and the emailed-link pages (§d, §e): magic links sign in only on a click (S18),
-// verification needs a session of the right account (S4), and link tokens never stay in the URL.
+// verification needs a session of the right account (S4), and link tokens never stay in the URL. Every
+// landing after signing in without a return path is '/', which finds the user's team (UX18 decision 13).
 import { problem } from '../../../web-fake-server/http.js';
 import { expect, test } from '../_harness/fixtures.js';
-import { USER, installApi, pageErrors, requests, useSession } from './_shell.js';
+import { NEWCOMER, TEAM_ID, USER, installApi, installTeams, pageErrors, requests, useSession } from './_shell.js';
 
 // The sign-in, sign-up and email-link forms share labels; only one is visible at a time.
 const field = (page, label) => page.getByLabel(label, { exact: true }).filter({ visible: true });
@@ -11,6 +12,7 @@ const UNVERIFIED = { ...USER, user: { ...USER.user, emailVerified: false } };
 
 test.beforeEach(({ fake }) => {
   installApi(fake);
+  installTeams(fake);
 });
 
 test('signing in lands on the return path with the session in the header', async ({ page, fake }) => {
@@ -27,7 +29,7 @@ test('signing in lands on the return path with the session in the header', async
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 
   await expect(page).toHaveURL(/\/teams$/);
-  await expect(page.getByRole('heading', { level: 1, name: 'Teams' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Create or join a team' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Account menu for Ada Lovelace' })).toBeVisible();
   expect(requests(fake, 'POST', '/api/auth/login').map((r) => r.json)).toEqual([{ email: 'ada@example.com', password: 'correct horse battery' }]);
   expect(errors).toEqual([]);
@@ -46,28 +48,29 @@ test('a wrong password shows one message and stays on the form', async ({ page, 
   await expect(page).toHaveURL(/\/login$/);
 });
 
-test('an open-redirect return path falls back to the dashboard', async ({ page, fake }) => {
+test('an open-redirect return path falls back to /, which opens the team used last', async ({ page, fake }) => {
   const setMe = useSession(fake, null);
   fake.route('POST', '/api/auth/login', () => {
     setMe(USER);
     return { status: 200, body: USER };
   });
   await page.goto(`/login?return=${encodeURIComponent('//evil.example/x')}`);
-  await expect(page.getByRole('link', { name: 'Continue with Google' })).toHaveAttribute('href', '/auth/oidc/google/start?return=%2Fdashboard');
+  await expect(page.getByRole('link', { name: 'Continue with Google' })).toHaveAttribute('href', '/auth/oidc/google/start?return=%2F');
 
   await field(page, 'Email').fill('ada@example.com');
   await field(page, 'Password').fill('correct horse battery');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 
-  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page).toHaveURL(new RegExp(`/teams/${TEAM_ID}$`));
+  await expect(page.getByRole('main').getByRole('heading', { level: 1, name: 'Poker' })).toBeVisible();
 });
 
-test('creating an account signs in with the same credentials', async ({ page, fake }) => {
+test('creating an account signs in with the same credentials and lands on create-or-join', async ({ page, fake }) => {
   const setMe = useSession(fake, null);
   fake.route('POST', '/api/auth/signup', { status: 202 });
   fake.route('POST', '/api/auth/login', () => {
-    setMe(UNVERIFIED);
-    return { status: 200, body: UNVERIFIED };
+    setMe(NEWCOMER);
+    return { status: 200, body: NEWCOMER };
   });
   await page.goto('/login');
 
@@ -77,7 +80,8 @@ test('creating an account signs in with the same credentials', async ({ page, fa
   await field(page, 'Password').fill('a long enough secret');
   await page.getByRole('button', { name: 'Create account' }).click();
 
-  await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
+  await expect(page).toHaveURL(/\/teams$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Welcome, Ada' })).toBeVisible();
   await expect(page.getByText('Account created. Check your inbox to verify your email.')).toBeVisible();
   expect(requests(fake, 'POST', '/api/auth/signup').map((r) => r.json))
     .toEqual([{ email: 'ada@example.com', password: 'a long enough secret', fullName: 'Ada Lovelace' }]);
@@ -136,7 +140,8 @@ test('a magic link signs in only after the click, as the masked address', async 
 
   await confirm.click();
 
-  await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/teams/${TEAM_ID}$`));
+  await expect(page.getByRole('main').getByRole('heading', { level: 1, name: 'Poker' })).toBeVisible();
   expect(requests(fake, 'POST', '/api/auth/magic/consume').map((r) => r.json)).toEqual([{ token: 'magic-token-1' }]);
   expect(errors).toEqual([]);
 });
@@ -177,6 +182,9 @@ test('verifying while signed out asks to sign in first, then finishes after sign
   await expect(page).toHaveURL(/\/auth\/verify$/);
   expect(requests(fake, 'POST', '/api/auth/verify/consume').map((r) => r.json)).toEqual([{ token: 'verify-token-1' }]);
   expect(fake.requests.every((r) => !r.path.includes('verify-token-1') && !String(r.query).includes('verify-token-1'))).toBe(true);
+
+  await page.getByRole('link', { name: 'Continue' }).click();
+  await expect(page).toHaveURL(new RegExp(`/teams/${TEAM_ID}$`));
 });
 
 test('verifying with another account’s session asks to sign in to the right one', async ({ page, fake }) => {

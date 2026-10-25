@@ -1,3 +1,7 @@
+// The team's Retros section (UX18 decision 11): Active and Archived boards, "New board" (a title and a template),
+// and a card per board with its title, its date and, when the board uses stages, the stage it is in. Boards
+// are team-only: every member of the team can open one, and nobody else.
+
 import { h, replaceContent } from '../core/h.js';
 import { reconcile } from '../core/list.js';
 import { formatDate } from '../core/fmt.js';
@@ -9,28 +13,43 @@ import { toast } from '../ui/toast.js';
 import { http } from '../core/http.js';
 import { confirmTyped, emptyState, field, formDialog, input, loading, toastError } from './util.js';
 
-const VISIBILITY = {
-  team: { label: 'Team only', icon: 'users' },
-  link: { label: 'Anyone with the link', icon: 'link' },
-  password: { label: 'Password', icon: 'lock' },
-};
+const STAGES = { thinking: 'Thinking', voting: 'Voting', discussing: 'Discussing', closed: 'Closed' };
+
+export const boardPath = (code) => `/retro/${encodeURIComponent(code)}`;
+
+/** The card's date line: created, archived when it is, and the stage when the board uses stages. */
+export function boardMeta(board) {
+  const parts = [formatDate(board.createdAt)];
+  if (board.archived && board.archivedAt) {
+    parts.push(`archived ${formatDate(board.archivedAt)}`);
+  }
+  if (board.stagesEnabled && STAGES[board.stage]) {
+    parts.push(STAGES[board.stage]);
+  }
+  return parts.join(' · ');
+}
 
 export function createBoardsTab(ctx) {
-  const heading = h('h2', { class: 'team-section-title' });
-  const activeButton = createButton({ label: 'Active', size: 'sm', variant: 'secondary', onClick: () => setArchived(false) });
-  const archivedButton = createButton({ label: 'Archived', icon: 'archive', size: 'sm', variant: 'secondary', onClick: () => setArchived(true) });
+  const activeButton = h('button', { type: 'button', on: { click: () => setArchived(false) } }, 'Active');
+  const archivedButton = h('button', { type: 'button', on: { click: () => setArchived(true) } }, 'Archived');
+  const create = createButton({ label: 'New board', icon: 'plus', variant: 'indigo', size: 'lg', onClick: () => openCreateBoard(ctx) });
   const list = h('div', { class: 'team-grid' });
   const status = h('div');
   const more = createButton({ label: 'Load more', variant: 'secondary', onClick: () => load(cursor) });
   more.el.hidden = true;
   const el = h('section', { class: 'team-section', 'aria-label': 'Retro boards' },
-    h('div', { class: 'team-toolbar' }, heading, h('div', { class: 'team-toggle', role: 'group', 'aria-label': 'Board list' }, activeButton.el, archivedButton.el)),
+    h('div', { class: 'team-toolbar' },
+      h('h1', { class: 'team-title', text: 'Retros' }),
+      h('div', { class: 'team-actions' },
+        h('div', { class: 'team-segmented', role: 'group', 'aria-label': 'Board list' }, activeButton, archivedButton),
+        create.el)),
     status, list, more.el);
 
   let archived = ctx.query().get('archived') === 'true';
   let boards = [];
   let cursor = null;
   let token = 0;
+  const menus = new Map();
 
   function setArchived(value) {
     if (value !== archived) {
@@ -65,17 +84,21 @@ export function createBoardsTab(ctx) {
   }
 
   function render() {
-    heading.textContent = archived ? 'Archived boards' : 'Active boards';
-    activeButton.update({ pressed: !archived, variant: archived ? 'secondary' : 'primary' });
-    archivedButton.update({ pressed: archived, variant: archived ? 'primary' : 'secondary' });
+    activeButton.setAttribute('aria-pressed', String(!archived));
+    archivedButton.setAttribute('aria-pressed', String(archived));
     more.el.hidden = cursor === null;
     if (boards.length === 0 && status.childElementCount === 0) {
       replaceContent(status, archived
         ? emptyState('archive', 'No archived boards', null)
-        : emptyState('calendar', 'No retro boards yet', 'Create the first retro board for this team.',
-          createButton({ label: 'New board', icon: 'plus', variant: 'primary', onClick: () => openCreateBoard(ctx) }).el));
+        : emptyState('calendar', 'No retro boards yet', 'Create the first retro board for this team.'));
     }
-    reconcile(list, boards, (b) => b.id, createCard, updateCard);
+    reconcile(list, boards, (b) => b.id, createCard, updateCard, {
+      remove(node, done) {
+        menus.get(node.dataset.id)?.destroy();
+        menus.delete(node.dataset.id);
+        done();
+      },
+    });
   }
 
   function createCard(board) {
@@ -84,31 +107,31 @@ export function createBoardsTab(ctx) {
     return el;
   }
 
+  // The title is the card's link and covers the whole card; the admins' menu button sits on top of it.
   function updateCard(el, board) {
-    const visibility = VISIBILITY[board.visibility] ?? VISIBILITY.team;
-    const menuButton = ctx.isAdmin()
-      ? createButton({ label: `Board actions for ${board.title}`, icon: 'ellipsis', iconOnly: true, variant: 'ghost', size: 'icon' })
-      : null;
-    if (menuButton) {
-      createMenu({
+    let menuButton = null;
+    if (ctx.isAdmin()) {
+      menuButton = createButton({ label: `Board actions for ${board.title}`, icon: 'ellipsis', iconOnly: true, variant: 'ghost', size: 'icon', className: 'team-board-menu' });
+      menus.get(board.id)?.destroy();
+      const menu = createMenu({
         label: 'Board actions',
         items: [
-          { action: archived ? 'unarchive' : 'archive', label: archived ? 'Unarchive' : 'Archive', icon: 'archive' },
+          { action: board.archived ? 'unarchive' : 'archive', label: board.archived ? 'Unarchive' : 'Archive', icon: 'archive' },
           'separator',
           { action: 'delete', label: 'Delete', icon: 'trash', destructive: true },
         ],
         onSelect: (action) => boardAction(board, action),
-      }).attach(menuButton.el);
+      });
+      menu.attach(menuButton.el);
+      menus.set(board.id, menu);
     }
     replaceContent(el,
-      h('header', { class: 'team-card-header' },
-        h('h3', { class: 'team-card-title', text: board.title }),
-        h('span', { class: ['badge', `team-visibility-${board.visibility}`], title: visibility.label }, icon(visibility.icon), visibility.label),
+      h('span', { class: 'team-board-preview', 'aria-hidden': 'true' }, h('span'), h('span'), h('span')),
+      h('div', { class: 'team-card-header' },
+        h('h2', { class: 'team-card-title' },
+          h('a', { class: 'team-board-link', href: boardPath(board.code), 'data-nav': '', text: board.title })),
         menuButton?.el),
-      h('p', { class: 'team-muted' }, icon('calendar'), ` ${formatDate(board.createdAt)}`,
-        board.archived && board.archivedAt ? ` · archived ${formatDate(board.archivedAt)}` : ''),
-      h('a', { class: 'btn btn-primary team-card-open', href: `/retro/${encodeURIComponent(board.code)}`, 'data-nav': '' },
-        board.archived ? 'View (read-only)' : 'Open board'));
+      h('p', { class: 'team-muted', text: boardMeta(board) }));
   }
 
   async function boardAction(board, action) {
@@ -141,6 +164,7 @@ export function createBoardsTab(ctx) {
   }
 
   const stop = ctx.room.select((s) => s?.boardsRev, Object.is, () => load(null));
+  render();
   load(null);
 
   return {
@@ -151,6 +175,9 @@ export function createBoardsTab(ctx) {
     destroy() {
       stop();
       token++;
+      for (const menu of menus.values()) {
+        menu.destroy();
+      }
       el.remove();
     },
   };
@@ -158,18 +185,6 @@ export function createBoardsTab(ctx) {
 
 export function openCreateBoard(ctx) {
   const title = input({ name: 'title', required: true, maxlength: '200', placeholder: 'Sprint 42 retro' });
-  const password = input({ name: 'password', type: 'password', autocomplete: 'new-password', minlength: '4', maxlength: '72' });
-  const passwordField = field('Board password', password);
-  passwordField.hidden = true;
-  const visibility = createChoice({
-    label: 'Who can open it',
-    name: 'visibility',
-    options: Object.entries(VISIBILITY).map(([value, { label }]) => ({ value, label })),
-    onChange(value) {
-      passwordField.hidden = value !== 'password';
-      password.required = value === 'password';
-    },
-  });
   const template = createChoice({ label: 'Template', name: 'templateId', options: [{ value: '', label: 'Team default' }] });
 
   ctx.api.get('/templates').then((page) => {
@@ -178,20 +193,22 @@ export function openCreateBoard(ctx) {
     });
   }, () => {});
 
+  const team = ctx.team()?.name;
   formDialog({
     title: 'New retro board',
-    content: [field('Title', title), field('Who can open it', visibility.el), passwordField, field('Template', template.el)],
+    content: [
+      field('Title', title),
+      field('Template', template.el),
+      h('p', { class: 'team-muted', text: team ? `Only members of ${team} can open it.` : 'Only members of this team can open it.' }),
+    ],
     submitLabel: 'Create board',
     async submit() {
-      const body = { title: title.value.trim(), visibility: visibility.value };
-      if (visibility.value === 'password') {
-        body.password = password.value;
-      }
+      const body = { title: title.value.trim() };
       if (template.value) {
         body.templateId = template.value;
       }
       const board = await ctx.api.post('/boards', body);
-      ctx.navigate(`/retro/${encodeURIComponent(board.code)}`);
+      ctx.navigate(boardPath(board.code));
     },
   });
 }

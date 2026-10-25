@@ -45,7 +45,7 @@ const client = await TestClient.connect(fake);   // a protocol client for node -
 | `json(body, status)`, `problem(status, code, extra)` | Response helpers from `http.js`. Error bodies with a `code` go out as `application/problem+json` |
 | `fake.requests` | Every HTTP request: `{method, path, query, headers, text, json}` |
 | `fake.jira({teamId, fixture?, configured?})` | Installs the fake Jira proxy under `/api/teams/{teamId}/jira/...` (see `jira.js` and `fixtures/jira.json`). Returns `{issues, config, calls, failNext(problem, count), touch(key), uninstall()}` |
-| `fake.me` | The `welcome.me`, or `(req) => me` |
+| `fake.me` | The `welcome.me`, or `(req) => me`. Null (nobody signed in) closes the socket with 4401 after its hello: `/ws` admits signed-in users only (UX18) |
 | `fake.musicFile` | Path of a local track (`.mp3`, `.ogg`, `.oga`, `.m4a` or `.wav`) served at `GET /media/timer-music` with range requests, as the real server serves `MUSIC_FILE` (UX13), but without the real route's session check. While set, the boot JSON of `/retro/*` paths gets `timerMusic: true`. Null (the default) answers 404 |
 | `fake.clockOffsetMs` | Added to the `welcome.n` and `pong.n` server clock (clock-skew tests) |
 | `fake.room(key, {snapshot, overlay, epoch, seq})` | Creates or updates a room. `snapshot` and `overlay` may be functions of the connection (per-viewer projections) |
@@ -61,6 +61,11 @@ const client = await TestClient.connect(fake);   // a protocol client for node -
 | `fake.connections`, `fake.received`, `fake.violations` | Connections; every client frame `{conn, frame}`; client frames the protocol refused |
 | `fake.waitForConnection()`, `fake.waitForFrame(pred, {after, timeout})` | Waits for a hello'd connection or a matching client frame |
 | `fake.waitForSubscription(roomKey)` | Waits until a live connection holds the room (its snap or replay was sent); pages join rooms after the tab socket's hello |
+
+The fake has no page redirects but one: `GET /dashboard` answers a no-store 302 to `/`, as the real shell does
+for the installed app's old start URL (UX18). Sending a signed-out visitor to `/login` and a signed-in `/` to
+the user's team are left to the client (`web/src/screens/app.js`, `redirectFor`), which applies them on the
+first page as well as in-app.
 
 `sub` answers the way the real server does: the current `{e, s}` gets an empty replay, an older `s` in the
 same epoch gets the missed txs, and anything else gets a snapshot. `lastQ` is the highest acked `q` of

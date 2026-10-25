@@ -1,5 +1,5 @@
 import { expect, test } from '../_harness/fixtures.js';
-import { ALICE, BOB, CAROL, GUEST, ROOM, STAGED, openBoard, sent, serveStages, snapshot, teamSnapshot } from './_stages.js';
+import { ALICE, BOB, CAROL, ROOM, STAGED, openBoard, sent, serveStages, snapshot } from './_stages.js';
 
 const count = (page) => page.locator('.retro-ready-count');
 
@@ -41,15 +41,4 @@ test('ready marks of an earlier stage do not count, and a stage change clears th
   await expect(page.locator('.retro-ready')).toHaveAttribute('data-all', 'true');
   fake.tx(ROOM, [{ k: 'retro.stage', d: { stage: 'discussing' } }, { k: 'retro.readiness', d: { stage: 'discussing', ready: [] } }]);
   await expect(count(page)).toHaveText('0/2 ready');
-});
-
-test('on a team board only members mark themselves ready; guests on quick boards may', async ({ page, fake }) => {
-  const team = teamSnapshot({ config: STAGED, presence: [ALICE, GUEST] });
-  await openBoard(page, fake, { snap: team, me: GUEST });
-  await expect(count(page)).toHaveText('0/2 ready');
-  await expect(page.getByRole('button', { name: 'Mark ready' })).toBeHidden();
-
-  const quick = snapshot({ config: STAGED, presence: [ALICE, GUEST] });
-  await openBoard(page, fake, { snap: quick, me: GUEST });
-  await expect(page.getByRole('button', { name: 'Mark ready' })).toBeVisible();
 });

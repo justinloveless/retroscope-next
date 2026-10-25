@@ -2,6 +2,7 @@
 // mount(root, boot) → {update(params), unmount()}. Navigating between paths served by the same module
 // only calls update(params), where params holds the path parameters plus `route` (the matched
 // pattern) and `query` (URLSearchParams); a different module fetches /api/boot?path= first, then remounts.
+// A redirect hook may send a path elsewhere first (the shell's sign-in gate and '/', UX18).
 
 // RS_STYLES is defined by build.mjs: route module → its stylesheet URLs (beyond the kit).
 const ROUTE_STYLES = typeof RS_STYLES === 'object' ? RS_STYLES : {};
@@ -78,9 +79,10 @@ function isPlainNavigation(event, anchor) {
  * options: routes, root, boot (the first page's boot JSON), loadBoot(path, signal) for in-app
  * navigation, notFound(root) → view, onError(error, url), context(route) → the third argument of
  * mount() (or a promise of it, awaited with the chunk), onShow(route | null, params) after each screen
- * change or update.
+ * change or update, redirect(url, route | null) → a path to show instead, or null to show `url`. A
+ * redirect replaces the address-bar entry and fetches the boot JSON of where it leads.
  */
-export function createRouter({ routes, root, boot, loadBoot, notFound, onError, context, onShow }) {
+export function createRouter({ routes, root, boot, loadBoot, notFound, onError, context, onShow, redirect }) {
   let current = null;
   let token = 0;
   let pending = null;
@@ -89,7 +91,14 @@ export function createRouter({ routes, root, boot, loadBoot, notFound, onError, 
     const run = ++token;
     pending?.abort();
     pending = null;
-    const found = resolve(routes, url);
+    let found = resolve(routes, url);
+    const moved = redirect?.(url, found?.route ?? null);
+    if (moved) {
+      url = new URL(moved, url);
+      history.replaceState(history.state, '', url.href);
+      found = resolve(routes, url);
+      firstBoot = undefined;
+    }
 
     if (found && current && current.module === found.route.module) {
       current.view.update(found.params);

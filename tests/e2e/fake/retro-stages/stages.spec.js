@@ -1,6 +1,6 @@
 import { expect, test } from '../_harness/fixtures.js';
 import {
-  ALICE, BOB, GUEST, ROOM, STAGED, asPerson, openAs, openBoard, personPage, sent, servePeople, serveStages, snapshot,
+  ALICE, BOB, ROOM, STAGED, asPerson, openAs, openBoard, personPage, sent, servePeople, serveStages, snapshot,
 } from './_stages.js';
 
 const pill = (page, name) => page.locator('.retro-stage-pill', { hasText: name });
@@ -50,18 +50,6 @@ test('a facilitator advances and jumps; the stage waits for the server', async (
   await expect(pill(page, 'Discussing')).toHaveAttribute('aria-current', 'step');
   await page.getByRole('button', { name: 'Reset' }).click();
   await expect.poll(() => sent(fake, 'retro.stage.set').at(-1)).toEqual({ from: 'discussing', to: 'thinking' });
-});
-
-test('a guest sees the stages but cannot move them', async ({ page, fake }) => {
-  const snap = snapshot({ config: STAGED, stage: 'closed', readiness: { stage: 'closed', ready: [] }, presence: [ALICE, GUEST] });
-  await openBoard(page, fake, { snap, me: GUEST });
-  await expect(page.locator('.retro-stages')).toBeVisible();
-  await expect(advance(page)).toBeHidden();
-  for (const name of ['Thinking', 'Voting', 'Discussing']) {
-    await expect(pill(page, name)).toBeDisabled();
-  }
-  await expect(page.getByRole('button', { name: 'Reopen' })).toBeHidden();
-  await expect(page.locator('.retro-stage-done')).toHaveText('Retrospective complete');
 });
 
 test('two facilitators move the stage at once: one wins and the other is told', async ({ page, fake, browser }) => {

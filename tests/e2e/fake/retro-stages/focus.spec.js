@@ -1,5 +1,5 @@
 import { expect, test } from '../_harness/fixtures.js';
-import { ALICE, BOB, GUEST, ROOM, STAGED, card, cardsIn, openBoard, sent, snapshot, teamSnapshot } from './_stages.js';
+import { ALICE, BOB, ROOM, STAGED, card, cardsIn, openBoard, sent, snapshot } from './_stages.js';
 
 const discussing = (fields = {}) => snapshot({
   config: STAGED,
@@ -33,7 +33,7 @@ function serveFocus(fake, initial = null) {
 }
 
 test('a late joiner sees the focused card from the snapshot', async ({ page, fake }) => {
-  await openBoard(page, fake, { snap: discussing({ focus: card(2).id }), me: GUEST });
+  await openBoard(page, fake, { snap: discussing({ focus: card(2).id }), me: BOB });
   await expect(banner(page)).toBeVisible();
   await expect(banner(page).locator('.retro-focus-body')).toHaveText('two');
   await expect(banner(page).locator('.retro-focus-column')).toHaveText('Good');
@@ -98,11 +98,6 @@ test('focus is offered only while discussing, and on team boards only to members
   fake.tx(ROOM, [{ k: 'retro.stage', d: { stage: 'discussing' } }]);
   await expect(banner(page)).toBeVisible();
   await expect(focusButton(page).first()).toBeVisible();
-
-  await openBoard(page, fake, { snap: teamSnapshot({ ...discussing(), focus: card(1).id }), me: GUEST });
-  await expect(banner(page)).toBeVisible();
-  await expect(focusButton(page).first()).toBeHidden();
-  await expect(banner(page).getByRole('button', { name: 'Next card' })).toBeHidden();
 });
 
 test('a focused card that is deleted clears the banner', async ({ page, fake }) => {

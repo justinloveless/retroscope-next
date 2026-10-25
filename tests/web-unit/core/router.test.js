@@ -317,3 +317,51 @@ test('context(route) becomes mount()’s third argument, and onShow reports ever
   assert.deepEqual(mounted, [['landing', {}], ['retro', { socket: 'tab socket' }]]);
   assert.deepEqual(shown, ['/', '/retro/:code ABC', '/retro/:code DEF', null]);
 });
+
+test('redirect(url, route) replaces the address and shows where it leads, with that path’s boot JSON', async () => {
+  const log = [];
+  const boots = [];
+  const asked = [];
+  const router = createRouter({
+    routes: testRoutes(log),
+    root: doc.body,
+    boot: { page: '/' },
+    loadBoot: async (path) => {
+      boots.push(path);
+      return { path };
+    },
+    notFound: () => log.push('not found'),
+    redirect(url, route) {
+      asked.push([url.pathname, route?.path ?? null]);
+      return { '/': '/teams/t1?tab=retros', '/poker/x': '/teams/t2' }[url.pathname] ?? null;
+    },
+  });
+  await router.start();
+  assert.equal(location.href, 'http://app.test/teams/t1?tab=retros');
+  assert.deepEqual(boots, ['/teams/t1?tab=retros'], 'the first page’s boot JSON was for another path');
+  assert.deepEqual(log, ['mount team {"path":"/teams/t1?tab=retros"}', 'update team {"id":"t1","route":"/teams/:id"}']);
+
+  log.length = 0;
+  await router.navigate('/poker/x');
+  assert.equal(location.href, 'http://app.test/teams/t2');
+  assert.deepEqual(log, ['update team {"id":"t2","route":"/teams/:id"}']);
+
+  log.length = 0;
+  await router.navigate('/nowhere');
+  assert.deepEqual(log, ['unmount team', 'not found']);
+  assert.deepEqual(asked, [['/', '/'], ['/poker/x', '/poker/:code'], ['/nowhere', null]]);
+});
+
+test('a null redirect shows the page as asked, with the first page’s own boot JSON', async () => {
+  const log = [];
+  const router = createRouter({
+    routes: testRoutes(log),
+    root: doc.body,
+    boot: { page: '/' },
+    loadBoot: () => assert.fail('no fetch on first page'),
+    redirect: () => null,
+  });
+  await router.start();
+  assert.equal(location.href, 'http://app.test/');
+  assert.deepEqual(log, ['mount landing {"page":"/"}', 'update landing {"route":"/"}']);
+});

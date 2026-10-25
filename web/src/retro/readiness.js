@@ -6,9 +6,9 @@ import { h } from '../core/h.js';
 import { createButton } from '../ui/button.js';
 import { isMember } from './model.js';
 
-/** Readiness and focus: everyone on a quick board, team members only on a team board (RetroRoles.MayPace). */
+/** Readiness and focus: the board's team members (RetroRoles.MayPace). */
 export function mayPace(view, me) {
-  return Boolean(me) && (!view.teamId || isMember(view, me.pid));
+  return Boolean(me) && isMember(view, me.pid);
 }
 
 export function readinessOf(view) {

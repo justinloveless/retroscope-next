@@ -1,8 +1,14 @@
-// Shared fixtures for the shell screen specs: principals, a switchable boot JSON, default HTTP
-// fixtures for every shell API, and a tiny PNG reader for first-paint screenshots.
+// Shared fixtures for the shell screen specs: principals and their teams, a switchable boot JSON, default HTTP
+// fixtures for every shell API and the team page, header helpers, and a tiny PNG reader for first-paint
+// screenshots.
 import { inflateSync } from 'node:zlib';
-import { json } from '../../../web-fake-server/http.js';
+import { json, problem } from '../../../web-fake-server/http.js';
 
+export const TEAM_ID = '01900000-0000-7000-8000-0000000000a1';
+export const APPS_ID = '01900000-0000-7000-8000-0000000000a2';
+
+// Ada owns Platform and is a member of Apps; Platform is the team she used last, so '/' leads there although
+// Apps comes first by name.
 export const USER = Object.freeze({
   principal: { id: '01900000-0000-7000-8000-000000000001', kind: 'user', name: 'Ada Lovelace' },
   user: {
@@ -14,36 +20,76 @@ export const USER = Object.freeze({
     isAdmin: false,
     hasPassword: true,
   },
-  teams: [{ id: '01900000-0000-7000-8000-0000000000a1', name: 'Platform', role: 'owner' }],
+  teams: [
+    { id: APPS_ID, name: 'Apps', role: 'member', openActions: 0 },
+    { id: TEAM_ID, name: 'Platform', role: 'owner', openActions: 3 },
+  ],
+  lastTeamId: TEAM_ID,
   unreadMentions: 2,
 });
 
 export const ADMIN = Object.freeze({ ...USER, user: { ...USER.user, isAdmin: true } });
 
-export const TEAM_ID = USER.teams[0].id;
+/** A signed-in user in no team yet, with an address still to verify: '/' leads to the create-or-join screen. */
+export const NEWCOMER = Object.freeze({
+  ...USER,
+  user: { ...USER.user, emailVerified: false },
+  teams: [],
+  lastTeamId: null,
+  unreadMentions: 0,
+});
 
-/** Serves `me` in the shell and /api/boot; returns setMe(next) for sign-in flows. */
+const principalOf = (me) => ({ pid: me.principal.id, kind: me.principal.kind, name: me.principal.name });
+
+/**
+ * Serves `me` in the shell and /api/boot (and /api/me, which pages reload after a team change), and makes the
+ * socket speak for the same user; returns setMe(next) for sign-in flows.
+ */
 export function useSession(fake, me = null, { theme } = {}) {
   let current = me;
   fake.boot = (path) => ({ build: 'fake', theme: theme ?? current?.user?.theme ?? 'system', me: current, path });
+  fake.me = () => (current ? principalOf(current) : null);
+  fake.route('GET', '/api/me', () => (current ? json(current) : problem(401, 'unauthenticated')));
   return (next) => {
     current = next;
   };
 }
 
+const TEAM_INFO = {
+  [TEAM_ID]: { name: 'Platform', description: 'The platform crew', role: 'owner' },
+  [APPS_ID]: { name: 'Apps', description: 'Mobile and web apps', role: 'member' },
+};
+
+/** The team page's API and rooms for Platform and Apps, with empty lists: enough for its sections to show. */
+export function installTeams(fake, me = USER) {
+  for (const [id, info] of Object.entries(TEAM_INFO)) {
+    fake.route('GET', `/api/teams/${id}`, json({
+      id,
+      ...info,
+      pointDescriptions: {},
+      maxEndorsements: 3,
+      jira: { configured: false, status: 'ok', membersCanEdit: true },
+      counts: { boards: 0, members: 1 },
+    }));
+    for (const list of ['poker-sessions', 'boards', 'action-items', 'invites', 'templates']) {
+      fake.route('GET', `/api/teams/${id}/${list}`, json({ items: [], nextCursor: null }));
+    }
+    fake.route('GET', `/api/teams/${id}/endorsements/leaderboard`, json({ entries: [] }));
+    fake.room(`team:${id}`, {
+      snapshot: {
+        teamId: id,
+        name: info.name,
+        members: [{ pid: me.principal.id, name: me.principal.name, role: info.role }],
+        actionItems: [],
+        endorsementTypes: [],
+        pointDescriptions: {},
+        maxEndorsements: 3,
+      },
+    });
+  }
+}
+
 export function installApi(fake) {
-  fake.route('GET', '/api/dashboard', json({
-    teams: [{ id: TEAM_ID, name: 'Platform', lastAt: '2026-10-20T10:00:00Z' }],
-    favorites: [],
-    boards: [{ id: 'b1', code: 'BOARDCODE1', title: 'Sprint 42 retro', teamName: 'Platform', lastAt: '2026-10-20T09:00:00Z' }],
-    sessions: [{ id: 's1', code: 'POKERCODE1', teamId: TEAM_ID, teamName: 'Platform', lastAt: '2026-10-19T09:00:00Z' }],
-  }));
-  fake.route('GET', '/api/teams', json([
-    { id: TEAM_ID, name: 'Platform', description: 'The platform crew', role: 'owner', favorite: false },
-    { id: '01900000-0000-7000-8000-0000000000a2', name: 'Apps', role: 'member', favorite: true },
-  ]));
-  fake.route('PUT', '/api/teams/:id/favorite', { status: 204 });
-  fake.route('DELETE', '/api/teams/:id/favorite', { status: 204 });
   fake.route('GET', '/api/me/mentions', json({
     items: [{
       sourceKind: 'card',
@@ -82,17 +128,27 @@ export function installApi(fake) {
   fake.route('POST', '/api/invites/preview', json({ teamName: 'Platform', kind: 'link', expired: false }));
 }
 
+/** The app header. */
+export const header = (page) => page.locator('header.app-header');
+
+/** True below 768 px, where the account button opens the slide-out sheet instead of the account menu. */
+export const narrow = (page) => page.viewportSize().width < 768;
+
+/** The header's sections of `team` ("<team> sections"). */
+export const sections = (page, team = 'Platform') => header(page).getByRole('navigation', { name: `${team} sections` });
+
 /**
- * A main header link by name: in the header's nav on wide screens, in the slide-out menu below 768 px
- * (which this opens).
+ * Opens the account items: the account menu on wide screens, the slide-out sheet below 768 px. Returns the
+ * container to look for them in, with `item(name)` for the entry (a menu item or a sheet link or button).
  */
-export async function mainLink(page, name) {
-  const burger = page.getByRole('button', { name: 'Menu', exact: true });
-  if (await burger.isVisible()) {
-    await burger.click();
-    return page.getByRole('dialog', { name: 'Menu' }).getByRole('link', { name, exact: true });
+export async function openAccount(page) {
+  await header(page).getByRole('button', { name: /^Account menu for / }).filter({ visible: true }).click();
+  if (narrow(page)) {
+    const sheet = page.getByRole('dialog', { name: 'Menu' });
+    return { el: sheet, item: (name) => sheet.getByRole('link', { name, exact: true }).or(sheet.getByRole('button', { name, exact: true })) };
   }
-  return page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name, exact: true });
+  const menu = page.getByRole('menu', { name: 'Account' });
+  return { el: menu, item: (name) => menu.getByRole('menuitem', { name, exact: true }).or(menu.getByRole('menuitemradio', { name, exact: true })) };
 }
 
 export const requests = (fake, method, path) => fake.requests.filter((r) => r.method === method && r.path === path);

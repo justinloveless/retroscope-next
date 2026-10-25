@@ -4,7 +4,7 @@ import { currentTheme } from '../core/theme.js';
 import { createAvatar } from '../ui/avatar.js';
 import { confirmDialog } from '../ui/confirm.js';
 import { toast } from '../ui/toast.js';
-import { avatarUrl, currentMe, currentUser, navigate, refreshMe, session, setMe, setThemePreference, signOut } from './app.js';
+import { avatarUrl, currentMe, currentUser, navigate, refreshMe, session, setMe, setThemePreference, signOut, signedOut } from './app.js';
 import { ago, card, createFrame, errorText, field, form, muted, row, stack } from './frame.js';
 
 const AVATAR_PX = 128;
@@ -189,7 +189,7 @@ function sessionsCard(signal) {
     try {
       await http.del(`/api/me/sessions/${button.dataset.id}`);
       if (button.textContent === 'Sign out') {
-        setMe(null);
+        await signedOut();
         await navigate('/login');
         return;
       }

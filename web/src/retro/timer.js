@@ -346,7 +346,6 @@ export const timerFeature = {
     let tick = 0;
 
     const setup = createButton({ label: 'Timer', icon: 'timer', variant: 'outline', size: 'sm', onClick: () => timerDialog(ctx) });
-    const signIn = h('span', { class: 'retro-timer-hint', text: 'Sign in to use the timer' });
     const display = h('span', { class: 'retro-timer-display', role: 'timer', 'aria-label': 'Time left' });
     const pause = createButton({ iconOnly: true, variant: 'ghost', size: 'icon', onClick: () => send(ctx, view.timer.state === 'running' ? 'retro.timer.pause' : 'retro.timer.resume', {}) });
     const reset = createButton({ label: 'Reset timer', icon: 'rotate-ccw', iconOnly: true, variant: 'ghost', size: 'icon', onClick: () => send(ctx, 'retro.timer.reset', {}) });
@@ -362,7 +361,7 @@ export const timerFeature = {
       }
     });
     const running = h('span', { class: 'retro-timer-running' }, icon('timer'), display, pause, reset, soundButton);
-    const el = h('div', { class: 'retro-timer' }, setup, signIn, running);
+    const el = h('div', { class: 'retro-timer' }, setup, running);
     toolbar.append(el);
 
     function ring(endsAt) {
@@ -464,7 +463,6 @@ export const timerFeature = {
       const active = timer.state !== 'idle';
       el.dataset.state = timer.state;
       setup.el.hidden = active || !facilitator;
-      signIn.hidden = active || facilitator || ctx.me()?.kind !== 'guest';
       running.hidden = !active;
       if (!active) {
         // The button it is anchored to is hidden, so it would float loose.

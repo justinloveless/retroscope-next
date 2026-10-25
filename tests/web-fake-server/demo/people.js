@@ -1,5 +1,6 @@
-// The demo's cast: "Demo User" and five teammates in Demo Team, a few other accounts for the admin
-// pages, and pixel-art avatars served as SVG from /blob/{id}.
+// The demo's cast: "Demo User" and five teammates in Demo Team, two more in Platform Guild, the eleven
+// others of Product All-Hands, and pixel-art avatars served as SVG from /blob/{id}. Everyone is a signed-in
+// member of a team: there are no guests (UX18).
 import { demoId } from './util.js';
 
 const person = (n, fields) => ({
@@ -21,17 +22,15 @@ export const AISHA = person(6, { key: 'aisha', name: 'Aisha Okafor', nickname: '
 export const TOM = person(7, { key: 'tom', name: 'Tom Becker', nickname: 'Tom', email: 'tom.becker@example.test', hue: 270, emailVerified: false });
 export const LENA = person(8, { key: 'lena', name: 'Lena Novak', nickname: 'Lena', email: 'lena.novak@example.test', hue: 175 });
 
-export const PEOPLE = [DEMO, PRIYA, MARCUS, SOFIA, JONAS, AISHA, TOM, LENA];
-
-// Guests who show up in the quick poker session; they have no account.
-export const GUESTS = [
-  { pid: demoId('0009', 1), kind: 'guest', name: 'Sam (contractor)', hue: 95 },
-  { pid: demoId('0009', 2), kind: 'guest', name: 'Lee', hue: 300 },
-];
-
-// A crowded quick session: eleven guests around one table, so twelve players with Demo User.
+// Product All-Hands: eleven more members around one table, so twelve players with Demo User. They have no
+// avatar, so their seats show initials.
 export const CROWD = ['Noor', 'Mateo', 'Hana', 'Felix', 'Ines', 'Kofi', 'Yara', 'Oskar', 'Mei', 'Ravi', 'Zoe']
-  .map((name, i) => ({ pid: demoId('0009', 11 + i), kind: 'guest', name, hue: (i * 33) % 360 }));
+  .map((name, i) => ({
+    ...person(11 + i, { key: name.toLowerCase(), name, nickname: name, email: `${name.toLowerCase()}@example.test`, hue: (i * 33) % 360 }),
+    avatar: undefined,
+  }));
+
+export const PEOPLE = [DEMO, PRIYA, MARCUS, SOFIA, JONAS, AISHA, TOM, LENA, ...CROWD];
 
 export function personByKey(key) {
   const wanted = String(key ?? '').trim().toLowerCase();

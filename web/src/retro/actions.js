@@ -7,7 +7,8 @@ import { h, replaceContent } from '../core/h.js';
 import { http } from '../core/http.js';
 import { parse } from '../markup/parse.js';
 import { walk } from '../markup/doc.js';
-import { model as teamModel, optimistic as teamIntent } from '../team/model.js';
+import { model as teamModel, openActions, optimistic as teamIntent } from '../team/model.js';
+import { patchTeam } from '../screens/app.js';
 import { createMenu } from '../ui/menu.js';
 import { icon } from '../ui/icons.js';
 import { toast } from '../ui/toast.js';
@@ -56,8 +57,13 @@ function createTeamLink(ctx) {
   let jiraLoading = false;
 
   function notify() {
+    const view = room?.view ?? null;
+    if (view) {
+      // The header's open count for this team stays live while the board holds its room (UX18 decision 10).
+      patchTeam(teamId, { openActions: openActions(view) });
+    }
     for (const listener of listeners) {
-      listener(room?.view ?? null);
+      listener(view);
     }
   }
 

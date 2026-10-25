@@ -6,11 +6,13 @@ import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isAllowedDoc } from '../../../web/src/markup/allow.js';
+import { uuidv7Time } from '../../../web/src/poker/model.js';
 import { TestClient } from '../client.js';
 import { startFakeServer } from '../server.js';
 import { connectWebSocket } from '../ws.js';
+import { ALL_HANDS_TEAM, GUILD_TEAM } from './data.js';
 import { CODES, DEMO_TEAM, installDemo } from './index.js';
-import { DEMO, MARCUS, PRIYA } from './people.js';
+import { CROWD, DEMO, LENA, MARCUS, PRIYA, TOM } from './people.js';
 import { winnerOf } from './poker.js';
 
 const THEME = '(function(){document.documentElement.dataset.theme="light"})();';
@@ -123,12 +125,13 @@ describe('fake server hooks', () => {
   test('an alias host is its own origin for CSRF, the socket and the CSP', async () => {
     const port = new URL(fake.url).port;
     const alias = `http://localhost:${port}`;
-    const shell = await rawRequest('GET', '/dashboard', { Host: `localhost:${port}` });
+    const shell = await rawRequest('GET', '/account', { Host: `localhost:${port}` });
     assert.match(shell.headers['content-security-policy'], new RegExp(`ws://localhost:${port}`));
-    const refused = await rawRequest('POST', '/api/guest', { 'X-RS': '1', Origin: alias }, '{"displayName":"Kim"}');
+    const body = JSON.stringify({ email: DEMO.email });
+    const refused = await rawRequest('POST', '/api/auth/magic/request', { 'X-RS': '1', Origin: alias }, body);
     assert.equal(refused.statusCode, 403);
-    const accepted = await rawRequest('POST', '/api/guest', { 'X-RS': '1', Origin: alias, Host: `localhost:${port}`, 'Content-Type': 'application/json' }, '{"displayName":"Kim"}');
-    assert.equal(accepted.statusCode, 200);
+    const accepted = await rawRequest('POST', '/api/auth/magic/request', { 'X-RS': '1', Origin: alias, Host: `localhost:${port}`, 'Content-Type': 'application/json' }, body);
+    assert.equal(accepted.statusCode, 202);
 
     const ws = await connectWebSocket(fake.wsUrl, { origin: alias, headers: { Host: `localhost:${port}` } });
     const client = new TestClient(ws);
@@ -160,10 +163,10 @@ describe('fake server hooks', () => {
 describe('identity', () => {
   test('visitors are Demo User until ?as= picks another member, which sticks in a cookie', async () => {
     const boot = (html) => JSON.parse(/id="boot">(.*?)<\/script>/.exec(html)[1]);
-    const plain = await fetch(`${fake.url}/dashboard`);
+    const plain = await fetch(`${fake.url}/account`);
     assert.equal(boot(await plain.text()).me.principal.name, 'Demo User');
 
-    const as = await fetch(`${fake.url}/dashboard?as=priya`);
+    const as = await fetch(`${fake.url}/account?as=priya`);
     assert.equal(boot(await as.text()).me.principal.name, 'Priya Raman');
     assert.match(as.headers.get('set-cookie'), /rs_demo_as=priya/);
 
@@ -171,6 +174,40 @@ describe('identity', () => {
     assert.equal(priya.me.pid, PRIYA.pid);
     const out = await fetch(`${fake.url}/login`, { headers: { cookie: 'rs_demo_as=signed-out' } });
     assert.equal(boot(await out.text()).me, null);
+  });
+
+  test('a signed-out visitor has no socket: /ws admits signed-in users only', async () => {
+    const ws = await connectWebSocket(fake.wsUrl, { origin: fake.origin, headers: { cookie: 'rs_demo_as=signed-out' } });
+    const client = new TestClient(ws);
+    clients.push(client);
+    client.send({ t: 'hello', v: 1, cid: randomUUID(), subs: [] });
+    assert.equal((await client.closed).code, 4401);
+  });
+
+  test('a sign-in link to a new address creates a verified account with no team yet', async () => {
+    const lines = [];
+    demo.log = (line) => lines.push(line);
+    assert.equal((await http('/api/auth/magic/request', { method: 'POST', body: JSON.stringify({ email: 'New.Person@example.test' }) })).status, 202);
+    const token = /#t=(.+)$/.exec(lines.at(-1))[1];
+    assert.deepEqual(await (await http('/api/auth/magic/preview', { method: 'POST', body: JSON.stringify({ token }) })).json(), { email: 'n•••@example.test' });
+    const signedIn = await http('/api/auth/magic/consume', { method: 'POST', body: JSON.stringify({ token }) });
+    const me = await signedIn.json();
+    assert.equal(me.user.email, 'new.person@example.test');
+    assert.equal(me.user.emailVerified, true);
+    assert.deepEqual(me.teams, []);
+    assert.equal(me.lastTeamId, null);
+    assert.equal((await http('/api/auth/magic/consume', { method: 'POST', body: JSON.stringify({ token }) })).status, 400);
+  });
+
+  test('an unverified user can ask for the verification email again, and the answer never says whether it went', async () => {
+    const lines = [];
+    demo.log = (line) => lines.push(line);
+    const asTom = { headers: { cookie: 'rs_demo_as=tom' } };
+    assert.equal((await http('/api/auth/verify/request', { method: 'POST', body: '{}', ...asTom })).status, 202);
+    assert.match(lines.at(-1), new RegExp(`to ${TOM.email}: Verify your email: .*/auth/verify#t=`));
+    assert.equal((await http('/api/auth/verify/request', { method: 'POST', body: '{}' })).status, 202);
+    assert.equal(lines.length, 1, 'a verified user gets no mail');
+    assert.equal((await http('/api/auth/verify/request', { method: 'POST', body: '{}', headers: { cookie: 'rs_demo_as=signed-out' } })).status, 401);
   });
 
   test('signing in by email and out again moves the cookie', async () => {
@@ -365,7 +402,7 @@ describe('HTTP', () => {
     return response.json();
   };
 
-  test('team pages get the shapes of docs/decisions/U30.md', async () => {
+  test('team pages get the shapes of docs/decisions/U30.md and UX18.md', async () => {
     const team = await get(`/api/teams/${DEMO_TEAM}`);
     assert.equal(team.role, 'owner');
     assert.equal(team.jira.projectKey, 'DEMO');
@@ -374,12 +411,26 @@ describe('HTTP', () => {
     const boards = await get(`/api/teams/${DEMO_TEAM}/boards?archived=false`);
     assert.deepEqual(boards.items.map((b) => b.code), [CODES.thinking, CODES.voting, CODES.discussing, CODES.closed]);
     assert.equal(boards.nextCursor, null);
+    const thinking = demo.boardByCode(CODES.thinking);
+    assert.deepEqual(boards.items[0], {
+      id: thinking.id,
+      code: CODES.thinking,
+      title: 'Sprint 42 retro',
+      archived: false,
+      createdAt: thinking.createdAt,
+      stage: 'thinking',
+      stagesEnabled: true,
+      cardCount: thinking.cards.size,
+      lastActivityAt: Math.max(...[...thinking.cards.values(), ...thinking.comments.values()].map((c) => c.createdAt)),
+    });
     assert.equal((await get(`/api/teams/${DEMO_TEAM}/boards?archived=true`)).items[0].code, CODES.archived);
 
     const sessions = (await get(`/api/teams/${DEMO_TEAM}/poker-sessions`)).items;
+    const teamPoker = demo.sessionByCode(CODES.teamPoker);
     assert.deepEqual(sessions.find((s) => s.code === CODES.teamPoker), {
-      id: demo.sessionByCode(CODES.teamPoker).id, code: CODES.teamPoker, createdAt: demo.sessionByCode(CODES.teamPoker).createdAt,
+      id: teamPoker.id, code: CODES.teamPoker, createdAt: teamPoker.createdAt,
       pointed: 3, total: 4, parentKeys: [{ key: 'DEMO-100', count: 4 }],
+      lastActivityAt: Math.max(...teamPoker.rounds.map((r) => r.revealedAt ?? 0)),
     });
 
     const open = (await get(`/api/teams/${DEMO_TEAM}/action-items?status=open&sort=newest`)).items;
@@ -388,24 +439,103 @@ describe('HTTP', () => {
     assert.ok(leaderboard[0].total >= leaderboard.at(-1).total && leaderboard[0].name);
   });
 
-  test('shell pages get the shapes of docs/decisions/U29.md', async () => {
+  test('me lists the teams by name with their open action items, and the team visited last', async () => {
     const me = await get('/api/me');
-    assert.deepEqual(me.teams.map((t) => t.name), ['Demo Team', 'Platform Guild']);
+    assert.deepEqual(me.teams.map((t) => [t.name, t.role]), [['Demo Team', 'owner'], ['Platform Guild', 'member'], ['Product All-Hands', 'member']]);
+    assert.deepEqual(me.teams.map((t) => t.openActions), [4, 0, 0]);
+    assert.equal(me.lastTeamId, DEMO_TEAM);
     assert.ok(me.unreadMentions > 0);
     const mentions = await get('/api/me/mentions');
     assert.ok(mentions.items.some((m) => m.boardCode === CODES.thinking && m.author?.name === 'Marcus Chen'));
-    const dashboard = await get('/api/dashboard');
-    assert.equal(dashboard.favorites[0].name, 'Demo Team');
-    assert.ok(dashboard.boards.length > 0 && dashboard.sessions.length > 0);
     assert.ok((await get('/api/me/endorsements')).some((e) => e.typeName === 'Shipped It'));
+
+    // Opening a team page or any room of a team makes it the last team.
+    await get(`/api/teams/${GUILD_TEAM}`);
+    assert.equal((await get('/api/me')).lastTeamId, GUILD_TEAM);
+    const client = await connect('demo', [demo.sessionByCode(CODES.crowdPoker).key]);
+    await frame(client, (f) => f.t === 'snap');
+    assert.equal((await get('/api/me')).lastTeamId, ALL_HANDS_TEAM);
+
+    const lena = await (await http('/api/me', { headers: { cookie: 'rs_demo_as=lena' } })).json();
+    assert.equal(lena.user.email, LENA.email);
+    assert.equal(lena.lastTeamId, null, 'nobody has seen Lena visit a team yet');
   });
 
-  test('a quick session or board made over HTTP opens by its code', async () => {
-    const poker = await (await http('/api/poker', { method: 'POST', body: '{}' })).json();
+  test('the removed routes are gone: no guests, quick rooms, board passwords, Dashboard, team list or favorites', async () => {
+    const board = demo.boardByCode(CODES.thinking);
+    const gone = [
+      ['POST', '/api/guest'], ['POST', '/api/poker'], ['POST', '/api/retro'], ['GET', '/api/dashboard'], ['GET', '/api/teams'],
+      ['PUT', `/api/teams/${DEMO_TEAM}/favorite`], ['POST', `/api/retro/${board.id}/unlock`], ['PATCH', `/api/retro/${board.id}`],
+    ];
+    for (const [method, path] of gone) {
+      assert.equal((await http(path, { method, body: method === 'GET' ? undefined : '{}' })).status, 404, `${method} ${path}`);
+    }
+    const old = await fetch(`${fake.url}/dashboard`, { redirect: 'manual' });
+    assert.equal(old.status, 302);
+    assert.equal(old.headers.get('location'), '/');
+    assert.equal(old.headers.get('cache-control'), 'no-store');
+  });
+
+  test('a session or board opens by its code for the team\'s members, and is as missing as a wrong code to anyone else', async () => {
+    const created = await (await http(`/api/teams/${DEMO_TEAM}/boards`, { method: 'POST', body: JSON.stringify({ title: 'Kick-off', visibility: 'link', password: 'hunter2' }) })).json();
+    assert.deepEqual(await get(`/api/retro/by-code/${created.code}`), { id: created.id, access: 'granted' });
+    const board = demo.boards.get(created.id);
+    assert.deepEqual(board.meta, { title: 'Kick-off', archived: false });
+    const poker = demo.sessionByCode(CODES.teamPoker);
     assert.deepEqual(await get(`/api/poker/by-code/${poker.code.toLowerCase()}`), { id: poker.id, access: 'granted' });
-    const retro = await (await http('/api/retro', { method: 'POST', body: '{}' })).json();
-    assert.deepEqual(await get(`/api/retro/by-code/${retro.code}`), { id: retro.id, access: 'granted' });
-    assert.equal((await fetch(`${fake.url}/api/poker/by-code/NOPE000000`)).status, 404);
+
+    const asLena = { headers: { cookie: 'rs_demo_as=lena' } };
+    for (const path of [`/api/retro/by-code/${created.code}`, `/api/poker/by-code/${poker.code}`, '/api/poker/by-code/NOPE000000', `/api/teams/${DEMO_TEAM}`]) {
+      assert.equal((await fetch(new URL(path, fake.url), asLena)).status, 404, path);
+    }
+    assert.equal((await fetch(new URL(`/api/retro/by-code/${created.code}`, fake.url), { headers: { cookie: 'rs_demo_as=signed-out' } })).status, 401);
+  });
+
+  test('a member who is not an admin cannot archive or delete a board, even one they made', async () => {
+    const asMarcus = { headers: { cookie: 'rs_demo_as=marcus' } };
+    const created = await (await http(`/api/teams/${DEMO_TEAM}/boards`, { method: 'POST', body: JSON.stringify({ title: 'Mine' }), ...asMarcus })).json();
+    assert.equal((await http(`/api/retro/${created.id}/archive`, { method: 'POST', ...asMarcus })).status, 403);
+    assert.equal((await http(`/api/retro/${created.id}`, { method: 'DELETE', body: '{}', ...asMarcus })).status, 403);
+    assert.equal((await http(`/api/retro/${created.id}/archive`, { method: 'POST' })).status, 204);
+  });
+
+  test('a non-member\'s commands in a team room are refused', async () => {
+    const session = demo.sessionByCode(CODES.teamPoker);
+    const board = demo.boardByCode(CODES.thinking);
+    const lena = await connect('lena', [session.key, board.key]);
+    await frame(lena, (f) => f.t === 'snap' && f.r === session.key);
+    await frame(lena, (f) => f.t === 'snap' && f.r === board.key);
+    lena.send({ t: 'cmd', r: session.key, q: 1, k: 'poker.vote.set', d: { roundId: session.currentRoundId, points: 3 } });
+    assert.equal((await frame(lena, (f) => f.t === 'nack')).code, 'forbidden');
+    lena.send({ t: 'cmd', r: board.key, q: 1, k: 'retro.card.add', d: { cardId: randomUUID(), columnId: board.columns[0].id, body: 'Hi', anonymous: false } });
+    assert.equal((await frame(lena, (f) => f.t === 'nack')).code, 'forbidden');
+  });
+
+  test('kudos you received count only in the teams you are still on', async () => {
+    const team = demo.teams.get(DEMO_TEAM);
+    const before = await get('/api/me/endorsements');
+    assert.ok(before.length > 0 && before.every((e) => e.teamName === 'Demo Team'));
+    team.members = team.members.filter((m) => m.pid !== DEMO.pid);
+    assert.deepEqual(await get('/api/me/endorsements'), []);
+  });
+
+  test('every room is a team room that seats the team\'s members', async () => {
+    const crowd = demo.sessionByCode(CODES.crowdPoker);
+    const client = await connect('demo', [crowd.key]);
+    const snap = await frame(client, (f) => f.t === 'snap');
+    assert.equal(snap.d.teamId, ALL_HANDS_TEAM);
+    assert.equal(snap.d.createdBy, undefined);
+    assert.deepEqual(snap.d.roster.map((p) => p.pid).sort(), [DEMO.pid, ...CROWD.map((p) => p.pid)].sort());
+    assert.ok(snap.d.roster.every((p) => p.kind === 'user'));
+    for (const room of demo.rooms.values()) {
+      assert.ok(room.key.startsWith('team:') || demo.teams.get(room.team?.id) === room.team, `${room.key} belongs to a team`);
+    }
+  });
+
+  test('a seeded session is dated by its UUIDv7 id, as the poker toolbar reads it', () => {
+    for (const session of demo.sessions.values()) {
+      assert.equal(uuidv7Time(session.id), Math.floor(session.createdAt), session.code);
+    }
   });
 
   test('the fake Jira serves the demo project with sprints, details, comments and links', async () => {

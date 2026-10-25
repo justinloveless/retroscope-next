@@ -35,15 +35,15 @@ export function winnerOf(votes) {
 
 export class PokerSession extends DemoRoom {
   /**
-   * `seed`: {id, code, team?, createdBy, createdAt, presenceEnabled, followSpotlight, observers, rounds:[{…, votes: {pid: vote}}],
-   * currentRoundId, spotlight?, roster, peers, queue} where `peers` are people the simulation plays and `queue` the
-   * ticket keys the facilitator brings up next.
+   * `seed`: {id, code, team, createdBy, createdAt, presenceEnabled, followSpotlight, observers, rounds:[{…, votes: {pid: vote}}],
+   * currentRoundId, spotlight?, peers, queue} where `peers` are people the simulation plays and `queue` the ticket keys
+   * the facilitator brings up next. The roster is the team's members: every session belongs to a team (UX18).
    */
   constructor(demo, seed) {
     super(demo, `poker:${seed.id}`);
     this.id = seed.id;
     this.code = seed.code;
-    this.team = seed.team ?? null;
+    this.team = seed.team;
     this.createdBy = seed.createdBy;
     this.createdAt = seed.createdAt;
     this.presenceEnabled = seed.presenceEnabled ?? true;
@@ -52,7 +52,6 @@ export class PokerSession extends DemoRoom {
     this.rounds = (seed.rounds ?? []).map((r) => ({ ...r, votes: new Map(Object.entries(r.votes ?? {})) }));
     this.currentRoundId = seed.currentRoundId ?? this.rounds.at(-1)?.id ?? null;
     this.spotlight = seed.spotlight ? { ...seed.spotlight, client: null } : null;
-    this.quickRoster = new Map((seed.roster ?? []).map((who) => [who.pid, who]));
     this.peers = seed.peers ?? [];
     this.facilitator = seed.facilitator ?? null;
     this.queue = [...(seed.queue ?? [])];
@@ -61,6 +60,7 @@ export class PokerSession extends DemoRoom {
     for (const peer of this.peers) {
       this.presence.addVirtual(demo.infoOf(peer));
     }
+    this.lastActivityAt = Math.max(this.createdAt, ...this.rounds.map((r) => r.revealedAt ?? 0));
   }
 
   // ---- projection -------------------------------------------------------------------------------
@@ -102,10 +102,7 @@ export class PokerSession extends DemoRoom {
   }
 
   roster() {
-    if (this.team) {
-      return this.team.members.map((m) => this.demo.infoOf(m)).sort((a, b) => (a.pid < b.pid ? -1 : 1));
-    }
-    return [...this.quickRoster.values()].map((who) => this.demo.infoOf(who)).sort((a, b) => (a.pid < b.pid ? -1 : 1));
+    return this.team.members.map((m) => this.demo.infoOf(m)).sort((a, b) => (a.pid < b.pid ? -1 : 1));
   }
 
   snapshot() {
@@ -127,11 +124,10 @@ export class PokerSession extends DemoRoom {
       votes,
       roster: this.roster(),
       presence: this.presence.list(),
-      teamId: this.team?.id,
-      createdBy: this.createdBy,
+      teamId: this.team.id,
       spotlight: this.spotlight ? { holder: this.spotlight.holder, roundId: this.spotlight.roundId } : undefined,
       currentRoundId: this.currentRoundId,
-      pointDescriptions: this.team ? this.team.pointDescriptions : undefined,
+      pointDescriptions: this.team.pointDescriptions,
       jiraSubmits: submits.length > 0 ? submits : undefined,
     });
   }
@@ -146,10 +142,6 @@ export class PokerSession extends DemoRoom {
 
   onSubscribe(conn) {
     super.onSubscribe(conn);
-    if (conn.me && !this.team && !this.quickRoster.has(conn.me.pid)) {
-      this.quickRoster.set(conn.me.pid, conn.me);
-      this.tx([{ k: 'poker.roster', d: { seats: this.roster() } }]);
-    }
     for (const round of this.rounds) {
       const meta = round.ticketKey && this.demo.jiraMeta(round.ticketKey);
       if (meta && conn.open) {
@@ -169,10 +161,7 @@ export class PokerSession extends DemoRoom {
   }
 
   isAdmin(who) {
-    if (this.team) {
-      return ['admin', 'owner'].includes(this.team.roleOf(who.pid));
-    }
-    return who.kind === 'user';
+    return this.team.isAdmin(who.pid);
   }
 
   normalizeTicket(raw) {
@@ -184,7 +173,7 @@ export class PokerSession extends DemoRoom {
       return { key: null };
     }
     if (/^\d+$/.test(key)) {
-      if (!this.team?.jira.ticketPrefix) {
+      if (!this.team.jira.ticketPrefix) {
         return { error: true };
       }
       key = `${this.team.jira.ticketPrefix.replace(/-$/, '')}-${key}`;
@@ -291,7 +280,7 @@ export class PokerSession extends DemoRoom {
   }
 
   afterChange() {
-    this.team?.pokerChanged(this);
+    this.team.pokerChanged(this);
   }
 
   /** Titles and parents arrive the way the server's Jira meta loop sends them: an x frame, then the parent. */
@@ -320,6 +309,9 @@ export class PokerSession extends DemoRoom {
   decide(k, d, who, conn) {
     if (this.deleted) {
       return nack('not_found');
+    }
+    if (!this.team.roleOf(who.pid)) {
+      return nack('forbidden');
     }
     const handler = COMMANDS[k];
     if (!handler) {
@@ -833,7 +825,7 @@ const COMMANDS = {
 
   'poker.jira.submitPoints'(d, who) {
     const round = this.round(d.roundId);
-    if (!this.team?.jira.configured) {
+    if (!this.team.jira.configured) {
       return nack('jira_not_configured');
     }
     if (!round || round.state !== 'revealed' || !round.ticketKey) {

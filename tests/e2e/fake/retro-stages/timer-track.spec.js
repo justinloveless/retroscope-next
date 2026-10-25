@@ -168,7 +168,7 @@ test('a click after returning to the board leaves the playing track alone', asyn
   await page.evaluate(() => {
     window.__samePage = true;
   });
-  await page.getByRole('link', { name: 'Retroscope home' }).click();
+  await page.locator('header.app-header').getByRole('link', { name: /^Mentions/ }).click();
   await expect(page).not.toHaveURL(/\/retro\//);
   await page.goBack();
   expect(await page.evaluate(() => window.__samePage)).toBe(true);

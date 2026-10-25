@@ -5,6 +5,7 @@ import { h } from '../core/h.js';
 import { createButton } from '../ui/button.js';
 import { icon } from '../ui/icons.js';
 import { toast } from '../ui/toast.js';
+import { refreshMe } from '../screens/app.js';
 import { card, confirmTyped, field, input, toastError } from './util.js';
 import { createJiraSettings } from './jira-settings.js';
 import { createTemplatesSettings } from './templates.js';
@@ -19,15 +20,16 @@ export function createSettings(ctx) {
     h('div', { class: 'team-heading' },
       h('h1', { class: 'team-title', text: 'Team settings' }),
       h('p', { class: 'team-description', text: team.name })));
+  document.title = `Team settings · ${team.name} · Retroscope`;
 
   if (!ctx.isAdmin()) {
-    const el = h('div', { class: 'team-screen' }, header,
+    const el = h('main', { class: 'team-screen' }, header,
       h('p', { class: 'team-message card', text: 'Only team admins and the owner can change the settings.' }));
     return { el, settings: true, destroy: () => el.remove() };
   }
 
   const parts = [createJiraSettings(ctx), createTemplatesSettings(ctx), createEndorsementTypesSettings(ctx)];
-  const el = h('div', { class: 'team-screen team-settings' }, header,
+  const el = h('main', { class: 'team-screen team-settings' }, header,
     general(ctx), ...parts.map((p) => p.el), ctx.isOwner() ? dangerZone(ctx) : null);
 
   if (location.hash === '#jira') {
@@ -88,6 +90,10 @@ function general(ctx) {
     try {
       await ctx.api.patch('', body);
       await ctx.reloadTeam();
+      if (body.name) {
+        // The switcher reads `me`, which a navigation inside the team page does not reload (UX18).
+        refreshMe().catch(() => {});
+      }
       toast('Settings saved.', { variant: 'success', duration: 3000 });
     } catch (error) {
       toastError(error, 'The settings could not be saved.');
@@ -118,7 +124,9 @@ function dangerZone(ctx) {
       confirmLabel: 'Delete team',
       async submit() {
         await ctx.api.del('', { confirmName: ctx.team().name });
-        ctx.navigate('/teams');
+        // '/' goes to another of the user's teams, or to create-or-join when this was the last one.
+        await refreshMe().catch(() => {});
+        ctx.navigate('/');
       },
     }),
   });

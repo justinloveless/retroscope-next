@@ -23,16 +23,16 @@ async function follow(page, href) {
 test('team, poker and board pages share one socket and one client id', async ({ page, fake }) => {
   setupTeam(fake, { me: OWNER });
   fake.route('GET', '/api/poker/by-code/:code', { body: { id: SESSION, access: 'granted' } });
-  fake.room(POKER_ROOM, { snapshot: pokerSnapshot({ teamId: TEAM_ID, roster: [OWNER_SEAT], presence: [OWNER_SEAT], createdBy: OWNER }) });
+  fake.room(POKER_ROOM, { snapshot: pokerSnapshot({ teamId: TEAM_ID, roster: [OWNER_SEAT], presence: [OWNER_SEAT] }) });
   fake.route('GET', '/api/retro/by-code/:code', { body: { id: BOARD_ID, access: 'granted' } });
-  fake.room(BOARD_ROOM, { snapshot: boardSnapshot({ presence: [OWNER_SEAT] }) });
+  fake.room(BOARD_ROOM, { snapshot: boardSnapshot({ teamId: TEAM_ID, members: [{ pid: OWNER, name: 'Olive Owner', role: 'owner' }], presence: [OWNER_SEAT] }) });
 
   const sockets = [];
   page.on('websocket', (ws) => sockets.push(ws));
   const subscribed = (room) => fake.waitForFrame((f) => (f.t === 'hello' && f.subs.some((s) => s.r === room)) || (f.t === 'sub' && f.r === room));
 
   await page.goto(teamUrl());
-  await expect(page.getByRole('heading', { name: 'Platform' })).toBeVisible();
+  await expect(page.getByRole('main').getByRole('heading', { level: 1, name: 'Poker' })).toBeVisible();
   await subscribed(TEAM_ROOM);
 
   await follow(page, `/teams/${TEAM_ID}/poker/${POKER_CODE}`);
@@ -40,11 +40,12 @@ test('team, poker and board pages share one socket and one client id', async ({ 
   await subscribed(POKER_ROOM);
 
   await follow(page, `/retro/${BOARD_CODE}`);
-  await expect(page.locator('.retro-column')).toHaveCount(3);
+  // The board's own columns; a member also sees the team's open action items beside them.
+  await expect(page.locator('.retro-column-list > .retro-column')).toHaveCount(3);
   await subscribed(BOARD_ROOM);
 
   await follow(page, teamUrl());
-  await expect(page.getByRole('heading', { name: 'Platform' })).toBeVisible();
+  await expect(page.getByRole('main').getByRole('heading', { level: 1, name: 'Poker' })).toBeVisible();
   await fake.waitForFrame((f) => f.t === 'sub' && f.r === TEAM_ROOM, { after: fake.received.findIndex(({ frame }) => frame.t === 'sub' && frame.r === BOARD_ROOM) });
 
   expect(sockets).toHaveLength(1);

@@ -1,14 +1,12 @@
 import { expect, test } from '../_harness/fixtures.js';
 import { problem } from '../../../web-fake-server/http.js';
 import { TEAM_ID, boardFor, openBoard, serveTeam, serveTeamInfo, teamRoom } from '../retro-actions/_actions.js';
-import { snapshot } from '../retro-board/_board.js';
 
 const JIRA = { configured: true, siteHost: 'fake-team.atlassian.net', projectKey: 'RS', boardId: 7 };
 
 const openButton = (page) => page.getByRole('button', { name: 'Sprint report' });
 const sheet = (page) => page.getByRole('dialog', { name: 'Sprint report' });
 const reportCalls = (jira) => jira.calls.filter((c) => c.route === '/sprint-report');
-const teamRequests = (fake) => fake.requests.filter((r) => r.path.startsWith(`/api/teams/${TEAM_ID}`));
 
 function setup(fake, jira = JIRA) {
   serveTeam(fake, teamRoom());
@@ -184,7 +182,7 @@ test('on a wide screen the panel sits beside the columns; on a phone it covers t
     expect(columns.x + columns.width).toBeLessThanOrEqual(panel.x + 1);
     const header = await page.locator('.app-header').boundingBox();
     expect(panel.y).toBeGreaterThanOrEqual(header.y + header.height - 1);
-    await page.locator('.app-header-end button:visible').last().click({ trial: true });
+    await page.locator('.app-header-actions button:visible').last().click({ trial: true });
   }
 });
 
@@ -202,14 +200,4 @@ test('teams without Jira or without a board get no button and no report request'
     expect(reportCalls(control)).toHaveLength(0);
     control.uninstall();
   }
-});
-
-test('non-members and quick boards get no button and send no team request', async ({ page, fake }) => {
-  setup(fake);
-  for (const snap of [snapshot({ teamId: TEAM_ID }), snapshot()]) {
-    await openBoard(page, fake, { snap });
-    await expect(page.locator('.retro-share-open')).toBeVisible();
-    await expect(openButton(page)).toBeHidden();
-  }
-  expect(teamRequests(fake)).toEqual([]);
 });

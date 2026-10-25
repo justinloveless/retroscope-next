@@ -1,6 +1,7 @@
 // A demo retro board: the §c.4 board commands decided in memory with the stage gates of StageRules,
-// projected per viewer (`mine`, anonymous authors, voter lists, member-only data, the recipient's
-// celebration), a shared timer on the server clock, and simulated teammates who act by stage.
+// projected per viewer (`mine`, anonymous authors, voter lists, the recipient's celebration), a shared timer
+// on the server clock, and simulated teammates who act by stage. Every board belongs to a team, and only the
+// team's members act on it (UX18).
 import { DemoRoom, nack } from './room.js';
 import { authorInfo, personByPid } from './people.js';
 import { compact, newId } from './util.js';
@@ -14,10 +15,10 @@ export class RetroBoard extends DemoRoom {
     super(demo, `board:${seed.id}`);
     this.id = seed.id;
     this.code = seed.code;
-    this.team = seed.team ?? null;
+    this.team = seed.team;
     this.createdBy = seed.createdBy;
     this.createdAt = seed.createdAt;
-    this.meta = { title: seed.title, visibility: seed.visibility ?? 'team', archived: seed.archived ?? false };
+    this.meta = { title: seed.title, archived: seed.archived ?? false };
     this.archivedAt = seed.archivedAt;
     this.config = { ...seed.config };
     this.stage = seed.stage ?? 'thinking';
@@ -46,12 +47,14 @@ export class RetroBoard extends DemoRoom {
     if (this.timer.state === 'running') {
       this.armTimer();
     }
+    const written = [...this.cards.values(), ...this.comments.values(), ...this.endorsements].map((e) => e.createdAt);
+    this.lastActivityAt = Math.max(this.createdAt, this.archivedAt ?? 0, ...written);
   }
 
   // ---- projection -------------------------------------------------------------------------------
 
   isMember(pid) {
-    return Boolean(this.team?.roleOf(pid));
+    return Boolean(this.team.roleOf(pid));
   }
 
   showsVoters() {
@@ -111,8 +114,7 @@ export class RetroBoard extends DemoRoom {
     return [...this.comments.values()].sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1));
   }
 
-  snapshot(viewer) {
-    const member = this.isMember(viewer);
+  snapshot() {
     return compact({
       boardId: this.id,
       code: this.code,
@@ -126,12 +128,12 @@ export class RetroBoard extends DemoRoom {
       votes: this.orderedCards.filter((c) => c.voters.size > 0).map((c) => this.votesOf(c)),
       readiness: { stage: this.stage, ready: [...this.ready].sort() },
       presence: this.presence.list(),
-      teamId: this.team?.id,
+      teamId: this.team.id,
       focus: this.focus ?? undefined,
-      members: member ? this.team.memberInfos() : undefined,
-      endorsements: member ? this.endorsements.map((e) => ({ ...e })) : undefined,
-      endorsementTypes: member ? this.team.liveEndorsementTypes() : undefined,
-      maxEndorsements: member ? this.team.maxEndorsements : undefined,
+      members: this.team.memberInfos(),
+      endorsements: this.endorsements.map((e) => ({ ...e })),
+      endorsementTypes: this.team.liveEndorsementTypes(),
+      maxEndorsements: this.team.maxEndorsements,
     });
   }
 
@@ -186,7 +188,7 @@ export class RetroBoard extends DemoRoom {
   }
 
   isFacilitator(who) {
-    return this.team ? this.isMember(who.pid) : who.kind === 'user';
+    return this.isMember(who.pid);
   }
 
   contentGate(column) {
@@ -229,6 +231,9 @@ export class RetroBoard extends DemoRoom {
   decide(k, d, who) {
     if (this.deleted) {
       return nack('not_found');
+    }
+    if (!this.isMember(who.pid)) {
+      return nack('forbidden');
     }
     const handler = COMMANDS[k];
     if (!handler) {
@@ -296,7 +301,7 @@ export class RetroBoard extends DemoRoom {
     } else if (actionColumn && this.pool.length > 0 && random.chance(0.015)) {
       const idea = this.pool.shift();
       this.act(peer, 'retro.card.add', { cardId: newId(), columnId: actionColumn.id, body: idea.body, anonymous: false });
-    } else if (this.team && random.chance(0.008)) {
+    } else if (random.chance(0.008)) {
       const types = this.team.liveEndorsementTypes();
       const others = this.team.members.filter((m) => m.pid !== peer.pid);
       const given = this.endorsements.filter((e) => e.from === peer.pid).length;
@@ -332,7 +337,7 @@ const COMMANDS = {
     return {
       events: [this.cardAdded(card)],
       after: () => {
-        if (column.actionItems && this.team) {
+        if (column.actionItems) {
           this.team.addActionItem(this, card);
         }
       },
@@ -361,7 +366,7 @@ const COMMANDS = {
     card.version += 1;
     return {
       events: [{ k: 'retro.card.edited', d: { cardId: card.id, body: card.body, version: card.version } }],
-      after: () => this.team?.syncActionText(card),
+      after: () => this.team.syncActionText(card),
     };
   },
 
@@ -441,7 +446,7 @@ const COMMANDS = {
     this.comments.set(comment.id, comment);
     return {
       events: [this.commentAdded(comment)],
-      after: () => this.team?.actionCommentsChanged(card),
+      after: () => this.team.actionCommentsChanged(card),
     };
   },
 
@@ -461,7 +466,7 @@ const COMMANDS = {
     this.comments.delete(comment.id);
     return {
       events: [{ k: 'retro.comment.deleted', d: { commentId: comment.id, cardId: comment.cardId } }],
-      after: () => card && this.team?.actionCommentsChanged(card),
+      after: () => card && this.team.actionCommentsChanged(card),
     };
   },
 
@@ -543,7 +548,7 @@ const COMMANDS = {
       return nack('stale', { d: { current: { title: this.meta.title } } });
     }
     this.meta.title = d.title.trim() || this.meta.title;
-    return { events: [{ k: 'retro.board.meta', d: { ...this.meta } }], after: () => this.team?.boardsChanged(this) };
+    return { events: [{ k: 'retro.board.meta', d: { ...this.meta } }], after: () => this.team.boardsChanged(this) };
   },
 
   'retro.config.update'(d, who) {
@@ -689,7 +694,7 @@ const COMMANDS = {
   },
 
   'retro.endorse.give'(d, who) {
-    if (!this.team || !this.isMember(who.pid) || !this.isMember(d.toUserId)) {
+    if (!this.isMember(d.toUserId)) {
       return nack('forbidden');
     }
     if (d.toUserId === who.pid) {

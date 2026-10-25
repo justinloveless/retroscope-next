@@ -1,5 +1,5 @@
 import { expect, test } from '../_harness/fixtures.js';
-import { ACTIONS, BAD, BOB, GOOD, ROOM, column, openBoard, sent, serveBoard, snapshot, teamSnapshot } from './_board.js';
+import { ACTIONS, BAD, BOB, GOOD, ROOM, column, openBoard, sent, serveBoard, snapshot } from './_board.js';
 
 const titles = (page) => page.locator('.retro-column-title').allTextContents();
 
@@ -102,7 +102,7 @@ test('a stale reorder is rebased on the new columns and sent once more', async (
 test.describe('who facilitates', () => {
   test('a team board offers column tools to members only', async ({ page, fake }) => {
     const nonMember = { pid: 'd4000000-0000-4000-8000-000000000005', kind: 'user', name: 'Dana' };
-    const snap = teamSnapshot();
+    const snap = snapshot();
     const { members, endorsements, endorsementTypes, maxEndorsements, ...visible } = snap;
     await openBoard(page, fake, { snap: visible, me: nonMember });
     await expect(page.getByRole('button', { name: 'Add column' })).toBeHidden();
@@ -110,14 +110,8 @@ test.describe('who facilitates', () => {
     await expect(page.getByRole('button', { name: 'Actions for Good' })).toBeHidden();
   });
 
-  test('guests never facilitate a quick board', async ({ page, fake }) => {
-    await openBoard(page, fake, { me: { pid: '90000000-0000-4000-8000-000000000004', kind: 'guest', name: 'Sneaky Penguin' } });
-    await expect(page.getByRole('button', { name: 'Add column' })).toBeHidden();
-    await expect(page.getByRole('button', { name: 'Rename board' })).toBeHidden();
-  });
-
   test('a member renames the board inline', async ({ page, fake }) => {
-    await openBoard(page, fake, { me: BOB, snap: teamSnapshot() });
+    await openBoard(page, fake, { me: BOB, snap: snapshot() });
     await page.getByRole('button', { name: 'Rename board' }).click();
     const input = page.getByRole('textbox', { name: 'Board title' });
     await input.fill('Sprint 43 retro');
@@ -126,7 +120,7 @@ test.describe('who facilitates', () => {
   });
 
   test('an archived board is read-only', async ({ page, fake }) => {
-    const snap = snapshot({ meta: { title: 'Old retro', visibility: 'link', archived: true } });
+    const snap = snapshot({ meta: { title: 'Old retro', archived: true } });
     await openBoard(page, fake, { snap });
     await expect(page.getByText('This board is archived and read-only.')).toBeVisible();
     await expect(page.locator('.retro-add-card:visible')).toHaveCount(0);

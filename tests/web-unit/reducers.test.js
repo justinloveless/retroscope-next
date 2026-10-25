@@ -182,12 +182,23 @@ test('seats: roster, present and voters minus observers, with presence and the g
   assert.ok(poker.seatsOf(everyone, R1).every((s) => s.present), 'presence off shows everyone as present');
 });
 
-test('quick sessions seat only present principals and voters', () => {
-  const state = poker.apply(snapshot({ teamId: undefined }), {
-    k: 'poker.vote.state', d: { roundId: R1, pid: DAVE, status: 'selected' },
-  });
-  assert.deepEqual(poker.seatsOf(state, R1).map((s) => s.name).sort(), ['Bob', 'Carol', 'Dave']);
-  assert.deepEqual(poker.seatsOf(state, R2).map((s) => s.name).sort(), ['Bob', 'Carol']);
+test('every session seats its roster, then whoever else is present or voted', () => {
+  const ZED = 'ffffffff-0000-4000-8000-000000000009';
+  const GONE = 'eeeeeeee-0000-4000-8000-000000000008';
+  const state = [
+    { k: 'presence.join', d: { pid: ZED, kind: 'user', name: 'Zed' } },
+    { k: 'poker.vote.state', d: { roundId: R1, pid: GONE, status: 'selected' } },
+  ].reduce(poker.apply, snapshot());
+  assert.deepEqual(poker.seatsOf(state, R1).map((s) => s.name), ['Bob', 'Carol', 'Dave', 'Zed', 'Unknown']);
+  assert.deepEqual(poker.seatsOf(state, R2).map((s) => s.name), ['Bob', 'Carol', 'Dave', 'Zed']);
+});
+
+test('a UUIDv7 id tells when it was made, and any other id does not', () => {
+  const at = Date.UTC(2026, 9, 25, 12);
+  assert.equal(poker.uuidv7Time(poker.uuidv7(at)), at);
+  assert.equal(poker.uuidv7Time('00000000-0000-4000-8000-0000000000a0'), null);
+  assert.equal(poker.uuidv7Time('not an id'), null);
+  assert.equal(poker.uuidv7Time(undefined), null);
 });
 
 test('presence join, update and leave keep the canonical order', () => {

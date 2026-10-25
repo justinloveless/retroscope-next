@@ -1,103 +1,65 @@
+// '/' for a signed-out visitor (UX18 decision 15): a short product page with sign-in and sign-up. A signed-in
+// visit never shows it: the server and the router send it to the user's team, a pending invite or the
+// create-or-join screen. Without guests or quick sessions there is nothing to start before signing in.
+
 import { h } from '../core/h.js';
-import { http } from '../core/http.js';
-import { createDialog } from '../ui/dialog.js';
-import { toast } from '../ui/toast.js';
-import { currentMe, navigate, setMe } from './app.js';
-import { card, createFrame, errorText, field, form, link, muted, row, stack } from './frame.js';
+import { icon } from '../ui/icons.js';
+import { currentUser, homePath, navigate } from './app.js';
+import { MUTED, row, stack } from './frame.js';
+import { signInCard } from './sign-in.js';
 
-const CODE = /^[A-Za-z0-9-]{3,64}$/;
-
-// Quick sessions need a principal: signed-out visitors pick a guest name first (§0.1 Guests).
-function askGuestName() {
-  return new Promise((resolve) => {
-    let done = false;
-    const name = field({ label: 'Your name', name: 'displayName', autocomplete: 'nickname', required: true, maxlength: 40 });
-    const guestForm = form({
-      fields: { displayName: name },
-      submitLabel: 'Continue',
-      fieldMessages: { invalid: 'Use 1–40 characters and no email address.' },
-      async submit({ displayName }) {
-        const guest = await http.post('/api/guest', { displayName: displayName.trim() });
-        setMe({ principal: guest.principal, teams: [], unreadMentions: 0 });
-        done = true;
-        dialog.close();
-      },
-    });
-    const dialog = createDialog({
-      title: 'Join as a guest',
-      description: 'Pick the name others will see. No account needed.',
-      content: [guestForm.el, h('p', { style: { 'font-size': '0.875rem' } }, 'Have an account? ', link(`/login?return=${encodeURIComponent('/')}`, 'Sign in'))],
-      onClose() {
-        dialog.destroy();
-        resolve(done);
-      },
-    });
-    dialog.open();
-    name.input.focus();
-  });
+function feature(name, tint, text) {
+  return h('p', { style: { ...row('0.75rem'), 'flex-wrap': 'nowrap' } },
+    h('span', { style: { display: 'inline-flex', padding: '0.5rem', 'border-radius': 'var(--radius)', background: tint, color: '#fff' } }, icon(name)),
+    text);
 }
 
-async function startQuick(kind, button) {
-  if (!currentMe() && !(await askGuestName())) {
-    return;
-  }
-  button.disabled = true;
-  try {
-    const created = await http.post(kind === 'retro' ? '/api/retro' : '/api/poker', {});
-    await navigate(`/${kind}/${encodeURIComponent(created.code)}`);
-  } catch (error) {
-    toast(errorText(error, { rate_limited: 'You have created many sessions recently. Try again later.' }), { variant: 'error', duration: 6000 });
-  } finally {
-    button.disabled = false;
-  }
-}
-
-function section(kind, { title, blurb, startLabel, variant }) {
-  const start = h('button', { type: 'button', class: `btn btn-${variant} btn-lg` }, startLabel);
-  start.addEventListener('click', () => startQuick(kind, start));
-  const code = field({
-    label: `Join a ${kind === 'retro' ? 'retro' : 'poker session'} by code`,
-    name: `${kind}-code`,
-    autocomplete: 'off',
-    spellcheck: 'false',
-    required: true,
-  });
-  const join = form({
-    fields: { code },
-    submitLabel: 'Join',
-    messages: { not_found: `No ${kind === 'retro' ? 'retro board' : 'poker session'} has that code.` },
-    async submit(values) {
-      const value = values.code.trim();
-      if (!CODE.test(value)) {
-        code.setError('Codes use letters, digits and dashes.');
-        return;
-      }
-      await http.get(`/api/${kind}/by-code/${encodeURIComponent(value)}`);
-      await navigate(`/${kind}/${encodeURIComponent(value)}`);
-    },
-  });
-  return card(title, muted(blurb), h('div', { style: row() }, start), join.el);
+function hero() {
+  return h('div', { style: { ...stack('1.25rem'), 'padding-top': '1.5rem' } },
+    h('h1', { text: 'Planning poker and retros for your team', style: { 'font-size': 'clamp(2rem, 5vw, 2.75rem)', 'line-height': '1.1', 'font-weight': '750' } }),
+    h('p', {
+      text: 'Point your Jira backlog together, run retros, and keep the action items moving. Everything lives inside your team.',
+      style: { ...MUTED, 'font-size': '1.125rem', 'line-height': '1.55' },
+    }),
+    h('div', { style: { ...stack('0.75rem'), 'margin-top': '0.75rem' } },
+      feature('spade', 'var(--felt)', 'Planning poker with the Jira refinement flow'),
+      feature('folder-kanban', 'var(--indigo)', 'Retro boards with kudos and team action items')),
+    h('p', {
+      text: 'Got an invite? Open the link from your email. You will sign in or create an account, then join the team.',
+      style: { ...MUTED, 'margin-top': '1.25rem', 'max-width': '28rem' },
+    }));
 }
 
 export function mount(root) {
-  const frame = createFrame(root, { title: 'Retros and planning poker for your team' });
-  frame.main.append(
-    h('p', { style: { 'font-size': '1.125rem' } }, 'Run a retrospective or point your backlog in seconds. No account required for quick sessions.'),
-    h('div', { style: { ...stack('1.5rem'), 'grid-template-columns': 'repeat(auto-fit, minmax(18rem, 1fr))' } },
-      section('retro', { title: 'Retro', blurb: 'Collect cards, vote, discuss and track action items.', startLabel: 'Start quick retro', variant: 'indigo' }),
-      section('poker', { title: 'Planning poker', blurb: 'Vote on stories with the Neotro card table.', startLabel: 'Start quick poker', variant: 'green' })),
-    h('p', { 'data-signed-in': '', style: row('0.5rem') }));
-  const signedIn = frame.main.querySelector('[data-signed-in]');
+  let signIn = null;
 
   return {
-    update() {
-      const user = currentMe()?.user;
-      signedIn.replaceChildren(...(user
-        ? [muted(`Signed in as ${currentMe().principal.name}.`), link('/dashboard', 'Go to your dashboard', { class: 'btn btn-outline btn-sm' })]
-        : []));
+    update(params) {
+      if (currentUser()) {
+        navigate(homePath(), { replace: true });
+        return;
+      }
+      if (signIn) {
+        return;
+      }
+      signIn = signInCard(params.query);
+      document.title = 'Retroscope';
+      root.replaceChildren(h('main', {
+        style: {
+          display: 'grid',
+          'grid-template-columns': 'repeat(auto-fit, minmax(min(22rem, 100%), 1fr))',
+          gap: '3rem 4.5rem',
+          'align-items': 'start',
+          width: '100%',
+          'max-width': '65rem',
+          margin: '0 auto',
+          padding: 'clamp(2rem, 6vw, 4.5rem) 1rem 3rem',
+        },
+      }, hero(), signIn.el));
     },
     unmount() {
-      frame.destroy();
+      signIn?.destroy();
+      root.replaceChildren();
     },
   };
 }

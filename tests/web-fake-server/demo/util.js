@@ -8,9 +8,17 @@ export function demoId(group, n) {
 
 export const newId = () => uuidv7();
 
-// Who the browser is in the demo: a person's key, or SIGNED_OUT (then the guest cookie, if any).
+/**
+ * A fixed UUIDv7 minted at `ms`: the poker toolbar dates a session from its id, as the server mints them, so the
+ * demo's seeded sessions carry their own creation time ("0d3e" still marks them as demo data).
+ */
+export function demoIdAt(ms, n) {
+  const time = Math.floor(ms).toString(16).padStart(12, '0');
+  return `${time.slice(0, 8)}-${time.slice(8)}-7d3e-8000-${String(n).padStart(12, '0')}`;
+}
+
+// Who the browser is in the demo: a person's key, or SIGNED_OUT.
 export const AS_COOKIE = 'rs_demo_as';
-export const GUEST_COOKIE = 'rs_demo_guest';
 export const SIGNED_OUT = 'signed-out';
 
 // mulberry32: small, fast and good enough to make the peers look human.

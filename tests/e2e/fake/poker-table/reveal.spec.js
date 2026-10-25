@@ -18,7 +18,7 @@ test('a server auto-reveal flips every seated card 300 ms later and groups the r
   await expect(piles).toHaveCount(3);
   await expect(page.locator('.nt-pile-value')).toHaveText(['1 x 3 pts', '3 x 5 pts', '1 x 8 pts']);
   await expect(piles.nth(1)).toHaveAttribute('aria-label', '5 pts, 3 votes, winner: Bob, Gus, Dot');
-  await expect(seat(page, GUS)).toHaveAttribute('aria-label', 'Gus (guest), voted 3 to 5');
+  await expect(seat(page, GUS)).toHaveAttribute('aria-label', 'Gus, voted 3 to 5');
   await expect(page.locator('.nt-winner')).toHaveText('Winning Points: 5 pts');
   await expect(page.locator('.nt-hand')).toBeHidden();
 
@@ -30,7 +30,7 @@ test('a server auto-reveal flips every seated card 300 ms later and groups the r
   await expect(seat(page, BOB).locator('.nt-flip-inner')).toHaveCSS('transform', /matrix3d|matrix\(-1/);
   await expect(seat(page, BOB).locator('.nt-flip-front .nt-card')).toHaveAttribute('data-card', '5');
   await expect(seat(page, BOB)).toHaveAttribute('aria-label', 'Bob, voted 5');
-  await expect(seat(page, GUS)).toHaveAttribute('aria-label', 'Gus (guest), voted 3 to 5');
+  await expect(seat(page, GUS)).toHaveAttribute('aria-label', 'Gus, voted 3 to 5');
   await expect(seat(page, BOB).locator('.nt-seat-vote')).toHaveText('5');
 });
 

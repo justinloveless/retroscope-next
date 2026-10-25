@@ -1,58 +1,338 @@
-// What each shell screen does beyond painting: quick sessions as a guest, join by code, teams and
-// favorites, invites, account, mentions, admin, and the early socket on room routes.
+// What each shell screen does beyond painting (UX18): the sign-in gate and the way back, '/' finding the user's
+// team, create-or-join, invites and the pending invite, account, mentions, admin, and the early socket on room
+// routes. There are no guests, quick sessions, join-by-code forms, Dashboard or team list any more.
 import { json, problem } from '../../../web-fake-server/http.js';
 import { expect, test } from '../_harness/fixtures.js';
-import { EMPTY_OVERLAY, CODE as BOARD_CODE, ROOM as BOARD_ROOM, snapshot } from '../retro-board/_board.js';
-import { ADMIN, TEAM_ID, USER, installApi, pageErrors, requests, useSession } from './_shell.js';
+import { CODE as BOARD_CODE, EMPTY_OVERLAY, ROOM as BOARD_ROOM, snapshot } from '../retro-board/_board.js';
+import {
+  ADMIN, APPS_ID, NEWCOMER, TEAM_ID, USER, header, installApi, installTeams, openAccount, pageErrors, requests, sections, useSession,
+} from './_shell.js';
 
-const GUEST = { id: '01900000-0000-7000-8000-0000000000b1', kind: 'guest', name: 'Visitor' };
+// The sign-in, sign-up and email-link forms share labels; only one is visible at a time.
+const field = (page, label) => page.getByLabel(label, { exact: true }).filter({ visible: true });
+const pendingInvite = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('rs.invite') ?? 'null'));
 
 test.beforeEach(({ fake }) => {
   installApi(fake);
+  installTeams(fake);
 });
 
-test('a visitor starts quick poker as a guest and lands in the room', async ({ page, fake }) => {
-  const errors = pageErrors(page);
-  useSession(fake, null);
-  fake.route('POST', '/api/guest', json({ principal: GUEST }));
-  fake.route('POST', '/api/poker', json({ id: '01900000-0000-7000-8000-0000000000c1', code: 'ABCDEFGHJK' }));
-  await page.goto('/');
+test.describe('the sign-in gate', () => {
+  test('a signed-out visitor may open only /, /login, /auth/* and /invite', async ({ page, fake }) => {
+    useSession(fake, null);
+    for (const path of ['/teams', '/account', '/mentions', '/admin/users', `/teams/${TEAM_ID}?tab=kudos`, `/teams/${TEAM_ID}/settings`, `/retro/${BOARD_CODE}`, '/poker/POKERCODE1']) {
+      await page.goto(path);
+      await expect(page.getByRole('heading', { level: 1, name: 'Sign in to Retroscope' })).toBeVisible();
+      expect(new URL(page.url()).pathname).toBe('/login');
+      expect(new URL(page.url()).searchParams.get('return')).toBe(path);
+    }
+    for (const [path, heading] of [['/', 'Planning poker and retros for your team'], ['/login', 'Sign in to Retroscope'], ['/invite#t=invite-token-0', 'Join Platform']]) {
+      await page.goto(path);
+      await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
+      expect(new URL(page.url()).pathname).toBe(path.split('#')[0]);
+    }
+    expect(fake.connections).toHaveLength(0);
+    expect(fake.requests.some((r) => r.path.startsWith('/api/teams/') || r.path.includes('/by-code/'))).toBe(false);
+  });
 
-  await page.getByRole('button', { name: 'Start quick poker' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Join as a guest' });
-  await dialog.getByLabel('Your name').fill('Visitor');
-  await dialog.getByRole('button', { name: 'Continue' }).click();
+  test('signing in from the gate comes back to the page that was asked for', async ({ page, fake }) => {
+    const errors = pageErrors(page);
+    const setMe = useSession(fake, null);
+    fake.route('POST', '/api/auth/login', () => {
+      setMe(USER);
+      return json(USER);
+    });
+    await page.goto(`/teams/${TEAM_ID}?tab=retros`);
+    await expect(page).toHaveURL(/\/login\?return=/);
 
-  await expect(page).toHaveURL(/\/poker\/ABCDEFGHJK$/);
-  expect(requests(fake, 'POST', '/api/guest').map((r) => r.json)).toEqual([{ displayName: 'Visitor' }]);
-  expect(requests(fake, 'POST', '/api/poker')).toHaveLength(1);
-  expect(errors).toEqual([]);
+    await field(page, 'Email').fill('ada@example.com');
+    await field(page, 'Password').fill('correct horse battery');
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+
+    await expect(page).toHaveURL(new RegExp(`/teams/${TEAM_ID}\\?tab=retros$`));
+    await expect(page.getByRole('main').getByRole('heading', { level: 1, name: 'Retros' })).toBeVisible();
+    await expect(sections(page).getByRole('link', { name: 'Retros' })).toHaveAttribute('aria-current', 'page');
+    expect(errors).toEqual([]);
+  });
+
+  test('after signing out, going back to a member page asks to sign in first', async ({ page, fake }) => {
+    const setMe = useSession(fake, USER);
+    fake.route('POST', '/api/auth/logout', () => {
+      setMe(null);
+      return { status: 204 };
+    });
+    await page.goto('/account');
+    await (await openAccount(page)).item('Sign out').click();
+    await expect(page).toHaveURL(/\/login$/);
+
+    await page.goBack();
+    await expect(page).toHaveURL(/\/login\?return=%2Faccount$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Sign in to Retroscope' })).toBeVisible();
+  });
 });
 
-test('closing the guest dialog creates nothing', async ({ page, fake }) => {
-  useSession(fake, null);
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Start quick retro' }).click();
-  await page.keyboard.press('Escape');
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  expect(requests(fake, 'POST', '/api/retro')).toEqual([]);
+test.describe("'/'", () => {
+  test('opens the team used last, even when another comes first by name', async ({ page, fake }) => {
+    useSession(fake, USER);
+    await page.goto('/');
+    await expect(page).toHaveURL(new RegExp(`/teams/${TEAM_ID}$`));
+    await expect(page.getByRole('main').getByRole('heading', { level: 1, name: 'Poker' })).toBeVisible();
+    await expect(header(page).getByRole('button', { name: 'Platform', exact: true })).toBeVisible();
+  });
+
+  test('opens the first team by name when there is no last team, or it is one the user left', async ({ page, fake }) => {
+    for (const lastTeamId of [null, '01900000-0000-7000-8000-0000000000ff']) {
+      useSession(fake, { ...USER, lastTeamId });
+      await page.goto('/');
+      await expect(page).toHaveURL(new RegExp(`/teams/${APPS_ID}$`));
+    }
+  });
+
+  test('signed out it is the welcome page, and signing in there opens the team used last', async ({ page, fake }) => {
+    const setMe = useSession(fake, null);
+    fake.route('POST', '/api/auth/login', () => {
+      setMe(USER);
+      return json(USER);
+    });
+    await page.goto('/');
+    await expect(page.getByRole('heading', { level: 1, name: 'Planning poker and retros for your team' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Continue with Google' })).toHaveAttribute('href', '/auth/oidc/google/start?return=%2F');
+    await expect(page.getByRole('button', { name: 'Email me a sign-in link' })).toBeVisible();
+
+    await field(page, 'Email').fill('ada@example.com');
+    await field(page, 'Password').fill('correct horse battery');
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+
+    await expect(page).toHaveURL(new RegExp(`/teams/${TEAM_ID}$`));
+    await expect(page.getByRole('main').getByRole('heading', { level: 1, name: 'Poker' })).toBeVisible();
+  });
+
+  test('opens create-or-join for a user in no team', async ({ page, fake }) => {
+    useSession(fake, NEWCOMER);
+    await page.goto('/');
+    await expect(page).toHaveURL(/\/teams$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Welcome, Ada' })).toBeVisible();
+  });
+
+  test('the logo leads home in-app, through the same rule', async ({ page, fake }) => {
+    useSession(fake, NEWCOMER);
+    await page.goto('/account');
+    await header(page).getByRole('link', { name: 'Retroscope home' }).click();
+    await expect(page).toHaveURL(/\/teams$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Welcome, Ada' })).toBeVisible();
+  });
+
+  test('a pending invite wins over the team', async ({ page, fake }) => {
+    useSession(fake, USER);
+    await page.goto('/invite#t=invite-token-9');
+    await expect(page.getByRole('heading', { level: 1, name: 'Join Platform' })).toBeVisible();
+    await page.goto('/');
+    await expect(page).toHaveURL(/\/invite$/);
+    await expect(page.getByRole('button', { name: 'Accept invite' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Not now' }).click();
+    await expect(page).toHaveURL(new RegExp(`/teams/${TEAM_ID}$`));
+    expect(await pendingInvite(page)).toBeNull();
+  });
+
+  test('the old /dashboard address goes home', async ({ page, fake }) => {
+    useSession(fake, USER);
+    await page.goto('/dashboard');
+    await expect(page).toHaveURL(new RegExp(`/teams/${TEAM_ID}$`));
+    await expect(page.getByRole('main').getByRole('heading', { level: 1, name: 'Poker' })).toBeVisible();
+  });
 });
 
-test('joining by code checks the code first', async ({ page, fake }) => {
-  useSession(fake, USER);
-  fake.route('GET', '/api/retro/by-code/:code', (req) => (req.params.code === 'GOODCODE42'
-    ? json({ id: '01900000-0000-7000-8000-0000000000b2', access: 'granted' })
-    : problem(404, 'not_found')));
-  await page.goto('/');
-  const code = page.getByLabel('Join a retro by code');
+test.describe('create or join a team', () => {
+  test('a verified user creates a team, and the header knows it at once', async ({ page, fake }) => {
+    const created = '01900000-0000-7000-8000-0000000000a9';
+    const verified = { ...NEWCOMER, user: { ...NEWCOMER.user, emailVerified: true } };
+    const setMe = useSession(fake, verified);
+    fake.route('POST', '/api/teams', (req) => {
+      setMe({ ...verified, teams: [{ id: created, name: req.body.name, role: 'owner', openActions: 0 }] });
+      return json({ id: created }, 201);
+    });
+    fake.route('GET', `/api/teams/${created}`, json({
+      id: created, name: 'Data', description: null, role: 'owner', pointDescriptions: {}, maxEndorsements: 3, jira: { configured: false }, counts: { boards: 0, members: 1 },
+    }));
+    fake.route('GET', `/api/teams/${created}/poker-sessions`, json({ items: [], nextCursor: null }));
+    fake.room(`team:${created}`, {
+      snapshot: {
+        teamId: created, name: 'Data', members: [{ pid: USER.principal.id, name: USER.principal.name, role: 'owner' }], actionItems: [], endorsementTypes: [], pointDescriptions: {}, maxEndorsements: 3,
+      },
+    });
+    await page.goto('/teams');
 
-  await code.fill('NOPE123');
-  await code.press('Enter');
-  await expect(page.getByText('No retro board has that code.')).toBeVisible();
+    const create = page.getByRole('region', { name: 'Create a team' });
+    await expect(create.getByText('Verify your email first')).toBeHidden();
+    await create.getByLabel('Team name').fill('Data');
+    await create.getByRole('button', { name: 'Create team' }).click();
 
-  await code.fill('GOODCODE42');
-  await code.press('Enter');
-  await expect(page).toHaveURL(/\/retro\/GOODCODE42$/);
+    await expect(page).toHaveURL(new RegExp(`/teams/${created}$`));
+    await expect(page.getByRole('main').getByRole('heading', { level: 1, name: 'Poker' })).toBeVisible();
+    await expect(header(page).getByRole('button', { name: 'Data', exact: true })).toBeVisible();
+    expect(requests(fake, 'POST', '/api/teams').map((r) => r.json)).toEqual([{ name: 'Data', description: null }]);
+  });
+
+  test('an unverified user cannot create one yet, and can have the verification link sent again', async ({ page, fake }) => {
+    useSession(fake, NEWCOMER);
+    fake.route('POST', '/api/auth/verify/request', { status: 202 });
+    await page.goto('/teams');
+
+    const create = page.getByRole('region', { name: 'Create a team' });
+    await expect(create.getByText('Verify your email first')).toBeVisible();
+    await expect(create.getByRole('button', { name: 'Create team' })).toBeDisabled();
+    await create.getByRole('button', { name: 'Send the link again' }).click();
+    await expect(create.getByRole('status')).toHaveText('If your address still needs verifying, a new link is on its way.');
+    expect(requests(fake, 'POST', '/api/auth/verify/request')).toHaveLength(1);
+    expect(requests(fake, 'POST', '/api/teams')).toEqual([]);
+  });
+
+  test('a resend refused for its rate says so', async ({ page, fake }) => {
+    useSession(fake, NEWCOMER);
+    fake.route('POST', '/api/auth/verify/request', problem(429, 'rate_limited'));
+    await page.goto('/teams');
+    await page.getByRole('button', { name: 'Send the link again' }).click();
+    await expect(page.getByRole('region', { name: 'Create a team' }).getByRole('status'))
+      .toHaveText('You asked for a link recently. Check your inbox, or try again later.');
+  });
+
+  test('verifying in another tab unlocks creating when the user comes back', async ({ page, fake }) => {
+    const setMe = useSession(fake, NEWCOMER);
+    await page.goto('/teams');
+    const button = page.getByRole('region', { name: 'Create a team' }).getByRole('button', { name: 'Create team' });
+    await expect(button).toBeDisabled();
+    setMe({ ...NEWCOMER, user: { ...NEWCOMER.user, emailVerified: true } });
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(button).toBeEnabled();
+  });
+
+  for (const pasted of ['https://retroscope.example/invite#t=pasted-token-1', 'https://retroscope.example/invite/pasted-token-1', ' pasted-token-1 ']) {
+    test(`a pasted invite opens on /invite: ${pasted.trim()}`, async ({ page, fake }) => {
+      useSession(fake, NEWCOMER);
+      await page.goto('/teams');
+      const join = page.getByRole('region', { name: 'Join a team' });
+      await expect(join.getByText('Teams are invite-only.', { exact: false })).toBeVisible();
+      await join.getByLabel('Already have the link? Paste it').fill(pasted);
+      await join.getByRole('button', { name: 'Open invite' }).click();
+
+      await expect(page).toHaveURL(/\/invite$/);
+      await expect(page.getByRole('heading', { level: 1, name: 'Join Platform' })).toBeVisible();
+      expect(requests(fake, 'POST', '/api/invites/preview').map((r) => r.json)).toEqual([{ token: 'pasted-token-1' }]);
+      expect((await pendingInvite(page)).t).toBe('pasted-token-1');
+    });
+  }
+
+  test('a paste that holds no invite is refused on the spot', async ({ page, fake }) => {
+    useSession(fake, NEWCOMER);
+    await page.goto('/teams');
+    const join = page.getByRole('region', { name: 'Join a team' });
+    await join.getByLabel('Already have the link? Paste it').fill('https://elsewhere.example/teams/42');
+    await join.getByRole('button', { name: 'Open invite' }).click();
+    await expect(join.getByText('Paste the whole invite link, or the code at its end.')).toBeVisible();
+    await expect(page).toHaveURL(/\/teams$/);
+    expect(requests(fake, 'POST', '/api/invites/preview')).toEqual([]);
+  });
+});
+
+test.describe('invites', () => {
+  test('signed out, the invite leads with an emailed sign-in link and keeps the token out of every URL', async ({ page, fake }) => {
+    useSession(fake, null);
+    fake.route('POST', '/api/auth/magic/request', { status: 202 });
+    await page.goto('/invite#t=invite-token-1');
+
+    await expect(page.getByRole('heading', { level: 1, name: 'Join Platform' })).toBeVisible();
+    await expect(page).toHaveURL(/\/invite$/);
+    await expect(page.getByText('Sign in or create an account to accept.', { exact: false })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Google' })).toHaveAttribute('href', '/auth/oidc/google/start?return=%2Finvite');
+    await expect(page.getByRole('link', { name: 'Microsoft' })).toHaveAttribute('href', '/auth/oidc/entra/start?return=%2Finvite');
+    await field(page, 'Email').fill('ada@example.com');
+    await page.getByRole('button', { name: 'Email me a sign-in link' }).click();
+
+    await expect(page.getByRole('status')).toContainText('If ada@example.com can receive mail, a sign-in link is on its way.');
+    expect(requests(fake, 'POST', '/api/auth/magic/request').map((r) => r.json)).toEqual([{ email: 'ada@example.com' }]);
+    expect((await pendingInvite(page)).t).toBe('invite-token-1');
+    expect(fake.requests.every((r) => !r.path.includes('invite-token-1') && !String(r.query).includes('invite-token-1'))).toBe(true);
+  });
+
+  test('the emailed sign-in link brings the visitor back to the waiting invite, which joins the team', async ({ page, fake }) => {
+    const setMe = useSession(fake, null);
+    fake.route('POST', '/api/auth/magic/consume', () => {
+      setMe(NEWCOMER);
+      return json(NEWCOMER);
+    });
+    fake.route('POST', '/api/invites/accept', () => {
+      setMe({ ...NEWCOMER, teams: [{ id: TEAM_ID, name: 'Platform', role: 'member', openActions: 3 }] });
+      return json({ teamId: TEAM_ID });
+    });
+    await page.goto('/invite#t=invite-token-2');
+    await expect(page.getByRole('heading', { level: 1, name: 'Join Platform' })).toBeVisible();
+
+    // The link from the email, opened in the same browser.
+    await page.goto('/auth/magic#t=magic-token-2');
+    await page.getByRole('button', { name: 'Sign in as a•••@example.com' }).click();
+
+    await expect(page).toHaveURL(/\/invite$/);
+    await expect(page.getByText('You are signed in as ada@example.com.')).toBeVisible();
+    await page.getByRole('button', { name: 'Accept invite' }).click();
+
+    await expect(page).toHaveURL(new RegExp(`/teams/${TEAM_ID}$`));
+    await expect(header(page).getByRole('button', { name: 'Platform', exact: true })).toBeVisible();
+    expect(requests(fake, 'POST', '/api/invites/accept').map((r) => r.json)).toEqual([{ token: 'invite-token-2' }]);
+    expect(await pendingInvite(page)).toBeNull();
+  });
+
+  test('signing in with a password returns to the invite', async ({ page, fake }) => {
+    const setMe = useSession(fake, null);
+    fake.route('POST', '/api/auth/login', () => {
+      setMe(USER);
+      return json(USER);
+    });
+    fake.route('POST', '/api/invites/accept', json({ teamId: TEAM_ID }));
+    await page.goto('/invite#t=invite-token-3');
+    await page.getByRole('link', { name: 'Sign in with a password' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Sign in to Retroscope' })).toBeVisible();
+    await expect(page).toHaveURL(/\/login\?return=%2Finvite$/);
+    await field(page, 'Email').fill('ada@example.com');
+    await field(page, 'Password').fill('correct horse battery');
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+
+    await expect(page).toHaveURL(/\/invite$/);
+    await page.getByRole('button', { name: 'Accept invite' }).click();
+    await expect(page).toHaveURL(new RegExp(`/teams/${TEAM_ID}$`));
+    expect(requests(fake, 'POST', '/api/invites/accept').map((r) => r.json)).toEqual([{ token: 'invite-token-3' }]);
+  });
+
+  test('an invite for another address explains why it failed', async ({ page, fake }) => {
+    useSession(fake, USER);
+    fake.route('POST', '/api/invites/accept', problem(403, 'email_mismatch'));
+    await page.goto('/invite#t=invite-token-4');
+    await page.getByRole('button', { name: 'Accept invite' }).click();
+    await expect(page.getByRole('alert')).toHaveText('This invite was sent to a different email address. Sign in with that address to accept it.');
+  });
+
+  test('an expired invite cannot be accepted, and is forgotten', async ({ page, fake }) => {
+    useSession(fake, USER);
+    fake.route('POST', '/api/invites/preview', json({ teamName: 'Platform', kind: 'email', expired: true }));
+    await page.goto('/invite#t=invite-token-5');
+    await expect(page.getByText('This invite has expired. Ask a team admin for a new one.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Accept invite' })).toHaveCount(0);
+    expect(await pendingInvite(page)).toBeNull();
+  });
+
+  test('signing out forgets the waiting invite', async ({ page, fake }) => {
+    const setMe = useSession(fake, USER);
+    fake.route('POST', '/api/auth/logout', () => {
+      setMe(null);
+      return { status: 204 };
+    });
+    await page.goto('/invite#t=invite-token-6');
+    await expect(page.getByRole('button', { name: 'Accept invite' })).toBeVisible();
+    await page.goto('/account');
+    await (await openAccount(page)).item('Sign out').click();
+    await expect(page).toHaveURL(/\/login$/);
+    expect(await pendingInvite(page)).toBeNull();
+  });
 });
 
 test('a board route opens the tab socket before the room chunk mounts', async ({ page, fake }) => {
@@ -76,7 +356,6 @@ test('a board joins on the tab socket instead of opening a second one', async ({
   useSession(fake, USER);
   const snap = snapshot();
   fake.boot = { build: 'fake', theme: 'light', me: USER, room: { r: BOARD_ROOM } };
-  fake.me = { pid: USER.principal.id, kind: 'user', name: USER.principal.name };
   fake.room(BOARD_ROOM, { snapshot: snap, overlay: EMPTY_OVERLAY, epoch: 'aaaaaaaaaaaaaaaa', seq: 0 });
   await page.goto(`/retro/${BOARD_CODE}`);
   await expect(page.locator('.retro-column')).toHaveCount(snap.columns.length);
@@ -89,100 +368,12 @@ test('a board joins on the tab socket instead of opening a second one', async ({
 
 test('shell routes do not open a socket', async ({ page, fake }) => {
   useSession(fake, USER);
-  await page.goto('/dashboard');
-  await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
+  for (const [path, heading] of [['/account', 'Account'], ['/mentions', 'Mentions'], ['/teams', 'Create or join a team']]) {
+    await page.goto(path);
+    await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
+  }
   await page.waitForTimeout(300);
   expect(fake.connections).toHaveLength(0);
-});
-
-test('signed-out visitors are sent to sign in from member pages', async ({ page, fake }) => {
-  useSession(fake, null);
-  for (const path of ['/dashboard', '/teams', '/account', '/mentions', '/admin/users']) {
-    await page.goto(path);
-    await expect(page.getByRole('heading', { level: 1, name: 'Sign in to Retroscope' })).toBeVisible();
-    expect(new URL(page.url()).searchParams.get('return')).toBe(path);
-  }
-});
-
-test('the dashboard lists recent rooms with links into them', async ({ page, fake }) => {
-  useSession(fake, USER);
-  await page.goto('/dashboard');
-  await expect(page.getByRole('link', { name: 'Sprint 42 retro' })).toHaveAttribute('href', '/retro/BOARDCODE1');
-  await expect(page.getByRole('link', { name: 'POKERCODE1' })).toHaveAttribute('href', `/teams/${TEAM_ID}/poker/POKERCODE1`);
-  await expect(page.getByRole('link', { name: 'Platform' }).first()).toHaveAttribute('href', `/teams/${TEAM_ID}`);
-});
-
-test('teams: favorites sort first and toggle optimistically; creating a team opens it', async ({ page, fake }) => {
-  useSession(fake, USER);
-  fake.route('POST', '/api/teams', json({ id: '01900000-0000-7000-8000-0000000000a9' }, 201));
-  await page.goto('/teams');
-  const names = page.locator('main li a');
-  await expect(names).toHaveText(['Apps', 'Platform']);
-
-  await page.getByRole('button', { name: 'Favorite Platform' }).click();
-  await expect(page.getByRole('button', { name: 'Unfavorite Platform' })).toHaveAttribute('aria-pressed', 'true');
-  await expect.poll(() => requests(fake, 'PUT', `/api/teams/${TEAM_ID}/favorite`).length).toBe(1);
-
-  await page.getByRole('button', { name: 'Create team' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Create a team' });
-  await dialog.getByLabel('Team name').fill('Data');
-  await dialog.getByRole('button', { name: 'Create team' }).click();
-  await expect(page).toHaveURL(/\/teams\/01900000-0000-7000-8000-0000000000a9$/);
-  expect(requests(fake, 'POST', '/api/teams').map((r) => r.json)).toEqual([{ name: 'Data', description: null }]);
-});
-
-test('a failed favorite toggle rolls back', async ({ page, fake }) => {
-  useSession(fake, USER);
-  fake.route('PUT', '/api/teams/:id/favorite', problem(403, 'forbidden'));
-  await page.goto('/teams');
-  await page.getByRole('button', { name: 'Favorite Platform' }).click();
-  await expect(page.getByText('You are not allowed to do that.')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Favorite Platform' })).toHaveAttribute('aria-pressed', 'false');
-});
-
-test('an unverified account cannot create teams', async ({ page, fake }) => {
-  useSession(fake, { ...USER, user: { ...USER.user, emailVerified: false } });
-  await page.goto('/teams');
-  await expect(page.getByRole('button', { name: 'Create team' })).toBeDisabled();
-  await expect(page.getByText('Verify your email address to create a team.')).toBeVisible();
-});
-
-test('an invite is accepted after signing in, and the token never reaches a URL', async ({ page, fake }) => {
-  const setMe = useSession(fake, null);
-  fake.route('POST', '/api/auth/login', () => {
-    setMe(USER);
-    return { status: 200, body: USER };
-  });
-  fake.route('POST', '/api/invites/accept', json({ teamId: TEAM_ID }));
-  await page.goto('/invite#t=invite-token-1');
-
-  await expect(page.getByText('You are invited to join Platform.')).toBeVisible();
-  await expect(page).toHaveURL(/\/invite$/);
-  await page.getByRole('link', { name: 'Sign in' }).last().click();
-  await page.getByLabel('Email', { exact: true }).filter({ visible: true }).fill('ada@example.com');
-  await page.getByLabel('Password', { exact: true }).filter({ visible: true }).fill('correct horse battery');
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-
-  await page.getByRole('button', { name: 'Accept invite' }).click();
-  await expect(page).toHaveURL(new RegExp(`/teams/${TEAM_ID}$`));
-  expect(requests(fake, 'POST', '/api/invites/accept').map((r) => r.json)).toEqual([{ token: 'invite-token-1' }]);
-  expect(fake.requests.every((r) => !r.path.includes('invite-token-1') && !String(r.query).includes('invite-token-1'))).toBe(true);
-});
-
-test('an invite for another address explains why it failed', async ({ page, fake }) => {
-  useSession(fake, USER);
-  fake.route('POST', '/api/invites/accept', problem(403, 'email_mismatch'));
-  await page.goto('/invite#t=invite-token-2');
-  await page.getByRole('button', { name: 'Accept invite' }).click();
-  await expect(page.getByRole('alert')).toHaveText('This invite was sent to a different email address. Sign in with that account to accept it.');
-});
-
-test('an expired invite cannot be accepted', async ({ page, fake }) => {
-  useSession(fake, USER);
-  fake.route('POST', '/api/invites/preview', json({ teamName: 'Platform', kind: 'email', expired: true }));
-  await page.goto('/invite#t=invite-token-3');
-  await expect(page.getByText('This invite has expired. Ask a team admin for a new one.')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Accept invite' })).toHaveCount(0);
 });
 
 test('account: the profile saves and the header follows', async ({ page, fake }) => {
@@ -198,7 +389,7 @@ test('account: the profile saves and the header follows', async ({ page, fake })
   await page.getByRole('button', { name: 'Save profile' }).click();
 
   await expect(page.getByText('Profile saved.')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Account menu for Countess' })).toBeVisible();
+  await expect(header(page).getByRole('button', { name: 'Account menu for Countess' }).filter({ visible: true })).toHaveCount(1);
   expect(requests(fake, 'PATCH', '/api/me').map((r) => r.json)).toEqual([{ fullName: 'Ada Lovelace', nickname: 'Countess' }]);
 });
 
@@ -218,14 +409,15 @@ test('account: a first password needs a fresh sign-in, and other sessions can be
 
 test('mentions: opening the page clears the unread badge', async ({ page, fake }) => {
   useSession(fake, USER);
-  await page.goto('/dashboard');
-  await expect(page.getByRole('link', { name: 'Mentions (2 unread)' })).toBeVisible();
+  await page.goto('/account');
+  const bell = header(page).getByRole('link', { name: 'Mentions, 2 unread' });
+  await expect(bell).toBeVisible();
 
-  await page.getByRole('link', { name: 'Mentions (2 unread)' }).click();
+  await bell.click();
 
   await expect(page.getByText('Thanks @Ada Lovelace for the deploy fix')).toBeVisible();
   await expect(page.getByText('Anonymous', { exact: true })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Mentions', exact: true })).toBeVisible();
+  await expect(header(page).getByRole('link', { name: 'Mentions', exact: true })).toHaveAttribute('aria-current', 'page');
   expect(requests(fake, 'POST', '/api/me/mentions/seen')).toHaveLength(1);
 });
 
@@ -252,7 +444,7 @@ test('admin: members without the flag are turned away; admins can disable a user
 
 for (const [name, path, setup] of [
   ['poker', '/poker/POKERCODE1', (fake) => {
-    fake.route('GET', '/api/poker/by-code/:code', json({ id: '01900000-0000-7000-8000-0000000000c1' }));
+    fake.route('GET', '/api/poker/by-code/:code', json({ id: '01900000-0000-7000-8000-0000000000c1', access: 'granted' }));
   }],
   ['a board', `/retro/${BOARD_CODE}`, (fake) => {
     fake.boot = { build: 'fake', theme: 'light', me: USER, room: { r: BOARD_ROOM, e: 'aaaaaaaaaaaaaaaa', s: 0, d: snapshot(), o: EMPTY_OVERLAY } };

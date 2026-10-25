@@ -1,245 +1,284 @@
-// The persistent app header, matching the original sticky AppHeader: brand, team switcher, main links, a centre
-// slot, mentions, the theme menu and the account menu. It is sticky on wide screens; below 768 px it is
-// fixed and the links, teams and account items move into a slide-out sheet. The poker screen keeps its
-// own Neotro toolbar, so there the header hides and docks only the theme and account buttons into it.
+// The app header (UX18 decisions 9, 10 and 17). The team is the context: the logo (the team's home), the team
+// switcher and the team's sections, then the settings gear (team admins and owners, on team pages), mentions
+// and the account menu, which also holds the theme. Signed out, and on /teams, it is the logo and the product
+// name, plus the account menu on /teams. Below 768 px the sections scroll in a second row and the account
+// button opens the slide-out sheet instead. The poker screen keeps its own toolbar: there the header hides
+// and docks mentions and the account menu into it. The menus load on first use, to keep the entry small.
 
 import { h, replaceContent } from '../core/h.js';
+import { initials } from '../core/fmt.js';
 import { currentTheme } from '../core/theme.js';
 import { createAvatar } from '../ui/avatar.js';
 import { icon } from '../ui/icons.js';
-import { createMenu } from '../ui/menu.js';
 import { toast } from '../ui/toast.js';
-import { avatarUrl, navigate, session, setThemePreference, signOut } from './app.js';
+import { avatarUrl, homeTeam, navigate, session, setThemePreference, signOut } from './app.js';
 
 const LOGO = typeof RS_ASSETS === 'object' ? RS_ASSETS['logo.svg'] ?? null : null;
-const TITLE_SUFFIX = ' · Retroscope';
 
-const THEMES = [
-  { action: 'light', label: 'Light', icon: 'sun' },
-  { action: 'dark', label: 'Dark', icon: 'moon' },
-  { action: 'system', label: 'System', icon: 'palette' },
-];
+/** The team page's sections in header order, by their `?tab=` ids. */
+export const SECTIONS = [['poker', 'Poker'], ['retros', 'Retros'], ['actions', 'Action items'], ['kudos', 'Kudos'], ['members', 'Members']];
 
-// Screens that are, or draw, their own sign-in prompt for signed-out visitors.
-const OWN_SIGN_IN = new Set(['/login', '/auth/*', '/teams/:id', '/teams/:id/settings', '/retro/:code']);
+/** The section a team page's query selects: Poker by default; `boards` is the old name of Retros. */
+export function sectionOf(query) {
+  const tab = query?.get('tab') === 'boards' ? 'retros' : query?.get('tab');
+  return SECTIONS.some(([id]) => id === tab) ? tab : 'poker';
+}
+
+export const teamPath = (teamId, section = 'poker') => `/teams/${encodeURIComponent(teamId)}${section === 'poker' ? '' : `?tab=${section}`}`;
+
+export const ROLES = { owner: 'Owner', admin: 'Admin', member: 'Member' };
+export const THEMES = [['light', 'Light'], ['dark', 'Dark'], ['system', 'System']];
+const MANAGERS = new Set(['owner', 'admin']);
+const TEAM_PAGES = new Set(['/teams/:id', '/teams/:id/settings']);
 const POKER_ROUTES = new Set(['/poker/:code', '/teams/:tid/poker/:code']);
 
-// The session as the header shows it: a body without a principal counts as signed out.
-const visitor = () => (session.get().me?.principal ? session.get().me : null);
-
 export const navLink = (href, text, props = {}) => h('a', { href, 'data-nav': '', ...props }, text);
-const here = () => location.pathname + location.search;
+const current = (link, on) => (on ? link.setAttribute('aria-current', 'page') : link.removeAttribute('aria-current'));
 
-function signOutNow() {
-  signOut().catch(() => toast('Signing out failed. Try again.', { variant: 'error', duration: 5000 }));
+/** The user's teams by name, ignoring case: the switcher's order. */
+export const byName = (teams) => [...(teams ?? [])].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+
+/** A team's initials on a tint chosen by its id, so teams tell apart at a glance. */
+export function teamBadge(team) {
+  const tint = [...team.id].reduce((sum, c) => sum + c.charCodeAt(0), 0) % 5;
+  return h('span', { class: 'app-team-badge', 'aria-hidden': 'true', dataset: { tint }, text: initials(team.name) });
 }
 
-function accountItems(me) {
-  if (me?.user) {
-    return [
-      { action: 'account', label: 'Account', icon: 'user' },
-      me.user.isAdmin ? { action: 'admin', label: 'Admin', icon: 'shield' } : null,
-      'separator',
-      { action: 'signout', label: 'Sign out', icon: 'log-out', destructive: true },
-    ].filter(Boolean);
-  }
-  return [{ action: 'signin', label: 'Sign in', icon: 'log-in' }];
+export function signOutNow(to) {
+  signOut({ to }).catch(() => toast('Signing out failed. Try again.', { variant: 'error', duration: 5000 }));
 }
 
-function onAccountAction(action) {
+/** Opens a menu from `button`. The menu code loads on first use; hovering the button fetches it early. */
+function menuButton(button, { label, placement, items, onSelect }) {
+  let menu = null;
+  const load = () => (menu ??= import('../ui/menu.js').then(({ createMenu }) => createMenu({ items: [], label, placement, onSelect })));
+  const show = (open) => load().then((m) => {
+    if (m.isOpen) {
+      m.close();
+    } else if (open) {
+      m.update({ items: items() });
+      m.open(button);
+    }
+  }, () => toast('This menu could not be loaded. Check your connection.', { variant: 'error', duration: 5000 }));
+  button.setAttribute('aria-haspopup', 'menu');
+  button.setAttribute('aria-expanded', 'false');
+  button.addEventListener('pointerenter', () => load().catch(() => {}), { once: true });
+  button.addEventListener('click', () => show(true));
+  button.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown' && button.getAttribute('aria-expanded') !== 'true') {
+      event.preventDefault();
+      show(true);
+    }
+  });
+  return () => menu?.then((m) => m.destroy(), () => {});
+}
+
+function onAccount(action) {
   if (action === 'signout') {
     signOutNow();
-  } else if (action === 'signin') {
-    navigate(`/login?return=${encodeURIComponent(here())}`);
-  } else {
+  } else if (action === 'account' || action === 'admin') {
     navigate(action === 'admin' ? '/admin/users' : '/account');
+  } else {
+    setThemePreference(action);
   }
 }
 
-function themeIcon() {
-  const resolved = document.documentElement.dataset.theme === 'dark' ? 'moon' : 'sun';
-  return icon(currentTheme() === 'system' ? 'palette' : resolved);
+function accountItems() {
+  const me = session.get().me;
+  return [
+    { node: h('div', { class: 'menu-who', 'aria-hidden': 'true' }, createAvatar({ name: me.principal.name, src: avatarUrl(me.principal), size: 'sm' }).el, h('strong', { text: me.principal.name })) },
+    'separator',
+    { action: 'account', label: 'Account', icon: 'user' },
+    me.user.isAdmin ? { action: 'admin', label: 'Admin', icon: 'shield' } : null,
+    { group: 'Theme', className: 'menu-segmented', items: THEMES.map(([action, label]) => ({ action, label, checked: currentTheme() === action })) },
+    'separator',
+    { action: 'signout', label: 'Sign out', icon: 'log-out', destructive: true },
+  ];
 }
 
-/** A theme button and an account button with their menus; `destroy()` releases both menus. */
-function createControls(me) {
-  const themeButton = h('button', { type: 'button', class: 'btn btn-ghost btn-icon app-theme', 'aria-label': 'Theme' }, themeIcon());
-  const themeMenu = createMenu({ items: THEMES, label: 'Theme', placement: 'bottom-end', onSelect: setThemePreference });
-  themeMenu.attach(themeButton);
-  const menus = [themeMenu];
-  let account = null;
-  if (me) {
-    account = h('button', {
-      type: 'button',
-      class: 'btn btn-ghost btn-sm app-account',
-      'aria-label': `Account menu for ${me.principal.name}`,
-    }, createAvatar({ name: me.principal.name, src: avatarUrl(me.principal), size: 'sm' }).el, icon('chevron-down'));
-    const menu = createMenu({ items: accountItems(me), label: 'Account', placement: 'bottom-end', onSelect: onAccountAction });
-    menu.attach(account);
-    menus.push(menu);
-  }
+// Named from its content, "Account menu for <name>": the avatar's initials are visible, so a label that left them
+// out would not hold the visible text (WCAG 2.5.3).
+const accountButton = (className, avatar) => h('button', { type: 'button', class: ['btn btn-ghost btn-icon', className] },
+  h('span', { class: 'sr-only', text: 'Account menu for ' }), avatar.el);
+
+/** The mentions link and the account button with its menu: in the header, and docked in the poker toolbar. */
+function createControls() {
+  const bell = navLink('/mentions', null, { class: 'btn btn-ghost btn-icon app-mentions' });
+  const avatar = createAvatar({ name: '', size: 'sm' });
+  const account = accountButton('app-account', avatar);
+  const destroy = menuButton(account, { label: 'Account', placement: 'bottom-end', items: accountItems, onSelect: onAccount });
   return {
-    themeButton,
-    nodes: [themeButton, account],
-    destroy() {
-      for (const menu of menus) {
-        menu.destroy();
-      }
+    bell,
+    account,
+    avatar,
+    update(me) {
+      const unread = me.unreadMentions ?? 0;
+      replaceContent(bell, icon('bell'), unread ? h('span', { class: 'badge app-mentions-badge', 'aria-hidden': 'true', text: String(unread) }) : null);
+      // The count is in the name as it is shown (WCAG 2.5.3).
+      bell.setAttribute('aria-label', unread ? `Mentions, ${unread} unread` : 'Mentions');
+      avatar.update({ name: me.principal.name, src: avatarUrl(me.principal) });
     },
+    destroy,
   };
 }
 
 export function createHeader() {
   let route = null;
-  let teamId = null;
-  let controls = null;
-  let dock = null;
-  let pinnedCenter = false;
-
-  const brand = h('a', { href: '/', 'data-nav': '', class: 'app-brand', 'aria-label': 'Retroscope home' },
-    LOGO ? h('img', { src: LOGO, alt: '', width: 28, height: 28 }) : null,
-    h('span', { class: 'app-brand-name', text: 'Retroscope' }));
-  const teamButton = h('button', { type: 'button', class: 'btn btn-ghost btn-sm app-team-switch' });
-  const teamMenu = createMenu({
-    items: [],
-    label: 'Teams',
-    onSelect: (action) => navigate(action === 'all' ? '/teams' : `/teams/${action}`),
-  });
-  teamMenu.attach(teamButton);
-  const nav = h('nav', { class: 'app-nav', 'aria-label': 'Main' });
-  const center = h('div', { class: 'app-header-center' });
-  const end = h('div', { class: 'app-header-end' });
-  const burger = h('button', { type: 'button', class: 'btn btn-ghost btn-icon app-burger', 'aria-label': 'Menu', 'aria-haspopup': 'dialog' }, icon('menu'));
+  let params = {};
+  let path = null;
+  // What the page told the header (app.js setHeaderTeam, setHeaderTab); reset when the path changes.
+  let pageTeam = null;
+  let pageTab;
+  // The poker screen hides the header behind its toolbar until it shows a page of the shell instead (no access).
+  let revealed = false;
+  let shown = null;
   let sheet = null;
-  const el = h('header', { class: 'app-header' },
-    h('div', { class: 'app-header-start' }, brand, teamButton, nav),
-    center,
-    h('div', { class: 'app-header-actions' }, end, burger));
+  let dock = null;
+
+  const brandName = h('span', { class: 'app-brand-name', text: 'Retroscope' });
+  const brand = navLink('/', [LOGO ? h('img', { src: LOGO, alt: '', width: 28, height: 28 }) : null, brandName], { class: 'app-brand' });
+  const switcher = h('button', { type: 'button', class: 'btn btn-outline app-team-switch', title: 'Switch team' });
+  const count = h('span', { class: 'badge', hidden: true });
+  const tabs = new Map(SECTIONS.map(([id, label]) => [id, navLink('/', [label, id === 'actions' ? count : null])]));
+  const nav = h('nav', { class: 'app-tabs' }, [...tabs.values()]);
+  const gear = navLink('/', icon('settings'), { class: 'btn btn-ghost btn-icon app-gear', 'aria-label': 'Team settings' });
+  const controls = createControls();
+  const burgerAvatar = createAvatar({ name: '', size: 'sm' });
+  const burger = accountButton('app-burger', burgerAvatar);
+  burger.setAttribute('aria-haspopup', 'dialog');
+  const el = h('header', { class: 'app-header' }, brand, switcher, nav,
+    h('div', { class: 'app-header-actions' }, gear, controls.bell, controls.account, burger));
+
+  const stopTeams = menuButton(switcher, {
+    label: 'Teams',
+    items: () => [
+      { group: 'Your teams', items: byName(shown.me.teams).map((t) => ({ action: t.id, label: t.name, detail: ROLES[t.role], icon: teamBadge(t), checked: t.id === shown.team?.id })) },
+      'separator',
+      { action: 'create', label: 'Create a team', icon: 'plus' },
+    ],
+    onSelect: (action) => navigate(action === 'create' ? '/teams' : teamPath(action)),
+  });
 
   // The sheet is only for narrow screens, so its code loads on the first tap.
   burger.addEventListener('click', async () => {
     const { createSheet } = await import('./sheet.js');
-    sheet ??= createSheet({ themes: THEMES, here, signOut: signOutNow });
-    sheet.open(visitor());
+    sheet ??= createSheet();
+    sheet.open(shown);
   });
 
-  function teamName(me) {
-    return me?.teams?.find((t) => t.id === teamId)?.name ?? null;
+  // The team the header shows, its active section and whether the gear shows. A page's own team counts only
+  // when the user is in it; otherwise the header shows the user's last team with no section active.
+  function context(me) {
+    const teams = me?.teams ?? [];
+    const asked = pageTeam ?? params.id ?? params.tid ?? null;
+    const own = asked === null ? null : teams.find((t) => t.id === asked) ?? null;
+    const team = me && route !== '/teams' ? own ?? homeTeam(me) : null;
+    let tab = pageTab;
+    if (tab === undefined) {
+      tab = asked !== null && own === null ? null
+        : route === '/teams/:id' ? sectionOf(params.query)
+          : route === '/retro/:code' ? 'retros'
+            : POKER_ROUTES.has(route) ? 'poker' : null;
+    }
+    return { me, team, tab: team ? tab : null, gear: own !== null && TEAM_PAGES.has(route) && MANAGERS.has(own.role), settings: route === '/teams/:id/settings' };
   }
 
   function renderDock(me) {
-    dock?.controls.destroy();
-    dock?.el.remove();
-    dock = null;
-    const toolbar = POKER_ROUTES.has(route) ? document.querySelector('.nt-toolbar-extras') : null;
-    if (toolbar) {
-      const docked = createControls(me);
-      dock = { controls: docked, el: h('div', { class: 'app-dock' }, docked.nodes) };
-      toolbar.append(dock.el);
-    }
-  }
-
-  function render(me) {
-    const user = me?.user;
-    brand.href = user ? '/dashboard' : '/';
-    teamButton.hidden = !user;
-    if (user) {
-      const current = teamName(me);
-      replaceContent(teamButton, icon('users'), h('span', { text: current ?? 'Teams' }), icon('chevron-down'));
-      // The name starts from the visible text (WCAG 2.5.3), so speech users can say what they see.
-      if (current) {
-        teamButton.setAttribute('aria-label', `Switch team: ${current}`);
-      } else {
-        teamButton.removeAttribute('aria-label');
-      }
-      teamMenu.update({
-        items: [
-          ...(me.teams ?? []).map((t) => ({ action: t.id, label: t.name, icon: t.id === teamId ? 'check' : 'users' })),
-          ...(me.teams?.length ? ['separator'] : []),
-          { action: 'all', label: 'All teams', icon: 'layout-dashboard' },
-        ],
-      });
-    }
-    replaceContent(nav, user
-      ? [
-        navLink('/dashboard', 'Dashboard', { class: 'btn btn-ghost btn-sm' }),
-        navLink('/teams', 'Teams', { class: 'btn btn-ghost btn-sm' }),
-      ]
-      : []);
-    const mentions = user
-      ? navLink('/mentions', [
-        icon('bell'),
-        me.unreadMentions ? h('span', { class: 'badge app-mentions-badge', 'aria-hidden': 'true', text: String(me.unreadMentions) }) : null,
-      ], {
-        class: 'btn btn-ghost btn-icon app-mentions',
-        'aria-label': me.unreadMentions ? `Mentions (${me.unreadMentions} unread)` : 'Mentions',
-      })
-      : null;
-    controls?.destroy();
-    controls = createControls(me);
-    const signIn = !me && !OWN_SIGN_IN.has(route)
-      ? navLink(`/login?return=${encodeURIComponent(here())}`, 'Sign in', { class: 'btn btn-outline btn-sm' })
-      : null;
-    const guestName = me && !user ? h('span', { class: 'app-guest', text: me.principal.name }) : null;
-    replaceContent(end, guestName, mentions, controls.nodes, signIn);
-    renderDock(me);
-    sheet?.update(me);
-  }
-
-  // Room screens set document.title to "<name> · Retroscope"; on a board that name is the centre title
-  // until the screen fills the slot itself through setCenter().
-  function mirrorTitle() {
-    if (pinnedCenter) {
+    const toolbar = me && POKER_ROUTES.has(route) ? document.querySelector('.nt-toolbar-extras') : null;
+    if (!toolbar) {
+      dock?.destroy();
+      dock?.el.remove();
+      dock = null;
       return;
     }
-    const title = route === '/retro/:code' && document.title.endsWith(TITLE_SUFFIX)
-      ? document.title.slice(0, -TITLE_SUFFIX.length)
-      : '';
-    if (center.textContent !== title) {
-      replaceContent(center, title ? h('span', { class: 'app-header-title', text: title }) : null);
+    if (!dock) {
+      dock = createControls();
+      dock.el = h('div', { class: 'app-dock' }, dock.bell, dock.account);
     }
+    if (dock.el.parentNode !== toolbar) {
+      toolbar.append(dock.el);
+    }
+    dock.update(me);
   }
 
-  const titleWatch = new MutationObserver(mirrorTitle);
-  titleWatch.observe(document.head, { childList: true, subtree: true, characterData: true });
-  const themeWatch = new MutationObserver(() => {
-    for (const button of el.ownerDocument.querySelectorAll('.app-theme')) {
-      replaceContent(button, themeIcon());
+  function render() {
+    const me = session.get().me?.user ? session.get().me : null;
+    shown = context(me);
+    const { team, tab } = shown;
+    el.toggleAttribute('data-team', team !== null);
+    brand.href = team ? teamPath(team.id) : '/';
+    brand.setAttribute('aria-label', `${team?.name ?? 'Retroscope'} home`);
+    switcher.hidden = team === null;
+    nav.hidden = team === null;
+    if (team) {
+      // Named by the team, as shown; the menu button role says what it does.
+      replaceContent(switcher, teamBadge(team), h('span', { class: 'app-team-name', text: team.name }), icon('chevron-down'));
+      nav.setAttribute('aria-label', `${team.name} sections`);
+      for (const [id, link] of tabs) {
+        link.href = teamPath(team.id, id);
+        current(link, id === tab);
+      }
+      count.textContent = String(team.openActions ?? 0);
+      count.hidden = !team.openActions;
     }
-  });
-  themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-  const stop = session.select((s) => s.me, Object.is, () => render(visitor()));
-  render(visitor());
+    gear.hidden = !shown.gear;
+    if (shown.gear) {
+      gear.href = `${teamPath(team.id)}/settings`;
+      current(gear, shown.settings);
+    }
+    controls.bell.hidden = !me || route === '/teams';
+    current(controls.bell, route === '/mentions');
+    controls.account.hidden = !me;
+    burger.hidden = !me;
+    if (me) {
+      controls.update(me);
+      burgerAvatar.update({ name: me.principal.name, src: avatarUrl(me.principal) });
+    }
+    document.documentElement.classList.toggle('app-has-tabs', team !== null && !el.hidden);
+    renderDock(me);
+    sheet?.update(shown);
+  }
+
+  const stop = session.select((s) => s.me, Object.is, render);
+
+  function place() {
+    el.hidden = POKER_ROUTES.has(route) && !revealed;
+    document.documentElement.classList.toggle('app-has-header', !el.hidden);
+  }
 
   return {
     el,
     /** Called after every navigation with the matched route pattern (null when nothing matched). */
-    show(pattern, params = {}) {
-      const changed = pattern !== route;
-      route = pattern;
-      teamId = params.id ?? params.tid ?? null;
-      el.hidden = POKER_ROUTES.has(route);
-      document.documentElement.classList.toggle('app-has-header', !el.hidden);
-      if (changed) {
-        pinnedCenter = false;
-        center.replaceChildren();
+    show(pattern, next = {}) {
+      if (location.pathname !== path) {
+        path = location.pathname;
+        pageTeam = null;
+        pageTab = undefined;
+        revealed = false;
       }
-      render(visitor());
-      mirrorTitle();
+      route = pattern;
+      params = next;
+      place();
+      render();
     },
-    /** Puts `nodes` in the centre slot (null restores the page title); cleared on the next route. */
-    setCenter(...nodes) {
-      pinnedCenter = nodes.length > 0 && nodes[0] !== null;
-      replaceContent(center, ...nodes);
-      mirrorTitle();
+    reveal() {
+      revealed = true;
+      place();
+      render();
+    },
+    setTeam(teamId) {
+      pageTeam = teamId;
+      render();
+    },
+    setTab(tab) {
+      pageTab = tab;
+      render();
     },
     destroy() {
       stop();
-      titleWatch.disconnect();
-      themeWatch.disconnect();
-      controls?.destroy();
-      dock?.controls.destroy();
-      teamMenu.destroy();
+      stopTeams();
+      controls.destroy();
+      dock?.destroy();
       sheet?.destroy();
       el.remove();
     },
