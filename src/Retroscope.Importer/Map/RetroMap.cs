@@ -513,7 +513,6 @@ internal static partial class RetroText {
 
     [GeneratedRegex(@"^[A-Za-z0-9-]{3,64}\z", RegexOptions.CultureInvariant)]
     private static partial Regex BoardCode();
-
 }
 
 /// <summary>Target-side reads and writes shared by the retro stages.</summary>
