@@ -13,6 +13,8 @@ namespace Retroscope.Integration.Tests.Jira.Client;
 [Trait("Category", "JiraClient")]
 [Collection(SharedPostgres.Name)]
 public sealed class JiraClientTests(PostgresFixture postgres) {
+    private const string BoardField = "customfield_10028";
+
     private static readonly string[] DetailFields = ["summary", "status", "customfield_10016", "customfield_10020"];
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -714,10 +716,10 @@ public sealed class JiraClientTests(PostgresFixture postgres) {
     public async Task A_boards_estimation_field_is_read_from_its_configuration_and_cached() {
         await using var h = await JiraHarness.StartAsync(postgres);
         h.Jira.AddBoard(7, "DUN");
-        h.Jira.BoardEstimation = FakeJiraServer.FieldEstimation("customfield_10028", "Story Points");
+        h.Jira.BoardEstimation = FakeJiraServer.FieldEstimation(BoardField, "Story Points");
 
-        Assert.Equal("customfield_10028", await h.Client.GetBoardEstimationFieldAsync(h.Team, 7, Ct));
-        Assert.Equal("customfield_10028", await h.Client.GetBoardEstimationFieldAsync(h.Team, 7, Ct));
+        Assert.Equal(new JiraBoardEstimation.Field(BoardField), await h.Client.GetBoardEstimationAsync(h.Team, 7, Ct));
+        Assert.Equal(new JiraBoardEstimation.Field(BoardField), await h.Client.GetBoardEstimationAsync(h.Team, 7, Ct));
 
         var request = Assert.Single(h.Jira.Requests);
         Assert.Equal("/rest/agile/1.0/board/7/configuration", request.Path);
@@ -734,20 +736,136 @@ public sealed class JiraClientTests(PostgresFixture postgres) {
         h.Jira.AddBoard(7, "DUN");
         h.Jira.BoardEstimation = estimation is null ? null : System.Text.Json.Nodes.JsonNode.Parse(estimation)!.AsObject();
 
-        Assert.Null(await h.Client.GetBoardEstimationFieldAsync(h.Team, 7, Ct));
+        Assert.IsType<JiraBoardEstimation.None>(await h.Client.GetBoardEstimationAsync(h.Team, 7, Ct));
+    }
+
+    [Theory]
+    [InlineData(404)]
+    [InlineData(403)]
+    public async Task A_board_that_is_gone_or_hidden_is_remembered_without_a_field_for_five_minutes(int status) {
+        await using var h = await JiraHarness.StartAsync(postgres);
+        h.Jira.AddBoard(7, "DUN");
+        h.Jira.Script("GET", "/rest/agile/1.0/board/7/configuration", new FakeJiraResponse(status, "{}"));
+
+        Assert.IsType<JiraBoardEstimation.None>(await h.Client.GetBoardEstimationAsync(h.Team, 7, Ct));
+        h.Time.Advance(TimeSpan.FromMinutes(5) - TimeSpan.FromSeconds(1));
+        Assert.IsType<JiraBoardEstimation.None>(await h.Client.GetBoardEstimationAsync(h.Team, 7, Ct));
+        Assert.Single(h.Jira.Requests);
+
+        h.Time.Advance(TimeSpan.FromSeconds(1));
+        Assert.Equal(new JiraBoardEstimation.Field("customfield_10016"), await h.Client.GetBoardEstimationAsync(h.Team, 7, Ct));
+        Assert.Equal(2, h.Jira.Requests.Count);
     }
 
     [Fact]
-    public async Task A_failed_board_configuration_read_is_not_cached() {
+    public async Task A_board_configuration_that_cannot_be_read_for_now_is_remembered_for_thirty_seconds() {
         await using var h = await JiraHarness.StartAsync(postgres);
         h.Jira.AddBoard(7, "DUN");
-        h.Jira.Script("GET", "/rest/agile/1.0/board/7/configuration", new FakeJiraResponse(404, "{}"));
+        h.Jira.Script("GET", "/rest/agile/1.0/board/7/configuration", new FakeJiraResponse(500, "{}"));
 
-        var error = await Assert.ThrowsAsync<JiraException>(() => h.Client.GetBoardEstimationFieldAsync(h.Team, 7, Ct));
+        var failed = Assert.IsType<JiraBoardEstimation.Unknown>(await h.Client.GetBoardEstimationAsync(h.Team, 7, Ct));
+        Assert.Equal(JiraErrorCode.Unavailable, failed.Error.Code);
+        h.Time.Advance(TimeSpan.FromSeconds(29));
+        Assert.IsType<JiraBoardEstimation.Unknown>(await h.Client.GetBoardEstimationAsync(h.Team, 7, Ct));
+        Assert.Single(h.Jira.Requests);
 
-        Assert.Equal(JiraErrorCode.NotFound, error.Error.Code);
-        Assert.Equal("customfield_10016", await h.Client.GetBoardEstimationFieldAsync(h.Team, 7, Ct));
+        h.Time.Advance(TimeSpan.FromSeconds(1));
+        Assert.Equal(new JiraBoardEstimation.Field("customfield_10016"), await h.Client.GetBoardEstimationAsync(h.Team, 7, Ct));
         Assert.Equal(2, h.Jira.Requests.Count);
+    }
+
+    [Fact]
+    public async Task A_settings_change_drops_a_remembered_board_failure() {
+        await using var h = await JiraHarness.StartAsync(postgres);
+        h.Jira.AddBoard(7, "DUN");
+        h.Jira.Script("GET", "/rest/agile/1.0/board/7/configuration", new FakeJiraResponse(403, "{}"));
+        await h.Client.GetBoardEstimationAsync(h.Team, 7, Ct);
+
+        h.Cache.InvalidateTag(JiraCache.TeamTag(h.Team));
+
+        Assert.Equal(new JiraBoardEstimation.Field("customfield_10016"), await h.Client.GetBoardEstimationAsync(h.Team, 7, Ct));
+        Assert.Equal(2, h.Jira.Requests.Count);
+    }
+
+    [Fact]
+    public async Task A_burst_of_reads_against_a_hidden_board_costs_one_configuration_request() {
+        await using var h = await JiraHarness.StartAsync(postgres);
+        h.Jira.AddBoard(7, "DUN");
+        h.Jira.Script("GET", "/rest/agile/1.0/board/7/configuration", new FakeJiraResponse(403, "{}"));
+
+        for (var i = 0; i < 5; i++) {
+            Assert.Equal("customfield_10016", (await h.Client.EffectiveConfigAsync(h.Team, Ct)).PointsFieldId);
+        }
+
+        Assert.Single(h.Jira.Requests, r => r.Path == "/rest/agile/1.0/board/7/configuration");
+    }
+
+    [Theory]
+    [InlineData(500, null, JiraErrorCode.Unavailable)]
+    [InlineData(429, "60", JiraErrorCode.RateLimited)]
+    public async Task A_points_write_fails_with_the_error_when_the_board_configuration_cannot_be_read_for_now(int status, string? retryAfter, string code) {
+        await using var h = await JiraHarness.StartAsync(postgres);
+        h.Jira.AddBoard(7, "DUN");
+        h.Jira.BoardEstimation = FakeJiraServer.FieldEstimation(BoardField, "Story Points");
+        h.Jira.EditableFields.Add(BoardField);
+        h.Jira.AddIssue("DUN-1", "First");
+        var headers = retryAfter is null ? null : new Dictionary<string, string> { ["Retry-After"] = retryAfter };
+        h.Jira.Script("GET", "/rest/agile/1.0/board/7/configuration", new FakeJiraResponse(status, "{}", headers));
+
+        var error = await Assert.ThrowsAsync<JiraException>(() => h.Client.SetPointsAsync(h.Team, "DUN-1", 3, Ct));
+
+        Assert.Equal(code, error.Error.Code);
+        Assert.DoesNotContain(h.Jira.Requests, r => r.Method == "PUT");
+    }
+
+    [Fact]
+    public async Task A_points_write_reads_a_board_failure_a_read_remembered_again() {
+        await using var h = await JiraHarness.StartAsync(postgres);
+        h.Jira.AddBoard(7, "DUN");
+        h.Jira.BoardEstimation = FakeJiraServer.FieldEstimation(BoardField, "Story Points");
+        h.Jira.EditableFields.Add(BoardField);
+        h.Jira.AddIssue("DUN-1", "First");
+        h.Jira.Script("GET", "/rest/agile/1.0/board/7/configuration", new FakeJiraResponse(500, "{}"));
+        Assert.Equal("customfield_10016", (await h.Client.EffectiveConfigAsync(h.Team, Ct)).PointsFieldId);
+
+        await h.Client.SetPointsAsync(h.Team, "DUN-1", 3, Ct);
+
+        Assert.Equal(3m, (decimal?)h.Jira.Issues["DUN-1"]["fields"]![BoardField]);
+        Assert.Null(h.Jira.Issues["DUN-1"]["fields"]!["customfield_10016"]);
+        Assert.Equal(2, h.Jira.Requests.Count(r => r.Path == "/rest/agile/1.0/board/7/configuration"));
+    }
+
+    [Theory]
+    [InlineData(404)]
+    [InlineData(403)]
+    public async Task A_points_write_for_a_board_that_is_gone_or_hidden_uses_the_stored_field(int status) {
+        await using var h = await JiraHarness.StartAsync(postgres);
+        h.Jira.AddBoard(7, "DUN");
+        h.Jira.BoardEstimation = FakeJiraServer.FieldEstimation(BoardField, "Story Points");
+        h.Jira.EditableFields.Add(BoardField);
+        h.Jira.AddIssue("DUN-1", "First");
+        h.Jira.Script("GET", "/rest/agile/1.0/board/7/configuration", new FakeJiraResponse(status, "{}"));
+
+        await h.Client.SetPointsAsync(h.Team, "DUN-1", 3, Ct);
+
+        Assert.Equal(3m, (decimal?)h.Jira.Issues["DUN-1"]["fields"]!["customfield_10016"]);
+        Assert.Null(h.Jira.Issues["DUN-1"]["fields"]![BoardField]);
+    }
+
+    [Fact]
+    public async Task A_field_catalogue_that_cannot_be_read_leaves_reads_without_points_and_fails_writes() {
+        await using var h = await JiraHarness.StartAsync(postgres);
+        await h.ConfigureTeamAsync(h.Team, h.Jira.Email, h.Jira.Token, pointsFieldId: null);
+        h.Jira.AddBoard(7, "DUN");
+        h.Jira.BoardEstimation = null;
+        h.Jira.AddIssue("DUN-1", "First");
+        h.Jira.Script("GET", "/rest/api/3/field", new FakeJiraResponse(500, "{}"), new FakeJiraResponse(500, "{}"));
+
+        Assert.Null((await h.Client.EffectiveConfigAsync(h.Team, Ct)).PointsFieldId);
+        var error = await Assert.ThrowsAsync<JiraException>(() => h.Client.SetPointsAsync(h.Team, "DUN-1", 3, Ct));
+
+        Assert.Equal(JiraErrorCode.Unavailable, error.Error.Code);
+        Assert.DoesNotContain(h.Jira.Requests, r => r.Method == "PUT");
     }
 
     [Fact]
