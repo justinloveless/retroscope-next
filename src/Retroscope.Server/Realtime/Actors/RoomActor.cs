@@ -363,6 +363,9 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
         }
         await ResumeAsync(peer, viewer, member, epoch, seq, cursor.LastQ);
         _subs[peer.Id] = new Subscriber(peer, viewer, member);
+        if (_runtime.Visits is { } visits && _binding.TeamOf(state) is { } team) {
+            visits.Visited(viewer.Who, team);
+        }
         var delta = _presence.Add(peer.Id, viewer, member);
         if (existing is null) {
             var info = PresenceTable.Info(viewer.Who);

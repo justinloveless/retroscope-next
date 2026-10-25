@@ -189,6 +189,7 @@ public static class TeamsEndpoints {
     public static void AddServices(IServiceCollection services, IConfiguration configuration) {
         services.AddSingleton<TeamsRepo>();
         services.AddSingleton<ActivityRepo>();
+        services.AddSingleton<IRoomVisits>(sp => sp.GetRequiredService<ActivityRepo>());
         services.AddSingleton<TeamAccess>();
         services.AddSingleton<TeamActors>();
     }
@@ -249,7 +250,7 @@ public static class TeamsEndpoints {
         if (check.Refusal is { } refusal) {
             return refusal;
         }
-        await activity.TouchAsync(check.Who, ActivityKind.Team, id, context.RequestAborted);
+        await activity.TouchAsync(check.Who, check.TeamId, context.RequestAborted);
         return await DetailsResultAsync(check, access, teams, context.RequestAborted);
     }
 

@@ -77,6 +77,8 @@ public sealed class PokerBinding(IRoomDomain<PokerState, PokerInput, PokerEvent>
 
     public bool IsDeleted(PokerState state) => state.Deleted;
 
+    public TeamId? TeamOf(PokerState state) => state.TeamId;
+
     public PokerInput? OnShutdown(PokerState state) => state.Spotlight is { Dirty: true } ? new SpotlightSettleDue() : null;
 
     private static ResourceFacts Facts(PokerState state, Viewer viewer) {

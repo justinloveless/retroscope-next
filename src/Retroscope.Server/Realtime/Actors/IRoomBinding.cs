@@ -60,6 +60,9 @@ public interface IRoomBinding<TState, TInput, TEvent> where TState : class where
     /// <summary>Once true every subscriber is kicked with <c>deleted</c> and new subscriptions get <c>not_found</c>.</summary>
     bool IsDeleted(TState state) => false;
 
+    /// <summary>The team the room belongs to; an admitted subscription counts as a visit to it (UX18).</summary>
+    TeamId? TeamOf(TState state) => null;
+
     /// <summary>The last input decided on a graceful shutdown (persist a moving spotlight), or null.</summary>
     TInput? OnShutdown(TState state) => null;
 }

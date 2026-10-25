@@ -97,6 +97,8 @@ public sealed class RetroBinding(IAnonTagger tagger) : IRoomBinding<RetroState, 
 
     public bool IsDeleted(RetroState state) => state.Deleted;
 
+    public TeamId? TeamOf(RetroState state) => state.TeamId;
+
     public bool CanSubscribe(RetroState state, Viewer viewer, IAccessView access) {
         return Policy.Can(viewer, Capability.Subscribe, Facts(state), access);
     }
