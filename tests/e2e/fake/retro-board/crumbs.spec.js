@@ -1,7 +1,7 @@
 // A board leads back to its team (UX18 decisions 2 and 12): its header shows "<team> / Retros /" above the title,
 // from the snapshot's team named from `me`; the app header shows that team with Retros current. A board that is
 // missing or not the user's shows "You can't open this page" without naming it, and losing access while it is
-// open says so.
+// open says so. A board open in too many of the user's tabs says that instead, with Try again.
 import { json, problem } from '../../../web-fake-server/http.js';
 import { expect, test } from '../_harness/fixtures.js';
 import { memberMe } from '../_harness/me.js';
@@ -73,4 +73,19 @@ test('a member removed while the board is open is told they no longer have acces
   await expect(page.locator('.retro-column')).toHaveCount(0);
   // `me` is reloaded, so the screen no longer offers the team just left.
   await expect(page.getByRole('link', { name: 'Create or join a team' })).toBeVisible();
+});
+
+test('a board open in too many of the user’s tabs says so on the board, not that they lost access, and Try again joins it again', async ({ page, fake }) => {
+  await openBoard(page, fake);
+  await fake.waitForSubscription(ROOM);
+  fake.kick(ROOM, 'too_many_connections');
+
+  const banner = page.getByRole('alert').filter({ hasText: 'This board is open in too many of your tabs. Close one, then try again.' });
+  await expect(banner).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'You no longer have access' })).toHaveCount(0);
+
+  await banner.getByRole('button', { name: 'Try again' }).click();
+  await fake.waitForSubscription(ROOM);
+  await expect(page.locator('.retro-column')).toHaveCount(snapshot().columns.length);
+  await expect(page.getByRole('alert').filter({ hasText: 'too many of your tabs' })).toHaveCount(0);
 });

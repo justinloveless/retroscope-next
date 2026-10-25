@@ -85,6 +85,21 @@ test.describe('team page', () => {
     await expect(page.getByRole('heading', { name: 'You no longer have access' })).toHaveCount(0);
   });
 
+  test('a team open in too many of the user’s tabs says so, not that they lost access, and Try again opens it again', async ({ page, fake }) => {
+    setupTeam(fake);
+    await page.goto(teamUrl());
+    await expect(main(page).getByRole('heading', { level: 1, name: 'Poker' })).toBeVisible();
+    await fake.waitForSubscription(ROOM);
+    fake.kick(ROOM, 'too_many_connections');
+
+    await expect(main(page).getByRole('heading', { level: 1, name: 'This team is open in too many of your tabs. Close some of them, then try again.' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'You no longer have access' })).toHaveCount(0);
+
+    await main(page).getByRole('button', { name: 'Try again' }).click();
+    await expect(main(page).getByRole('heading', { level: 1, name: 'Poker' })).toBeVisible();
+    await fake.waitForSubscription(ROOM);
+  });
+
   test('the header’s gear, name and open action items follow the team room', async ({ page, fake }) => {
     test.skip(narrow(page), 'below 768 px the gear is in the sheet');
     setupTeam(fake);

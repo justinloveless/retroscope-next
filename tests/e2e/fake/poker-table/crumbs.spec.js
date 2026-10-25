@@ -1,7 +1,8 @@
 // The poker toolbar leads back (UX18 decision 12): "<team> / Poker / <day>" from the snapshot's team, named
 // from `me`, and the day the session was created from the snapshot's createdAt (else from a UUIDv7 id). The
 // address becomes the session's under its own team without a history entry, Copy link shows for every session, and
-// a session that is missing or not the user's shows the no-access screen with the app header.
+// a session that is missing or not the user's shows the no-access screen with the app header. A session open in
+// too many of the user's tabs says so, not that they lost access, and Try again joins it again.
 import { problem } from '../../../web-fake-server/http.js';
 import { expect, test } from '../_harness/fixtures.js';
 import { memberMe } from '../_harness/me.js';
@@ -91,4 +92,20 @@ test('a member removed while the session is open is told they no longer have acc
 
   await expect(page.getByRole('heading', { level: 1, name: 'You no longer have access' })).toBeVisible();
   await expect(page.locator('header.app-header')).toBeVisible();
+});
+
+test('a session open in too many of the user’s tabs says so, not that they lost access, and Try again joins it again', async ({ page, fake }) => {
+  setup(fake);
+  await openTable(page, `/teams/${TEAM.id}/poker/${CODE}`);
+  await fake.waitForSubscription(ROOM);
+  fake.kick(ROOM, 'too_many_connections');
+
+  await expect(page.getByRole('heading', { level: 1, name: 'Too many tabs open' })).toBeVisible();
+  await expect(page.getByText('This session is open in too many of your tabs. Close one of them, then try again.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'You no longer have access' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await fake.waitForSubscription(ROOM);
+  await expect(page.locator('.nt-table')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Too many tabs open' })).toHaveCount(0);
 });
