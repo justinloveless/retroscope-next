@@ -12,7 +12,6 @@ public sealed class ShellRoute {
         new("/"),
         new("/login"),
         new("/auth/*"),
-        new("/dashboard"),
         new("/account"),
         new("/mentions"),
         new("/teams"),

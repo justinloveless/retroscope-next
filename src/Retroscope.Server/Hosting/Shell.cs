@@ -15,6 +15,12 @@ namespace Retroscope.Server.Hosting;
 public sealed class Shell {
     public const string BootPath = "/api/boot";
 
+    /// <summary>
+    /// The Dashboard's old path (UX18 decision 6). It is the installed app's old start URL and sits in bookmarks, so it
+    /// stays a permanent redirect to <c>/</c>, which finds the user's team.
+    /// </summary>
+    public const string DashboardPath = "/dashboard";
+
     // The web manifest's theme_color; the original's index.html used the same.
     public const string ThemeColor = "#111827";
     private const int MaxBootPathLength = 2048;
@@ -43,6 +49,16 @@ public sealed class Shell {
         app.MapGet(BootPath, (HttpContext context, Shell shell, string? path) => shell.BootAsync(context, path))
             .RequireRoutePolicy(RoutePolicy.Public)
             .RequireRateLimit(RateLimits.Boot);
+        app.MapGet(DashboardPath, (HttpContext context) => Redirect(context, "/"))
+            .RequireRoutePolicy(RoutePolicy.Public)
+            .RequireRateLimit(RateLimits.Shell)
+            .ExcludeFromDescription();
+    }
+
+    /// <summary>A <c>302</c> that no cache keeps: where it leads depends on who asks.</summary>
+    public static void Redirect(HttpContext context, string location) {
+        context.Response.Headers.CacheControl = "no-store";
+        context.Response.Redirect(location);
     }
 
     public async Task PageAsync(HttpContext context, ShellRoute route) {
