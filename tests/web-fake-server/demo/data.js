@@ -2,7 +2,7 @@
 // invites and kudos. Every board and session belongs to a team (UX18). Times are relative to `now`, so the demo
 // always looks recent.
 import { AISHA, CROWD, DEMO, JONAS, LENA, MARCUS, PRIYA, SOFIA, TOM } from './people.js';
-import { DAY, HOUR, MINUTE, demoId } from './util.js';
+import { DAY, HOUR, MINUTE, demoId, demoIdAt } from './util.js';
 
 export const DEMO_TEAM = demoId('0001', 1);
 export const GUILD_TEAM = demoId('0001', 2);
@@ -443,7 +443,7 @@ export function pokerSessions(now) {
     ? { locked: true, abstained: true }
     : { points, ...(high ? { high } : {}), locked: true, abstained: false }]));
   return [{
-    id: demoId('0004', 1),
+    id: demoIdAt(now - 50 * MINUTE, 4000 + 1),
     code: CODES.teamPoker,
     team: DEMO_TEAM,
     createdBy: PRIYA.pid,
@@ -481,7 +481,7 @@ export function pokerSessions(now) {
       },
     ],
   }, {
-    id: demoId('0004', 2),
+    id: demoIdAt(now - 14 * DAY, 4000 + 2),
     code: CODES.oldPoker,
     team: DEMO_TEAM,
     createdBy: DEMO.pid,
@@ -496,7 +496,7 @@ export function pokerSessions(now) {
       votes: revealedVotes([[DEMO, winner], [PRIYA, winner], [MARCUS, winner], [JONAS, winner]]),
     })),
   }, {
-    id: demoId('0004', 3),
+    id: demoIdAt(now - 5 * DAY, 4000 + 3),
     code: CODES.guildPoker,
     team: GUILD_TEAM,
     createdBy: LENA.pid,
@@ -505,7 +505,7 @@ export function pokerSessions(now) {
     currentRoundId: round(21),
     rounds: [{ id: round(21), number: 1, version: 1, state: 'revealed', active: false, pending: false, autoReveal: true, winner: 3, revealedAt: now - 5 * DAY, votes: revealedVotes([[LENA, 3], [TOM, 2], [DEMO, 3]]) }],
   }, {
-    id: demoId('0004', 5),
+    id: demoIdAt(now - 20 * MINUTE, 4000 + 5),
     code: CODES.crowdPoker,
     team: ALL_HANDS_TEAM,
     createdBy: CROWD[0].pid,
