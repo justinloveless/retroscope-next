@@ -46,7 +46,11 @@ const SIM = true;
 const RULES = [
   [/^src\/Retroscope\.Core\/Poker\//, { core: ['Poker'], node: ['tests/web-unit/reducers.test.js'] }],
   [/^src\/Retroscope\.Core\/Retro\//, { core: ['Retro'] }],
-  [/^src\/Retroscope\.Core\/(Team|Authz)\//, { core: ['Team', 'Authz'] }],
+  [/^src\/Retroscope\.Core\/Team\//, { core: ['Team', 'Authz'] }],
+  // Every room, HTTP route, blob and admin check asks the policy, and the simulator subscribes through it.
+  [/^src\/Retroscope\.Core\/Authz\//, {
+    core: ['Authz', 'Team'], sim: SIM,
+    integration: ['PokerRoom', 'RetroRoom', 'TeamRoom', 'RoomHttp', 'TeamHttp', 'JiraHttp', 'Blobs', 'Admin', 'Hosting'] }],
   [/^src\/Retroscope\.Core\/Room\//, { core: ['Poker', 'Retro', 'Team'], sim: SIM }],
   [/^src\/Retroscope\.Core\/(Protocol|Ids)\//, { core: ['Protocol'], node: ['tests/web-unit/net/supersede.test.js', ...FAKE_SERVER] }],
   [/^src\/Retroscope\.Core\/Markup\//, { core: ['Markup', 'Adf'], node: ['tests/web-unit/markup.test.js'] }],
@@ -78,7 +82,8 @@ const RULES = [
   [/^src\/Retroscope\.Server\/Endpoints\/(Poker|Retro|Dashboard|Mentions|Templates|Endorsements)Endpoints/, { integration: ['RoomHttp'] }],
   [/^src\/Retroscope\.Server\/Endpoints\/(Teams|Invites)Endpoints/, { integration: ['TeamHttp'] }],
   // RouteInventoryTests (Hosting) holds every route to a policy and a rate limit.
-  [/^src\/Retroscope\.Server\/Endpoints\/JiraEndpoints/, { integration: ['JiraHttp', 'Hosting'] }],
+  [/^src\/Retroscope\.Server\/Endpoints\//, { integration: ['Hosting'] }],
+  [/^src\/Retroscope\.Server\/Endpoints\/JiraEndpoints/, { integration: ['JiraHttp'] }],
   [/^src\/Retroscope\.Server\/Json\/JiraHttpJsonContext\.cs$/, { integration: ['JiraHttp'] }],
   [/^src\/Retroscope\.Server\/(Endpoints\/AdminEndpoints|Jobs\/(Retention|TeamPurge|TokenSweep)Job)/, { integration: ['Admin'] }],
   [/^src\/Retroscope\.Server\/Endpoints\/BlobEndpoints/, { integration: ['Blobs'] }],
@@ -148,7 +153,10 @@ const RULES = [
   [/^web\/src\/poker\/(geometry|seats)\.js$/, { node: POKER_LAYOUT }],
   [/^web\/src\/poker\/drag\.js$/, { node: ['tests/web-unit/poker/drag-zones.test.js'] }],
   [/^web\/src\/poker\/issue-drawer\.js$/, { node: ['tests/web-unit/core/build.test.js'] }],
-  [/^web\/src\/routes\.js$/, { node: ['tests/web-unit/scaffold/routes.test.js', 'tests/web-unit/core/router.test.js', 'tests/web-fake-server/self.test.js', 'tests/web-unit/core/build.test.js'] }],
+  // RouteInventoryTests (Hosting) holds routes.js to Server/Hosting ShellRoute.All.
+  [/^web\/src\/routes\.js$/, {
+    node: ['tests/web-unit/scaffold/routes.test.js', 'tests/web-unit/core/router.test.js', 'tests/web-fake-server/self.test.js', 'tests/web-unit/core/build.test.js'],
+    integration: ['Hosting'] }],
   [/^web\/styles\/jira\.css$/, { node: ['tests/web-unit/markup.test.js'] }],
   [/^(web\/styles\/|web\/(build\.mjs|budgets\.json|package\.json)$|package-lock\.json$)/, { node: ['tests/web-unit/core/build.test.js', 'tests/web-unit/core/theme.test.js'] }],
   [/^(package\.json|package-lock\.json|web\/package\.json|THIRD_PARTY\.md)$/, { node: ['tests/web-unit/core/deps.test.js'] }],
