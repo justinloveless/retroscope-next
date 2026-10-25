@@ -1,8 +1,7 @@
-// The round strip, observers and guests over the real server (§j): reorder by mouse drag, touch long press and
-// keyboard, seen by the other players; an observer leaves the table and does not hold up the auto-reveal; a guest
-// joins a quick session by name.
+// The round strip and observers over the real server (§j): reorder by mouse drag, touch long press and keyboard, seen
+// by the other players; an observer leaves the table and does not hold up the auto-reveal.
 import { expect, test } from './_real.js';
-import { centre, chipKeys, handCard, openTable, seat, shownRound, table } from './_poker.js';
+import { centre, chipKeys, handCard, seat, shownRound, table } from './_poker.js';
 
 const grip = (page, n) => page.getByRole('button', { name: `Move round ${n}` });
 const chip = (page, key) => page.locator('.nt-strip .nt-chip').filter({ has: page.locator('.nt-chip-key', { hasText: key }) });
@@ -110,23 +109,4 @@ test('an observer is dimmed at the table, gets no card and does not hold up the 
 
   await ann.page.getByRole('button', { name: 'Stop observing' }).click();
   await expect(ann.page.getByRole('button', { name: 'Observer mode' })).toHaveAttribute('aria-pressed', 'false');
-});
-
-test('a guest names themself and plays in a quick session', async ({ open }) => {
-  const { players, session } = await table(open, ['Ann Host']);
-  const [ann] = players;
-  const guest = await open();
-  await guest.page.goto(`/poker/${session.code}`);
-  await guest.page.getByRole('textbox', { name: 'Your name' }).fill('Gus Guest');
-  await guest.page.getByRole('button', { name: 'Join' }).click();
-  await expect(guest.page.locator('.nt-hand')).toBeVisible();
-  await expect(guest.page.locator('.nt-seat', { hasText: 'Ann Host' })).toBeVisible();
-
-  const seen = ann.page.locator('.nt-seat', { hasText: 'Gus Guest' });
-  await expect(seen.locator('.nt-badge-guest')).toBeVisible();
-  await handCard(guest.page, 13).click();
-  await guest.page.getByRole('button', { name: 'Lock In' }).click();
-  await expect(seen).toHaveAttribute('data-status', 'locked');
-  await openTable(guest.page, session.code);
-  await expect(handCard(guest.page, 13).locator('.nt-hand-locked')).toBeVisible();
 });

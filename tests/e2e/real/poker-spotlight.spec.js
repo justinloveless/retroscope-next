@@ -1,6 +1,6 @@
 // The spotlight over the real server (§c.4, R6): take, follow, give, a joiner landing on it, Next moving followers
 // of someone else's spotlight, a hidden holder keeping it, and the release three minutes after the holder leaves.
-import { expect, seedUsers, test } from './_real.js';
+import { addMembers, expect, seedUsers, test } from './_real.js';
 import { chooseSpotlight, openTable, shownRound, spotlightControl, table } from './_poker.js';
 
 const chip = (page, n) => page.locator('.nt-strip .nt-chip').nth(n - 1);
@@ -15,7 +15,7 @@ async function addRounds(page, keys) {
 }
 
 test('take, follow, give and a joiner landing on the spotlight; Next still moves every follower', async ({ open }) => {
-  const { players, session } = await table(open, ['Ann Spot', 'Bob Spot', 'Cy Spot']);
+  const { players, session, team } = await table(open, ['Ann Spot', 'Bob Spot', 'Cy Spot']);
   const [ann, bob, cy] = players;
   // The first key fills the untouched round 1 instead of adding one (§c.4, "fill placeholder").
   await addRounds(ann.page, ['SPT-1', 'SPT-2']);
@@ -44,6 +44,7 @@ test('take, follow, give and a joiner landing on the spotlight; Next still moves
   }
 
   const dee = await open((await seedUsers(['Dee Spot']))[0]);
+  await addMembers(ann.page.request, team, [dee.page.request]);
   await openTable(dee.page, session.code);
   await expect(shownRound(dee.page)).toHaveText('Round 2 · SPT-2');
   await openTable(dee.page, session.code, '?round=1');
