@@ -94,6 +94,24 @@ public sealed partial class RoomLookupTests(PostgresFixture postgres) {
     }
 
     [Fact]
+    public async Task The_boot_of_a_caller_who_is_not_signed_in_holds_no_room_and_spends_no_lookup() {
+        await using var app = await RoomHttpApp.StartAsync(postgres);
+        var (member, team) = await MemberAsync(app);
+        var board = await RoomHttpApp.JsonAsync(
+            await app.PostAsync($"/api/teams/{team}/boards", member, new { title = "Sprint" }), HttpStatusCode.Created);
+        var path = "/api/boot?path=" + Uri.EscapeDataString($"/retro/{board.GetProperty("code").GetString()}");
+
+        for (var i = 0; i < 40; i++) {
+            using var boot = await app.GetAsync(path, null, "192.0.2.70");
+            Assert.Equal(HttpStatusCode.OK, boot.StatusCode);
+            Assert.False(BootOf(await boot.Content.ReadAsStringAsync(RoomHttpApp.Token)).TryGetProperty("room", out _));
+        }
+        using var signedIn = await app.GetAsync(path, member, "192.0.2.70");
+
+        Assert.True(BootOf(await signedIn.Content.ReadAsStringAsync(RoomHttpApp.Token)).TryGetProperty("room", out _));
+    }
+
+    [Fact]
     public async Task The_shell_embeds_the_viewers_snapshot_for_a_poker_session() {
         await using var app = await RoomHttpApp.StartAsync(postgres);
         var (member, team) = await MemberAsync(app);

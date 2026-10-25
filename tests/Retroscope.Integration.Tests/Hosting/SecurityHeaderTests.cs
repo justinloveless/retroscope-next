@@ -18,7 +18,7 @@ public sealed partial class SecurityHeaderTests : IDisposable {
     public async Task Shell_carries_the_exact_csp_with_the_hash_from_csp_json() {
         await using var app = await TestApp.StartAsync(_web.Settings());
 
-        using var response = await app.Client.GetAsync(new Uri("/dashboard", UriKind.Relative), TestContext.Current.CancellationToken);
+        using var response = await app.Client.GetAsync(new Uri("/login", UriKind.Relative), TestContext.Current.CancellationToken);
 
         Assert.Equal(
             "default-src 'none'; " +

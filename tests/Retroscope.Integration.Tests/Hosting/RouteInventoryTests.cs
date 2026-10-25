@@ -49,6 +49,7 @@ public sealed partial class RouteInventoryTests(PostgresFixture postgres) {
         string[] expected = [
             Health.Path,
             Shell.BootPath,
+            Shell.DashboardPath,
             "/invite/{token}",
             "/blob/{id:guid}",
             "/api/auth/signup",
