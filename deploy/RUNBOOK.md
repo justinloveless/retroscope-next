@@ -74,17 +74,18 @@ that `ci` run's `image-digests` artifact (never from a tag), pins the resource t
 `IMPORTER_DIGEST` through the Coolify API, redeploys, and checks `/healthz` and the resource status
 (`deploy/COOLIFY_SETUP.md` section 11). The production token is in the `production` GitHub environment, which only
 `main` can use. To redeploy or roll back, run that workflow by hand from `main` with a commit SHA whose `ci` run passed;
-the commit's compose file comes with it, and its artifact must still exist (90 days). Unverified branches go to the
-separate preview resource through `.github/workflows/preview.yml` (adding the `preview` label to a PR, or a manual run);
-it runs on its own server and Coolify team, with its own token, database and secrets, and holds one branch at a time. If
-Actions or the API is down, set the resource's git commit and the two digests (the hex after `sha256:` from the `ci` run
-summary of the push to `main`) in Coolify and redeploy by hand.
+the commit's compose file comes with it, and its artifact must still exist (90 days). **Never roll production back past
+UX18** (section 11). Unverified branches go to the separate preview resource through `.github/workflows/preview.yml`
+(adding the `preview` label to a PR, or a manual run); it runs on its own server and Coolify team, with its own token,
+database and secrets, and holds one branch at a time. If Actions or the API is down, set the resource's git commit and
+the two digests (the hex after `sha256:` from the `ci` run summary of the push to `main`) in Coolify and redeploy by
+hand.
 
 Coolify redeploys compose apps by **stop and recreate**; there are no rolling updates. On stop, the app sends every
 socket `bye` with a spread `retryMs` and closes it with 1012; clients reconnect and resend unacknowledged commands. With
 `stop_grace_period: 8s` and a 7 s shutdown budget, a redeploy is a short pause, not an outage (section 14). Because the
 old and new binaries never overlap, every migration must be quick and expand/contract-compatible with the previous
-release (section 11).
+release (section 11). UX18 is the one exception, by the owner's decision (section 11).
 
 `deploy/compose.build.yml` overrides the images with local builds. The production file's required variables must still
 have values to merge it, for example:
@@ -194,13 +195,17 @@ From §h.6, with the steps this deployment adds:
 1. Put the old app into maintenance. 2. Take a final Supabase `pg_dump`. 3. Off-box: `retroscope-import plan`,
 `fetch-storage`, `run`, then `verify` (needs the production `APP_KEYS` and `ANON_TAG_KEY`) into a local Postgres
 (`deploy/compose.build.yml --profile import-local`). 4. Review the report (admins, Jira configs needing rotation,
-rotated board passwords, merged emails, nulled hashes). 5. Stop the app on the VPS and restore the data dump as in
-section 8 steps 2–3. 6. **Run `spot-load --sample 20`** (section 8 step 4) with the app still stopped. 7. Start the app,
-then `cutover`. 8. Switch the Coolify domain or DNS. 9. Tell team owners to rotate Jira tokens in Atlassian; rotate the
-Supabase database password and keys; remove the `IMPORT_*` variables.
+merged emails, nulled hashes, and since UX18 the skipped team-less rooms; the first import listed rotated board
+passwords instead). 5. Stop the app on the VPS and restore the data dump as in section 8 steps 2–3. 6. **Run
+`spot-load --sample 20`** (section 8 step 4) with the app still stopped. 7. Start the app, then `cutover`. 8. Switch the
+Coolify domain or DNS. 9. Tell team owners to rotate Jira tokens in Atlassian; rotate the Supabase database password and
+keys; remove the `IMPORT_*` variables.
 
-Old links keep working: `/retro/:code`, `/poker/:code`, `/teams/:teamId/poker/:code` (UUID codes accepted), and
-`/invite/:token`, which answers `302 /invite#t=:token` (`Cache-Control: no-store`) so the token leaves the path.
+Old links keep working for members: `/retro/:code`, `/poker/:code` and `/teams/:teamId/poker/:code` (UUID codes
+accepted) open for a signed-in member of the room's team; a signed-out visitor signs in first, and anyone else sees the
+same "You can't open this page" as for a missing room (UX18; before it, `link` boards and quick rooms opened for
+anyone). `/invite/:token` works for everyone: it answers `302 /invite#t=:token` (`Cache-Control: no-store`) so the token
+leaves the path. `/dashboard`, the installed app's old start URL, answers a no-store `302 /`.
 
 ## 10. Login throttling and the bcrypt trade-off
 
@@ -226,6 +231,23 @@ signs in again.
 migrator refuses to start against a database where an applied file changed). Every change is a new `0002_*.sql`,
 `0003_*.sql`, … file. Because a redeploy stops the old binary before the new one starts, a migration must finish
 quickly and leave the schema usable by the previous release (expand first, contract in a later release).
+
+**UX18 is the exception: production is never rolled back past it.** Its migration 0003 contracts in the same release
+that stops using the old objects (`docs/decisions/UX18.md`, "Deploy"): it deletes the team-less poker sessions and retro
+boards, sets `team_id NOT NULL` on both, and drops board visibility, the board password columns,
+`board_access_grants`, `guest_tokens` and `team_favorites`. The release before UX18 reads those objects and cannot run
+on the new schema. The owner accepted this because one real team uses the app.
+
+- **Right before deploying UX18,** take a dump on demand (section 8) and copy it off the box.
+- **Never deploy a commit from before UX18 to a database that 0003 has changed,** through `deploy.yml` or by hand.
+  Nothing stops it: the older migrator ignores an applied migration it does not know, and the app then fails on the
+  dropped tables and columns.
+- **If the UX18 deploy fails,** fix forward. The other way back is to restore the dump taken before it (section 8,
+  with the app stopped), which takes the database back to before 0003, and then deploy the previous commit; it loses
+  everything written after the dump.
+- Anyone with the old app open loses their guest seat and must sign in; members' links keep working (section 9).
+
+Releases after UX18 follow the expand/contract rule again.
 
 ## 12. Compression
 
@@ -290,13 +312,17 @@ after Coolify or host upgrades.
       budget expects Traefik at 40–60 MB, and app + db + backup within their 536 MiB of limits.
 - [ ] **App and db idle RSS:** `./deploy/drills/idle-memory.sh` adapted to the Coolify container names (app < 120 MB,
       db < 180 MB).
-- [ ] **WebSocket idle timeout through Coolify's Traefik:** `RS_E2E_BASE_URL=https://<domain> node deploy/drills/ws-idle.mjs --seconds 300`
-      (it signs in as a guest named "Idle check"; the guest token expires on its own). It must exit 0.
+- [ ] **WebSocket idle timeout through Coolify's Traefik:**
+      `RS_E2E_BASE_URL=https://<domain> RS_IDLE_EMAIL=… RS_IDLE_PASSWORD=… node deploy/drills/ws-idle.mjs --seconds 300`.
+      Only signed-in users open sockets (UX18), and the drill never signs up, so make an account for this check
+      beforehand and pass it in those two variables (it needs no team and no verified address). The drill signs that
+      session out at the end. It must exit 0.
 - [ ] **bcrypt hashes/s:** run `HashGateTests.Bcrypt_throughput_is_recorded` on a machine of the VPS's CPU type
       (`dotnet test tests/Retroscope.Integration.Tests --filter "FullyQualifiedName~Bcrypt_throughput_is_recorded"`;
       it prints hashes/s), or time 20 sequential logins against production with a test account.
-- [ ] **Throughput and p99:** run `deploy/drills/load.mjs` against a staging copy of the stack on the VPS (never
-      production: it creates 160 accounts), and record acks/s and p50/p95/p99.
+- [ ] **Throughput and p99:** run `deploy/drills/load.mjs` on the VPS against a staging copy started there from
+      `deploy/compose.test.yml` (never production: it signs up 140 accounts and seeds the 20 team owners through that
+      stack's `db` container, UX18), and record acks/s and p50/p95/p99.
 - [ ] **Redeploy pause:** redeploy during a test session and confirm clients are back within 15 s.
 - [ ] **Trusted proxy subnet:** confirm the network Traefik shares with the app and that `TRUSTED_PROXY_CIDRS` matches
       it: after a login, `audit_log` shows your own address prefix, not Traefik's.

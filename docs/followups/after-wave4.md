@@ -178,3 +178,9 @@ UF8 done verified= True open= []
 
 - `/favicon.ico`, `/manifest.webmanifest` and `/robots.txt` return 404 in the preview. U37 owns the assets and U11 owns static serving. The real server must serve them too.
 - The team page and retro board have no persistent app header (logo, team switcher, user menu, theme toggle). Only the poker page has a "Back" link. The original had a sticky `AppHeader`, with the retro title in its centre slot. Decide in U29's scope before wave 5's front-end units land.
+
+## Status after UX18
+
+`docs/followups/UX18.md` closes three items above: U25's write of visibility, passwords and grants (the routes and
+columns are gone), the `HasCurrentGrant` half of the `MembershipCache` blocking-read MINOR (the `RoleIn` half stands),
+and the `getSocket()` guest-pid MINOR (already fixed in `screens/app.js`, and only users open sockets now).

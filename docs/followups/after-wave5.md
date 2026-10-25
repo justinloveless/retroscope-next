@@ -164,3 +164,10 @@ All 12 worktrees are removed and all 12 `unit/*` branches are deleted. The two-v
     - The webkit `team/actions.spec.js:159` failure was a CSP inline-style violation that did not reproduce in 5 reruns. It is worth checking that nothing sets inline styles.
 12. **Unowned-file edits:** U32, U33, U35, U36, UF11 and my fixes edit files other units own (`poker/index.js`, `retro/index.js`, `retro.css`, the U31 baselines, and `board.js` in 78edcec). The owning units should look these over.
 ```
+
+## Status after UX18
+
+`docs/followups/UX18.md` closes four items above: the U27 MINOR and the second bullet of the closing follow-up 3, on
+retention picking the same idle quick rooms (the quick-room purge is gone); the U35 item on a per-viewer `canManage`
+for quick boards' share controls (Share is "Copy link"); and the UF11 item on putting the board's title into the header
+(UX18 decision 12).
