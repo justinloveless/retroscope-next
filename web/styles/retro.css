@@ -39,20 +39,14 @@
 
 .retro-gate-title { font-size: 1.25rem; font-weight: 600; }
 
-.retro-unlock {
-  display: grid;
-  gap: 0.75rem;
-  max-width: 22rem;
-  margin: 4rem auto;
-  padding: 1.5rem;
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius);
-  background: hsl(var(--card));
-}
-
 .retro-board { display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem; }
 
 .retro-header { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
+.retro-heading { display: grid; gap: 0.125rem; min-width: 0; }
+.retro-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; color: hsl(var(--muted-foreground)); font-size: 0.8125rem; }
+.retro-crumbs a { color: inherit; font-weight: 500; text-decoration: none; }
+.retro-crumbs a:hover { color: hsl(var(--foreground)); text-decoration: underline; }
+.retro-crumbs span { opacity: 0.6; }
 .retro-title-row { display: flex; align-items: center; gap: 0.25rem; min-width: 0; }
 .retro-title { margin: 0; font-size: 1.5rem; font-weight: 700; overflow-wrap: anywhere; }
 .retro-title-input { font-size: 1.25rem; width: min(30rem, 80vw); }

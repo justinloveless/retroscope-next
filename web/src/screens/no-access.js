@@ -13,6 +13,19 @@ const COPY = {
   removed: ['You no longer have access', "You were removed from this team, or it was deleted. To get back in, ask one of the team's admins for a new invite."],
 };
 
+// A room's kick codes (protocol.gen.js KICK_CODES) that end the user's access: the room is gone, or the user is
+// no longer on its team. A tab over its room limit is not one of them: closing another room brings it back.
+const GONE = new Set(['deleted', 'not_found']);
+const REMOVED = new Set(['access_revoked', 'forbidden']);
+
+/** The screen a room's kick shows ({removed}), or null when the room should say so itself. */
+export function kickScreen(code) {
+  if (GONE.has(code)) {
+    return { removed: false };
+  }
+  return REMOVED.has(code) ? { removed: true } : null;
+}
+
 /** Replaces `root`'s content with the screen; `removed` when the user just lost access to the page's team. */
 export function showNoAccess(root, { removed = false } = {}) {
   const [title, text] = removed ? COPY.removed : COPY.missing;
