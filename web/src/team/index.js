@@ -3,6 +3,7 @@
 
 import { h, replaceContent } from '../core/h.js';
 import { getSocket, navigate } from '../screens/app.js';
+import { showNoAccess } from '../screens/no-access.js';
 import { createTabs } from '../ui/tabs.js';
 import { createButton } from '../ui/button.js';
 import { icon } from '../ui/icons.js';
@@ -21,11 +22,10 @@ const TABS = [
 // Each tab keeps its filters in the query string; switching tabs drops the others' filters.
 const TAB_PARAMS = ['archived', 'status', 'assignee', 'sort', 'period'];
 
-function message(title, detail) {
+function message(title, retry) {
   return h('div', { class: 'team-message card' },
     h('h1', { text: title }),
-    detail ? h('p', { text: detail }) : null,
-    h('a', { class: 'btn btn-secondary', href: '/teams', 'data-nav': '' }, 'All teams'));
+    h('button', { type: 'button', class: 'btn btn-secondary', on: { click: retry } }, 'Try again'));
 }
 
 export function mount(root, boot, app = {}) {
@@ -42,6 +42,7 @@ export function mount(root, boot, app = {}) {
   let showing = null;
   let unwatch = [];
   let socket = app.socket ?? null;
+  let shownParams = null;
 
   async function teamSocket() {
     socket ??= await getSocket();
@@ -76,9 +77,14 @@ export function mount(root, boot, app = {}) {
     ctx = null;
   }
 
-  function fail(title, detail) {
+  // A missing team and one the user is not in look the same (S9, UX18 decision 2).
+  function fail(error) {
     teardown();
-    replaceContent(page, message(title, detail));
+    if (error === 'removed' || error?.status === 404 || error?.status === 403) {
+      showNoAccess(page, { removed: error === 'removed' });
+    } else {
+      replaceContent(page, message(errorMessage(error), () => route(shownParams)));
+    }
   }
 
   async function open(id) {
@@ -118,8 +124,7 @@ export function mount(root, boot, app = {}) {
       [team, connected] = await Promise.all([context.api.get(''), teamSocket()]);
     } catch (error) {
       if (run === generation) {
-        const missing = error?.status === 404 || error?.status === 403;
-        fail(missing ? 'Team not found or you do not have access.' : errorMessage(error));
+        fail(error);
       }
       return false;
     }
@@ -131,7 +136,7 @@ export function mount(root, boot, app = {}) {
     });
     unwatch.push(context.room.select(() => context.room.kicked, Object.is, (code) => {
       if (code) {
-        fail('You no longer have access to this team.', code === 'deleted' ? 'This team was deleted.' : null);
+        fail('removed');
       }
     }));
     return true;
@@ -156,15 +161,12 @@ export function mount(root, boot, app = {}) {
   }
 
   async function route(params) {
+    shownParams = params;
     const pathname = location.pathname;
     const settings = (params.route ?? pathname).endsWith('/settings');
     if (!user) {
-      teardown();
-      teamId = null;
-      const back = encodeURIComponent(pathname + location.search);
-      replaceContent(page, h('div', { class: 'team-message card' },
-        h('h1', { text: 'Sign in to see this team' }),
-        h('a', { class: 'btn btn-primary', href: `/login?return=${back}`, 'data-nav': '' }, 'Sign in')));
+      // The router sends signed-out visitors to sign in first; this covers a stale boot JSON.
+      navigate(`/login?return=${encodeURIComponent(pathname + location.search)}`, { replace: true });
       return;
     }
     if (params.id !== teamId || ctx === null) {

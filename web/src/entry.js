@@ -29,12 +29,15 @@ function adopt(boot) {
   return boot ?? {};
 }
 
+// The shared "You can't open this page" screen (UX18 decision 2) loads only when a path matches no route.
 function notFound(root) {
-  document.title = 'Page not found · Retroscope';
-  root.replaceChildren(h('main', { class: 'app-not-found' },
-    h('h1', { text: 'Page not found' }),
-    h('p', { text: 'The page you are looking for does not exist or has moved.' }),
-    h('a', { href: '/', 'data-nav': '', class: 'btn btn-primary' }, 'Go home')));
+  const holder = h('div');
+  root.replaceChildren(holder);
+  import('./screens/no-access.js').then(({ showNoAccess }) => {
+    if (holder.isConnected) {
+      showNoAccess(holder);
+    }
+  }, () => toast('This page could not be loaded.', { variant: 'error' }));
 }
 
 async function sharedSocket(route) {
