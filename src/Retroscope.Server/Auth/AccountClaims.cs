@@ -31,7 +31,6 @@ internal sealed class NoAccountMail : IAccountMail {
 /// <summary>How someone proved they own an account's mailbox.</summary>
 public enum OwnershipProof {
     Google,
-    Entra,
     MagicLink,
 }
 
@@ -89,7 +88,6 @@ public sealed class AccountClaims(NpgsqlDataSource dataSource, Sessions sessions
 
     private static string Name(OwnershipProof proof) => proof switch {
         OwnershipProof.Google => "google",
-        OwnershipProof.Entra => "entra",
         OwnershipProof.MagicLink => "magic_link",
         _ => throw new ArgumentOutOfRangeException(nameof(proof)),
     };

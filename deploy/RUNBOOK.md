@@ -110,10 +110,6 @@ Required unless a default is shown. Generate each 32-byte key with `openssl rand
 | `TRUSTED_PROXY_CIDRS` | The subnet Traefik reaches the app from. Only peers inside it may set the client address (rightmost `X-Forwarded-For` hop, `ForwardLimit=1`). With it empty no proxy is trusted, every request appears to come from Traefik, and per-IP limits apply to everyone at once. Find it on the VPS: `docker inspect <app container> -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}'`, then `docker network inspect <the network shared with coolify-proxy> -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}'`. Coolify creates a network per compose resource **(check on the VPS which network the proxy joins)**. |
 | `CLIENT_IP_HEADER` (empty) | Set to `CF-Connecting-IP` only when Cloudflare fronts Traefik; the header is then read instead of `X-Forwarded-For`, under the same trusted-peer rule. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (empty) | Google sign-in; set both or neither (section 5). |
-| `ENTRA_CLIENT_ID`, `ENTRA_CLIENT_SECRET` (empty) | Microsoft Entra sign-in; set both or neither. |
-| `ENTRA_TENANT` (`organizations`) | The authority tenant segment. |
-| `ENTRA_ALLOWED_TENANTS` (empty) | Comma-separated tenant ids allowed to sign in. **Empty disables Entra.** |
-| `ENTRA_TENANT_DOMAINS` (empty) | `tid=acme.com\|acme.io,…`: email domains trusted for each tenant without `xms_edov`. |
 | `JIRA_HOST_ALLOWLIST` (empty) | Extra exact Jira host names beyond `*.atlassian.net`. |
 | `BLOB_BYTES_MAX` (2147483648) | Global ceiling on all board images together, in bytes. |
 | `MUSIC_FILE` (empty) | Absolute path, inside the container, of an optional retro timer track (`.mp3`, `.ogg`, `.oga` or `.m4a`, up to 32 MiB), served at `/media/timer-music`. Checked once at startup: a missing, unreadable, oversized or wrongly typed file logs `Timer music is off: <reason>` and the timer plays its generated music. Needs the `volumes` mount in the compose file (COOLIFY_SETUP §5.12). A file overwritten in place (same format) is served from the next request; a new path or format needs a restart. |
@@ -126,11 +122,9 @@ in the compose file; leave them.
 ## 5. Sign-in providers
 
 - **Google:** OAuth client of type *Web application*. Authorised redirect URI `PUBLIC_URL/auth/oidc/google/callback`.
-- **Microsoft Entra:** app registration with redirect URI (Web) `PUBLIC_URL/auth/oidc/entra/callback`. Under
-  *Token configuration*, add the optional ID-token claims **`email`** and **`xms_edov`**. Without `xms_edov` an Entra
-  email is trusted only for domains listed in `ENTRA_TENANT_DOMAINS`; otherwise the account is never linked by email.
-  Put every tenant id that may sign in into `ENTRA_ALLOWED_TENANTS`.
 - Providers with no credentials do not appear on the sign-in screen.
+- Microsoft Entra sign-in was removed in UX19 (`docs/decisions/UX19.md`). The `ENTRA_*` variables are no longer read;
+  delete them from Coolify (section 11).
 
 ## 6. Key rotation
 
@@ -252,6 +246,20 @@ on the new schema. The owner accepted this because one real team uses the app.
 - Anyone with the old app open loses their guest seat and must sign in; members' links keep working (section 9).
 
 Releases after UX18 follow the expand/contract rule again.
+
+**UX19 contracts in one release too, but stays rollback-safe.** Its migration 0004 removes Microsoft Entra sign-in
+(`docs/decisions/UX19.md`): it deletes the Entra sessions and Entra identity links, then narrows
+`external_identities_provider_check` to `google` and `sessions_auth_method_check` to `password`, `google` and
+`magic_link`. The release before UX19 still runs on that schema, as long as Entra stays unconfigured there: an Entra
+sign-in on it would fail the narrowed checks.
+
+- Before the UX19 deploy, delete `ENTRA_CLIENT_ID`, `ENTRA_CLIENT_SECRET`, `ENTRA_TENANT`, `ENTRA_ALLOWED_TENANTS` and
+  `ENTRA_TENANT_DOMAINS` from the Coolify resource. The UX19 release ignores them, but a rollback pins the previous
+  commit's compose file, which still passes them on. The previous release disables Entra while
+  `ENTRA_ALLOWED_TENANTS` is empty, so with the variables gone a rollback past UX19 shows no Microsoft button.
+- Users who were signed in through Entra are signed out. They keep their accounts and sign in with an emailed sign-in
+  link, or a password reset, to the same email.
+- The owner may delete the Azure app registration once the deploy is healthy.
 
 ## 12. Compression
 

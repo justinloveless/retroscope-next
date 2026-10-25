@@ -25,13 +25,10 @@ using Retroscope.Server.Json;
 namespace Retroscope.Integration.Tests.Oidc;
 
 // Hosting, the database, auth, blobs and OIDC on a TestServer, against a fresh database and an in-process fake
-// provider. Google and Entra are both configured; Entra allows TenantA (trusted domain acme.com) and TenantB.
+// provider configured as Google.
 internal sealed class OidcHost : IAsyncDisposable {
     public const string PublicUrl = AuthHost.PublicUrl;
     public const string GoogleClient = "google-client";
-    public const string EntraClient = "entra-client";
-    public const string TenantA = "6f0c3b9e-1d2a-4c55-9a7e-0b1e2d3c4f5a";
-    public const string TenantB = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
     public const string PictureUrl = "https://lh3.googleusercontent.com/a/ACg8ocK-fake=s96-c";
 
     private OidcHost(WebApplication app, TestDatabase database, FakeOidcServer provider) {
@@ -56,7 +53,6 @@ internal sealed class OidcHost : IAsyncDisposable {
     public static async Task<OidcHost> StartAsync(PostgresFixture postgres, IDictionary<string, string?>? settings = null) {
         var provider = await FakeOidcServer.StartAsync();
         provider.Clients[GoogleClient] = "google-secret";
-        provider.Clients[EntraClient] = "entra-secret";
         var database = await postgres.CreateDatabaseAsync();
 
         var builder = WebApplication.CreateSlimBuilder();
@@ -72,11 +68,6 @@ internal sealed class OidcHost : IAsyncDisposable {
             ["GOOGLE_CLIENT_SECRET"] = "google-secret",
             ["GOOGLE_AUTHORIZE_URL"] = provider.GoogleAuthorizeUrl,
             ["GOOGLE_TOKEN_URL"] = provider.GoogleTokenUrl,
-            ["ENTRA_CLIENT_ID"] = EntraClient,
-            ["ENTRA_CLIENT_SECRET"] = "entra-secret",
-            ["ENTRA_AUTHORITY_URL"] = provider.EntraAuthority,
-            ["ENTRA_ALLOWED_TENANTS"] = $"{TenantA}, {TenantB.ToUpperInvariant()}",
-            ["ENTRA_TENANT_DOMAINS"] = $"{TenantA}=acme.com|acme.io",
         };
         foreach (var (key, value) in settings ?? new Dictionary<string, string?>()) {
             configuration[key] = value;
@@ -120,23 +111,6 @@ internal sealed class OidcHost : IAsyncDisposable {
         }
         if (emailVerified is { } verified) {
             claims["email_verified"] = verified;
-        }
-        return claims;
-    }
-
-    public static JsonObject Entra(string tenant, string oid, string? email, bool? edov = null, string name = "Alan Turing") {
-        var claims = new JsonObject {
-            ["tid"] = tenant,
-            ["oid"] = oid,
-            ["sub"] = "pairwise-" + oid,
-            ["name"] = name,
-            ["preferred_username"] = email ?? "someone@" + tenant,
-        };
-        if (email is not null) {
-            claims["email"] = email;
-        }
-        if (edov is { } value) {
-            claims["xms_edov"] = value;
         }
         return claims;
     }

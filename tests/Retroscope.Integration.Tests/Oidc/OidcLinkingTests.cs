@@ -122,19 +122,19 @@ public sealed class OidcLinkingTests(PostgresFixture postgres) {
     public async Task A_claim_unlinks_the_identity_an_untrusted_sign_in_created_the_account_with() {
         await using var host = await OidcHost.StartAsync(postgres);
         var attacker = host.Browser();
-        await attacker.SignInAsync("entra", OidcHost.Entra(OidcHost.TenantB, "oid-x", "victim@example.com"));
-        var squatted = await host.LinkedUserAsync("entra", $"{OidcHost.TenantB}:oid-x");
+        await attacker.SignInAsync("google", OidcHost.Google("g-x", "victim@example.com", emailVerified: false));
+        var squatted = await host.LinkedUserAsync("google", "g-x");
         Assert.NotNull(squatted);
 
         var owner = host.Browser();
         OidcAssert.RedirectsTo(await owner.SignInAsync("google", OidcHost.Google("g-1", "victim@example.com")), "/");
 
         Assert.Equal(squatted, await host.LinkedUserAsync("google", "g-1"));
-        Assert.Null(await host.LinkedUserAsync("entra", $"{OidcHost.TenantB}:oid-x"));
+        Assert.Null(await host.LinkedUserAsync("google", "g-x"));
         Assert.Equal(1L, await host.ScalarAsync<long>(
-            "select count(*) from audit_log where action = 'auth.unlink' and meta->>'provider' = 'entra' and meta->>'reason' = 'claim'"));
+            "select count(*) from audit_log where action = 'auth.unlink' and meta->>'provider' = 'google' and meta->>'reason' = 'claim'"));
         var again = host.Browser();
-        var response = await again.SignInAsync("entra", OidcHost.Entra(OidcHost.TenantB, "oid-x", "victim@example.com"));
+        var response = await again.SignInAsync("google", OidcHost.Google("g-x", "victim@example.com", emailVerified: false));
         OidcAssert.RedirectsTo(response, "/login?error=account_exists");
         Assert.Null(again.Cookie(Sessions.CookieName));
     }
@@ -153,9 +153,9 @@ public sealed class OidcLinkingTests(PostgresFixture postgres) {
 
         var owner = host.Browser();
         OidcAssert.RedirectsTo(
-            await owner.SignInAsync("entra", OidcHost.Entra(OidcHost.TenantB, "oid-1", "victim@example.com", edov: true)), "/");
+            await owner.SignInAsync("google", OidcHost.Google("g-owner", "victim@example.com")), "/");
 
-        Assert.Equal(squatter.Value, await host.LinkedUserAsync("entra", $"{OidcHost.TenantB}:oid-1"));
+        Assert.Equal(squatter.Value, await host.LinkedUserAsync("google", "g-owner"));
         Assert.Null(await host.LinkedUserAsync("google", "g-attacker"));
         var again = host.Browser();
         var response = await again.SignInAsync("google", OidcHost.Google("g-attacker", "attacker@gmail.com"));
@@ -186,11 +186,13 @@ public sealed class OidcLinkingTests(PostgresFixture postgres) {
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(null)]
-    public async Task An_unverified_google_email_never_links_to_an_existing_account(bool? emailVerified) {
+    [InlineData(false, false)]
+    [InlineData(null, false)]
+    [InlineData(false, true)]
+    [InlineData(null, true)]
+    public async Task An_unverified_google_email_never_links_to_an_existing_account(bool? emailVerified, bool accountVerified) {
         await using var host = await OidcHost.StartAsync(postgres);
-        var squatter = await host.CreateUserAsync("grace@example.com", verified: false);
+        var existing = await host.CreateUserAsync("grace@example.com", accountVerified);
         var browser = host.Browser();
 
         var response = await browser.SignInAsync("google", OidcHost.Google("g-1", "grace@example.com", emailVerified));
@@ -198,8 +200,8 @@ public sealed class OidcLinkingTests(PostgresFixture postgres) {
         OidcAssert.RedirectsTo(response, "/login?error=account_exists");
         Assert.Null(browser.Cookie(Sessions.CookieName));
         Assert.Null(await host.LinkedUserAsync("google", "g-1"));
-        Assert.Equal(AuthHost.ImportedHash, await host.ScalarAsync<string>("select password_hash from users where id = $1", squatter.Value));
-        Assert.False(await host.ScalarAsync<bool>("select email_verified_at is not null from users where id = $1", squatter.Value));
+        Assert.Equal(AuthHost.ImportedHash, await host.ScalarAsync<string>("select password_hash from users where id = $1", existing.Value));
+        Assert.Equal(accountVerified, await host.ScalarAsync<bool>("select email_verified_at is not null from users where id = $1", existing.Value));
     }
 
     [Fact]
@@ -223,76 +225,6 @@ public sealed class OidcLinkingTests(PostgresFixture postgres) {
 
         OidcAssert.RedirectsTo(response, "/login?error=email_required");
         Assert.Equal(0L, await host.ScalarAsync<long>("select count(*) from users"));
-    }
-
-    [Theory]
-    [InlineData(null)]
-    [InlineData(false)]
-    public async Task An_untrusted_entra_email_never_links(bool? edov) {
-        await using var host = await OidcHost.StartAsync(postgres);
-        var owner = await host.CreateUserAsync("alan@contoso.com", verified: true);
-        var squatter = await host.CreateUserAsync("bob@contoso.com", verified: false);
-        var browser = host.Browser();
-
-        var verified = await browser.SignInAsync("entra", OidcHost.Entra(OidcHost.TenantA, "oid-1", "alan@contoso.com", edov));
-        var unverified = await browser.SignInAsync("entra", OidcHost.Entra(OidcHost.TenantA, "oid-2", "bob@contoso.com", edov));
-
-        OidcAssert.RedirectsTo(verified, "/login?error=account_exists");
-        OidcAssert.RedirectsTo(unverified, "/login?error=account_exists");
-        Assert.Equal(0L, await host.ScalarAsync<long>("select count(*) from external_identities"));
-        Assert.Equal(AuthHost.ImportedHash, await host.ScalarAsync<string>("select password_hash from users where id = $1", squatter.Value));
-        Assert.Equal(AuthHost.ImportedHash, await host.ScalarAsync<string>("select password_hash from users where id = $1", owner.Value));
-        Assert.Null(browser.Cookie(Sessions.CookieName));
-    }
-
-    [Fact]
-    public async Task An_untrusted_entra_email_creates_an_unverified_account_when_none_exists() {
-        await using var host = await OidcHost.StartAsync(postgres);
-        var browser = host.Browser();
-
-        var response = await browser.SignInAsync("entra", OidcHost.Entra(OidcHost.TenantB, "oid-1", "alan@acme.com"));
-
-        OidcAssert.RedirectsTo(response, "/");
-        var me = await (await browser.GetAsync("/api/me")).JsonAsync();
-        Assert.False(me.GetProperty("user").GetProperty("emailVerified").GetBoolean());
-        Assert.NotNull(await host.LinkedUserAsync("entra", $"{OidcHost.TenantB}:oid-1"));
-        Assert.Equal("entra", await host.ScalarAsync<string>("select auth_method from sessions"));
-    }
-
-    [Fact]
-    public async Task Xms_edov_makes_the_entra_email_trusted() {
-        await using var host = await OidcHost.StartAsync(postgres);
-        var squatter = await host.CreateUserAsync("alan@contoso.com", verified: false);
-
-        var response = await host.Browser().SignInAsync("entra", OidcHost.Entra(OidcHost.TenantB, "OID-1", "alan@contoso.com", edov: true));
-
-        OidcAssert.RedirectsTo(response, "/");
-        Assert.Equal(squatter.Value, await host.LinkedUserAsync("entra", $"{OidcHost.TenantB}:oid-1"));
-        Assert.Null(await host.ScalarAsync<string>("select password_hash from users where id = $1", squatter.Value));
-        Assert.Equal(1L, await host.ScalarAsync<long>("select count(*) from audit_log where action = 'auth.claim' and meta->>'proof' = 'entra'"));
-    }
-
-    [Theory]
-    [InlineData("alan@acme.com")]
-    [InlineData("alan@ACME.io")]
-    public async Task A_listed_tenant_domain_makes_the_entra_email_trusted(string email) {
-        await using var host = await OidcHost.StartAsync(postgres);
-        var owner = await host.CreateUserAsync(email.ToLowerInvariant(), verified: true);
-
-        var response = await host.Browser().SignInAsync("entra", OidcHost.Entra(OidcHost.TenantA, "oid-1", email));
-
-        OidcAssert.RedirectsTo(response, "/");
-        Assert.Equal(owner.Value, await host.LinkedUserAsync("entra", $"{OidcHost.TenantA}:oid-1"));
-    }
-
-    [Fact]
-    public async Task A_domain_listed_for_another_tenant_is_not_trusted() {
-        await using var host = await OidcHost.StartAsync(postgres);
-        await host.CreateUserAsync("alan@acme.com", verified: true);
-
-        var response = await host.Browser().SignInAsync("entra", OidcHost.Entra(OidcHost.TenantB, "oid-1", "alan@acme.com"));
-
-        OidcAssert.RedirectsTo(response, "/login?error=account_exists");
     }
 
     [Fact]
@@ -331,20 +263,18 @@ public sealed class OidcLinkingTests(PostgresFixture postgres) {
         var user = await host.CreateUserAsync("ada@example.com", verified: true);
         var browser = host.Browser();
         browser.SetCookie(Sessions.CookieName, await host.CreateSessionAsync(user));
-        host.Provider.Claims = OidcHost.Entra(OidcHost.TenantB, "oid-1", "someone-else@contoso.com");
-        host.Provider.Claims["picture"] = OidcHost.PictureUrl;
+        host.Provider.Claims = OidcHost.Google("g-1", "someone-else@gmail.com", emailVerified: false);
 
-        var start = await browser.PostAsync("/api/me/identities/entra/link", JsonContent.Create(new { @return = "/account?tab=identities" }));
+        var start = await browser.PostAsync("/api/me/identities/google/link", JsonContent.Create(new { @return = "/account?tab=identities" }));
         Assert.Equal(HttpStatusCode.OK, start.StatusCode);
         var url = new Uri((await start.JsonAsync()).GetProperty("url").GetString()!);
-        Assert.StartsWith(host.Provider.EntraAuthority + "/organizations/oauth2/v2.0/authorize?", url.AbsoluteUri, StringComparison.Ordinal);
+        Assert.StartsWith(host.Provider.GoogleAuthorizeUrl + "?", url.AbsoluteUri, StringComparison.Ordinal);
         var response = await browser.GetAsync(await OidcBrowser.FollowProviderAsync(url));
 
         OidcAssert.RedirectsTo(response, "/account?tab=identities");
-        Assert.Equal(user.Value, await host.LinkedUserAsync("entra", $"{OidcHost.TenantB}:oid-1"));
+        Assert.Equal(user.Value, await host.LinkedUserAsync("google", "g-1"));
         Assert.Equal(1L, await host.ScalarAsync<long>("select count(*) from sessions where user_id = $1", user.Value));
         Assert.Equal(1L, await host.ScalarAsync<long>("select count(*) from audit_log where action = 'auth.link'"));
-        Assert.Equal(0L, await host.ScalarAsync<long>("select count(*) from blobs"));
     }
 
     [Fact]

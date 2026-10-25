@@ -676,8 +676,9 @@
       <li class="nav-h3"><a href="#5-9-trusted-proxy-cidrs-and-client-ip-header">5.9 TRUSTED_PROXY_CIDRS and CLIENT_IP_HEADER</a></li>
       <li class="nav-h3"><a href="#5-10-sign-in-variables">5.10 Sign-in variables</a></li>
       <li class="nav-h3"><a href="#5-11-jira-host-allowlist-and-blob-bytes-max">5.11 JIRA_HOST_ALLOWLIST and BLOB_BYTES_MAX</a></li>
+      <li class="nav-h3"><a href="#5-12-music-file-a-timer-track-optional">5.12 MUSIC_FILE: a timer track (optional)</a></li>
       <li class="nav-h2"><a href="#6-set-up-google-sign-in-optional">6. Set up Google sign-in (optional)</a></li>
-      <li class="nav-h2"><a href="#7-set-up-microsoft-entra-sign-in-optional">7. Set up Microsoft Entra sign-in (optional)</a></li>
+      <li class="nav-h2"><a href="#7-microsoft-sign-in-removed">7. Microsoft sign-in (removed)</a></li>
       <li class="nav-h2"><a href="#8-set-up-email-smtp-and-its-dns-records">8. Set up email (SMTP) and its DNS records</a></li>
       <li class="nav-h3"><a href="#8-1-check-which-ports-your-vps-provider-blocks">8.1 Check which ports your VPS provider blocks</a></li>
       <li class="nav-h3"><a href="#8-2-pick-a-provider-and-get-credentials">8.2 Pick a provider and get credentials</a></li>
@@ -764,7 +765,6 @@
 <li><input disabled="" type="checkbox"> Admin access to the GitHub repo <code>justinloveless/retroscope-next</code>.</li>
 <li><input disabled="" type="checkbox"> An account with a transactional email provider (section 8).</li>
 <li><input disabled="" type="checkbox"> Optional: a Google Cloud account for Google sign-in (section 6).</li>
-<li><input disabled="" type="checkbox"> Optional: a Microsoft Entra tenant for Microsoft sign-in (section 7).</li>
 <li><input disabled="" type="checkbox"> <code>openssl</code> on your own machine, to generate secrets.</li>
 <li><input disabled="" type="checkbox"> A password manager to store every secret you generate. Coolify and the providers show several of them only once.</li>
 </ul>
@@ -824,20 +824,20 @@ unset ROOT_USER_PASSWORD</code></pre>
 <li>Check the record from your machine: <code>dig +short &lt;your-domain&gt; A</code> prints the VPS IP.</li>
 <li>If you use Cloudflare, set the record to <strong>DNS only</strong> (grey cloud) until Coolify has issued the certificate. <strong>UNVERIFIED:</strong> Coolify&#39;s docs do not cover Let&#39;s Encrypt behind Cloudflare&#39;s proxy. DNS only is the safe choice. If you turn the proxy on later, set <code>CLIENT_IP_HEADER=CF-Connecting-IP</code> (section 5).</li>
 </ol>
-<p>Your <code>PUBLIC_URL</code> is now <code>https://&lt;your-domain&gt;</code>. The Google and Entra redirect URIs must use exactly this host.</p>
+<p>Your <code>PUBLIC_URL</code> is now <code>https://&lt;your-domain&gt;</code>. The Google redirect URI must use exactly this host.</p>
 <h2 id="3-prepare-github-images-digests-and-registry-access">3. Prepare GitHub: images, digests, and registry access</h2>
 <h3 id="3-1-confirm-the-images-build">3.1 Confirm the images build</h3>
-<p><code>.github/workflows/images.yml</code> runs on every push to <code>main</code> and on every <code>v*</code> tag. The preview workflow also calls it for a branch&#39;s head commit (section 11.3). It:</p>
+<p><code>.github/workflows/images.yml</code> runs inside the <code>ci</code> run of every push to <code>main</code>, after the tests pass, and on every <code>v*</code> tag. The preview workflow also calls it for a branch&#39;s head commit (section 11.3). It:</p>
 <ol>
-<li>Runs the Native AOT smoke test (<code>./build.sh aot-smoke</code>).</li>
-<li>Builds <code>ghcr.io/justinloveless/retroscope</code> from <code>deploy/Dockerfile</code> and <code>ghcr.io/justinloveless/retroscope-import</code> from <code>deploy/Dockerfile.importer</code>, for <code>linux/amd64</code> only.</li>
+<li>Runs the Native AOT smoke test (<code>./build.sh aot-smoke</code>). It reuses a cached server binary when nothing the binary is compiled from changed.</li>
+<li>Builds <code>ghcr.io/justinloveless/retroscope</code> from <code>deploy/Dockerfile</code>, packaging the server binary the smoke test probed, and <code>ghcr.io/justinloveless/retroscope-import</code> from <code>deploy/Dockerfile.importer</code>, for <code>linux/amd64</code> only.</li>
 <li>Pushes both. A push to <code>main</code> or a <code>v*</code> tag tags them with the commit SHA. A preview build tags them <code>preview-&lt;sha&gt;</code>, so it never writes a plain-SHA tag. There is no <code>latest</code> tag.</li>
-<li>Prints both digests in the run summary. On a push to <code>main</code> it also uploads them as the <code>image-digests</code> artifact, which the production deploy reads (section 11.1).</li>
+<li>Prints both digests in the run summary. On a push to <code>main</code> it also uploads them as the <code>image-digests</code> artifact of the <code>ci</code> run, which the production deploy reads (section 11.1).</li>
 </ol>
 <p>To check it:</p>
 <ol>
-<li>Open the repo on GitHub, then <strong>Actions</strong> &gt; <strong>images</strong>.</li>
-<li>Open the most recent green run on <code>main</code>. If none exists, push to <code>main</code> or run a tagged release, then wait for it.</li>
+<li>Open the repo on GitHub, then <strong>Actions</strong> &gt; <strong>ci</strong>.</li>
+<li>Open the most recent green run on <code>main</code>. Its <code>images</code> job builds the images. If none exists, push to <code>main</code> or run a tagged release, then wait for it.</li>
 </ol>
 <h3 id="3-2-find-the-image-digests">3.2 Find the image digests</h3>
 <p>The run summary of the green run shows the commit and both images:</p>
@@ -1065,36 +1065,6 @@ unset REGISTRY_TOKEN</code></pre>
 <td>Google sign-in secret.</td>
 </tr>
 <tr>
-<td><code>ENTRA_CLIENT_ID</code></td>
-<td>no (empty)</td>
-<td><code>&lt;GUID&gt;</code></td>
-<td>Entra sign-in. Set both Entra values, or neither.</td>
-</tr>
-<tr>
-<td><code>ENTRA_CLIENT_SECRET</code></td>
-<td>no (empty)</td>
-<td>from Entra</td>
-<td>Entra sign-in secret.</td>
-</tr>
-<tr>
-<td><code>ENTRA_TENANT</code></td>
-<td>no (<code>organizations</code>)</td>
-<td><code>organizations</code> or <code>&lt;tenant GUID&gt;</code></td>
-<td>Authority tenant segment. ASCII letters, digits, <code>-</code>, and <code>.</code> only.</td>
-</tr>
-<tr>
-<td><code>ENTRA_ALLOWED_TENANTS</code></td>
-<td>no (empty)</td>
-<td><code>&lt;tid1&gt;,&lt;tid2&gt;</code></td>
-<td>Tenant IDs allowed to sign in. <strong>Empty disables Entra.</strong></td>
-</tr>
-<tr>
-<td><code>ENTRA_TENANT_DOMAINS</code></td>
-<td>no (empty)</td>
-<td><code>&lt;tid&gt;=example.com|example.org</code></td>
-<td>Email domains trusted per tenant when the token lacks <code>xms_edov</code>.</td>
-</tr>
-<tr>
 <td><code>JIRA_HOST_ALLOWLIST</code></td>
 <td>no (empty)</td>
 <td><code>jira.example.com</code></td>
@@ -1105,6 +1075,12 @@ unset REGISTRY_TOKEN</code></pre>
 <td>no (<code>2147483648</code>)</td>
 <td><code>2147483648</code></td>
 <td>Ceiling on all board images together, in bytes.</td>
+</tr>
+<tr>
+<td><code>MUSIC_FILE</code></td>
+<td>no (empty)</td>
+<td><code>/music/track.mp3</code></td>
+<td>Optional retro timer track, as a path inside the container. Empty plays the generated music (section 5.12).</td>
 </tr>
 </tbody></table>
 <p>Fixed values in the compose file that you do not set: <code>ASPNETCORE_URLS</code>, <code>DATABASE_URL</code>, <code>DATABASE_OWNER_URL</code>, <code>DOTNET_GCHeapHardLimit</code>, <code>DOTNET_gcServer</code>, <code>DOTNET_gcConcurrent</code>, and <code>DOTNET_GCConserveMemory</code>. Leave them alone.</p>
@@ -1119,12 +1095,12 @@ unset REGISTRY_TOKEN</code></pre>
 <li><code>Logging__Console__FormatterName=simple</code>: plain-text logs instead of JSON.</li>
 <li><code>Logging__LogLevel__Default=Warning</code>: quieter logs.</li>
 </ul>
-<p>Never set <code>GOOGLE_AUTHORIZE_URL</code>, <code>GOOGLE_TOKEN_URL</code>, or <code>ENTRA_AUTHORITY_URL</code> in production. They exist for tests.</p>
+<p>Never set <code>GOOGLE_AUTHORIZE_URL</code> or <code>GOOGLE_TOKEN_URL</code> in production. They exist for tests.</p>
 <p>The <code>IMPORT_*</code> variables are only for the data import (section 14).</p>
 <h3 id="5-2-ghcr-owner">5.2 <code>GHCR_OWNER</code></h3>
 <p>Set it to <code>justinloveless</code>. It must be lower case, because <code>images.yml</code> lowercases the owner when it names the images.</p>
 <h3 id="5-3-app-digest-and-importer-digest">5.3 <code>APP_DIGEST</code> and <code>IMPORTER_DIGEST</code></h3>
-<p>For the first deploy, copy them from the images run summary (section 3.2). Paste only the hex after <code>sha256:</code>. After that, the deploy workflows set them (section 11).</p>
+<p>For the first deploy, copy them from the <code>ci</code> run summary (section 3.2). Paste only the hex after <code>sha256:</code>. After that, the deploy workflows set them (section 11).</p>
 <p>Set <code>IMPORTER_DIGEST</code> too, even though the compose file does not require it. The <code>importer</code> service is in profile <code>import</code> and should not start, but the Coolify docs do not say whether Coolify honours <code>profiles</code> (<strong>UNVERIFIED</strong>). If Coolify parses or pulls the importer with an empty digest, the image reference <code>…/retroscope-import@sha256:</code> is invalid and the deploy fails. Setting it avoids that.</p>
 <h3 id="5-4-public-url">5.4 <code>PUBLIC_URL</code></h3>
 <p>Set it to <code>https://&lt;your-domain&gt;</code>, with no trailing path, no query, and no <code>user@</code> part. The app refuses to start if the value is not an absolute http or https origin with path <code>/</code> only (<code>src/Retroscope.Server/Hosting/HostingOptions.cs</code>).</p>
@@ -1177,12 +1153,34 @@ openssl rand -hex 32   # DB_APP_PASSWORD</code></pre>
 </ol>
 <p>Leave <code>CLIENT_IP_HEADER</code> empty unless Cloudflare proxies your domain (orange cloud). Then set <code>CF-Connecting-IP</code>.</p>
 <h3 id="5-10-sign-in-variables">5.10 Sign-in variables</h3>
-<p><code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> come from section 6. The <code>ENTRA_*</code> variables come from section 7. A provider with no credentials does not appear on the sign-in screen, so you can deploy first with email and password only and add providers later.</p>
+<p><code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> come from section 6. Google is the only sign-in provider besides email: Microsoft Entra sign-in was removed (<code>docs/decisions/UX19.md</code>), and the app no longer reads any <code>ENTRA_*</code> variable. Without Google credentials the Google button does not appear, so you can deploy first with email and password only and add Google later.</p>
 <h3 id="5-11-jira-host-allowlist-and-blob-bytes-max">5.11 <code>JIRA_HOST_ALLOWLIST</code> and <code>BLOB_BYTES_MAX</code></h3>
 <ul>
 <li><code>JIRA_HOST_ALLOWLIST</code>: leave it empty if your teams use Jira Cloud (<code>*.atlassian.net</code>). For self-hosted Jira, list the exact host names, comma-separated. A malformed entry stops the app.</li>
 <li><code>BLOB_BYTES_MAX</code>: leave the default (2 GiB) unless disk space is short. It must be a positive whole number of bytes.</li>
 </ul>
+<h3 id="5-12-music-file-a-timer-track-optional">5.12 <code>MUSIC_FILE</code>: a timer track (optional)</h3>
+<p>By default the retro timer&#39;s background music is a short arpeggio generated in the browser. To play a recorded track instead, put an audio file on the VPS and point <code>MUSIC_FILE</code> at it. The file never goes into the repository or the image.</p>
+<p><strong>The licence is yours.</strong> Retroscope ships no track. Use only a file you have the right to play to your users, and keep a record of that right. Do not commit the file, its path on your machine, or its name to this repository.</p>
+<ol>
+<li><p>Choose a file in one of these formats: <code>.mp3</code> (<code>audio/mpeg</code>), <code>.ogg</code> or <code>.oga</code> (<code>audio/ogg</code>), or <code>.m4a</code> (<code>audio/mp4</code>). It can be up to 32 MiB. A 128 kbps MP3 of four to five minutes is about 4 to 5 MB.</p>
+</li>
+<li><p>Copy it to a folder of its own on the VPS, and make it readable by the app container, which runs as UID 1654:</p>
+<pre><code>ssh &lt;vps&gt; 'sudo mkdir -p /data/retroscope-music'
+scp track.mp3 &lt;vps&gt;:/tmp/track.mp3
+ssh &lt;vps&gt; 'sudo mv /tmp/track.mp3 /data/retroscope-music/track.mp3 &amp;&amp; sudo chmod 755 /data/retroscope-music &amp;&amp; sudo chmod 644 /data/retroscope-music/track.mp3'</code></pre>
+</li>
+<li><p>The <code>app</code> service in <code>deploy/docker-compose.yml</code> mounts <code>/data/retroscope-music</code> read-only at <code>/music</code>. The path is fixed because Coolify refuses a volume source that contains <code>${</code>. On a server without that folder, such as the preview server, Docker creates it empty and no track plays.</p>
+</li>
+<li><p>In Coolify, set <code>MUSIC_FILE=/music/track.mp3</code> on the production resource, then redeploy.</p>
+</li>
+<li><p>Check the app log for <code>Timer music is served from MUSIC_FILE as audio/mpeg</code>. If you see <code>Timer music is off: &lt;reason&gt;</code> instead, fix the reason and restart. The app keeps running either way, with the generated music.</p>
+</li>
+<li><p>Check the route. It serves only callers with a session, so a plain <code>curl</code> gets <code>401</code>. Open a retro board in a browser, start the timer with music on, and check in the developer tools&#39; network panel that <code>/media/timer-music</code> answers <code>206</code> with the content type above.</p>
+</li>
+</ol>
+<p>To replace the track with one of the same format, overwrite the file under the same name. The app serves the new file from the next request, and browsers that cached the old one revalidate it within a day. A different format or name needs <code>MUSIC_FILE</code> changed and a restart, because the file is checked at startup. To turn the track off, empty <code>MUSIC_FILE</code> and restart.</p>
+<p>If the log says the file does not exist, check that the file is in <code>/data/retroscope-music</code> on the VPS and that the name in <code>MUSIC_FILE</code> matches. If the folder did not exist when the container started, Docker created it empty and owned by root; copy the file into it, fix the permissions as in step 2, and restart.</p>
 <h2 id="6-set-up-google-sign-in-optional">6. Set up Google sign-in (optional)</h2>
 <p>Sources: <a href="https://support.google.com/cloud/answer/15549257">https://support.google.com/cloud/answer/15549257</a>, <a href="https://support.google.com/cloud/answer/15544987">https://support.google.com/cloud/answer/15544987</a>, <a href="https://support.google.com/cloud/answer/15549945">https://support.google.com/cloud/answer/15549945</a>, <a href="https://support.google.com/cloud/answer/15549049">https://support.google.com/cloud/answer/15549049</a></p>
 <p>The app requests only <code>openid email profile</code>, uses the authorization code flow with PKCE, and trusts a Google email only when <code>email_verified</code> is true.</p>
@@ -1215,50 +1213,8 @@ openssl rand -hex 32   # DB_APP_PASSWORD</code></pre>
 <li><strong>UNVERIFIED:</strong> whether publishing an app with only these non-sensitive scopes needs Google&#39;s verification. The pages say verification is needed to show the app&#39;s name and logo and for sensitive scopes.</li>
 <li>To replace the secret later, use <strong>Add Secret</strong> on the client page (two at most), switch the app over, then delete the old one.</li>
 </ul>
-<h2 id="7-set-up-microsoft-entra-sign-in-optional">7. Set up Microsoft Entra sign-in (optional)</h2>
-<p>Sources: <a href="https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app">https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app</a>, <a href="https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-redirect-uri">https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-redirect-uri</a>, <a href="https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-credentials">https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-credentials</a>, <a href="https://learn.microsoft.com/en-us/entra/identity-platform/optional-claims">https://learn.microsoft.com/en-us/entra/identity-platform/optional-claims</a>, <a href="https://learn.microsoft.com/en-us/entra/identity-platform/optional-claims-reference">https://learn.microsoft.com/en-us/entra/identity-platform/optional-claims-reference</a></p>
-<p>How the app checks an Entra sign-in (<code>src/Retroscope.Server/Auth/Oidc.cs</code>):</p>
-<ul>
-<li>Entra is enabled only when <code>ENTRA_ALLOWED_TENANTS</code> is non-empty.</li>
-<li>The token&#39;s <code>tid</code> must be in <code>ENTRA_ALLOWED_TENANTS</code>. Otherwise sign-in fails with <code>oidc_tenant</code>.</li>
-<li>The issuer must be <code>https://login.microsoftonline.com/{tid}/v2.0</code>.</li>
-<li>The email is trusted only if <code>xms_edov</code> is true, or if its domain is listed for that tenant in <code>ENTRA_TENANT_DOMAINS</code>.</li>
-</ul>
-<p>Steps:</p>
-<ol>
-<li>Sign in to <a href="https://entra.microsoft.com">https://entra.microsoft.com</a> as at least an Application Developer. If you have several tenants, switch with the <strong>Settings</strong> icon.</li>
-<li>Go to <strong>Entra ID</strong> &gt; <strong>App registrations</strong> &gt; <strong>New registration</strong> and enter a <strong>Name</strong>.</li>
-<li>Pick <strong>Supported account types</strong>:<ul>
-<li>For your organisation only: choose <strong>Single tenant only</strong>. You will set <code>ENTRA_TENANT=&lt;tenant ID&gt;</code> and <code>ENTRA_ALLOWED_TENANTS=&lt;same tenant ID&gt;</code>.</li>
-<li>For several organisations: choose <strong>Multiple Entra ID tenants</strong>. Keep <code>ENTRA_TENANT=organizations</code> and list every permitted tenant ID in <code>ENTRA_ALLOWED_TENANTS</code>.</li>
-<li>Do not choose any option that includes personal Microsoft accounts. Use <code>organizations</code> or a tenant ID for <code>ENTRA_TENANT</code>. Personal-account tenants are rejected unless listed in <code>ENTRA_ALLOWED_TENANTS</code>.</li>
-</ul>
-</li>
-<li>Click <strong>Register</strong>.</li>
-<li>On the <strong>Overview</strong> page, copy the <strong>Application (client) ID</strong> into <code>ENTRA_CLIENT_ID</code>. Copy the tenant ID too. <strong>UNVERIFIED:</strong> its label, normally <strong>Directory (tenant) ID</strong>.</li>
-<li>Add the redirect URI: <strong>Manage</strong> &gt; <strong>Authentication</strong>, open the <strong>Redirect URI configuration</strong> tab, select <strong>Add Redirect URI</strong>, choose the <strong>Web</strong> tile, enter <code>https://&lt;your-domain&gt;/auth/oidc/entra/callback</code>, then click <strong>Configure</strong>.</li>
-<li>Create the secret: <strong>Certificates &amp; secrets</strong> &gt; <strong>Client secrets</strong> &gt; <strong>New client secret</strong>.<ul>
-<li>Enter a description and an expiry. The maximum is 24 months, and Microsoft recommends less than 12.</li>
-<li>Click <strong>Add</strong>, then copy the <strong>Value</strong>, not the <strong>Secret ID</strong>, into <code>ENTRA_CLIENT_SECRET</code>. Microsoft never shows it again.</li>
-<li>Put a rotation reminder in your calendar before the expiry. Microsoft prefers certificates over secrets in production, but the app reads only a secret.</li>
-</ul>
-</li>
-<li>Add optional claims: <strong>Manage</strong> &gt; <strong>Token configuration</strong> &gt; <strong>Add optional claim</strong>, choose token type <strong>ID</strong>, select <code>email</code> and <code>xms_edov</code>, then click <strong>Add</strong>.<ul>
-<li><code>xms_edov</code> is issued only together with <code>email</code>.</li>
-<li><strong>UNVERIFIED:</strong> that <code>xms_edov</code> appears in the picker. If it does not, open <strong>Manage</strong> &gt; <strong>Manifest</strong> and add <code>{&quot;name&quot;:&quot;xms_edov&quot;,&quot;essential&quot;:false}</code> (and <code>email</code> the same way, if missing) under <code>optionalClaims.idToken</code>.</li>
-<li><strong>UNVERIFIED:</strong> a prompt to turn on the Microsoft Graph email permission often appears when you add <code>email</code>. If it appears, accept it.</li>
-</ul>
-</li>
-<li>Optional: under <strong>API permissions</strong> &gt; <strong>Add a permission</strong> &gt; <strong>Microsoft Graph</strong> &gt; <strong>Delegated permissions</strong>, tick <code>openid</code>, <code>email</code>, and <code>profile</code>. The app requests them dynamically anyway, and they need no admin consent. <strong>UNVERIFIED:</strong> exact labels.</li>
-<li>In Coolify, set:<ul>
-<li><code>ENTRA_CLIENT_ID</code> and <code>ENTRA_CLIENT_SECRET</code>.</li>
-<li><code>ENTRA_TENANT</code>: <code>organizations</code>, or your tenant ID for a single-tenant app.</li>
-<li><code>ENTRA_ALLOWED_TENANTS</code>: the tenant IDs, comma-separated, lower case.</li>
-<li>Optional <code>ENTRA_TENANT_DOMAINS</code>: <code>&lt;tid&gt;=example.com|example.org</code>, and <code>,</code> between tenants. A malformed entry stops the app.</li>
-</ul>
-</li>
-<li>Restart the resource.</li>
-</ol>
+<h2 id="7-microsoft-sign-in-removed">7. Microsoft sign-in (removed)</h2>
+<p>Microsoft Entra sign-in was removed (<code>docs/decisions/UX19.md</code>). If an older deploy set <code>ENTRA_*</code> variables, delete them from the resource; the app ignores them. The later sections keep their numbers, so references to them elsewhere stay valid.</p>
 <h2 id="8-set-up-email-smtp-and-its-dns-records">8. Set up email (SMTP) and its DNS records</h2>
 <p>The app sends sign-up verification, magic-link, and password-reset mail over SMTP. Without working SMTP, nobody can verify an email address.</p>
 <h3 id="8-1-check-which-ports-your-vps-provider-blocks">8.1 Check which ports your VPS provider blocks</h3>
@@ -1400,9 +1356,9 @@ curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' https://&lt;your-domain&gt;
 <li>Open <code>https://&lt;your-domain&gt;</code> and sign up with email and password.</li>
 <li>Open the verification email and follow the link. If no mail arrives, read the app log for SMTP errors (section 16).</li>
 <li>Create a team.</li>
-<li>Start a poker session in the team. Open the same session in a second browser or a private window, join as another user or a guest, and vote in both. Votes appear live in both windows. That proves WebSockets work through Traefik.</li>
+<li>Start a poker session in the team. Every room belongs to a team and only its signed-in members open it, so add a second account first: under <strong>Members</strong>, create a link invite, open it in a second browser or a private window, sign up there (the emailed sign-in link is quickest) and accept. Open the session in both windows and vote in both. Votes appear live in both windows. That proves WebSockets work through Traefik.</li>
 <li>Open a retro board, add an anonymous card, then edit it. That is the first use of <code>ANON_TAG_KEY</code> (section 5.7). If it fails, check the app log for a key error.</li>
-<li>If you configured Google or Entra, sign out and sign in with each provider.</li>
+<li>If you configured Google, sign out and sign in with Google.</li>
 </ol>
 <h3 id="10-5-make-yourself-an-app-admin">10.5 Make yourself an app admin</h3>
 <p>A fresh database has no app admin, and the repo has no bootstrap step for one outside the import (where <code>IMPORT_ADMIN_EMAILS</code> sets them). The <code>users</code> table has an <code>is_admin</code> column. To make your account an admin:</p>
@@ -1411,13 +1367,12 @@ curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' https://&lt;your-domain&gt;
 <p>Emails are stored in lower case (a <code>CHECK</code> constraint in <code>db/migrations/0001_init.sql</code>). The change takes effect without signing out: every session lookup reads <code>users.is_admin</code> again (<code>src/Retroscope.Server/Data/Repos/SessionsRepo.cs</code>, <code>LoadAsync</code>).</p>
 <h2 id="11-release-a-new-version">11. Release a new version</h2>
 <p>Coolify redeploys a compose resource by stopping and recreating the containers. There is no rolling update. Clients see a short pause and reconnect.</p>
-<p>Every migration must be quick and compatible with the previous release, because the old binary stops before the new one starts (<code>deploy/RUNBOOK.md</code> section 11).</p>
+<p>Every migration must be quick and compatible with the previous release, because the old binary stops before the new one starts (<code>deploy/RUNBOOK.md</code> section 11). UX18 is the one exception: its migration drops tables and columns the release before it reads, so take a backup before merging it to <code>main</code>, which deploys it automatically, and never roll production back past it (<code>deploy/RUNBOOK.md</code> section 11).</p>
 <p>Releases run from GitHub Actions. Only verified work reaches <code>main</code>, and <code>main</code> deploys itself after CI passes. Unverified work stays on a branch and goes to the preview slot (section 11.3). The deploy and preview workflows both call <code>deploy/coolify-deploy.sh</code>, which talks to the Coolify API.</p>
 <h3 id="11-1-automatic-production-deploys">11.1 Automatic production deploys</h3>
 <p><code>.github/workflows/deploy.yml</code> runs when the <code>ci</code> workflow completes. It deploys only when that <code>ci</code> run succeeded on a push to <code>main</code>:</p>
 <ol>
-<li>It follows the <code>images.yml</code> run of the same push. If that run fails, the deploy fails at once. If it is slow, the deploy waits up to 75 minutes.</li>
-<li>It reads both digests from that run&#39;s <code>image-digests</code> artifact and checks that GHCR has them. It never resolves a tag: tags can be re-pushed, and a preview build runs branch code that can push packages.</li>
+<li>It reads both digests from the <code>image-digests</code> artifact of that <code>ci</code> run, which built the images through <code>images.yml</code> after its tests passed, and checks that GHCR has them. It never resolves a tag: tags can be re-pushed, and a preview build runs branch code that can push packages.</li>
 <li>It skips the deploy if a newer commit on <code>main</code> has a <code>ci</code> run that is still running or has passed, because that run deploys the newer commit. A newer commit whose <code>ci</code> failed or was cancelled does not block an older green one.</li>
 <li>It points the production resource at branch <code>main</code> and that exact commit (<code>git_commit_sha</code>). Coolify checks the commit out after cloning, so <code>deploy/docker-compose.yml</code> always matches the images. It then sets <code>APP_DIGEST</code> and <code>IMPORTER_DIGEST</code>.</li>
 <li>It starts a Coolify deployment and waits up to 15 minutes for it to finish.</li>
@@ -1432,16 +1387,16 @@ curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' https://&lt;your-domain&gt;
 <li>Keep the branch at <code>main</code>. A run started from another branch is skipped, and the <code>production</code> environment refuses it.</li>
 <li>Enter the full 40-character SHA of the commit to deploy.</li>
 </ol>
-<p>The run checks that a <code>ci</code> run on a push to <code>main</code> succeeded for that SHA, then deploys it as in section 11.1, with that commit&#39;s compose file and digests. It does not skip older commits, so this is also the rollback. A rollback must respect the expand/contract rule: the older binary has to work with the newer schema.</p>
-<p>The digests come from the commit&#39;s <code>image-digests</code> artifact, which GitHub keeps for 90 days. A commit whose artifact has expired, or that was built before the artifact existed, cannot be deployed this way. Use section 11.5 for it.</p>
+<p>The run checks that a <code>ci</code> run on a push to <code>main</code> succeeded for that SHA, then deploys it as in section 11.1, with that commit&#39;s compose file and digests. It does not skip older commits, so this is also the rollback. A rollback must respect the expand/contract rule: the older binary has to work with the newer schema. Never roll back to a commit from before UX18: that binary reads tables and columns UX18&#39;s migration dropped, and nothing stops it from starting (<code>deploy/RUNBOOK.md</code> section 11).</p>
+<p>The digests come from the commit&#39;s <code>image-digests</code> artifact, which GitHub keeps for 90 days. The run looks for it on the commit&#39;s <code>ci</code> run, then on its <code>images</code> run, where commits built before <code>ci</code> built the images keep it. A commit whose artifact has expired, or that was built before the artifact existed, cannot be deployed this way. Use section 11.5 for it.</p>
 <h3 id="11-3-the-preview-slot">11.3 The preview slot</h3>
 <p>The preview slot is a second compose resource that shows unverified work before it merges. It has one slot, so the last deploy wins. <code>.github/workflows/preview.yml</code> deploys to it:</p>
 <ul>
-<li><strong>From a pull request.</strong> Add the <code>preview</code> label to a PR. The PR deploys when the label is added, on every push to it, and when it is reopened. PRs from forks are skipped, because they get no secrets.</li>
+<li><strong>From a pull request.</strong> Add the <code>preview</code> label to a PR. The PR deploys when the label is added. Later pushes do not redeploy it. To refresh the preview, remove the label and add it again, or use the manual run. PRs from forks are skipped, because they get no secrets.</li>
 <li><strong>By hand.</strong> Open <strong>Actions</strong> &gt; <strong>preview</strong> &gt; <strong>Run workflow</strong> and enter a branch name. If the branch has an open PR, that PR gets the comment.</li>
 </ul>
-<p>GitHub does not run <code>pull_request</code> workflows while a PR has a merge conflict. A labelled PR with conflicts does not preview until you resolve them. Until then, the manual run is the only way to preview it.</p>
-<p>Each run builds the images for the branch&#39;s head commit through <code>images.yml</code>, points the preview resource at that branch and commit, sets the digests, deploys, and checks <code>&lt;preview URL&gt;/healthz</code>. It then posts or updates one comment on the PR with the preview URL, the commit and the time. Coolify reads <code>deploy/docker-compose.yml</code> from that commit, so compose changes are previewed too. Runs that would deploy share one <code>preview</code> concurrency group for the whole workflow, so a newer preview cancels an older run wherever it is. If the older run had already queued a Coolify deployment that has not started, the script cancels it. Other runs, such as adding a different label, never cancel a live preview. Removing the label stops further deploys but leaves the current preview running.</p>
+<p>GitHub does not run <code>pull_request</code> workflows while a PR has a merge conflict. Adding the label to a PR with conflicts does not deploy it. Resolve them and add the label again, or use the manual run.</p>
+<p>Each run builds the images for the branch&#39;s head commit through <code>images.yml</code>, points the preview resource at that branch and commit, sets the digests, deploys, and checks <code>&lt;preview URL&gt;/healthz</code>. It then posts or updates one comment on the PR with the preview URL, the commit and the time. Coolify reads <code>deploy/docker-compose.yml</code> from that commit, so compose changes are previewed too. Runs that would deploy share one <code>preview</code> concurrency group for the whole workflow, so a newer preview cancels an older run wherever it is. If the older run had already queued a Coolify deployment that has not started, the script cancels it. Other runs, such as adding a different label, never cancel a live preview. Removing the label leaves the current preview running.</p>
 <p>Set up the preview resource like production (sections 4 and 5), with these differences:</p>
 <ul>
 <li><strong>It runs on a separate Coolify server, not on the production VPS.</strong> Add a second small x86_64 VPS as a server in Coolify (<strong>Servers</strong> &gt; <strong>Add</strong>) and create the preview resource on it. There are two reasons:<ul>
@@ -1454,6 +1409,7 @@ curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' https://&lt;your-domain&gt;
 <li>It has its own database and secrets. Generate fresh <code>DB_OWNER_PASSWORD</code>, <code>DB_APP_PASSWORD</code>, <code>APP_KEYS</code> and <code>ANON_TAG_KEY</code>. Never copy production&#39;s values, and never import production data into it.</li>
 <li>Its sign-in providers need the preview URL as an extra redirect URI. They are optional, so you can leave them unset.</li>
 <li>Its auto deploy is off, as in section 4.3.</li>
+<li>Leave <code>MUSIC_FILE</code> empty. The compose file mounts <code>/data/retroscope-music</code> (section 5.12), which Docker creates empty on the preview server.</li>
 </ul>
 <p>If you put the preview on the production host anyway, you accept both risks above: a branch can take over the host, and the two stacks compete for 2 GB.</p>
 <h3 id="11-4-what-the-workflows-need">11.4 What the workflows need</h3>
@@ -1509,7 +1465,7 @@ curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' https://&lt;your-domain&gt;
 <h3 id="11-5-by-hand">11.5 By hand</h3>
 <p>Use this if GitHub Actions or the Coolify API is unavailable.</p>
 <ol>
-<li>Find the green images run for the commit on <code>main</code> and copy the <code>app</code> and <code>importer</code> digests from its summary (section 3.2). Use a run on a push to <code>main</code>, not a preview build.</li>
+<li>Find the green <code>ci</code> run for the commit on <code>main</code> and copy the <code>app</code> and <code>importer</code> digests from its summary (section 3.2). Never pick a commit from before UX18 (section 11.2). A commit built before <code>ci</code> built the images has them on its <code>images</code> run instead. Use a run on a push to <code>main</code>, not a preview build.</li>
 <li>In Coolify, set the resource&#39;s git commit to that commit, so the compose file matches the images. The workflows leave it pinned to the last commit they deployed.</li>
 <li>Set <code>APP_DIGEST</code> and <code>IMPORTER_DIGEST</code>.</li>
 <li>Click <strong>Redeploy</strong>. A restart is not enough, because the new image must be pulled.</li>
@@ -1554,7 +1510,7 @@ ssh &lt;vps&gt; 'docker run --rm -v &lt;volume-name&gt;:/b alpine cat /b/rs-$(da
 <p><strong><code>ANON_TAG_KEY</code>:</strong> never rotate it unless it leaks.</p>
 <p><strong><code>DB_APP_PASSWORD</code>:</strong> change it and redeploy. The migrator re-applies it on every start.</p>
 <p><strong><code>DB_OWNER_PASSWORD</code>:</strong> changing the variable alone does not change the role&#39;s password. There is no documented procedure for it.</p>
-<p><strong>External credentials:</strong> the GHCR token (section 3.3), the Google and Entra secrets, and the SMTP credentials expire or can be rotated at the provider. Update the variable in Coolify and restart.</p>
+<p><strong>External credentials:</strong> the GHCR token (section 3.3), the Google secret, and the SMTP credentials expire or can be rotated at the provider. Update the variable in Coolify and restart.</p>
 <h2 id="14-import-data-from-the-old-supabase-app">14. Import data from the old Supabase app</h2>
 <p>Full procedure: <code>deploy/IMPORT_RUNBOOK.md</code>. Almost all of it runs <strong>off the VPS</strong>, on your own machine. Only the restore happens on the VPS.</p>
 <p>Summary of the order (<code>deploy/IMPORT_RUNBOOK.md</code> sections 5-9):</p>
@@ -1580,7 +1536,7 @@ openssl pkey -in ~/retroscope-import/seal.key -pubout -out ~/retroscope-import/s
 </li>
 <li><p>Delete <code>/root/rs-import.dump</code> from the VPS (<code>deploy/IMPORT_RUNBOOK.md</code> section 8).</p>
 </li>
-<li><p>Switch DNS or the Coolify domain if needed. Old links keep working.</p>
+<li><p>Switch DNS or the Coolify domain if needed. Old links keep working for members of the room&#39;s team (<code>deploy/RUNBOOK.md</code> section 9).</p>
 </li>
 <li><p>Rotate credentials and clean up (sections 11-12 of that runbook). Remove the <code>IMPORT_*</code> variables from Coolify afterwards.</p>
 </li>
@@ -1591,15 +1547,16 @@ cat &gt; /root/rs.env   # paste the VAR=value lines, then press Ctrl-D
 docker run --rm --env-file /root/rs.env ...   # in place of every -e VAR=value
 rm /root/rs.env      # when the import is done</code></pre>
 <p>Or export each value after <code>read -rs VAR</code> and pass <code>-e VAR</code> with no value, so Docker copies it from your environment.</p>
+<p>Since UX18 every room belongs to a team. A forced re-import skips the source&#39;s team-less poker sessions and retro boards (the original&#39;s quick rooms) and counts them in the report, and it writes no board visibility, board passwords or favorites.</p>
 <p>Pulling the importer image on your own machine needs the same GHCR login as the VPS (section 3.3): <code>docker login ghcr.io --password-stdin</code> with a <code>read:packages</code> token. Rollback steps are in section 10 of <code>deploy/IMPORT_RUNBOOK.md</code>.</p>
 <h2 id="15-measure-on-the-vps">15. Measure on the VPS</h2>
 <p><code>deploy/RUNBOOK.md</code> section 15 lists checks nobody has run on the production host yet. Run them after the first deploy and record the results, with the date, in that section:</p>
 <ul>
 <li><input disabled="" type="checkbox"> Coolify and Traefik memory after a day idle: <code>docker stats --no-stream</code> and <code>free -m</code>. App, db, and backup must stay within their 536 MiB of limits.</li>
 <li><input disabled="" type="checkbox"> App and db idle memory: adapt <code>deploy/drills/idle-memory.sh</code> to the Coolify container names. Targets: app under 120 MB, db under 180 MB.</li>
-<li><input disabled="" type="checkbox"> WebSocket idle timeout through Coolify&#39;s Traefik: <code>RS_E2E_BASE_URL=https://&lt;your-domain&gt; node deploy/drills/ws-idle.mjs --seconds 300</code> exits 0.</li>
+<li><input disabled="" type="checkbox"> WebSocket idle timeout through Coolify&#39;s Traefik: <code>RS_E2E_BASE_URL=https://&lt;your-domain&gt; RS_IDLE_EMAIL=&lt;email&gt; RS_IDLE_PASSWORD=&lt;password&gt; node deploy/drills/ws-idle.mjs --seconds 300</code> exits 0. Only signed-in users open sockets, so create an account for this check first; it needs no team and no verified address.</li>
 <li><input disabled="" type="checkbox"> bcrypt hashes per second on the VPS CPU type.</li>
-<li><input disabled="" type="checkbox"> Throughput and p99 latency with <code>deploy/drills/load.mjs</code> against a <strong>staging copy</strong> on the VPS, never production (it creates 160 accounts).</li>
+<li><input disabled="" type="checkbox"> Throughput and p99 latency with <code>deploy/drills/load.mjs</code> against a <strong>staging copy</strong> started on the VPS from <code>deploy/compose.test.yml</code>, never production (it signs up 140 accounts and seeds 20 team owners through that stack&#39;s database).</li>
 <li><input disabled="" type="checkbox"> Redeploy pause: clients are back within 15 s.</li>
 <li><input disabled="" type="checkbox"> Trusted proxy subnet: the <code>audit_log</code> check in section 9.</li>
 <li><input disabled="" type="checkbox"> No dynamic compression: the GET <code>curl -s -o /dev/null -D - -H &#39;Accept-Encoding: gzip&#39; https://&lt;your-domain&gt;/</code> check in section 10.3 shows no <code>content-encoding</code>.</li>
@@ -1638,7 +1595,7 @@ rm /root/rs.env      # when the import is done</code></pre>
 </tr>
 <tr>
 <td>App exits at start with a configuration error</td>
-<td>Invalid <code>PUBLIC_URL</code>, <code>TRUSTED_PROXY_CIDRS</code>, <code>ENTRA_*</code>, <code>SMTP_*</code>, or <code>JIRA_HOST_ALLOWLIST</code> value, or only one half of a client ID and secret pair</td>
+<td>Invalid <code>PUBLIC_URL</code>, <code>TRUSTED_PROXY_CIDRS</code>, <code>SMTP_*</code>, or <code>JIRA_HOST_ALLOWLIST</code> value, or only one half of a client ID and secret pair</td>
 <td>Read the app log in Coolify, fix the named variable, and restart.</td>
 </tr>
 <tr>
@@ -1665,21 +1622,6 @@ rm /root/rs.env      # when the import is done</code></pre>
 <td><code>redirect_uri_mismatch</code> from Google</td>
 <td>The registered URI differs from <code>PUBLIC_URL</code> + <code>/auth/oidc/google/callback</code></td>
 <td>Fix the URI and wait up to a few hours.</td>
-</tr>
-<tr>
-<td>Entra sign-in fails with <code>oidc_tenant</code></td>
-<td>The user&#39;s tenant is not in <code>ENTRA_ALLOWED_TENANTS</code></td>
-<td>Add the tenant ID.</td>
-</tr>
-<tr>
-<td>Entra button missing</td>
-<td><code>ENTRA_ALLOWED_TENANTS</code> empty, or client ID or secret missing</td>
-<td>Set all three (section 7).</td>
-</tr>
-<tr>
-<td>Entra account not linked by email</td>
-<td>No <code>xms_edov</code> claim and the domain not in <code>ENTRA_TENANT_DOMAINS</code></td>
-<td>Add the optional claims (section 7 step 8) or the domain.</td>
 </tr>
 <tr>
 <td>No email arrives</td>
@@ -1726,7 +1668,6 @@ rm /root/rs.env      # when the import is done</code></pre>
 <li>Whether a new Coolify project gets a <code>production</code> environment automatically.</li>
 <li>Let&#39;s Encrypt behaviour behind Cloudflare&#39;s proxy.</li>
 <li>Google verification for apps with only non-sensitive scopes.</li>
-<li>Entra&#39;s tenant ID label, the <code>xms_edov</code> picker entry, the Graph email permission prompt, and the API permission labels.</li>
 <li>Mailgun&#39;s username format and all Brevo details.</li>
 <li>Traefik&#39;s compress middleware minimum body size (1024 bytes per Traefik&#39;s docs), which section 10.3 relies on.</li>
 <li>On-screen labels taken from Coolify source rather than docs: <strong>Gzip compression</strong> (section 4.5), <strong>Auto deploy</strong> (section 4.3), and the API token page name (section 11.4).</li>

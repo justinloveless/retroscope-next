@@ -58,8 +58,8 @@ public sealed class AccountClaimTests(PostgresFixture postgres) {
         var user = await host.CreateUserAsync("ada@example.com");
         var claims = host.Service<AccountClaims>();
 
-        Assert.True(await claims.ClaimAsync(user, OwnershipProof.Entra, AuthHost.Token));
-        Assert.False(await claims.ClaimAsync(user, OwnershipProof.Entra, AuthHost.Token));
+        Assert.True(await claims.ClaimAsync(user, OwnershipProof.MagicLink, AuthHost.Token));
+        Assert.False(await claims.ClaimAsync(user, OwnershipProof.MagicLink, AuthHost.Token));
         Assert.Equal(1L, await host.ScalarAsync<long>("select count(*) from audit_log where action = 'auth.claim'"));
     }
 }

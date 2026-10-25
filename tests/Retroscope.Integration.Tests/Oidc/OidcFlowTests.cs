@@ -45,7 +45,7 @@ public sealed class OidcFlowTests(PostgresFixture postgres) {
     public async Task Flow_cookie_is_sealed_host_only_lax_and_lives_ten_minutes() {
         await using var host = await OidcHost.StartAsync(postgres);
 
-        var response = await host.Browser().GetAsync("/auth/oidc/entra/start");
+        var response = await host.Browser().GetAsync("/auth/oidc/google/start");
 
         var cookie = SetCookieHeader.Find(response, OidcService.CookieName);
         Assert.Equal(TimeSpan.FromMinutes(10), cookie.MaxAge);
@@ -130,18 +130,6 @@ public sealed class OidcFlowTests(PostgresFixture postgres) {
     }
 
     [Fact]
-    public async Task Flow_cookie_for_another_provider_is_refused() {
-        await using var host = await OidcHost.StartAsync(postgres);
-        host.Provider.Claims = OidcHost.Google("g-1", "grace@example.com");
-        var browser = host.Browser();
-        var callback = await browser.AuthorizeAsync("google");
-
-        var response = await browser.GetAsync(callback.Replace("/google/", "/entra/", StringComparison.Ordinal));
-
-        OidcAssert.RedirectsTo(response, "/login?error=oidc_state");
-    }
-
-    [Fact]
     public async Task Provider_error_is_reported_as_denied() {
         await using var host = await OidcHost.StartAsync(postgres);
         var browser = host.Browser();
@@ -176,37 +164,31 @@ public sealed class OidcFlowTests(PostgresFixture postgres) {
         OidcAssert.RedirectsTo(response, "/");
     }
 
-    public static TheoryData<string, string, JsonNode?, string> BadTokens() {
+    public static TheoryData<string, JsonNode?, string> BadTokens() {
         var now = DateTimeOffset.UtcNow;
         return new() {
-            { "google", "iss", "https://accounts.google.com.evil.test", "oidc_issuer" },
-            { "google", "iss", "https://login.microsoftonline.com/" + OidcHost.TenantA + "/v2.0", "oidc_issuer" },
-            { "google", "aud", "someone-else", "oidc_audience" },
-            { "google", "aud", new JsonArray("someone-else", OidcHost.GoogleClient), "oidc_audience" },
-            { "google", "azp", "someone-else", "oidc_audience" },
-            { "google", "exp", now.AddMinutes(-6).ToUnixTimeSeconds(), "oidc_expired" },
-            { "google", "iat", now.AddMinutes(10).ToUnixTimeSeconds(), "oidc_expired" },
-            { "google", "iat", now.AddHours(-2).ToUnixTimeSeconds(), "oidc_expired" },
-            { "google", "nonce", "not-the-nonce", "oidc_nonce" },
-            { "google", "sub", "", "oidc_subject" },
-            { "entra", "iss", "https://login.microsoftonline.com/" + OidcHost.TenantB + "/v2.0", "oidc_issuer" },
-            { "entra", "iss", "https://sts.windows.net/" + OidcHost.TenantA + "/", "oidc_issuer" },
-            { "entra", "aud", OidcHost.GoogleClient, "oidc_audience" },
-            { "entra", "tid", "11111111-2222-3333-4444-555555555555", "oidc_tenant" },
+            { "iss", "https://accounts.google.com.evil.test", "oidc_issuer" },
+            { "iss", "https://appleid.apple.com", "oidc_issuer" },
+            { "aud", "someone-else", "oidc_audience" },
+            { "aud", new JsonArray("someone-else", OidcHost.GoogleClient), "oidc_audience" },
+            { "azp", "someone-else", "oidc_audience" },
+            { "exp", now.AddMinutes(-6).ToUnixTimeSeconds(), "oidc_expired" },
+            { "iat", now.AddMinutes(10).ToUnixTimeSeconds(), "oidc_expired" },
+            { "iat", now.AddHours(-2).ToUnixTimeSeconds(), "oidc_expired" },
+            { "nonce", "not-the-nonce", "oidc_nonce" },
+            { "sub", "", "oidc_subject" },
         };
     }
 
     [Theory]
     [MemberData(nameof(BadTokens))]
-    public async Task Invalid_id_tokens_are_refused(string provider, string claim, JsonNode? value, string code) {
+    public async Task Invalid_id_tokens_are_refused(string claim, JsonNode? value, string code) {
         await using var host = await OidcHost.StartAsync(postgres);
-        var claims = provider == "google"
-            ? OidcHost.Google("g-1", "grace@example.com")
-            : OidcHost.Entra(OidcHost.TenantA, "oid-1", "alan@acme.com");
+        var claims = OidcHost.Google("g-1", "grace@example.com");
         claims[claim] = value?.DeepClone();
         var browser = host.Browser();
 
-        var response = await browser.SignInAsync(provider, claims);
+        var response = await browser.SignInAsync("google", claims);
 
         OidcAssert.RedirectsTo(response, $"/login?error={code}");
         Assert.Null(browser.Cookie(Sessions.CookieName));
@@ -258,9 +240,6 @@ public sealed class OidcFlowTests(PostgresFixture postgres) {
             "g-1",
             "grace@example.com",
             JsonSerializer.SerializeToElement(true),
-            null,
-            null,
-            null,
             "Grace",
             null);
 
@@ -320,25 +299,33 @@ public sealed class OidcFlowTests(PostgresFixture postgres) {
         OidcAssert.RedirectsTo(response, expected);
     }
 
-    [Fact]
-    public async Task Unknown_providers_are_not_found() {
+    // UX19: `entra` is an unknown provider like any other, for sign-in and for linking.
+    [Theory]
+    [InlineData("github")]
+    [InlineData("entra")]
+    public async Task Unknown_providers_are_not_found(string provider) {
         await using var host = await OidcHost.StartAsync(postgres);
         var browser = host.Browser();
 
-        Assert.Equal(HttpStatusCode.NotFound, (await browser.GetAsync("/auth/oidc/github/start")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await browser.GetAsync("/auth/oidc/github/callback?code=x&state=y")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await browser.GetAsync($"/auth/oidc/{provider}/start")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await browser.GetAsync($"/auth/oidc/{provider}/callback?code=x&state=y")).StatusCode);
+        var user = await host.CreateUserAsync("ada@example.com", verified: true);
+        browser.SetCookie(Sessions.CookieName, await host.CreateSessionAsync(user));
+        Assert.Equal(HttpStatusCode.NotFound, (await browser.PostAsync($"/api/me/identities/{provider}/link")).StatusCode);
     }
 
     [Fact]
-    public async Task An_empty_tenant_allow_list_disables_entra() {
-        await using var host = await OidcHost.StartAsync(postgres, new Dictionary<string, string?> { ["ENTRA_ALLOWED_TENANTS"] = "" });
+    public async Task An_unconfigured_provider_is_not_found_and_not_listed() {
+        await using var host = await OidcHost.StartAsync(postgres, new Dictionary<string, string?> {
+            ["GOOGLE_CLIENT_ID"] = "",
+            ["GOOGLE_CLIENT_SECRET"] = "",
+        });
         var browser = host.Browser();
 
-        Assert.Equal(HttpStatusCode.NotFound, (await browser.GetAsync("/auth/oidc/entra/start")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await browser.GetAsync("/auth/oidc/entra/callback?code=x&state=y")).StatusCode);
-        Assert.Equal(HttpStatusCode.Redirect, (await browser.GetAsync("/auth/oidc/google/start")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await browser.GetAsync("/auth/oidc/google/start")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await browser.GetAsync("/auth/oidc/google/callback?code=x&state=y")).StatusCode);
         var boot = await (await browser.GetAsync("/api/boot?path=/login")).JsonAsync();
-        Assert.Equal(["google"], boot.GetProperty("oidc").EnumerateArray().Select(x => x.GetString()));
+        Assert.Empty(boot.GetProperty("oidc").EnumerateArray());
     }
 
     [Fact]
@@ -347,6 +334,6 @@ public sealed class OidcFlowTests(PostgresFixture postgres) {
 
         var boot = await (await host.Browser().GetAsync("/api/boot?path=/login")).JsonAsync();
 
-        Assert.Equal(["google", "entra"], boot.GetProperty("oidc").EnumerateArray().Select(x => x.GetString()));
+        Assert.Equal(["google"], boot.GetProperty("oidc").EnumerateArray().Select(x => x.GetString()));
     }
 }

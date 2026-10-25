@@ -12,7 +12,6 @@ namespace Retroscope.Server.Auth;
 public enum AuthMethod {
     [JsonStringEnumMemberName("password")] Password,
     [JsonStringEnumMemberName("google")] Google,
-    [JsonStringEnumMemberName("entra")] Entra,
     [JsonStringEnumMemberName("magic_link")] MagicLink,
 }
 
@@ -20,7 +19,6 @@ public static class AuthMethods {
     public static string ToDb(AuthMethod method) => method switch {
         AuthMethod.Password => "password",
         AuthMethod.Google => "google",
-        AuthMethod.Entra => "entra",
         AuthMethod.MagicLink => "magic_link",
         _ => throw new ArgumentOutOfRangeException(nameof(method)),
     };
@@ -28,7 +26,6 @@ public static class AuthMethods {
     public static AuthMethod FromDb(string value) => value switch {
         "password" => AuthMethod.Password,
         "google" => AuthMethod.Google,
-        "entra" => AuthMethod.Entra,
         "magic_link" => AuthMethod.MagicLink,
         _ => throw new ArgumentOutOfRangeException(nameof(value), value, "Unknown auth method."),
     };

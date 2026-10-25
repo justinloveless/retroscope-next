@@ -26,23 +26,20 @@ function oidcLinks(search = '') {
   return links;
 }
 
-test('without a ?return= or a pending invite, Google and Microsoft come back to /', () => {
+test('without a ?return= or a pending invite, Google comes back to /', () => {
   assert.deepEqual(oidcLinks(), {
     'Continue with Google': '/auth/oidc/google/start?return=%2F',
-    'Continue with Microsoft': '/auth/oidc/entra/start?return=%2F',
   });
 });
 
 // OIDC comes back by a full page load, and the server's '/' goes to the team without seeing the invite.
-test('without a ?return=, a pending invite is where Google and Microsoft come back to', () => {
+test('without a ?return=, a pending invite is where Google comes back to', () => {
   savePendingInvite('invite-token-1');
   assert.deepEqual(oidcLinks(), {
     'Continue with Google': '/auth/oidc/google/start?return=%2Finvite',
-    'Continue with Microsoft': '/auth/oidc/entra/start?return=%2Finvite',
   });
   assert.deepEqual(Object.values(oidcLinks('?error=account_exists')), [
     '/auth/oidc/google/start?return=%2Finvite',
-    '/auth/oidc/entra/start?return=%2Finvite',
   ], 'a failed OIDC attempt comes back to /login?error= with no return');
 });
 

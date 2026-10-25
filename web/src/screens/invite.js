@@ -72,14 +72,13 @@ function signedOutView(preview) {
     },
   });
   holder.append(request.el, muted('New here? The link creates your account and confirms your email in one step.'));
-  const oidc = (provider, label) => h('a', { href: `/auth/oidc/${provider}/start?return=${RETURN}`, class: 'btn btn-outline' }, label);
   const line = () => h('span', { style: { flex: '1', height: '1px', background: 'hsl(var(--border))' } });
   return joinCard(preview,
     h('p', { text: lead, style: { ...MUTED, 'font-size': '0.9375rem' } }),
     holder,
     h('p', { style: { ...row('0.625rem'), 'flex-wrap': 'nowrap', ...MUTED, 'font-size': '0.8125rem' } }, line(), 'or', line()),
-    h('div', { style: { display: 'grid', 'grid-template-columns': 'repeat(2, minmax(0, 1fr))', gap: '0.625rem' } },
-      oidc('google', 'Google'), oidc('entra', 'Microsoft')),
+    h('div', { style: { display: 'grid' } },
+      h('a', { href: `/auth/oidc/google/start?return=${RETURN}`, class: 'btn btn-outline' }, 'Continue with Google')),
     h('div', { style: { ...row('1rem'), 'justify-content': 'center' } },
       link(`/login?return=${RETURN}`, 'Sign in with a password', { class: 'btn btn-link' }),
       link(`/login?tab=signup&return=${RETURN}`, 'Create an account', { class: 'btn btn-link' })));

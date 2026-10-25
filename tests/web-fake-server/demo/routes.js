@@ -258,7 +258,7 @@ export function installRoutes(demo) {
   }));
   route('PUT', '/api/me/password', user(() => noContent));
   route('POST', '/api/me/identities/:provider/link', user(() => problem(409, 'provider_disabled', {
-    detail: 'Google and Microsoft sign-in are not set up in the demo.',
+    detail: 'Google sign-in is not set up in the demo.',
   })));
   route('GET', '/api/me/sessions', user((req) => json([
     { id: '0d3e0000-0010-7000-8000-000000000001', method: 'password', createdAt: demo.now() - 3 * DAY, lastSeenAt: demo.now(), userAgent: browserName(req.headers['user-agent']), current: true },

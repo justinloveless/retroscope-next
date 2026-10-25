@@ -39,7 +39,7 @@ public sealed class TeamOnlyRoomsMigrationTests(PostgresFixture postgres) {
     public async Task Quick_rooms_go_with_their_rows_cursors_and_activity_and_team_rooms_stay() {
         var database = await SeededAt0002Async();
 
-        Assert.Equal(1, await postgres.MigrateAsync(database, Migrator.FromEmbeddedScripts()));
+        Assert.Equal(1, await postgres.MigrateAsync(database, new Migrator(Migrator.FromEmbeddedScripts().Scripts.Take(3))));
 
         Assert.Equal([_teamSession], await IdsAsync(database, "select id from poker_sessions"));
         Assert.Equal([_teamRound], await IdsAsync(database, "select id from poker_rounds"));

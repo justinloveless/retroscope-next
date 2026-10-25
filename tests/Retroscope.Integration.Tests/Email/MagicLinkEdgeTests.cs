@@ -98,7 +98,7 @@ public sealed class MagicLinkEdgeTests(PostgresFixture postgres) {
         await using var host = await EmailHost.StartAsync(postgres);
         var squatted = await host.CreateUserAsync("ada@example.com");
         await host.ExecuteAsync(
-            "insert into external_identities (provider, subject, user_id) values ('google', 'g-squatter', $1), ('entra', 't:o', $1)",
+            "insert into external_identities (provider, subject, user_id) values ('google', 'g-squatter', $1), ('google', 'g-squatter-2', $1)",
             squatted.Value);
         var owner = host.Browser("198.51.100.7");
         await owner.PostAsync("/api/auth/magic/request", new { email = "ada@example.com" });

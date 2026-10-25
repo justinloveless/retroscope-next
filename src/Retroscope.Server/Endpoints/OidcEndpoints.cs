@@ -20,7 +20,7 @@ public sealed record OidcLinkRequest(string? Return);
 /// <summary>The provider URL the browser navigates to; the flow cookie is already set.</summary>
 public sealed record OidcLinkResponse(string Url);
 
-/// <summary>Google and Entra sign-in and explicit linking (§d, §e).</summary>
+/// <summary>Google sign-in and explicit linking (§d, §e).</summary>
 public static class OidcEndpoints {
     /// <summary>Where a sign-in without a return path lands: <c>/</c> finds the user's team (UX18 decision 13).</summary>
     public const string DefaultReturn = "/";
