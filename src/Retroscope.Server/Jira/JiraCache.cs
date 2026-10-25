@@ -82,10 +82,25 @@ public sealed class JiraCache {
     /// giving up does not fail the others; each caller stops waiting when its own token fires. A value whose key or
     /// tags were invalidated while it was being fetched is returned but not stored.
     /// </summary>
-    public async Task<T> GetOrCreateAsync<T>(
+    public Task<T> GetOrCreateAsync<T>(
         string key,
         TimeSpan ttl,
         Func<Task<(T Value, long SizeBytes, IReadOnlyCollection<string>? Tags)>> factory,
+        CancellationToken cancellationToken) where T : class {
+        ArgumentNullException.ThrowIfNull(factory);
+        return GetOrCreateAsync(key, async () => {
+            var (value, size, tags) = await factory();
+            return (value, size, ttl, tags);
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// The same single-flight read, with the time to live chosen by the factory per value, for a value (such as a
+    /// remembered failure) that must not live as long as a successful read.
+    /// </summary>
+    public async Task<T> GetOrCreateAsync<T>(
+        string key,
+        Func<Task<(T Value, long SizeBytes, TimeSpan Ttl, IReadOnlyCollection<string>? Tags)>> factory,
         CancellationToken cancellationToken) where T : class {
         ArgumentNullException.ThrowIfNull(factory);
         if (TryGet<T>(key, out var cached)) {
@@ -97,7 +112,7 @@ public sealed class JiraCache {
             if (_inFlight.TryGetValue((key, typeof(T)), out var running)) {
                 task = (Task<T>)running;
             } else {
-                task = FetchAsync(key, ttl, factory, _generation);
+                task = FetchAsync(key, factory, _generation);
                 _inFlight[(key, typeof(T))] = task;
             }
         }
@@ -132,12 +147,11 @@ public sealed class JiraCache {
 
     private async Task<T> FetchAsync<T>(
         string key,
-        TimeSpan ttl,
-        Func<Task<(T Value, long SizeBytes, IReadOnlyCollection<string>? Tags)>> factory,
+        Func<Task<(T Value, long SizeBytes, TimeSpan Ttl, IReadOnlyCollection<string>? Tags)>> factory,
         long generation) where T : class {
         await Task.Yield();
         try {
-            var (value, size, tags) = await factory();
+            var (value, size, ttl, tags) = await factory();
             lock (_gate) {
                 if (_generation == generation) {
                     SetLocked(key, value, size, ttl, tags);
