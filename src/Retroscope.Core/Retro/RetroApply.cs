@@ -109,10 +109,6 @@ public static class RetroApply {
             case ArchivedChanged e:
                 state.Archived = e.Archived;
                 break;
-            case AccessChanged e:
-                state.Visibility = e.Visibility;
-                state.PasswordSetAt = e.PasswordSetAt;
-                break;
             case BoardDeleted:
                 state.Deleted = true;
                 break;

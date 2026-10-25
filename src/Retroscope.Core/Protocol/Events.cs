@@ -88,7 +88,7 @@ public sealed record RetroColumnOrder(IReadOnlyList<ColumnId> Order) : WireEvent
 
 public sealed record RetroActionItemsColumn(ColumnId? ColumnId = null) : WireEvent;
 
-public sealed record RetroBoardMeta(string Title, BoardVisibility Visibility, bool Archived) : WireEvent;
+public sealed record RetroBoardMeta(string Title, bool Archived) : WireEvent;
 
 public sealed record RetroConfigChanged(RetroConfig Config) : WireEvent;
 

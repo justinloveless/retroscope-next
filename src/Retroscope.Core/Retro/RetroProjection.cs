@@ -5,16 +5,12 @@ using Retroscope.Core.Security;
 namespace Retroscope.Core.Retro;
 
 /// <summary>
-/// What each viewer may see of a board. The shared snapshot comes in two variants, because the roster,
-/// endorsements and team settings go to team members only (S12); everything else that differs per viewer
-/// (<c>mine</c>, own votes, the recipient's <c>celebrate</c>) travels in the overlay or in that viewer's events.
+/// What each viewer may see of a board. Every viewer is a member of the board's team (UX18), so they all share one
+/// snapshot, roster and endorsements included; what differs per viewer (<c>mine</c>, own votes, the recipient's
+/// <c>celebrate</c>) travels in the overlay or in that viewer's events.
 /// </summary>
 public sealed class RetroProjection(IAnonTagger tagger) {
-    /// <summary>Whether <paramref name="viewer"/> gets the members-only parts (pass the decide-time membership).</summary>
-    public static bool SeesRoster(RetroState state, bool viewerIsMember) => state.TeamId is not null && viewerIsMember;
-
-    public static RetroSnapshot Snapshot(RetroState state, IReadOnlyList<PrincipalInfo> presence, bool forMembers) {
-        var roster = SeesRoster(state, forMembers);
+    public static RetroSnapshot Snapshot(RetroState state, IReadOnlyList<PrincipalInfo> presence) {
         var cards = CardsInOrder(state);
         return new RetroSnapshot(
             state.BoardId,
@@ -30,11 +26,11 @@ public sealed class RetroProjection(IAnonTagger tagger) {
             Readiness(state),
             presence,
             state.TeamId,
-            state.Focus,
-            Members: roster ? state.Members.ToList() : null,
-            Endorsements: roster ? state.Endorsements.Values.OrderBy(e => e.CreatedAt).ThenBy(e => e.Id.Value).ToList() : null,
-            EndorsementTypes: roster ? state.EndorsementTypes.ToList() : null,
-            MaxEndorsements: roster ? state.MaxEndorsements : null);
+            state.Members.ToList(),
+            state.Endorsements.Values.OrderBy(e => e.CreatedAt).ThenBy(e => e.Id.Value).ToList(),
+            state.EndorsementTypes.ToList(),
+            state.MaxEndorsements,
+            state.Focus);
     }
 
     public RetroOverlay Overlay(RetroState state, PrincipalId viewer) {
@@ -47,18 +43,17 @@ public sealed class RetroProjection(IAnonTagger tagger) {
 
     /// <summary>
     /// The tx frame's events for one viewer, projected from the state after <paramref name="events"/> were
-    /// applied. A members-only event projects to nothing for everyone else; the seq still advances.
+    /// applied. An event with no wire kind projects to nothing; the seq still advances.
     /// </summary>
-    public IReadOnlyList<WireEvent> ForViewer(RetroState state, IReadOnlyList<RetroEvent> events, PrincipalId viewer, bool viewerIsMember) {
-        var roster = SeesRoster(state, viewerIsMember);
+    public IReadOnlyList<WireEvent> ForViewer(RetroState state, IReadOnlyList<RetroEvent> events, PrincipalId viewer) {
         var wire = new List<WireEvent>();
         foreach (var evt in events) {
-            Project(state, evt, viewer, roster, wire);
+            Project(state, evt, viewer, wire);
         }
         return wire;
     }
 
-    private void Project(RetroState state, RetroEvent evt, PrincipalId viewer, bool roster, List<WireEvent> wire) {
+    private void Project(RetroState state, RetroEvent evt, PrincipalId viewer, List<WireEvent> wire) {
         switch (evt) {
             case CardAdded e:
                 var card = state.Cards[e.CardId];
@@ -95,7 +90,7 @@ public sealed class RetroProjection(IAnonTagger tagger) {
             case ActionItemsColumnSet e:
                 wire.Add(new RetroActionItemsColumn(e.ColumnId));
                 break;
-            case BoardRenamed or AccessChanged:
+            case BoardRenamed:
                 wire.Add(Meta(state));
                 break;
             case ArchivedChanged e:
@@ -123,19 +118,19 @@ public sealed class RetroProjection(IAnonTagger tagger) {
             case TimerChanged e:
                 wire.Add(TimerRules.ToWire(e.Timer, e.ExpiredAt));
                 break;
-            case EndorsementAdded e when roster:
+            case EndorsementAdded e:
                 wire.Add(new RetroEndorsementAdded(e.Endorsement, e.Endorsement.To == viewer ? true : null));
                 break;
-            case EndorsementRemoved e when roster:
+            case EndorsementRemoved e:
                 wire.Add(new RetroEndorsementRemoved(e.EndorsementId));
                 break;
-            case MaxEndorsementsChanged e when roster:
+            case MaxEndorsementsChanged e:
                 wire.Add(new TeamSettingsChanged(MaxEndorsements: e.MaxEndorsements));
                 break;
-            case MembersReplaced when roster:
+            case MembersReplaced:
                 wire.Add(new RetroMembers(state.Members.ToList()));
                 break;
-            case EndorsementAdded or EndorsementRemoved or MaxEndorsementsChanged or MembersReplaced or BoardDeleted:
+            case BoardDeleted:
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(evt), evt.GetType().Name, "Unknown retro event.");
@@ -167,7 +162,7 @@ public sealed class RetroProjection(IAnonTagger tagger) {
 
     private bool Owns(RetroState state, Authorship authorship, PrincipalId viewer) => RetroRoles.Owns(state, authorship, viewer, tagger);
 
-    private static RetroBoardMeta Meta(RetroState state) => new(state.Title, state.Visibility, state.Archived);
+    private static RetroBoardMeta Meta(RetroState state) => new(state.Title, state.Archived);
 
     private static RetroReadiness Readiness(RetroState state) {
         return new RetroReadiness(state.Stage, state.ReadyThisStage.OrderBy(principal => principal.Value).ToList());

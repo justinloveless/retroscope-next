@@ -49,13 +49,6 @@ public enum TimerState : byte {
     [JsonStringEnumMemberName("paused")] Paused,
 }
 
-[JsonConverter(typeof(StrictEnumConverter<BoardVisibility>))]
-public enum BoardVisibility : byte {
-    [JsonStringEnumMemberName("link")] Link,
-    [JsonStringEnumMemberName("team")] Team,
-    [JsonStringEnumMemberName("password")] Password,
-}
-
 [JsonConverter(typeof(StrictEnumConverter<ColumnColor>))]
 public enum ColumnColor : byte {
     [JsonStringEnumMemberName("green")] Green,

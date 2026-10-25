@@ -146,7 +146,7 @@ public static class Catalog {
         Ev("retro.column.order", RoomScope.Board, Json.RetroColumnOrder, "The new column order."),
         Ev("retro.column.actionItems", RoomScope.Board, Json.RetroActionItemsColumn,
             "The action-items column; empty = none."),
-        Ev("retro.board.meta", RoomScope.Board, Json.RetroBoardMeta, "Title, visibility and archived flag."),
+        Ev("retro.board.meta", RoomScope.Board, Json.RetroBoardMeta, "Title and archived flag."),
         Ev("retro.config", RoomScope.Board, Json.RetroConfigChanged, "The whole board configuration."),
         Ev("retro.stage", RoomScope.Board, Json.RetroStageChanged, "The current stage."),
         Ev("retro.readiness", RoomScope.Board, Json.RetroReadiness, "Who is ready for the stage."),

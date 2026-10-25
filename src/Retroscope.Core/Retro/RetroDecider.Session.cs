@@ -3,12 +3,9 @@ using Retroscope.Core.Room;
 
 namespace Retroscope.Core.Retro;
 
-// Readiness, focus, the shared timer and endorsements.
+// Readiness, focus and endorsements; the shared timer goes through FromTimer.
 public sealed partial class RetroDecider {
-    private static Decision<RetroEvent> SetReady(RetroState state, RetroReadySet command, Principal who, IAccessView access) {
-        if (!RetroRoles.MayPace(state, who, access)) {
-            return Reject(NackCode.Forbidden, "Team members only.");
-        }
+    private static Decision<RetroEvent> SetReady(RetroState state, RetroReadySet command, Principal who) {
         if (command.Stage != state.Stage) {
             return Stale(state.Stage, WireJsonContext.Default.RetroStage);
         }
@@ -18,11 +15,8 @@ public sealed partial class RetroDecider {
         return Accept(new ReadySet(command.Stage, who.Id, command.Ready));
     }
 
-    /// <summary>Any participant who may pace the board; the client drops its intent silently on <c>stale</c>.</summary>
-    private static Decision<RetroEvent> SetFocus(RetroState state, RetroFocusSet command, Principal who, IAccessView access) {
-        if (!RetroRoles.MayPace(state, who, access)) {
-            return Reject(NackCode.Forbidden, "Team members only.");
-        }
+    /// <summary>Any member; the client drops its intent silently on <c>stale</c>.</summary>
+    private static Decision<RetroEvent> SetFocus(RetroState state, RetroFocusSet command) {
         if (!StageRules.AllowsFocus(state.Config, state.Stage)) {
             return Reject(NackCode.StageForbids);
         }
@@ -41,21 +35,7 @@ public sealed partial class RetroDecider {
         return command.CardId == state.Focus ? NoOp : Accept(new FocusChanged(command.CardId));
     }
 
-    /// <summary>The timer follows the facilitator rule: signed in, and a member on team boards.</summary>
-    private static Decision<RetroEvent> RunTimer(RetroState state, Principal who, IAccessView access, Func<TimerStep> step) {
-        if (!RetroRoles.IsFacilitator(state, who, access)) {
-            return Reject(NackCode.Forbidden, "Sign in to use the timer.");
-        }
-        return FromTimer(state, step());
-    }
-
     private static Decision<RetroEvent> GiveEndorsement(RetroState state, RetroEndorseGive command, Principal who, CommandContext context) {
-        if (state.TeamId is null) {
-            return Reject(NackCode.Invalid, "Endorsements need a team board.");
-        }
-        if (!RetroRoles.IsMember(state, who, context.Access)) {
-            return Reject(NackCode.Forbidden, "Team members only.");
-        }
         // A resend of a gift that already committed acks without applying twice, even if the type was archived since.
         if (state.Endorsements.TryGetValue(command.EndorsementId, out var existing)) {
             return existing.From == who.Id && existing.To == command.ToUserId && existing.TypeId == command.TypeId
@@ -84,10 +64,7 @@ public sealed partial class RetroDecider {
         return Accept(new EndorsementAdded(endorsement));
     }
 
-    private static Decision<RetroEvent> RevokeEndorsement(RetroState state, RetroEndorseRevoke command, Principal who, IAccessView access) {
-        if (!RetroRoles.IsMember(state, who, access)) {
-            return Reject(NackCode.Forbidden, "Team members only.");
-        }
+    private static Decision<RetroEvent> RevokeEndorsement(RetroState state, RetroEndorseRevoke command, Principal who) {
         if (!state.Endorsements.TryGetValue(command.EndorsementId, out var endorsement)) {
             return Reject(NackCode.NotFound, "No such endorsement.");
         }

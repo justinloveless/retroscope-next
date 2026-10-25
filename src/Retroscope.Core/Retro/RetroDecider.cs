@@ -10,8 +10,9 @@ using Retroscope.Core.Security;
 namespace Retroscope.Core.Retro;
 
 /// <summary>
-/// The board's domain (DESIGN §c.4 Retro). Authorization comes first: role and grant are resolved through
-/// <see cref="CommandContext.Access"/> at decide time. Internal inputs were authorized by whoever posted them.
+/// The board's domain (DESIGN §c.4 Retro). Authorization comes first: every client command needs a member of the
+/// board's team, resolved through <see cref="CommandContext.Access"/> at decide time (R12, UX18). Internal inputs were
+/// authorized by whoever posted them.
 /// </summary>
 public sealed partial class RetroDecider(IAnonTagger tagger) : IRoomDomain<RetroState, RetroInput, RetroEvent> {
     private const string TimerKey = "retro.timer";
@@ -36,9 +37,6 @@ public sealed partial class RetroDecider(IAnonTagger tagger) : IRoomDomain<Retro
             RetroInput.ArchiveSet archive => archive.Archived == state.Archived
                 ? NoOp
                 : Accept(new ArchivedChanged(archive.Archived, archive.By, context.Now)),
-            RetroInput.AccessSet access => access.Visibility == state.Visibility && access.PasswordSetAt == state.PasswordSetAt
-                ? NoOp
-                : Accept(new AccessChanged(access.Visibility, access.PasswordSetAt)),
             RetroInput.Delete => state.Deleted ? NoOp : Accept(new BoardDeleted()),
             _ => throw new ArgumentOutOfRangeException(nameof(input), input.GetType().Name, "Unknown retro input."),
         };
@@ -61,34 +59,37 @@ public sealed partial class RetroDecider(IAnonTagger tagger) : IRoomDomain<Retro
         if (context.Viewer is not { Who: var who }) {
             return Reject(NackCode.Forbidden, "Commands need a caller.");
         }
+        // Every participant is a member, and every member may do everything on an open board (UX18).
+        if (!RetroRoles.IsMember(state, who, context.Access)) {
+            return Reject(NackCode.Forbidden, "Team members only.");
+        }
         if (state.Archived) {
             return Reject(NackCode.BoardArchived);
         }
-        var access = context.Access;
         return command switch {
             RetroCardAdd c => AddCard(state, c, who, context),
-            RetroCardEdit c => EditCard(state, c, who, access),
-            RetroCardDelete c => DeleteCard(state, c, who, access),
+            RetroCardEdit c => EditCard(state, c, who, context.Access),
+            RetroCardDelete c => DeleteCard(state, c, who),
             RetroVoteSet c => SetVote(state, c, who),
             RetroCommentAdd c => AddComment(state, c, who, context),
             RetroCommentDelete c => DeleteComment(state, c, who),
-            RetroColumnAdd c => AddColumn(state, c, who, access),
-            RetroColumnUpdate c => UpdateColumn(state, c, who, access),
-            RetroColumnDelete c => DeleteColumn(state, c, who, access),
-            RetroColumnReorder c => ReorderColumns(state, c, who, access),
-            RetroColumnSetActionItems c => SetActionItemsColumn(state, c, who, access),
-            RetroBoardRename c => Rename(state, c, who, access),
-            RetroConfigUpdate c => UpdateConfig(state, c, who, access),
-            RetroStageSet c => SetStage(state, c, who, context),
-            RetroReadySet c => SetReady(state, c, who, access),
-            RetroFocusSet c => SetFocus(state, c, who, access),
-            RetroTimerStart c => RunTimer(state, who, access, () => TimerRules.Start(state.Timer, c.From, c.DurationMs, c.Alarm, c.Music, context.Now)),
-            RetroTimerPause c => RunTimer(state, who, access, () => TimerRules.Pause(state.Timer, c.From, context.Now)),
-            RetroTimerResume c => RunTimer(state, who, access, () => TimerRules.Resume(state.Timer, c.From, context.Now)),
-            RetroTimerReset c => RunTimer(state, who, access, () => TimerRules.Reset(state.Timer, c.From)),
-            RetroTimerSetFlags c => RunTimer(state, who, access, () => TimerRules.SetFlags(state.Timer, c.Alarm, c.Music)),
+            RetroColumnAdd c => AddColumn(state, c),
+            RetroColumnUpdate c => UpdateColumn(state, c),
+            RetroColumnDelete c => DeleteColumn(state, c),
+            RetroColumnReorder c => ReorderColumns(state, c),
+            RetroColumnSetActionItems c => SetActionItemsColumn(state, c),
+            RetroBoardRename c => Rename(state, c),
+            RetroConfigUpdate c => UpdateConfig(state, c),
+            RetroStageSet c => SetStage(state, c, context),
+            RetroReadySet c => SetReady(state, c, who),
+            RetroFocusSet c => SetFocus(state, c),
+            RetroTimerStart c => FromTimer(state, TimerRules.Start(state.Timer, c.From, c.DurationMs, c.Alarm, c.Music, context.Now)),
+            RetroTimerPause c => FromTimer(state, TimerRules.Pause(state.Timer, c.From, context.Now)),
+            RetroTimerResume c => FromTimer(state, TimerRules.Resume(state.Timer, c.From, context.Now)),
+            RetroTimerReset c => FromTimer(state, TimerRules.Reset(state.Timer, c.From)),
+            RetroTimerSetFlags c => FromTimer(state, TimerRules.SetFlags(state.Timer, c.Alarm, c.Music)),
             RetroEndorseGive c => GiveEndorsement(state, c, who, context),
-            RetroEndorseRevoke c => RevokeEndorsement(state, c, who, access),
+            RetroEndorseRevoke c => RevokeEndorsement(state, c, who),
             _ => Reject(NackCode.Invalid, $"{command.GetType().Name} is not a board command."),
         };
     }
@@ -128,8 +129,8 @@ public sealed partial class RetroDecider(IAnonTagger tagger) : IRoomDomain<Retro
     }
 
     /// <summary>
-    /// Validates a stored body. On success returns the mentioned team members (quick boards have no members,
-    /// so no mentions) and the board images it references.
+    /// Validates a stored body. On success returns the mentioned team members (a mention of anyone else records
+    /// nothing) and the board images it references.
     /// </summary>
     private static Decision<RetroEvent>? CheckBody(
         RetroState state,
@@ -153,15 +154,14 @@ public sealed partial class RetroDecider(IAnonTagger tagger) : IRoomDomain<Retro
         return null;
     }
 
+    /// <summary>
+    /// Only members post, and members are users, so a new post never carries the guest badge; imported and earlier
+    /// guest posts keep theirs.
+    /// </summary>
     private Authorship AuthorshipOf(RetroState state, Principal who, bool anonymous) {
         return anonymous
             ? new Authorship(null, tagger.Tag(state.BoardId, who.Id))
-            : new Authorship(new AuthorInfo(who.DisplayName, who.Kind == PrincipalKind.Guest, who.Id, who.AvatarBlobId), null);
-    }
-
-    /// <summary>"Post anonymously" is for signed-in users on boards that allow it (parity).</summary>
-    private static bool MayPostAnonymously(RetroState state, Principal who) {
-        return state.Config.AllowAnonymous && RetroRoles.IsSignedIn(who);
+            : new Authorship(new AuthorInfo(who.DisplayName, Guest: false, who.Id, who.AvatarBlobId), null);
     }
 
     private static bool IsActionItemsColumn(RetroState state, ColumnId column) => state.FindColumn(column)?.ActionItems == true;
