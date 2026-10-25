@@ -24,9 +24,17 @@ public sealed record MeUser(
     bool IsAdmin,
     bool HasPassword);
 
-public sealed record MeTeam(TeamId Id, string Name, TeamRole Role);
+/// <param name="OpenActions">The team's open action items, for the header's Action items tab.</param>
+public sealed record MeTeam(TeamId Id, string Name, TeamRole Role, int OpenActions);
 
-public sealed record MeResponse(MePrincipal Principal, MeUser User, IReadOnlyList<MeTeam> Teams, int UnreadMentions);
+/// <param name="Teams">By name, ignoring case.</param>
+/// <param name="LastTeamId">The team visited last among <paramref name="Teams"/>; where a signed-in <c>/</c> leads.</param>
+public sealed record MeResponse(
+    MePrincipal Principal,
+    MeUser User,
+    IReadOnlyList<MeTeam> Teams,
+    int UnreadMentions,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] TeamId? LastTeamId);
 
 /// <param name="Nickname">An empty string clears it.</param>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -60,8 +68,9 @@ public sealed class MeBuilder(UsersRepo users) {
         return new MeResponse(
             new MePrincipal(id, PrincipalKind.User, profile.DisplayName, profile.AvatarBlobId),
             new MeUser(profile.Email, profile.EmailVerified, profile.FullName, profile.Nickname, profile.Theme, profile.IsAdmin, profile.HasPassword),
-            [.. teams.Select(x => new MeTeam(x.Id, x.Name, x.Role))],
-            unread);
+            [.. teams.Teams.Select(x => new MeTeam(x.Id, x.Name, x.Role, x.OpenActions))],
+            unread,
+            teams.LastTeamId);
     }
 }
 
