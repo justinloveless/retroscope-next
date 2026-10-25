@@ -192,18 +192,17 @@ public sealed class RetroListsRepo(NpgsqlDataSource dataSource) {
 
     /// <summary>
     /// Inserts the board and its columns in one transaction. False, writing nothing, when the code is taken in any
-    /// letter case: lookups ignore case (§d), so two codes differing only in case would shadow each other. Every board
-    /// is a team board (UX18), so its visibility column says <c>team</c> until migration 0003 drops it.
+    /// letter case: lookups ignore case (§d), so two codes differing only in case would shadow each other.
     /// </summary>
     public async Task<bool> CreateBoardAsync(NewBoard board, CancellationToken cancellationToken) {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         var settings = board.Template.Settings;
         await using (var insert = new NpgsqlCommand("""
-            insert into retro_boards (id, code, team_id, title, created_by, visibility,
+            insert into retro_boards (id, code, team_id, title, created_by,
                                       allow_anonymous, voting_enabled, max_votes_per_user, show_author_names,
                                       stages_enabled, enforce_readiness, allow_self_votes, vote_emoji)
-            select $1, $2, $3, $4, $5, 'team', $6, $7, $8, $9, $10, $11, $12, $13
+            select $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
             where not exists (select 1 from retro_boards where upper(code) = upper($2))
             """, connection, transaction)) {
             insert.Parameters.Add(new() { Value = board.Id.Value });
@@ -283,8 +282,7 @@ public sealed class RetroListsRepo(NpgsqlDataSource dataSource) {
     }
 
     /// <returns>
-    /// Null when the board does not exist or has no team, which only a leftover quick board lacks (deleted boards are
-    /// returned with <c>Deleted</c> set).
+    /// Null when the board does not exist (deleted boards are returned with <c>Deleted</c> set).
     /// </returns>
     public async Task<ManagedBoard?> BoardAsync(BoardId board, PrincipalId caller, CancellationToken cancellationToken) {
         await using var command = dataSource.CreateCommand("""

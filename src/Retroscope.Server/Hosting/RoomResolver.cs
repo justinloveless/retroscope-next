@@ -32,8 +32,7 @@ public interface IRoomAccess {
 public sealed class RoomResolver(NpgsqlDataSource dataSource, IRoomAccess access, RateLimiter limiter) {
     public const string HiddenCode = "room_not_found";
 
-    // Exact match first, then case-insensitive (§d); upper(code) is indexed.
-    // A room without a team is a leftover quick room, which nobody may open (UX18).
+    // Exact match first, then case-insensitive (§d); upper(code) is indexed. Every room belongs to a team (UX18).
     private const string PokerSql = """
         select s.id, s.team_id, t.deleted_at is not null
         from poker_sessions s join teams t on t.id = s.team_id

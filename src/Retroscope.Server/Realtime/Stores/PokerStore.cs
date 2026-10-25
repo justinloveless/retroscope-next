@@ -18,7 +18,7 @@ namespace Retroscope.Server.Realtime.Stores;
 /// </summary>
 public sealed class PokerStore(NpgsqlDataSource dataSource, Leader leader, CursorRepo cursors)
     : SqlRoomStore<PokerState, PokerEvent>(dataSource, leader, cursors) {
-    // A session without a team (a leftover quick session, UX18) loads as missing.
+    // Every session belongs to a team (UX18, migration 0003); a session of a deleted team loads as missing.
     private const string SessionSql = """
         select s.code, s.team_id, s.presence_enabled, s.follow_spotlight,
                s.spotlight_holder_id, s.spotlight_client_id, s.spotlight_round_id, s.current_round_id,

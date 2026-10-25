@@ -37,8 +37,8 @@ public sealed class RetroStore(
         left join users u on u.id = x.author_id
         """;
 
-    // Every statement takes the board id as $1. A deleted board, a board of a deleted team, or a board without a team
-    // (a leftover quick board, UX18) loads as missing.
+    // Every statement takes the board id as $1. A deleted board or a board of a deleted team loads as missing; every
+    // board belongs to a team (UX18, migration 0003).
     private static readonly string[] LoadStatements = [
         """
         select b.code, b.team_id, b.title, b.archived_at is not null, b.stage, b.focus_card_id,

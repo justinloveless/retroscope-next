@@ -50,8 +50,7 @@ public sealed class BlobsRepo(NpgsqlDataSource dataSource) {
           limit $2)
         """;
 
-    // Columns 0-8 of every board read; the caller's principal is $2 (null for anonymous callers). A board without a
-    // team (a leftover quick board) reads as no board, which nobody may open (UX18).
+    // Columns 0-8 of every board read; the caller's principal is $2 (null for anonymous callers).
     private const string BoardColumns = """
         r.id, r.team_id, r.archived_at is not null, r.deleted_at is not null, coalesce(t.deleted_at is not null, false),
         m.role, r.stage, r.stages_enabled,
