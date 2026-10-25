@@ -398,6 +398,30 @@ describe('WebSocket protocol', () => {
     assert.equal((await client.next()).code, 'not_subscribed');
   });
 
+  test('canSubscribe refuses a sub with kick forbidden and no snapshot, and drops a subscription it no longer admits', async () => {
+    fake.room(POKER, { snapshot: pokerSnapshot });
+    const asked = [];
+    let admitted = false;
+    fake.canSubscribe = (conn, room) => {
+      asked.push(room.key);
+      return admitted;
+    };
+    const client = await hello([{ r: POKER }]);
+    assert.deepEqual(await client.next(), { t: 'kick', r: POKER, code: 'forbidden' });
+    assert.equal(fake.rooms.get(POKER).subscribers.size, 0);
+    admitted = true;
+    client.send({ t: 'sub', r: POKER });
+    assert.equal((await client.next()).t, 'snap');
+    admitted = false;
+    client.send({ t: 'sub', r: POKER });
+    assert.deepEqual(await client.next(), { t: 'kick', r: POKER, code: 'forbidden' });
+    client.send(voteCmd(1));
+    assert.equal((await client.next()).code, 'not_subscribed');
+    client.send({ t: 'sub', r: 'poker:5e551011-0000-4000-8000-0000000000ff' });
+    assert.equal((await client.next()).code, 'not_found');
+    assert.deepEqual(asked, [POKER, POKER, POKER], 'asked on every sub to a room that exists');
+  });
+
   test('commands: default ack, commit sends tx before ack, nack carries the retry flag, dup on resend', async () => {
     fake.room(POKER, { snapshot: pokerSnapshot });
     const client = await hello([{ r: POKER }]);

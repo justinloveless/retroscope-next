@@ -518,16 +518,35 @@ describe('HTTP', () => {
     assert.equal((await http(`/api/retro/${created.id}/archive`, { method: 'POST' })).status, 204);
   });
 
-  test('a non-member\'s commands in a team room are refused', async () => {
+  test('a non-member\'s subscribe to a team room is kicked forbidden, with no snapshot and no presence', async () => {
     const session = demo.sessionByCode(CODES.teamPoker);
     const board = demo.boardByCode(CODES.thinking);
+    const team = demo.teams.get(DEMO_TEAM);
     const lena = await connect('lena', [session.key, board.key]);
-    await frame(lena, (f) => f.t === 'snap' && f.r === session.key);
-    await frame(lena, (f) => f.t === 'snap' && f.r === board.key);
+    assert.deepEqual(await lena.next(), { t: 'kick', r: session.key, code: 'forbidden' });
+    assert.deepEqual(await lena.next(), { t: 'kick', r: board.key, code: 'forbidden' });
+    lena.send({ t: 'sub', r: team.key });
+    assert.deepEqual(await lena.next(), { t: 'kick', r: team.key, code: 'forbidden' });
+    await lena.expectSilence();
+    assert.ok(!session.presence.has(LENA.pid) && !board.presence.has(LENA.pid), 'Lena never joined');
+    assert.ok([session, board, team].every((room) => [...room.room.subscribers].every((c) => c.me.pid !== LENA.pid)));
     lena.send({ t: 'cmd', r: session.key, q: 1, k: 'poker.vote.set', d: { roundId: session.currentRoundId, points: 3 } });
-    assert.equal((await frame(lena, (f) => f.t === 'nack')).code, 'forbidden');
-    lena.send({ t: 'cmd', r: board.key, q: 1, k: 'retro.card.add', d: { cardId: randomUUID(), columnId: board.columns[0].id, body: 'Hi', anonymous: false } });
-    assert.equal((await frame(lena, (f) => f.t === 'nack')).code, 'forbidden');
+    assert.equal((await lena.next()).code, 'not_subscribed');
+  });
+
+  test('a member removed from the team while subscribed has their commands refused', async () => {
+    const session = demo.sessionByCode(CODES.teamPoker);
+    const board = demo.boardByCode(CODES.thinking);
+    const marcus = await connect('marcus', [session.key, board.key]);
+    await frame(marcus, (f) => f.t === 'snap' && f.r === session.key);
+    await frame(marcus, (f) => f.t === 'snap' && f.r === board.key);
+    // No kick yet: the commands race the removal, which the room must still refuse.
+    const team = demo.teams.get(DEMO_TEAM);
+    team.members = team.members.filter((m) => m.pid !== MARCUS.pid);
+    marcus.send({ t: 'cmd', r: session.key, q: 1, k: 'poker.vote.set', d: { roundId: session.currentRoundId, points: 3 } });
+    assert.equal((await frame(marcus, (f) => f.t === 'nack')).code, 'forbidden');
+    marcus.send({ t: 'cmd', r: board.key, q: 1, k: 'retro.card.add', d: { cardId: randomUUID(), columnId: board.columns[0].id, body: 'Hi', anonymous: false } });
+    assert.equal((await frame(marcus, (f) => f.t === 'nack')).code, 'forbidden');
   });
 
   test('kudos you received count only in the teams you are still on', async () => {
