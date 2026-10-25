@@ -209,10 +209,14 @@ docker exec rs-import-import-db-1 psql -U retroscope_owner -d retroscope -Atc \
 ```
 
 - `tables`: per source table, `source = imported + archived + sum(skipped)`. The `counts` check already enforces it.
+  Since UX18 the team-less rooms are skip reasons here, not counters or findings: review
+  `tables["public.retro_boards"].skipped.noTeam` and `.teamMissing` (the rows on those boards are counted under the
+  same reasons in the retro child tables) and `tables["public.poker_sessions"].skipped.no_team` and `.team_missing`
+  (their rounds under the same reasons in `public.poker_session_rounds`). The first import had the
+  `rotatedBoardPasswords` finding instead.
 - `counters` and `findings`: the soft checks of §h.5. Review before cutover:
   `admins` and `ignoredAdminRoles` (who is admin), `jiraRotateRequired` (teams whose Jira token must be rotated),
-  `jiraConfigsRejected` (teams that lose their Jira config; the owner re-enters it), the skipped team-less boards and
-  sessions (UX18; the first import had `rotatedBoardPasswords` instead), `mergedAccounts`,
+  `jiraConfigsRejected` (teams that lose their Jira config; the owner re-enters it), `mergedAccounts`,
   `nulledPasswordHashes` (users who must reset), `skippedPhoneOnly`, `recodedBoards` (old links with these codes stop
   working; the board is reachable by id),
   `pokerRenumberedRounds`, `pokerWinnerMismatches`, `skippedAvatars`, `emailsInFullName`.
