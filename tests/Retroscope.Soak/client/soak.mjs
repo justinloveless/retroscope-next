@@ -3,9 +3,12 @@
 // events leave on stdout ({ev: …}); progress goes to stderr. The orchestrator owns the stack, the chaos schedule and
 // the verdict; this process owns everything a browser would see.
 //   node tests/Retroscope.Soak/client/soak.mjs '<config json>'     (RS_E2E_BASE_URL names the stack)
+// Every room belongs to a team and only its members get in (UX18). The orchestrator seeds each room's facilitator and
+// each storm creator as a verified user (config.owners, Owners.cs); here they sign in and create their team with a
+// link invite, and every other client signs up through the route and joins through that link.
 import { writeFileSync } from 'node:fs';
 import readline from 'node:readline';
-import { clientIp, percentile, request, sleep, user } from '../../../deploy/drills/client.mjs';
+import { room as createRoom, percentile, signIn, sleep, team, user } from '../../../deploy/drills/client.mjs';
 import { DECK, uuidv7 } from '../../../web/src/poker/model.js';
 import { SoakTab, canonicalView } from './soak-tab.mjs';
 
@@ -37,22 +40,15 @@ async function pool(items, size, work) {
   }));
 }
 
-async function guest(name) {
-  const ip = clientIp();
-  const response = await request('POST', '/api/guest', { body: { displayName: name }, ip });
-  if (response.status !== 201) {
-    throw new Error(`guest ${response.status} ${response.text}`);
-  }
-  const cookie = (response.headers['set-cookie'] ?? []).map((c) => c.split(';')[0]).find((c) => c.startsWith('__Host-rs_guest='));
-  return { name, cookie, ip };
-}
+const seeded = new Map((config.owners ?? []).map((owner) => [owner.name, owner]));
 
-async function create(path, owner, body) {
-  const response = await request('POST', path, { body, cookie: owner.cookie, ip: owner.ip });
-  if (response.status !== 201) {
-    throw new Error(`${path} ${response.status} ${response.text}`);
+/** Signs in the seeded owner named `name`. */
+async function owner(name) {
+  const account = seeded.get(name);
+  if (account === undefined) {
+    throw new Error(`no seeded owner named ${name} (config.owners comes from Owners.cs)`);
   }
-  return JSON.parse(response.text);
+  return signIn(account);
 }
 
 let ticket = 0;
@@ -129,13 +125,15 @@ function newRoom(kind, id, code, role) {
   return room;
 }
 
-async function principals(prefix, count) {
-  const facilitator = await user(`${prefix} 1`);
-  const guests = [];
+/** `count` people of one team named `prefix`: its seeded owner, then people who sign up and join by its link invite. */
+async function members(prefix, count) {
+  const facilitator = await owner(`${prefix} 1`);
+  const others = [];
   for (let i = 2; i <= count; i++) {
-    guests.push(await guest(`${prefix} ${i}`));
+    others.push(await user(`${prefix} ${i}`));
   }
-  return [facilitator, ...guests];
+  const { id } = await team(facilitator, prefix, others);
+  return { teamId: id, people: [facilitator, ...others] };
 }
 
 async function setUp() {
@@ -147,15 +145,9 @@ async function setUp() {
   ];
   log(`creating ${plans.length} rooms of ${clients} clients`);
   await pool(plans, 4, async (plan) => {
-    const people = await principals(plan.name, clients);
-    const made = plan.kind === 'poker'
-      ? await create('/api/poker', people[0], {})
-      : await create('/api/retro', people[0], { title: plan.name });
+    const { teamId, people } = await members(plan.name, clients);
+    const made = await createRoom(people[0], teamId, plan.kind, plan.kind === 'poker' ? {} : { title: plan.name });
     const room = newRoom(plan.kind, made.id, made.code, plan.role);
-    const path = plan.kind === 'poker' ? `/api/poker/by-code/${made.code}` : `/api/retro/by-code/${made.code}`;
-    for (const p of people.slice(1)) {
-      await request('GET', path, { cookie: p.cookie, ip: p.ip });
-    }
     people.forEach((p, i) => addTab(room, p, `${plan.name}.${i + 1}`, { facilitator: i === 0 }));
     if (plan.role === 'retro') {
       // A second tab of the facilitator edits the same cards: concurrent edits that preconditions must serialize.
@@ -165,13 +157,18 @@ async function setUp() {
 
   const { boards, cards, creators } = config.storm;
   log(`creating ${boards} storm boards with ${cards} cards each`);
-  const owners = await Promise.all(Array.from({ length: creators }, (_, i) => guest(`Storm ${i + 1}`)));
+  // Each creator makes the boards of a team of their own.
+  const creatorsWithTeams = await Promise.all(Array.from({ length: creators }, async (_, i) => {
+    const creator = await owner(`Storm ${i + 1}`);
+    const { id } = await team(creator, `Storm ${i + 1}`);
+    return { creator, teamId: id };
+  }));
   await pool(Array.from({ length: boards }, (_, i) => i), 4, async (i) => {
-    const owner = owners[i % creators];
-    const made = await create('/api/retro', owner, { title: `Storm ${i + 1}` });
+    const { creator, teamId } = creatorsWithTeams[i % creators];
+    const made = await createRoom(creator, teamId, 'board', { title: `Storm ${i + 1}` });
     const room = newRoom('board', made.id, made.code, 'storm');
-    addTab(room, owner, `Storm ${i + 1}.1`);
-    addTab(room, owner, `Storm ${i + 1}.2`);
+    addTab(room, creator, `Storm ${i + 1}.1`);
+    addTab(room, creator, `Storm ${i + 1}.2`);
   });
 
   log(`connecting ${tabs.length} tabs`);
