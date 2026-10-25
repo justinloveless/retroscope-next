@@ -2,6 +2,16 @@
 // database (psql in its db container), and a fresh client address per test so the server's per-IP limits (5 signups
 // an hour) never couple tests together. The stack trusts X-Test-Client-Ip from its proxy the way production trusts
 // CF-Connecting-IP behind Cloudflare.
+//
+// The smoke suite (./build.sh e2e "smoke/*.spec.js", run on the stack right after `docker compose up`) reads:
+//   RS_E2E_BASE_URL         the stack's https origin (./build.sh e2e sets it); else https://localhost:RS_TEST_HTTPS_PORT
+//   RS_TEST_HTTPS_PORT      the stack's https port (default 18443)
+//   RS_TEST_MAILPIT_PORT    Mailpit's API port (default 18025), for mailed links
+//   COMPOSE_PROJECT_NAME    the stack's compose project when it is not the file's own (retroscope-test), for psql
+// It needs no pre-provisioned account. Everything belongs to a team and only members get in (UX18), so a spec that
+// needs a team seeds its owner verified through the stack's database (seedOwner) instead of spending the email
+// budget; everyone else signs up through the real route and joins through a link invite, which needs no verified
+// address. account.spec.js signs up and verifies through the real form and the mailed link.
 import { execFile } from 'node:child_process';
 import { randomInt, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -105,12 +115,10 @@ export async function mailedToken(api, email, path) {
   return token;
 }
 
-/** Signs up and verifies through the mailed link, so the account may create teams. */
-export async function verifiedUser(api, name) {
-  const user = await signUp(api, name);
-  const token = await mailedToken(api, user.email, '/auth/verify');
-  const verify = await api.post('/api/auth/verify/consume', json({ token }));
-  expect(verify.ok()).toBe(true);
+/** A verified account seeded through the database and signed in on the context behind `api`: a team's owner. */
+export async function seedOwner(api, name) {
+  const [user] = await seedUsers([name]);
+  await signIn(api, user);
   return user;
 }
 

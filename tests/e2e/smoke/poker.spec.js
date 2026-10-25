@@ -1,21 +1,21 @@
-// Two people at one table over real WebSockets through the proxy: votes stay hidden until the reveal.
-import { clientIp, expect, json, signUp, test } from './_stack.js';
+// Two teammates at one table over real WebSockets through the proxy: votes stay hidden until the reveal. Ann owns the
+// team (seeded verified); Bob signs up through the route and joins it through a link invite.
+import { clientIp, createPoker, createTeam, expect, seedOwner, signUp, test } from './_stack.js';
 
-test('two players vote, lock in and both see the same reveal', async ({ browser, baseURL, ignoreHTTPSErrors }) => {
+test('two teammates vote, lock in and both see the same reveal', async ({ browser, baseURL, ignoreHTTPSErrors }) => {
   const contexts = await Promise.all([1, 2].map(() => browser.newContext({
     baseURL,
     ignoreHTTPSErrors,
     extraHTTPHeaders: { 'X-Test-Client-Ip': clientIp() },
   })));
   const [ann, bob] = await Promise.all(contexts.map((context) => context.newPage()));
-  await signUp(ann.request, 'Ann Smoke');
+  await seedOwner(ann.request, 'Ann Smoke');
   await signUp(bob.request, 'Bob Smoke');
-  const created = await ann.request.post('/api/poker', json({}));
-  expect(created.ok()).toBe(true);
-  const { code } = await created.json();
+  const team = await createTeam(ann.request, [bob.request]);
+  const { code } = await createPoker(ann.request, team.id);
 
   for (const page of [ann, bob]) {
-    await page.goto(`/poker/${code}`);
+    await page.goto(`/teams/${team.id}/poker/${code}`);
     await page.locator('.nt-table').waitFor();
   }
   // Each player sees the other's seat; their own vote is in their hand.
