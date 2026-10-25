@@ -217,6 +217,13 @@ describe('HTTP', () => {
     assert.equal((await missing.json()).code, 'not_found');
   });
 
+  test('the old /dashboard address sends visitors home with a no-store 302, as the real shell does', async () => {
+    const old = await fetch(`${fake.url}/dashboard`, { redirect: 'manual' });
+    assert.equal(old.status, 302);
+    assert.equal(old.headers.get('location'), '/');
+    assert.equal(old.headers.get('cache-control'), 'no-store');
+  });
+
   test('serves the root files with a day of caching and ETag revalidation, and links them from the shell', async () => {
     const types = { '/favicon.ico': 'image/x-icon', '/manifest.webmanifest': 'application/manifest+json', '/robots.txt': 'text/plain; charset=utf-8' };
     for (const [path, type] of Object.entries(types)) {
@@ -478,6 +485,13 @@ describe('WebSocket protocol', () => {
     const snap = await again.next();
     assert.equal(snap.t, 'snap');
     assert.notEqual(snap.e, oldEpoch);
+  });
+
+  test('a hello with nobody signed in (me resolves to null) is closed with 4401', async () => {
+    fake.me = () => null;
+    const client = await TestClient.connect(fake);
+    client.send({ t: 'hello', v: 1, cid: CID, subs: [] });
+    assert.equal((await client.closed).code, 4401);
   });
 
   test('cid in use and rejectNextHello close with 4409', async () => {
