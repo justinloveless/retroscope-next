@@ -916,6 +916,7 @@ internal sealed class World {
             SessionId = new SessionId(PokerRoom.Id),
             Code = "SIMSESS1",
             TeamId = team.TeamId,
+            CreatedAt = Start.AddHours(-1),
             WarmUntil = Start,
             NextRoundNumber = 2,
         };
