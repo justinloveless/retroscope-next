@@ -210,7 +210,11 @@ test('the volume slider sets a perceptual level live, keeps it on release, and s
   await slider.fill('60');
   await expect(mute).toHaveAttribute('aria-checked', 'false');
   await expect(timer).toHaveAttribute('data-music-position');
-  await expect.poll(() => prefs(page)).toEqual({ level: '60', volume: String(10 ** -0.8), muted: '0' });
+  // To 12 digits: V8 may round 10 ** x differently in its last bit once the code is optimised.
+  await expect.poll(async () => {
+    const stored = await prefs(page);
+    return { ...stored, volume: Number(stored.volume).toPrecision(12) };
+  }).toEqual({ level: '60', volume: (10 ** -0.8).toPrecision(12), muted: '0' });
 
   // Level 0 is silent like mute, and stores a near-silent gain that an older bundle cannot read as unset.
   await slider.fill('0');

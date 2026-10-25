@@ -1,5 +1,8 @@
+import { readFileSync } from 'node:fs';
 import { json, problem } from '../../../web-fake-server/http.js';
 import { expect, test } from './fixtures.js';
+
+const FIXTURE = JSON.parse(readFileSync(new URL('../../../web-fake-server/fixtures/jira.json', import.meta.url), 'utf8'));
 
 const TEAM = '7ea70000-0000-4000-8000-000000000001';
 
@@ -43,7 +46,7 @@ test('the fake Jira proxy serves browse, detail, writes and mapped errors', asyn
   expect(browse.body.buckets.flatMap((b) => b.issues.map((i) => i.key))).toEqual(['RS-12']);
 
   const detail = (await api(page, 'GET', `${base}/issues/RS-12`)).body;
-  expect(detail.islandIds).toEqual(['t0b1e5c0ffee']);
+  expect(detail.islandIds).toEqual(Object.keys(FIXTURE.issues.find((i) => i.key === 'RS-12').islands));
   const attachment = await page.request.get(`${base}/issues/RS-12/attachments/20001`);
   expect(attachment.headers()['content-type']).toBe('image/png');
 
