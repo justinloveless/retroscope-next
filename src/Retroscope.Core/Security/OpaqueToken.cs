@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 
 namespace Retroscope.Core.Security;
 
-/// <summary>32 CSPRNG bytes as unpadded base64url: session and guest cookies, magic/reset/verify and invite tokens.</summary>
+/// <summary>32 CSPRNG bytes as unpadded base64url: the session cookie, magic/reset/verify and invite tokens.</summary>
 public static class OpaqueToken {
     public const int ByteLength = 32;
     public const int EncodedLength = 43;
