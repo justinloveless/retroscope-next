@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Unicode;
+using Microsoft.AspNetCore.Http.Extensions;
 
 namespace Retroscope.Server.Hosting;
 
@@ -11,6 +12,9 @@ namespace Retroscope.Server.Hosting;
 /// The HTML shell for every front-end route (§d, §g.2): stylesheets, <c>modulepreload</c>s for the route's chunks,
 /// the boot JSON in <c>&lt;script type="application/json" id="boot"&gt;</c>, then the hashed theme script, which
 /// reads that element before first paint. <c>/api/boot?path=</c> returns the same boot JSON for in-app navigation.
+/// Before any boot contributor runs, a page decides its redirects (UX18): a signed-out visitor of a page that is not
+/// <see cref="ShellRoute.IsOpenToSignedOut"/> goes to sign in, so no room lookup is spent on a caller who can never
+/// be admitted, and a signed-in caller may be sent on by an <see cref="IShellRedirect"/>.
 /// </summary>
 public sealed class Shell {
     public const string BootPath = "/api/boot";
@@ -24,6 +28,7 @@ public sealed class Shell {
     // The web manifest's theme_color; the original's index.html used the same.
     public const string ThemeColor = "#111827";
     private const int MaxBootPathLength = 2048;
+    private const int MaxReturnLength = 2048;
 
     private static readonly JsonWriterOptions BootJson = new() {
         Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
@@ -31,11 +36,13 @@ public sealed class Shell {
 
     private readonly WebBuild _build;
     private readonly IReadOnlyList<IBootContributor> _contributors;
+    private readonly IReadOnlyList<IShellRedirect> _redirects;
     private readonly FrozenDictionary<string, (byte[] Head, byte[] Tail)> _pages;
 
-    public Shell(WebBuild build, StaticAssets assets, IEnumerable<IBootContributor> contributors) {
+    public Shell(WebBuild build, StaticAssets assets, IEnumerable<IBootContributor> contributors, IEnumerable<IShellRedirect> redirects) {
         _build = build;
         _contributors = [.. contributors];
+        _redirects = [.. redirects];
         _pages = ShellRoute.All.ToFrozenDictionary(x => x.Pattern, x => Render(build, assets, x), StringComparer.Ordinal);
     }
 
@@ -62,6 +69,10 @@ public sealed class Shell {
     }
 
     public async Task PageAsync(HttpContext context, ShellRoute route) {
+        if (await RedirectAsync(context, route) is { } location) {
+            Redirect(context, location);
+            return;
+        }
         var parameters = context.Request.RouteValues
             .Where(x => x.Key != "rest" && x.Value is string)
             .ToDictionary(x => x.Key, x => (string)x.Value!, StringComparer.Ordinal);
@@ -103,6 +114,25 @@ public sealed class Shell {
         response.Headers.CacheControl = "no-store";
         response.ContentLength = buffer.WrittenCount;
         await response.Body.WriteAsync(buffer.WrittenMemory, context.RequestAborted);
+    }
+
+    /// <summary><c>/login?return=</c> the page asked for, so sign-in leads back to it.</summary>
+    public static string SignInPath(HttpContext context) {
+        var back = context.Request.GetEncodedPathAndQuery();
+        return back.Length > MaxReturnLength ? "/login" : $"/login?return={Uri.EscapeDataString(back)}";
+    }
+
+    private async ValueTask<string?> RedirectAsync(HttpContext context, ShellRoute route) {
+        var caller = await context.GetCallerAsync();
+        if (caller is not { IsUser: true }) {
+            return route.IsOpenToSignedOut ? null : SignInPath(context);
+        }
+        foreach (var redirect in _redirects) {
+            if (await redirect.RedirectAsync(route, caller, context.RequestAborted) is { } location) {
+                return location;
+            }
+        }
+        return null;
     }
 
     private async Task<BootContext> BuildAsync(HttpContext context, ShellRoute route, IReadOnlyDictionary<string, string> parameters) {

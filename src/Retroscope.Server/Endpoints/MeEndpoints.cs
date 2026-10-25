@@ -86,6 +86,19 @@ public sealed class MeBootContributor(MeBuilder builder) : IBootContributor {
     }
 }
 
+/// <summary>
+/// A signed-in <c>/</c> leads to the team the user visited last, else their first team by name, else the
+/// create-or-join screen at <c>/teams</c> (UX18 decision 8). The client applies the same rule for in-app navigation.
+/// </summary>
+public sealed class HomeRedirect(UsersRepo users) : IShellRedirect {
+    public async ValueTask<string?> RedirectAsync(ShellRoute route, Caller caller, CancellationToken cancellationToken) {
+        if (route.Pattern != "/") {
+            return null;
+        }
+        return await users.HomeTeamAsync(caller.Principal.Id, cancellationToken) is { } team ? $"/teams/{team.Value}" : "/teams";
+    }
+}
+
 public static class MeEndpoints {
     public const int MaxFullNameLength = 100;
     public const int MaxNicknameLength = 40;
@@ -107,6 +120,7 @@ public static class MeEndpoints {
     public static void AddServices(IServiceCollection services, IConfiguration configuration) {
         services.AddSingleton<MeBuilder>();
         services.AddSingleton<IBootContributor, MeBootContributor>();
+        services.AddSingleton<IShellRedirect, HomeRedirect>();
     }
 
     public static void Map(IEndpointRouteBuilder app) {

@@ -125,6 +125,10 @@ public sealed class RoomBootContributor(RoomResolver resolver, ActorRegistry reg
         if (kind is null || !boot.Parameters.TryGetValue("code", out var code)) {
             return;
         }
+        // Only a member is ever admitted, so a caller who is not signed in spends no lookup (UX18).
+        if (await boot.Http.GetCallerAsync() is not { IsUser: true } caller) {
+            return;
+        }
         var resolution = await resolver.ResolveAsync(boot.Http, kind.Value, code, cancellationToken);
         if (resolution is not RoomResolution.Found found) {
             return;
@@ -133,10 +137,7 @@ public sealed class RoomBootContributor(RoomResolver resolver, ActorRegistry reg
             && (!Guid.TryParse(tid, out var team) || found.Facts.Team.Value != team)) {
             return;
         }
-        byte[]? snap = null;
-        if (await boot.Http.GetCallerAsync() is { } caller) {
-            snap = await SnapAsync(found.Room, HttpViewer.Of(caller.Principal), cancellationToken);
-        }
+        var snap = await SnapAsync(found.Room, HttpViewer.Of(caller.Principal), cancellationToken);
         boot.Set("room", Compose(found.Room, snap));
     }
 

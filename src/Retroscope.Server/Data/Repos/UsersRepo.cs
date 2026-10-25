@@ -282,6 +282,24 @@ public sealed class UsersRepo(NpgsqlDataSource dataSource) {
     }
 
     /// <summary>
+    /// Where a signed-in <c>/</c> leads: the team visited last among the user's current teams, else the first of them
+    /// in <c>me.teams</c> order (by name, ignoring case); null when the user is in no team.
+    /// </summary>
+    public async Task<TeamId?> HomeTeamAsync(PrincipalId id, CancellationToken cancellationToken) {
+        await using var command = dataSource.CreateCommand("""
+            select t.id
+            from team_members m
+            join teams t on t.id = m.team_id and t.deleted_at is null
+            left join recent_activity a on a.user_id = m.user_id and a.entity_kind = 'team' and a.entity_id = t.id
+            where m.user_id = $1
+            order by a.last_at desc nulls last, lower(t.name), t.id
+            limit 1
+            """);
+        command.Parameters.Add(new() { Value = id.Value });
+        return await command.ExecuteScalarAsync(cancellationToken) is Guid team ? new TeamId(team) : null;
+    }
+
+    /// <summary>
     /// Mentions newer than <c>mentions_seen_at</c> on boards the user can still read: the board and its team are not
     /// deleted, and the user is a member of the board's team. The same rule as <c>Policy.Can(Subscribe)</c> for a
     /// board (UX18).
