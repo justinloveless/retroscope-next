@@ -26,7 +26,7 @@ public sealed record MeUser(
 
 public sealed record MeTeam(TeamId Id, string Name, TeamRole Role);
 
-public sealed record MeResponse(MePrincipal Principal, MeUser? User, IReadOnlyList<MeTeam> Teams, int UnreadMentions);
+public sealed record MeResponse(MePrincipal Principal, MeUser User, IReadOnlyList<MeTeam> Teams, int UnreadMentions);
 
 /// <param name="Nickname">An empty string clears it.</param>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -46,9 +46,10 @@ public sealed record SessionInfo(
 
 /// <summary>Builds <c>/api/me</c>, which is also the boot JSON's <c>me</c>.</summary>
 public sealed class MeBuilder(UsersRepo users) {
+    /// <returns>Null for a caller that is not a signed-in user, or whose account is gone.</returns>
     public async Task<MeResponse?> BuildAsync(Caller caller, CancellationToken cancellationToken) {
         if (!caller.IsUser) {
-            return new MeResponse(MePrincipal.Of(caller.Principal), null, [], 0);
+            return null;
         }
         var id = caller.Principal.Id;
         if (await users.GetProfileAsync(id, cancellationToken) is not { } profile) {
@@ -70,8 +71,8 @@ public sealed class MeBootContributor(MeBuilder builder) : IBootContributor {
         var caller = await boot.Http.GetCallerAsync();
         var me = caller is null ? null : await builder.BuildAsync(caller, cancellationToken);
         boot.Set("me", JsonSerializer.SerializeToElement(me, AuthJsonContext.Default.MeResponse));
-        if (me?.User is { } user) {
-            boot.Theme = user.Theme;
+        if (me is not null) {
+            boot.Theme = me.User.Theme;
         }
     }
 }
@@ -101,7 +102,7 @@ public static class MeEndpoints {
 
     public static void Map(IEndpointRouteBuilder app) {
         app.MapGet("/api/me", GetAsync)
-            .RequireRoutePolicy(RoutePolicy.Guest)
+            .RequireRoutePolicy(RoutePolicy.User)
             .RequireRateLimit(Read);
         app.MapPatch("/api/me", PatchAsync)
             .RequireRoutePolicy(RoutePolicy.User)

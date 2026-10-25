@@ -2,9 +2,9 @@ using Retroscope.Core.Room;
 
 namespace Retroscope.Server.Hosting;
 
-/// <summary>Who sent an HTTP request, from the session or guest cookie.</summary>
-/// <param name="EmailVerified">Users only; guests are never verified.</param>
-/// <param name="AuthSessionId">The sign-in session behind a user cookie; null for guests.</param>
+/// <summary>Who sent an HTTP request, from the session cookie.</summary>
+/// <param name="EmailVerified">Whether the user's address is verified.</param>
+/// <param name="AuthSessionId">The sign-in session behind the cookie; null for callers made up by tests.</param>
 public sealed record Caller(Principal Principal, bool EmailVerified, Guid? AuthSessionId = null) {
     public bool IsUser => Principal.Kind == PrincipalKind.User;
 }

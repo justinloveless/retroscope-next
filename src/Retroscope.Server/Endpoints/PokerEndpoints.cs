@@ -200,9 +200,10 @@ public static class PokerEndpoints {
     }
 
     public static void Map(IEndpointRouteBuilder app) {
-        // RoomResolver limits every code lookup itself (30/min per IP, S9), whichever route makes it.
+        // RoomResolver limits every code lookup itself (30/min per IP, S9), whichever route makes it. Only a member can
+        // be admitted, so a caller who is not signed in is refused before any lookup is spent (UX18).
         app.MapGet("/api/poker/by-code/{code}", ByCodeAsync)
-            .RequireRoutePolicy(RoutePolicy.Public)
+            .RequireRoutePolicy(RoutePolicy.User)
             .RequireRateLimit(RateLimit.Unlimited);
         app.MapDelete("/api/poker/{id:guid}", DeleteAsync)
             .RequireRoutePolicy(RoutePolicy.SessionManage)

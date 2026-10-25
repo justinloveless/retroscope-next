@@ -57,9 +57,10 @@ public static class RetroEndpoints {
     }
 
     public static void Map(IEndpointRouteBuilder app) {
-        // RoomResolver limits every code lookup itself (30/min per IP, S9), whichever route makes it.
+        // RoomResolver limits every code lookup itself (30/min per IP, S9), whichever route makes it. Only a member can
+        // be admitted, so a caller who is not signed in is refused before any lookup is spent (UX18).
         app.MapGet("/api/retro/by-code/{code}", ByCodeAsync)
-            .RequireRoutePolicy(RoutePolicy.Public)
+            .RequireRoutePolicy(RoutePolicy.User)
             .RequireRateLimit(RateLimit.Unlimited);
         app.MapPost("/api/retro/{id:guid}/archive", (HttpContext context, Guid id, RetroListsRepo repo, ActorRegistry registry) =>
                 SetArchivedAsync(context, id, true, repo, registry))

@@ -21,7 +21,7 @@ public static class BlobEndpoints {
         RateRule.PerIp(600, TimeSpan.FromMinutes(1)),
         RateRule.PerPrincipal(600, TimeSpan.FromMinutes(1)));
 
-    /// <summary>S7: per principal and per IP, so fresh guest principals do not lift the limit.</summary>
+    /// <summary>S7: per principal and per IP.</summary>
     public static readonly RateLimit Upload = RateLimit.Define(
         "retro.images",
         RateRule.PerPrincipal(30, TimeSpan.FromHours(1)),
