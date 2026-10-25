@@ -68,8 +68,8 @@ test.describe('model.js against the C# goldens', () => {
 });
 
 test('a golden transcript replayed to the page shows its final board', async ({ page, fake }) => {
-  // Alice's board, a team board since UX18 (named retro-quick-board-alice.json before it).
-  const file = files.find((f) => f === 'retro-board-alice.json') ?? files.find((f) => f === 'retro-quick-board-alice.json');
+  // Alice's board, a team board since UX18.
+  const file = files.find((f) => f === 'retro-board-alice.json');
   const transcript = load(file);
   const { d, o } = transcript.expectedViewerState;
   const me = d.presence.find((p) => p.pid === transcript.viewer.pid);
