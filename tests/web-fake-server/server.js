@@ -267,6 +267,13 @@ export class FakeServer extends EventEmitter {
       return;
     }
     if (req.method === 'GET' || req.method === 'HEAD') {
+      if (url.pathname === '/dashboard') {
+        // As the real Shell (UX18 decision 6): the Dashboard is gone, and its old address, the installed app's
+        // former start URL, sends visitors home. The fake has no other page redirects: '/' and the sign-in gate
+        // are the client's (app.js redirectFor), as for in-app navigation.
+        await writeResponse(res, { status: 302, headers: { Location: '/', 'Cache-Control': 'no-store' } });
+        return;
+      }
       if (Object.hasOwn(this.dist.manifest.files, url.pathname)) {
         await this.serveFile(res, url.pathname, req.method === 'HEAD');
         return;
@@ -593,6 +600,12 @@ export class FakeServer extends EventEmitter {
     }
     conn.cid = frame.cid;
     conn.me = resolve(this.me, conn.req);
+    if (!conn.me) {
+      // /ws admits signed-in users only (UX18); the real server refuses the upgrade itself.
+      conn.close(CLOSE.UNAUTHENTICATED, 'unauthenticated');
+      this.emit('hello', conn);
+      return;
+    }
     conn.send({ t: 'welcome', conn: conn.id, me: conn.me, n: this.now() });
     for (const sub of frame.subs) {
       this.subscribe(conn, sub.r, sub.e, sub.s);
