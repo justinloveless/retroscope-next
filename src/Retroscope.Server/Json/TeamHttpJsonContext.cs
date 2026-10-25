@@ -19,7 +19,6 @@ namespace Retroscope.Server.Json;
 [JsonSerializable(typeof(InviteTokenRequest))]
 [JsonSerializable(typeof(TemplateRequest))]
 [JsonSerializable(typeof(EndorsementTypeRequest))]
-[JsonSerializable(typeof(IReadOnlyList<TeamSummary>))]
 [JsonSerializable(typeof(TeamCreated))]
 [JsonSerializable(typeof(TeamResponse))]
 [JsonSerializable(typeof(IReadOnlyList<MemberInfo>))]
