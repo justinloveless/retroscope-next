@@ -491,7 +491,8 @@ internal sealed class CounterBinding(CounterDomain domain) : IRoomBinding<Counte
             [],
             [],
             presence,
-            ActorHarness.RoomTeam);
+            ActorHarness.RoomTeam,
+            CreatedAt: 0);
     }
 
     public RoomOverlay? Overlay(Counter state, Viewer viewer) => new PokerOverlay([], state.Mine.Contains(viewer.Who.Id));

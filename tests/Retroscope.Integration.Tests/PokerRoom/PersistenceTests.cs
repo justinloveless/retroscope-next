@@ -170,4 +170,27 @@ public sealed class PersistenceTests(PostgresFixture postgres) {
         Assert.Equal((VoteStatus.Locked, (short?)null), (bobSeesAlice.Status, bobSeesAlice.Points));
         await host.AssertPersistedAsync(room);
     }
+
+    [Fact]
+    public async Task The_snapshot_carries_the_sessions_created_at_in_unix_milliseconds_across_a_restart() {
+        await using var scope = await PokerScope.CreateAsync(postgres);
+        var alice = await scope.Seed.UserAsync("Alice");
+        var room = await scope.Seed.SessionAsync(alice, await scope.Seed.TeamOfAsync(alice));
+        // Not the time in the session's id, as for an imported session; Postgres keeps the microseconds.
+        var created = new DateTimeOffset(2024, 3, 5, 14, 30, 15, 123, TimeSpan.Zero).AddTicks(4_560);
+        await scope.Seed.ExecuteAsync("update poker_sessions set created_at = $2 where id = $1", room.Id, created);
+        var host = await scope.StartAsync();
+
+        await using (var a = await host.JoinAsync(alice, room)) {
+            var snapshot = Assert.IsType<PokerSnapshot>(a.Frames().OfType<SnapFrame>().Single().D);
+            Assert.Equal(created.ToUnixTimeMilliseconds(), snapshot.CreatedAt);
+            Assert.Equal(created, await host.QueryAsync(room, x => x.CreatedAt));
+        }
+        await host.AssertPersistedAsync(room);
+
+        host = await scope.RestartAsync();
+        await using var again = await host.JoinAsync(alice, room);
+        var reloaded = Assert.IsType<PokerSnapshot>(again.Frames().OfType<SnapFrame>().Single().D);
+        Assert.Equal(1709649015123L, reloaded.CreatedAt);
+    }
 }

@@ -131,7 +131,7 @@ internal sealed class PokerHost : IAsyncDisposable {
 
     public static string Describe(PokerState state) {
         var text = new StringBuilder();
-        text.AppendLine(CultureInfo.InvariantCulture, $"{state.Code} team={state.TeamId} presence={state.PresenceEnabled} follow={state.FollowSpotlight}");
+        text.AppendLine(CultureInfo.InvariantCulture, $"{state.Code} team={state.TeamId} created={state.CreatedAt:O} presence={state.PresenceEnabled} follow={state.FollowSpotlight}");
         text.AppendLine(CultureInfo.InvariantCulture, $"observers={string.Join(',', state.Observers.Select(x => x.ToString()).Order(StringComparer.Ordinal))}");
         var spotlight = state.Spotlight;
         text.AppendLine(CultureInfo.InvariantCulture, $"spotlight={spotlight?.Holder}/{spotlight?.HolderClient}/{spotlight?.RoundId}");
