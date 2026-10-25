@@ -557,14 +557,17 @@ public sealed class JiraClientTests(PostgresFixture postgres) {
     }
 
     [Fact]
-    public async Task Points_without_a_configured_field_are_refused_before_calling_Jira() {
+    public async Task Points_without_a_stored_or_discoverable_field_are_refused_before_writing() {
         await using var h = await JiraHarness.StartAsync(postgres);
         await h.ConfigureTeamAsync(h.Team, h.Jira.Email, h.Jira.Token, pointsFieldId: null);
+        foreach (var points in h.Jira.Fields.Where(f => ((string?)f!["name"])?.Contains("Story point", StringComparison.OrdinalIgnoreCase) == true).ToList()) {
+            h.Jira.Fields.Remove(points);
+        }
 
         var error = await Assert.ThrowsAsync<JiraException>(() => h.Client.SetPointsAsync(h.Team, "DUN-1", 3, Ct));
 
         Assert.Equal(JiraErrorCode.NotConfigured, error.Error.Code);
-        Assert.Empty(h.Jira.Requests);
+        Assert.DoesNotContain(h.Jira.Requests, r => r.Method == "PUT");
     }
 
     [Fact]
