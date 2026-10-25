@@ -3,12 +3,12 @@ using Retroscope.Server.Auth;
 
 namespace Retroscope.Server.Jobs;
 
-public sealed record TokenSweepReport(int Sessions, int GuestTokens, int AuthTokens, int Invites);
+public sealed record TokenSweepReport(int Sessions, int AuthTokens, int Invites);
 
 /// <summary>
-/// Hourly sweep of credentials that can no longer be used (§b retention): expired sign-in sessions, guest tokens and
-/// email tokens, and revoked or expired team invites. Swept sessions are also evicted from the session cache and
-/// their sockets closed, as an explicit revocation would.
+/// Hourly sweep of credentials that can no longer be used (§b retention): expired sign-in sessions and email tokens,
+/// and revoked or expired team invites. Swept sessions are also evicted from the session cache and their sockets
+/// closed, as an explicit revocation would.
 /// </summary>
 public sealed partial class TokenSweepJob(
     NpgsqlDataSource dataSource,
@@ -35,7 +35,6 @@ public sealed partial class TokenSweepJob(
 
         var report = new TokenSweepReport(
             sessions.Count,
-            await ExecuteAsync("delete from guest_tokens where expires_at <= $1", now, cancellationToken),
             await ExecuteAsync("delete from auth_tokens where expires_at <= $1", now, cancellationToken),
             await ExecuteAsync(
                 "delete from team_invites where revoked_at is not null or expires_at <= $1", now, cancellationToken));
