@@ -221,6 +221,35 @@ public sealed class TeamListsTests(PostgresFixture postgres) {
         Assert.Equal(1L, await host.ScalarAsync<long>("select count(*) from recent_activity where user_id = $1", member.Guid));
     }
 
+    // UX18 decision 16: kudos are team data, so the account page shows only kudos from the user's current teams.
+    [Fact]
+    public async Task Kudos_received_come_only_from_teams_the_user_is_still_in() {
+        await using var host = await TeamHttpHost.StartAsync(postgres);
+        var owner = await host.UserAsync("Olive");
+        var member = await host.UserAsync("Mia");
+        var kept = await host.TeamAsync(owner, "Kept", (member, "member"));
+        var left = await host.TeamAsync(owner, "Left", (member, "member"));
+        var deleted = await host.TeamAsync(owner, "Deleted", (member, "member"));
+        foreach (var team in new[] { kept, left, deleted }) {
+            using var created = await host.PostAsync(owner, $"/api/teams/{team}/boards", new { title = "Retro" });
+            Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+            var board = (await TeamHttpHost.JsonAsync(created)).GetProperty("id").GetGuid();
+            var type = await host.ScalarAsync<Guid>("select id from endorsement_types where team_id = $1 and name = 'Team Player'", team);
+            await EndorseAsync(host, board, team, type, owner, member, TimeSpan.Zero);
+        }
+        await host.ExecuteAsync("delete from team_members where team_id = $1 and user_id = $2", left, member.Guid);
+        await host.ExecuteAsync("update teams set deleted_at = now() where id = $1", deleted);
+
+        using var received = await host.GetAsync(member, "/api/me/endorsements");
+
+        Assert.Equal(HttpStatusCode.OK, received.StatusCode);
+        var kudos = Assert.Single((await TeamHttpHost.JsonAsync(received)).EnumerateArray());
+        Assert.Equal("Kept", kudos.GetProperty("teamName").GetString());
+        Assert.Equal("Team Player", kudos.GetProperty("typeName").GetString());
+        Assert.Equal("Olive", kudos.GetProperty("fromName").GetString());
+        Assert.Equal(3L, await host.ScalarAsync<long>("select count(*) from endorsements where to_user_id = $1", member.Guid));
+    }
+
     private static async Task<List<JsonElement>> ListAsync(TeamHttpHost host, TestUser user, Guid team) {
         using var response = await host.GetAsync(user, $"/api/teams/{team}/templates");
         return [.. (await TeamHttpHost.JsonAsync(response)).GetProperty("items").EnumerateArray()];

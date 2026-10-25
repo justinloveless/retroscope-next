@@ -42,7 +42,9 @@ public sealed class TeamHttpAuthzTests(PostgresFixture postgres) {
 
         Probe[] table = [
             Row("POST", "/api/teams", new { name = "" }, ok: HttpStatusCode.BadRequest, signedIn: true, unverified: HttpStatusCode.Forbidden),
+            Row("GET", "/api/me", null, ok: HttpStatusCode.OK, signedIn: true),
             Row("GET", "/api/me/endorsements", null, ok: HttpStatusCode.OK, signedIn: true),
+            Row("POST", "/api/auth/verify/request", null, ok: HttpStatusCode.Accepted, signedIn: true),
             Row("POST", "/api/invites/accept", new { token = "nope" }, ok: HttpStatusCode.NotFound, signedIn: true),
             Public("POST", "/api/invites/preview", new { token = "nope" }, HttpStatusCode.NotFound),
 
