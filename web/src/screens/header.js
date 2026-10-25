@@ -96,11 +96,16 @@ function accountItems() {
   ];
 }
 
+// Named from its content, "Account menu for <name>": the avatar's initials are visible, so a label that left them
+// out would not hold the visible text (WCAG 2.5.3).
+const accountButton = (className, avatar) => h('button', { type: 'button', class: ['btn btn-ghost btn-icon', className] },
+  h('span', { class: 'sr-only', text: 'Account menu for ' }), avatar.el);
+
 /** The mentions link and the account button with its menu: in the header, and docked in the poker toolbar. */
 function createControls() {
   const bell = navLink('/mentions', null, { class: 'btn btn-ghost btn-icon app-mentions' });
   const avatar = createAvatar({ name: '', size: 'sm' });
-  const account = h('button', { type: 'button', class: 'btn btn-ghost btn-icon app-account' }, avatar.el);
+  const account = accountButton('app-account', avatar);
   const destroy = menuButton(account, { label: 'Account', placement: 'bottom-end', items: accountItems, onSelect: onAccount });
   return {
     bell,
@@ -109,9 +114,9 @@ function createControls() {
     update(me) {
       const unread = me.unreadMentions ?? 0;
       replaceContent(bell, icon('bell'), unread ? h('span', { class: 'badge app-mentions-badge', 'aria-hidden': 'true', text: String(unread) }) : null);
-      bell.setAttribute('aria-label', unread ? `Mentions (${unread} unread)` : 'Mentions');
+      // The count is in the name as it is shown (WCAG 2.5.3).
+      bell.setAttribute('aria-label', unread ? `Mentions, ${unread} unread` : 'Mentions');
       avatar.update({ name: me.principal.name, src: avatarUrl(me.principal) });
-      account.setAttribute('aria-label', `Account menu for ${me.principal.name}`);
     },
     destroy,
   };
@@ -130,14 +135,15 @@ export function createHeader() {
 
   const brandName = h('span', { class: 'app-brand-name', text: 'Retroscope' });
   const brand = navLink('/', [LOGO ? h('img', { src: LOGO, alt: '', width: 28, height: 28 }) : null, brandName], { class: 'app-brand' });
-  const switcher = h('button', { type: 'button', class: 'btn btn-outline app-team-switch' });
+  const switcher = h('button', { type: 'button', class: 'btn btn-outline app-team-switch', title: 'Switch team' });
   const count = h('span', { class: 'badge', hidden: true });
   const tabs = new Map(SECTIONS.map(([id, label]) => [id, navLink('/', [label, id === 'actions' ? count : null])]));
   const nav = h('nav', { class: 'app-tabs' }, [...tabs.values()]);
   const gear = navLink('/', icon('settings'), { class: 'btn btn-ghost btn-icon app-gear', 'aria-label': 'Team settings' });
   const controls = createControls();
   const burgerAvatar = createAvatar({ name: '', size: 'sm' });
-  const burger = h('button', { type: 'button', class: 'btn btn-ghost btn-icon app-burger', 'aria-haspopup': 'dialog' }, burgerAvatar.el);
+  const burger = accountButton('app-burger', burgerAvatar);
+  burger.setAttribute('aria-haspopup', 'dialog');
   const el = h('header', { class: 'app-header' }, brand, switcher, nav,
     h('div', { class: 'app-header-actions' }, gear, controls.bell, controls.account, burger));
 
@@ -203,8 +209,8 @@ export function createHeader() {
     switcher.hidden = team === null;
     nav.hidden = team === null;
     if (team) {
+      // Named by the team, as shown; the menu button role says what it does.
       replaceContent(switcher, teamBadge(team), h('span', { class: 'app-team-name', text: team.name }), icon('chevron-down'));
-      switcher.setAttribute('aria-label', `${team.name}, switch team`);
       nav.setAttribute('aria-label', `${team.name} sections`);
       for (const [id, link] of tabs) {
         link.href = teamPath(team.id, id);
@@ -224,7 +230,6 @@ export function createHeader() {
     if (me) {
       controls.update(me);
       burgerAvatar.update({ name: me.principal.name, src: avatarUrl(me.principal) });
-      burger.setAttribute('aria-label', `Account menu for ${me.principal.name}`);
     }
     document.documentElement.classList.toggle('app-has-tabs', team !== null && !el.hidden);
     renderDock(me);

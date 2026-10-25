@@ -434,7 +434,8 @@
 
 .menu-item[aria-checked="true"] { background: hsl(var(--accent)); font-weight: 600; }
 .menu-item-text { display: grid; flex: 1; }
-.menu-item-detail { color: hsl(var(--muted-foreground)); font-size: 0.75rem; font-weight: 400; }
+/* Quieter than the label, yet readable on a hovered or checked item's accent too. */
+.menu-item-detail { color: hsl(var(--foreground) / 0.7); font-size: 0.75rem; font-weight: 400; }
 .menu-item-check { margin-left: auto; color: var(--indigo); }
 
 .menu-heading {
