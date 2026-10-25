@@ -28,27 +28,18 @@ public sealed class FacilitatorTests {
 
     [Theory]
     [MemberData(nameof(FacilitatorCommands))]
-    public void Team_boards_take_facilitation_from_members_only(string kind) {
-        foreach (var visibility in Enum.GetValues<BoardVisibility>()) {
-            var fx = new RetroFixture(team: true);
-            fx.State.Visibility = visibility;
+    public void Every_member_facilitates_and_nobody_else_does(string kind) {
+        foreach (var member in new[] { Alice, Bob }) {
+            var fx = new RetroFixture();
             fx.Rejects(Carol, Command(fx, kind), NackCode.Forbidden);
             fx.Rejects(Gus, Command(fx, kind), NackCode.Forbidden);
-            fx.Do(Bob, Command(fx, kind));
+            fx.Do(member, Command(fx, kind));
         }
     }
 
-    [Theory]
-    [MemberData(nameof(FacilitatorCommands))]
-    public void Quick_boards_take_facilitation_from_any_signed_in_principal(string kind) {
-        var fx = new RetroFixture();
-        fx.Rejects(Gus, Command(fx, kind), NackCode.Forbidden);
-        fx.Do(Carol, Command(fx, kind));
-    }
-
     [Fact]
-    public void A_demoted_member_loses_facilitation_on_the_next_command() {
-        var fx = new RetroFixture(team: true);
+    public void A_removed_member_loses_facilitation_on_the_next_command() {
+        var fx = new RetroFixture();
         fx.Do(Bob, new RetroColumnAdd(fx.NewColumnId(), "One", ColumnColor.Blue));
 
         fx.Access.Roles.Remove((RetroFixture.Team, Bob.Id));
@@ -56,23 +47,32 @@ public sealed class FacilitatorTests {
     }
 
     [Fact]
-    public void Non_members_on_a_link_team_board_add_edit_their_own_vote_and_comment() {
-        var fx = new RetroFixture(team: true);
-        fx.State.Visibility = BoardVisibility.Link;
+    public void Non_members_get_nothing_on_the_board() {
+        var fx = new RetroFixture();
+        var card = fx.AddCard(Alice, Good);
+        var comment = fx.AddComment(Alice, card);
         foreach (var who in new[] { Carol, Gus }) {
-            var card = fx.AddCard(who, Good, "Mine");
-            fx.Do(who, new RetroCardEdit(card, "Still mine", 1));
-            fx.Do(who, new RetroVoteSet(card, true));
-            var comment = fx.AddComment(who, card);
-            fx.Do(who, new RetroCommentDelete(comment));
-            fx.Do(who, new RetroCardDelete(card));
+            fx.Rejects(who, new RetroCardAdd(fx.NewCardId(), Good, "Mine", false), NackCode.Forbidden);
+            fx.Rejects(who, new RetroVoteSet(card, true), NackCode.Forbidden);
+            fx.Rejects(who, new RetroCommentAdd(fx.NewCommentId(), card, "Hi", false), NackCode.Forbidden);
+            fx.Rejects(who, new RetroCommentDelete(comment), NackCode.Forbidden);
+            fx.Rejects(who, new RetroCardDelete(card), NackCode.Forbidden);
         }
     }
 
     [Fact]
+    public void A_non_member_hears_forbidden_before_board_archived() {
+        var fx = new RetroFixture();
+        fx.Do(null, new RetroInput.ArchiveSet(true, Alice.Id));
+
+        fx.Rejects(Carol, new RetroCardAdd(fx.NewCardId(), Good, "Late", false), NackCode.Forbidden);
+        fx.Rejects(Bob, new RetroCardAdd(fx.NewCardId(), Good, "Late", false), NackCode.BoardArchived);
+    }
+
+    [Fact]
     public void Only_the_author_edits_or_deletes_a_card() {
-        var fx = new RetroFixture(team: true);
-        var card = fx.AddCard(Carol, Good);
+        var fx = new RetroFixture();
+        var card = fx.AddCard(Dave, Good);
 
         fx.Rejects(Alice, new RetroCardEdit(card, "Hijack", 1), NackCode.Forbidden);
         fx.Rejects(Alice, new RetroCardDelete(card), NackCode.Forbidden);
@@ -80,16 +80,17 @@ public sealed class FacilitatorTests {
     }
 
     [Fact]
-    public void Facilitators_delete_anyone_s_card_in_the_action_items_column_only() {
-        var fx = new RetroFixture(team: true);
-        var action = fx.AddCard(Carol, Actions);
-        var good = fx.AddCard(Carol, Good);
+    public void Any_member_deletes_anyone_s_card_in_the_action_items_column_only() {
+        var fx = new RetroFixture();
+        var action = fx.AddCard(Dave, Actions);
+        var good = fx.AddCard(Dave, Good);
 
         fx.Do(Bob, new RetroCardDelete(action));
         fx.Rejects(Bob, new RetroCardDelete(good), NackCode.Forbidden);
 
         var another = fx.AddCard(Bob, Actions);
         fx.Rejects(Carol, new RetroCardDelete(another), NackCode.Forbidden);
+        fx.Do(Dave, new RetroCardDelete(another));
     }
 
     [Fact]
@@ -102,10 +103,10 @@ public sealed class FacilitatorTests {
     }
 
     [Fact]
-    public void Guests_are_never_facilitators() {
-        var principal = Gus;
-        var fx = new RetroFixture(team: true);
-        fx.Access.Roles[(RetroFixture.Team, principal.Id)] = TeamRole.Owner;
-        Assert.False(RetroRoles.IsFacilitator(fx.State, principal, fx.Access));
+    public void Guests_are_never_members() {
+        var fx = new RetroFixture();
+        fx.Access.Roles[(RetroFixture.Team, Gus.Id)] = TeamRole.Owner;
+        Assert.False(RetroRoles.IsMember(fx.State, Gus, fx.Access));
+        fx.Rejects(Gus, new RetroColumnAdd(fx.NewColumnId(), "New", ColumnColor.Purple), NackCode.Forbidden);
     }
 }

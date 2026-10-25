@@ -3,7 +3,6 @@ using System.Text.Json.Nodes;
 using Retroscope.Core.Ids;
 using Retroscope.Core.Protocol;
 using Retroscope.Core.Retro;
-using Retroscope.Core.Room;
 using Retroscope.Core.Tests.Scaffold;
 using static Retroscope.Core.Tests.Retro.RetroFixture;
 
@@ -18,28 +17,28 @@ namespace Retroscope.Core.Tests.Retro;
 [Trait("Category", "Retro")]
 public sealed class RetroTranscriptTests {
     [Fact]
-    public void Quick_board() {
+    public void Board() {
         var driver = new RetroRoomDriver(new RetroFixture());
         var fx = driver.Fixture;
         var alice = driver.Watch(Alice);
-        var gus = driver.Watch(Gus);
+        var dave = driver.Watch(Dave);
 
         var first = fx.NewCardId();
         driver.Accept(Alice, new RetroCardAdd(first, Good, "Pairing on **CI** helped", false));
         var secret = fx.NewCardId();
         driver.Accept(Bob, new RetroCardAdd(secret, Bad, "Standups run long", true));
-        var guest = fx.NewCardId();
-        driver.Accept(Gus, new RetroCardAdd(guest, Good, "Nice demo", false));
+        var demo = fx.NewCardId();
+        driver.Accept(Dave, new RetroCardAdd(demo, Good, "Nice demo", false));
         driver.Accept(Alice, new RetroCardEdit(first, "Pairing on **CI** helped a lot", 1));
         driver.Accept(Bob, new RetroVoteSet(first, true));
-        driver.Accept(Gus, new RetroVoteSet(first, true));
-        driver.Accept(Gus, new RetroVoteSet(secret, true));
+        driver.Accept(Dave, new RetroVoteSet(first, true));
+        driver.Accept(Dave, new RetroVoteSet(secret, true));
         var comment = fx.NewCommentId();
         driver.Accept(Alice, new RetroCommentAdd(comment, secret, "Agreed", false));
-        driver.Accept(Gus, new RetroCommentAdd(fx.NewCommentId(), secret, "+1", false));
+        driver.Accept(Dave, new RetroCommentAdd(fx.NewCommentId(), secret, "+1", false));
         var ideas = fx.NewColumnId();
         driver.Accept(Alice, new RetroColumnAdd(ideas, "Ideas", ColumnColor.Purple));
-        driver.Accept(Carol, new RetroColumnUpdate(ideas, 1, Title: "Experiments"));
+        driver.Accept(Bob, new RetroColumnUpdate(ideas, 1, Title: "Experiments"));
         driver.Accept(Alice, new RetroColumnReorder([ideas, Good, Bad, Actions]));
         driver.Accept(Alice, new RetroCardAdd(fx.NewCardId(), ideas, "Try mob programming", false));
         driver.Accept(Bob, new RetroFocusSet(secret, null));
@@ -48,17 +47,16 @@ public sealed class RetroTranscriptTests {
         driver.Accept(Alice, new RetroColumnDelete(Actions));
         driver.Accept(Alice, new RetroBoardRename("Sprint 42 retro (done)", "Sprint 42 retro"));
         driver.Accept(Alice, new RetroConfigUpdate(new RetroConfigPatch(ShowAuthorNames: false, MaxVotes: 3), new RetroConfigPatch(ShowAuthorNames: true, MaxVotes: 0)));
-        driver.Accept(Gus, new RetroVoteSet(first, false));
+        driver.Accept(Dave, new RetroVoteSet(first, false));
 
-        Emit("retro-quick-board-alice", driver, alice);
-        Emit("retro-quick-board-guest", driver, gus);
+        Emit("retro-board-alice", driver, alice);
+        Emit("retro-board-dave", driver, dave);
     }
 
     [Fact]
     public void Stages_and_readiness() {
         var driver = new RetroRoomDriver(new RetroFixture());
         var fx = driver.Fixture;
-        fx.Present = [Alice, Bob, Carol];
         var bob = driver.Watch(Bob);
 
         driver.Accept(Alice, new RetroConfigUpdate(
@@ -68,18 +66,18 @@ public sealed class RetroTranscriptTests {
         driver.Accept(Alice, new RetroCardAdd(card, Good, "Fewer meetings", false));
         var anonymous = fx.NewCardId();
         driver.Accept(Bob, new RetroCardAdd(anonymous, Bad, "Flaky tests", true));
-        foreach (var who in new[] { Alice, Bob, Carol }) {
+        foreach (var who in new[] { Alice, Bob, Dave }) {
             driver.Accept(who, new RetroReadySet(RetroStage.Thinking, true));
         }
         driver.Accept(Alice, new RetroStageSet(RetroStage.Thinking, RetroStage.Voting));
         driver.Accept(Bob, new RetroVoteSet(card, true));
-        driver.Accept(Carol, new RetroVoteSet(card, true));
-        driver.Accept(Carol, new RetroVoteSet(anonymous, true));
+        driver.Accept(Dave, new RetroVoteSet(card, true));
+        driver.Accept(Dave, new RetroVoteSet(anonymous, true));
         driver.Accept(Bob, new RetroReadySet(RetroStage.Voting, true));
         driver.Accept(Alice, new RetroReadySet(RetroStage.Voting, true));
-        driver.Accept(Carol, new RetroReadySet(RetroStage.Voting, true));
+        driver.Accept(Dave, new RetroReadySet(RetroStage.Voting, true));
         driver.Accept(Alice, new RetroStageSet(RetroStage.Voting, RetroStage.Discussing));
-        driver.Accept(Carol, new RetroFocusSet(card, null));
+        driver.Accept(Dave, new RetroFocusSet(card, null));
         driver.Accept(Bob, new RetroCardAdd(fx.NewCardId(), Actions, "Quarantine flaky tests", false));
         driver.Accept(Alice, new RetroStageSet(RetroStage.Discussing, RetroStage.Thinking));
         driver.Accept(Alice, new RetroConfigUpdate(new RetroConfigPatch(EnforceReadiness: false), new RetroConfigPatch(EnforceReadiness: true)));
@@ -91,15 +89,13 @@ public sealed class RetroTranscriptTests {
 
     [Fact]
     public void Team_board_roster_and_endorsements() {
-        var driver = new RetroRoomDriver(new RetroFixture(team: true));
+        var driver = new RetroRoomDriver(new RetroFixture());
         var fx = driver.Fixture;
-        fx.State.Visibility = BoardVisibility.Link;
         var bob = driver.Watch(Bob);
-        var carol = driver.Watch(Carol);
 
         var action = fx.NewCardId();
         driver.Accept(Alice, new RetroCardAdd(action, Actions, $"Pair with [[mention:{Bob.Id}:Bob]] on deploys", false));
-        driver.Accept(Carol, new RetroCardAdd(fx.NewCardId(), Good, "Thanks for having me", false));
+        driver.Accept(Dave, new RetroCardAdd(fx.NewCardId(), Good, "Thanks for having me", false));
         driver.Accept(Alice, new RetroCardAdd(fx.NewCardId(), Actions, "Write the runbook", true));
         driver.Accept(Alice, new RetroCardEdit(action, "Pair with Bob on deploys", 1));
         driver.Accept(Alice, new RetroEndorseGive(fx.NewEndorsementId(), Bob.Id, Helper));
@@ -108,17 +104,16 @@ public sealed class RetroTranscriptTests {
         driver.Accept(Bob, new RetroEndorseRevoke(kudos));
         driver.Accept(null, new RetroInput.TeamSettingsChanged(5));
         driver.Accept(Bob, new RetroTimerStart(600_000, true, false, TimerState.Idle));
-        driver.Accept(null, new RetroInput.AccessSet(BoardVisibility.Password, Start));
+        driver.Accept(null, new RetroInput.MembersChanged([.. fx.State.Members.Where(m => m.Pid != Dave.Id)]));
 
         Emit("retro-team-member", driver, bob);
-        Emit("retro-team-non-member", driver, carol);
     }
 
     [Fact]
     public void Timer() {
         var driver = new RetroRoomDriver(new RetroFixture());
         var fx = driver.Fixture;
-        var gus = driver.Watch(Gus);
+        var dave = driver.Watch(Dave);
 
         driver.Accept(Alice, new RetroTimerStart(300_000, true, true, TimerState.Idle));
         fx.Now += TimeSpan.FromMinutes(1);
@@ -131,14 +126,13 @@ public sealed class RetroTranscriptTests {
         driver.Accept(Alice, new RetroTimerStart(60_000, false, false, TimerState.Idle));
         driver.Accept(Alice, new RetroTimerReset(TimerState.Running));
 
-        Emit("retro-timer-guest", driver, gus);
+        Emit("retro-timer-dave", driver, dave);
     }
 
     [Fact]
     public void Posts_in_the_same_millisecond() {
-        var driver = new RetroRoomDriver(new RetroFixture(team: true));
+        var driver = new RetroRoomDriver(new RetroFixture());
         var fx = driver.Fixture;
-        fx.State.Visibility = BoardVisibility.Link;
         var alice = driver.Watch(Alice);
         var higher = new CardId(Guid.Parse("ca000000-0000-4000-8000-0000000000f2"));
         var lower = new CardId(Guid.Parse("ca000000-0000-4000-8000-0000000000f1"));
@@ -173,8 +167,7 @@ public sealed class RetroTranscriptTests {
         var expected = new JsonObject { ["d"] = freshNode["d"]!.DeepClone(), ["o"] = freshNode["o"]!.DeepClone() };
         var viewer = new JsonObject {
             ["pid"] = watcher.Who.Id.ToString(),
-            ["kind"] = watcher.Who.Kind == PrincipalKind.Guest ? "guest" : "user",
-            ["member"] = watcher.Member,
+            ["kind"] = "user",
         };
 
         var text = new StringBuilder();

@@ -21,13 +21,11 @@ internal sealed class FakeAccess : IAccessView {
     public Dictionary<(TeamId, PrincipalId), TeamRole> Roles { get; } = [];
 
     public TeamRole? RoleIn(TeamId team, PrincipalId principal) => Roles.TryGetValue((team, principal), out var role) ? role : null;
-
-    public bool HasCurrentGrant(BoardId board, PrincipalId principal, DateTimeOffset? passwordSetAt) => false;
 }
 
 /// <summary>
-/// A board with Good, Bad and Action Items columns, and a cast: Alice and Bob are signed in (team members on a
-/// team board), Carol is signed in but never a member, Gus is a guest.
+/// A team board with Good, Bad and Action Items columns, and a cast: Alice owns the team, Bob and Dave are members,
+/// Carol is signed in but never a member, and Gus is a legacy guest principal, who is never a caller (UX18).
 /// </summary>
 internal sealed class RetroFixture {
     public static readonly DateTimeOffset Start = new(2026, 10, 20, 10, 0, 0, TimeSpan.Zero);
@@ -43,6 +41,7 @@ internal sealed class RetroFixture {
     public static readonly Principal Alice = User("a1000000-0000-4000-8000-000000000001", "Alice");
     public static readonly Principal Bob = User("b2000000-0000-4000-8000-000000000002", "Bob");
     public static readonly Principal Carol = User("c3000000-0000-4000-8000-000000000003", "Carol");
+    public static readonly Principal Dave = User("d4000000-0000-4000-8000-000000000005", "Dave");
     public static readonly Principal Gus = new(
         new PrincipalId(Guid.Parse("90000000-0000-4000-8000-000000000004")),
         PrincipalKind.Guest,
@@ -52,28 +51,25 @@ internal sealed class RetroFixture {
 
     private int _ids;
 
-    public RetroFixture(bool team = false) {
+    public RetroFixture() {
         Decider = new RetroDecider(Tagger);
         Projection = new RetroProjection(Tagger);
         State = new RetroState {
             BoardId = Board,
             Code = "RETRO12345",
             Title = "Sprint 42 retro",
-            TeamId = team ? Team : null,
-            Visibility = team ? BoardVisibility.Team : BoardVisibility.Link,
+            TeamId = Team,
         };
         State.Columns.Add(new Column { Id = Good, Title = "Good", Color = ColumnColor.Green, SortKey = 0 });
         State.Columns.Add(new Column { Id = Bad, Title = "Bad", Color = ColumnColor.Red, SortKey = 1 });
         State.Columns.Add(new Column { Id = Actions, Title = "Action Items", Color = ColumnColor.Yellow, SortKey = 2, ActionItems = true });
         State.EndorsementTypes.Add(new EndorsementTypeInfo(Helper, "Helper", "🤝", Archived: false));
         State.EndorsementTypes.Add(new EndorsementTypeInfo(Retired, "Retired", "🧓", Archived: true));
-        if (team) {
-            Access.Roles[(Team, Alice.Id)] = TeamRole.Owner;
-            Access.Roles[(Team, Bob.Id)] = TeamRole.Member;
-            State.Members.Add(new MemberInfo(Alice.Id, Alice.DisplayName, TeamRole.Owner));
-            State.Members.Add(new MemberInfo(Bob.Id, Bob.DisplayName, TeamRole.Member));
+        foreach (var (who, role) in new[] { (Alice, TeamRole.Owner), (Bob, TeamRole.Member), (Dave, TeamRole.Member) }) {
+            Access.Roles[(Team, who.Id)] = role;
+            State.Members.Add(new MemberInfo(who.Id, who.DisplayName, role));
         }
-        Present = [Alice, Bob, Carol, Gus];
+        Present = [Alice, Bob, Dave];
     }
 
     public FakeTagger Tagger { get; } = new();

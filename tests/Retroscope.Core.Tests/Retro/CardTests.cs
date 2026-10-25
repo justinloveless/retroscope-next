@@ -12,13 +12,38 @@ public sealed class CardTests {
     public void A_card_records_its_author() {
         var fx = new RetroFixture();
         var id = fx.NewCardId();
-        var added = Assert.IsType<CardAdded>(Assert.Single(fx.Do(Gus, new RetroCardAdd(id, Good, "Hello", false))));
+        var added = Assert.IsType<CardAdded>(Assert.Single(fx.Do(Bob, new RetroCardAdd(id, Good, "Hello", false))));
 
-        Assert.Equal(new AuthorInfo("Sneaky Penguin", Guest: true, Gus.Id), added.Authorship.Author);
+        Assert.Equal(new AuthorInfo("Bob", Guest: false, Bob.Id), added.Authorship.Author);
         Assert.Null(added.Authorship.AnonTag);
         Assert.Equal(Start, added.CreatedAt);
         Assert.Null(added.ActionItem);
         Assert.Equal(1, fx.State.Cards[id].Version);
+    }
+
+    [Fact]
+    public void Only_members_add_cards_and_comments() {
+        var fx = new RetroFixture();
+        var card = fx.AddCard(Alice, Good);
+        foreach (var outsider in new[] { Carol, Gus }) {
+            fx.Rejects(outsider, new RetroCardAdd(fx.NewCardId(), Good, "Hello", false), NackCode.Forbidden);
+            fx.Rejects(outsider, new RetroCommentAdd(fx.NewCommentId(), card, "Hello", false), NackCode.Forbidden);
+        }
+        // A role reported for a guest id opens nothing: members are users.
+        fx.Access.Roles[(RetroFixture.Team, Gus.Id)] = Room.TeamRole.Owner;
+        fx.Rejects(Gus, new RetroCardAdd(fx.NewCardId(), Good, "Hello", false), NackCode.Forbidden);
+    }
+
+    [Fact]
+    public void A_removed_member_loses_the_board_on_the_next_command() {
+        var fx = new RetroFixture();
+        var card = fx.AddCard(Bob, Good);
+
+        fx.Access.Roles.Remove((RetroFixture.Team, Bob.Id));
+
+        fx.Rejects(Bob, new RetroCardEdit(card, "Still mine?", 1), NackCode.Forbidden);
+        fx.Rejects(Bob, new RetroCardDelete(card), NackCode.Forbidden);
+        fx.Rejects(Bob, new RetroCardAdd(fx.NewCardId(), Good, "Hello", false), NackCode.Forbidden);
     }
 
     [Fact]
@@ -32,11 +57,11 @@ public sealed class CardTests {
     }
 
     [Fact]
-    public void Anonymous_posting_needs_a_signed_in_user_and_the_board_setting() {
+    public void Anonymous_posting_follows_the_board_setting() {
         var fx = new RetroFixture();
-        fx.Rejects(Gus, new RetroCardAdd(fx.NewCardId(), Good, "x", true), NackCode.Forbidden);
         var card = fx.AddCard(Alice, Good);
-        fx.Rejects(Gus, new RetroCommentAdd(fx.NewCommentId(), card, "x", true), NackCode.Forbidden);
+        fx.AddCard(Bob, Good, anonymous: true);
+        fx.AddComment(Bob, card, anonymous: true);
 
         fx.State.Config = fx.State.Config with { AllowAnonymous = false };
         fx.Rejects(Alice, new RetroCardAdd(fx.NewCardId(), Good, "x", true), NackCode.Forbidden);
@@ -110,8 +135,8 @@ public sealed class CardTests {
 
     [Fact]
     public void Mentions_keep_team_members_only() {
-        var fx = new RetroFixture(team: true);
-        var body = $"Thanks [[mention:{Bob.Id}:Bob]] and [[mention:{Carol.Id}:Carol]] and [[mention:{Bob.Id}:Bobby]]";
+        var fx = new RetroFixture();
+        var body = $"Thanks [[mention:{Bob.Id}:Bob]] and [[mention:{Carol.Id}:Carol]] and [[mention:{Gus.Id}:Gus]] and [[mention:{Bob.Id}:Bobby]]";
         var added = Assert.IsType<CardAdded>(Assert.Single(fx.Do(Alice, new RetroCardAdd(fx.NewCardId(), Good, body, false))));
         Assert.Equal([Bob.Id], added.Mentions);
 
@@ -119,15 +144,8 @@ public sealed class CardTests {
         var edited = Assert.IsType<CardEdited>(Assert.Single(fx.Do(Alice, new RetroCardEdit(card, $"Hey [[mention:{Alice.Id}:Me]]", 1))));
         Assert.Equal([Alice.Id], edited.Mentions);
 
-        var comment = Assert.IsType<CommentAdded>(Assert.Single(fx.Do(Carol, new RetroCommentAdd(fx.NewCommentId(), card, body, false))));
+        var comment = Assert.IsType<CommentAdded>(Assert.Single(fx.Do(Dave, new RetroCommentAdd(fx.NewCommentId(), card, body, false))));
         Assert.Equal([Bob.Id], comment.Mentions);
-    }
-
-    [Fact]
-    public void Quick_boards_record_no_mentions() {
-        var fx = new RetroFixture();
-        var added = Assert.IsType<CardAdded>(Assert.Single(fx.Do(Alice, new RetroCardAdd(fx.NewCardId(), Good, $"[[mention:{Bob.Id}:Bob]]", false))));
-        Assert.Empty(added.Mentions);
     }
 
     [Fact]
@@ -142,7 +160,7 @@ public sealed class CardTests {
 
     [Fact]
     public void Action_items_column_of_a_team_board_creates_the_item_in_place() {
-        var fx = new RetroFixture(team: true);
+        var fx = new RetroFixture();
         var card = fx.NewCardId();
         var added = Assert.IsType<CardAdded>(Assert.Single(fx.Do(Bob, new RetroCardAdd(card, Actions, "Fix CI", false))));
 
@@ -154,20 +172,16 @@ public sealed class CardTests {
         Assert.Equal(1, item.SourceVersion);
         Assert.Equal(Start.ToUnixTimeMilliseconds(), item.CreatedAt);
 
-        var again = new RetroFixture(team: true);
+        var again = new RetroFixture();
         var sameId = Assert.IsType<CardAdded>(Assert.Single(again.Do(Bob, new RetroCardAdd(card, Actions, "Fix CI", false))));
         Assert.Equal(item.Id, sameId.ActionItem!.Id);
     }
 
     [Fact]
-    public void Anonymous_action_items_have_no_creator_and_quick_boards_have_no_items() {
-        var team = new RetroFixture(team: true);
-        var anonymous = Assert.IsType<CardAdded>(Assert.Single(team.Do(Alice, new RetroCardAdd(team.NewCardId(), Actions, "x", true))));
+    public void Anonymous_action_items_have_no_creator() {
+        var fx = new RetroFixture();
+        var anonymous = Assert.IsType<CardAdded>(Assert.Single(fx.Do(Alice, new RetroCardAdd(fx.NewCardId(), Actions, "x", true))));
         Assert.Null(anonymous.ActionItem!.CreatedBy);
-
-        var quick = new RetroFixture();
-        var added = Assert.IsType<CardAdded>(Assert.Single(quick.Do(Alice, new RetroCardAdd(quick.NewCardId(), Actions, "x", false))));
-        Assert.Null(added.ActionItem);
     }
 
     [Fact]

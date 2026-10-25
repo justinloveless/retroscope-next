@@ -32,10 +32,9 @@ internal sealed class RetroRoomDriver {
 
     /// <summary>Subscribes a viewer now: it gets a snapshot at the current seq.</summary>
     public Watcher Watch(Principal who) {
-        var member = RetroRoles.IsMember(Fixture.State, who.Id, Fixture.Access);
-        var snapshot = RetroProjection.Snapshot(Fixture.State, PresenceInfo, member);
+        var snapshot = RetroProjection.Snapshot(Fixture.State, PresenceInfo);
         var overlay = Fixture.Projection.Overlay(Fixture.State, who.Id);
-        var watcher = new Watcher(who, member, new RetroViewerModel(snapshot, overlay));
+        var watcher = new Watcher(who, new RetroViewerModel(snapshot, overlay));
         watcher.Frames.Add(new SnapFrame(Room, Epoch, _seq, 0, snapshot, overlay));
         _watchers.Add(watcher);
         return watcher;
@@ -51,7 +50,7 @@ internal sealed class RetroRoomDriver {
             }
             _seq++;
             foreach (var watcher in _watchers) {
-                var wire = fx.Projection.ForViewer(fx.State, accept.Events, watcher.Who.Id, watcher.Member);
+                var wire = fx.Projection.ForViewer(fx.State, accept.Events, watcher.Who.Id);
                 watcher.Frames.Add(new TxFrame(Room, _seq, wire));
                 foreach (var evt in wire) {
                     watcher.Model.Apply(evt);
@@ -69,7 +68,7 @@ internal sealed class RetroRoomDriver {
         return RetroViewerModel.Canonical(Snapshot(watcher), Fixture.Projection.Overlay(Fixture.State, watcher.Who.Id));
     }
 
-    public RetroSnapshot Snapshot(Watcher watcher) => RetroProjection.Snapshot(Fixture.State, PresenceInfo, watcher.Member);
+    public RetroSnapshot Snapshot(Watcher watcher) => RetroProjection.Snapshot(Fixture.State, PresenceInfo);
 
     public void AssertConverged() {
         foreach (var watcher in _watchers) {
@@ -77,10 +76,8 @@ internal sealed class RetroRoomDriver {
         }
     }
 
-    internal sealed class Watcher(Principal who, bool member, RetroViewerModel model) {
+    internal sealed class Watcher(Principal who, RetroViewerModel model) {
         public Principal Who { get; } = who;
-
-        public bool Member { get; } = member;
 
         public RetroViewerModel Model { get; } = model;
 

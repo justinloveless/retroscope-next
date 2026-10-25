@@ -15,7 +15,7 @@ internal sealed class RetroViewerModel {
     private readonly Dictionary<CardId, CardInfo> _cards;
     private readonly Dictionary<CommentId, CommentInfo> _comments;
     private readonly Dictionary<CardId, RetroVoteChanged> _votes;
-    private readonly Dictionary<EndorsementId, EndorsementInfo>? _endorsements;
+    private readonly Dictionary<EndorsementId, EndorsementInfo> _endorsements;
     private readonly HashSet<CardId> _mineCards;
     private readonly HashSet<CommentId> _mineComments;
     private readonly HashSet<CardId> _myVotes;
@@ -25,8 +25,8 @@ internal sealed class RetroViewerModel {
     private RetroTimer _timer;
     private RetroReadiness _readiness;
     private CardId? _focus;
-    private int? _maxEndorsements;
-    private List<MemberInfo>? _members;
+    private int _maxEndorsements;
+    private List<MemberInfo> _members;
 
     public RetroViewerModel(RetroSnapshot snapshot, RetroOverlay overlay) {
         _base = snapshot;
@@ -37,12 +37,12 @@ internal sealed class RetroViewerModel {
         _readiness = snapshot.Readiness;
         _focus = snapshot.Focus;
         _maxEndorsements = snapshot.MaxEndorsements;
-        _members = snapshot.Members?.ToList();
+        _members = snapshot.Members.ToList();
         _columns = [.. snapshot.Columns];
         _cards = snapshot.Cards.ToDictionary(c => c.Id);
         _comments = snapshot.Comments.ToDictionary(c => c.Id);
         _votes = snapshot.Votes.ToDictionary(v => v.CardId);
-        _endorsements = snapshot.Endorsements?.ToDictionary(e => e.Id);
+        _endorsements = snapshot.Endorsements.ToDictionary(e => e.Id);
         _mineCards = [.. overlay.MineCards];
         _mineComments = [.. overlay.MineComments];
         _myVotes = [.. overlay.MyVotes];
@@ -117,10 +117,10 @@ internal sealed class RetroViewerModel {
                 _timer = Normalize(e);
                 break;
             case RetroEndorsementAdded e:
-                _endorsements![e.Endorsement.Id] = e.Endorsement;
+                _endorsements[e.Endorsement.Id] = e.Endorsement;
                 break;
             case RetroEndorsementRemoved e:
-                _endorsements!.Remove(e.EndorsementId);
+                _endorsements.Remove(e.EndorsementId);
                 break;
             case RetroMembers e:
                 _members = [.. e.Members];
@@ -147,7 +147,7 @@ internal sealed class RetroViewerModel {
             Votes = cards.Where(c => _votes.ContainsKey(c.Id)).Select(c => _votes[c.Id]).ToList(),
             Readiness = _readiness,
             Focus = _focus,
-            Endorsements = _endorsements?.Values.OrderBy(e => e.CreatedAt).ThenBy(e => e.Id.Value).ToList(),
+            Endorsements = _endorsements.Values.OrderBy(e => e.CreatedAt).ThenBy(e => e.Id.Value).ToList(),
             MaxEndorsements = _maxEndorsements,
             Members = _members,
         };
