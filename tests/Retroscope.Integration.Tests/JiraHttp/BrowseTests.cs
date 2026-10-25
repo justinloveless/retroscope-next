@@ -171,11 +171,37 @@ public sealed class BrowseTests(PostgresFixture postgres) {
         var team = await host.TeamAsync((ada, "member"));
         await host.ConfigureAsync(team, pointsField: null);
         host.AddBoard();
+        const string boardField = "customfield_10028";
+        host.Jira.BoardEstimation = FakeJiraServer.FieldEstimation(boardField, "Story Points");
         host.Jira.AddIssue("RS-1", "Pay", points: 5);
+        host.Jira.Issues["RS-1"]["fields"]![boardField] = 8m;
 
-        var browse = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, "/browse?scope=open&points=5"));
+        var browse = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, "/browse?scope=open&points=8"));
 
-        Assert.Equal(5m, (decimal)Rows(browse).Single()["points"]!);
+        Assert.Equal(8m, (decimal)Rows(browse).Single()["points"]!);
+        var searches = host.Jira.Requests.Where(r => r.Path == "/rest/api/3/search/jql").Select(r => (string)JsonNode.Parse(r.Body)!["jql"]!).ToList();
+        Assert.Contains(searches, jql => jql.Contains("cf[10028] = 8", StringComparison.Ordinal));
+        Assert.DoesNotContain(searches, jql => jql.Contains("cf[10016]", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_field_catalogue_Jira_cannot_answer_leaves_rows_without_points_and_fails_a_points_filter_with_its_code() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var ada = await host.UserAsync("Ada");
+        var team = await host.TeamAsync((ada, "member"));
+        await host.ConfigureAsync(team, pointsField: null);
+        host.AddBoard();
+        host.Jira.BoardEstimation = null;
+        host.Jira.AddIssue("RS-1", "Pay", points: 5);
+        host.Jira.Script("GET", "/rest/api/3/field", [.. Enumerable.Repeat(new FakeJiraResponse(500, "{}"), 10)]);
+
+        var browse = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, "/browse?scope=open"));
+        var (status, problem) = await host.ProblemAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, "/browse?scope=open&points=5"));
+
+        var row = Rows(browse).Single();
+        Assert.Equal("RS-1", (string)row["key"]!);
+        Assert.Null(row["points"]);
+        Assert.Equal((503, "jira_unavailable"), (status, (string)problem["code"]!));
     }
 
     [Fact]

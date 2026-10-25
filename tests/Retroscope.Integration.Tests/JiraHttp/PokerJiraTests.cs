@@ -1,8 +1,10 @@
+using Microsoft.Extensions.DependencyInjection;
 using Retroscope.Core.Poker;
 using Retroscope.Core.Protocol;
 using Retroscope.Core.Room;
 using Retroscope.Fakes.FakeJira;
 using Retroscope.Integration.Tests.Schema;
+using Retroscope.Server.Jira;
 using Retroscope.Server.Realtime.Rooms;
 
 namespace Retroscope.Integration.Tests.JiraHttp;
@@ -107,6 +109,29 @@ public sealed class PokerJiraTests(PostgresFixture postgres) {
 
         Assert.Equal(8m, (decimal?)host.Jira.Issues["RS-1"]["fields"]![BoardPointsField]);
         Assert.Null(host.Jira.Issues["RS-1"]["fields"]![JiraHttpHost.PointsField]);
+    }
+
+    [Fact]
+    public async Task A_submit_fails_with_the_code_and_writes_nothing_when_the_board_configuration_cannot_be_read_for_now() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (ada, team) = await BrowseTests.TeamAsync(host);
+        host.Jira.BoardEstimation = FakeJiraServer.FieldEstimation(BoardPointsField, "Story Points");
+        host.Jira.EditableFields.Add(BoardPointsField);
+        host.Jira.AddIssue("RS-1", "Pay with a card");
+        var room = await host.SessionAsync(ada, team, ["RS-1"]);
+        var round = (await host.RoundsAsync(room))[0];
+        await host.ExecuteAsync("update poker_rounds set state = 'revealed', revealed_at = now() where id = $1", round.Value);
+        await using var tab = await host.JoinAsync(ada, room);
+        // Two, so the write still meets one if the room's metadata load reads the configuration first.
+        host.Jira.Script("GET", "/rest/agile/1.0/board/7/configuration", new FakeJiraResponse(500, "{}"), new FakeJiraResponse(500, "{}"));
+        host.App.Services.GetRequiredService<JiraCache>().InvalidateTag(JiraCache.TeamTag(team));
+
+        Assert.IsType<AckFrame>(await tab.CommandAsync(room, new PokerJiraSubmitPoints(round, 8)));
+        await tab.WaitForEventAsync<PokerJiraPoints>(e => e is { Status: JiraSubmitStatus.Failed, Code: "jira_unavailable" });
+
+        Assert.DoesNotContain(host.Jira.Requests, r => r.Method == "PUT");
+        Assert.Null(host.Jira.Issues["RS-1"]["fields"]![JiraHttpHost.PointsField]);
+        Assert.Empty(await host.AuditAsync(team));
     }
 
     [Fact]

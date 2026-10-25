@@ -228,16 +228,43 @@ public sealed class IssueTests(PostgresFixture postgres) {
         Assert.Equal(2m, (decimal?)host.Jira.Issues["RS-12"]["fields"]![JiraHttpHost.PointsField]);
     }
 
-    [Fact]
-    public async Task A_failing_board_configuration_leaves_writes_on_the_stored_field() {
+    [Theory]
+    [InlineData(404)]
+    [InlineData(403)]
+    public async Task A_board_that_is_gone_or_hidden_leaves_writes_on_the_stored_field(int status) {
         await using var host = await JiraHttpHost.StartAsync(postgres);
         var (ada, team) = await BrowseTests.TeamAsync(host);
-        host.Jira.Script("GET", "/rest/agile/1.0/board/7/configuration", new FakeJiraResponse(404, "{}"));
+        host.Jira.BoardEstimation = FakeJiraServer.FieldEstimation(BoardPointsField, "Story Points");
+        host.Jira.EditableFields.Add(BoardPointsField);
+        host.Jira.Script("GET", "/rest/agile/1.0/board/7/configuration", new FakeJiraResponse(status, "{}"));
         host.Jira.AddIssue("RS-12", "Saved card");
 
         await host.JsonAsync(HttpMethod.Put, ada, JiraHttpHost.Url(team, "/issues/RS-12/points"), """{"points":2}""");
 
         Assert.Equal(2m, (decimal?)host.Jira.Issues["RS-12"]["fields"]![JiraHttpHost.PointsField]);
+        Assert.Null(host.Jira.Issues["RS-12"]["fields"]![BoardPointsField]);
+    }
+
+    [Fact]
+    public async Task A_board_configuration_Jira_cannot_answer_for_now_fails_the_points_write_and_is_logged() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (ada, team) = await BrowseTests.TeamAsync(host);
+        host.Jira.BoardEstimation = FakeJiraServer.FieldEstimation(BoardPointsField, "Story Points");
+        host.Jira.EditableFields.Add(BoardPointsField);
+        host.Jira.Script("GET", "/rest/agile/1.0/board/7/configuration", new FakeJiraResponse(500, "{}"));
+        host.Jira.AddIssue("RS-12", "Saved card");
+
+        var (status, problem) = await host.ProblemAsync(HttpMethod.Put, ada, JiraHttpHost.Url(team, "/issues/RS-12/points"), """{"points":2}""");
+
+        Assert.Equal((503, "jira_unavailable"), (status, (string)problem["code"]!));
+        Assert.DoesNotContain(host.Jira.Requests, r => r.Method == "PUT");
+        Assert.Contains(host.Logs, line => line.StartsWith("Warning", StringComparison.Ordinal)
+            && line.Contains("board 7", StringComparison.Ordinal)
+            && line.Contains(team.Value.ToString(), StringComparison.Ordinal)
+            && line.Contains("jira_unavailable", StringComparison.Ordinal));
+
+        await host.JsonAsync(HttpMethod.Put, ada, JiraHttpHost.Url(team, "/issues/RS-12/points"), """{"points":2}""");
+        Assert.Equal(2m, (decimal?)host.Jira.Issues["RS-12"]["fields"]![BoardPointsField]);
     }
 
     [Fact]

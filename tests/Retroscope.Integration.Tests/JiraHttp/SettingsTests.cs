@@ -120,6 +120,21 @@ public sealed class SettingsTests(PostgresFixture postgres) {
         Assert.Equal(BoardPointsField, (string)test["discovered"]!["pointsFieldId"]!);
     }
 
+    [Fact]
+    public async Task The_connection_test_reads_the_boards_estimation_field_as_Jira_has_it_now() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (admin, _, team) = await TeamAsync(host);
+        host.Jira.BoardEstimation = FakeJiraServer.FieldEstimation(BoardPointsField, "Story Points");
+        await host.JsonAsync(HttpMethod.Put, admin, JiraHttpHost.Url(team), Save(host, boardId: 7));
+        var before = await host.JsonAsync(HttpMethod.Post, admin, JiraHttpHost.Url(team, "/test"), "{}");
+
+        host.Jira.BoardEstimation = FakeJiraServer.FieldEstimation("customfield_10016", "Story point estimate");
+        var after = await host.JsonAsync(HttpMethod.Post, admin, JiraHttpHost.Url(team, "/test"), "{}");
+
+        Assert.Equal(BoardPointsField, (string)before["discovered"]!["pointsFieldId"]!);
+        Assert.Equal("customfield_10016", (string)after["discovered"]!["pointsFieldId"]!);
+    }
+
     [Theory]
     [InlineData(200, """{"estimation":{"type":"issueCount"}}""")]
     [InlineData(404, "{}")]
