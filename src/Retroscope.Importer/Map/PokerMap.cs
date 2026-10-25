@@ -14,7 +14,9 @@ namespace Retroscope.Importer.Map;
 /// <c>poker_sessions</c> and <c>poker_session_rounds</c> → <c>poker_sessions</c>, <c>poker_observers</c>,
 /// <c>poker_rounds</c>, <c>poker_votes</c> and the synthetic guest and Slack principals behind them (DESIGN §h.2).
 /// Ticket titles and parent summaries are omitted columns, so they are never read. Spotlight state is ephemeral and
-/// starts empty; Jira points were never recorded by the old app, so <c>jira_points*</c> stay null.
+/// starts empty; Jira points were never recorded by the old app, so <c>jira_points*</c> stay null. Every session belongs
+/// to a team (UX18): a session without one (<c>no_team</c>) or whose team was not imported (<c>team_missing</c>) is
+/// skipped, and its rounds with it under the same reason.
 /// </summary>
 public sealed partial class PokerMap : IImportStage {
     public const string SessionsTable = "public.poker_sessions";
@@ -36,10 +38,10 @@ public sealed partial class PokerMap : IImportStage {
 
         foreach (var row in sessions.OrderBy(x => x.Timestamp("created_at")).ThenBy(x => x.PrimaryKey, StringComparer.Ordinal)) {
             var id = row.Uuid("id")!.Value;
-            var teamId = row.Uuid("team_id");
-            if (teamId is { } team && !teams.Contains(team)) {
-                report.Table(SessionsTable).Skip("team_missing");
-                SkipOrphans(report, rounds[id].Count());
+            if (row.Uuid("team_id") is not { } teamId || !teams.Contains(teamId)) {
+                var reason = row.Uuid("team_id") is null ? "no_team" : "team_missing";
+                report.Table(SessionsTable).Skip(reason);
+                SkipRounds(report, reason, rounds[id].Count());
                 continue;
             }
 
@@ -68,7 +70,7 @@ public sealed partial class PokerMap : IImportStage {
         }
 
         var known = sessions.Select(x => x.Uuid("id")!.Value).ToHashSet();
-        SkipOrphans(report, rounds.Where(x => !known.Contains(x.Key)).Sum(x => x.Count()));
+        SkipRounds(report, "orphan", rounds.Where(x => !known.Contains(x.Key)).Sum(x => x.Count()));
         codes.ReportCollisions(report);
 
         var referenced = load.Observers.Select(x => x.Principal).Concat(load.Rounds.SelectMany(x => x.Votes).Select(x => x.Principal));
@@ -79,9 +81,10 @@ public sealed partial class PokerMap : IImportStage {
         await load.WriteAsync(context.Target, cancellationToken);
     }
 
-    private static void SkipOrphans(ImportReport report, int count) {
+    /// <summary>Rounds of a skipped session take its reason; rounds of no session at all are orphans.</summary>
+    private static void SkipRounds(ImportReport report, string reason, int count) {
         if (count > 0) {
-            report.Table(RoundsTable).Skip("orphan", count);
+            report.Table(RoundsTable).Skip(reason, count);
         }
     }
 
@@ -398,7 +401,7 @@ public sealed partial class PokerMap : IImportStage {
     private sealed record SessionRow(
         Guid Id,
         string Code,
-        Guid? TeamId,
+        Guid TeamId,
         bool PresenceEnabled,
         Guid? CurrentRoundId,
         int NextRoundNumber,
@@ -445,7 +448,7 @@ public sealed partial class PokerMap : IImportStage {
                 Sessions, async (writer, x, ct) => {
                     await writer.WriteAsync(x.Id, NpgsqlDbType.Uuid, ct);
                     await writer.WriteAsync(x.Code, NpgsqlDbType.Text, ct);
-                    await WriteNullableAsync(writer, x.TeamId, NpgsqlDbType.Uuid, ct);
+                    await writer.WriteAsync(x.TeamId, NpgsqlDbType.Uuid, ct);
                     await writer.WriteAsync(x.PresenceEnabled, NpgsqlDbType.Boolean, ct);
                     await WriteNullableAsync(writer, x.CurrentRoundId, NpgsqlDbType.Uuid, ct);
                     await writer.WriteAsync(x.NextRoundNumber, NpgsqlDbType.Integer, ct);
