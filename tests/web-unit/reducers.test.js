@@ -193,6 +193,14 @@ test('every session seats its roster, then whoever else is present or voted', ()
   assert.deepEqual(poker.seatsOf(state, R2).map((s) => s.name), ['Bob', 'Carol', 'Dave', 'Zed']);
 });
 
+test('a UUIDv7 id tells when it was made, and any other id does not', () => {
+  const at = Date.UTC(2026, 9, 25, 12);
+  assert.equal(poker.uuidv7Time(poker.uuidv7(at)), at);
+  assert.equal(poker.uuidv7Time('00000000-0000-4000-8000-0000000000a0'), null);
+  assert.equal(poker.uuidv7Time('not an id'), null);
+  assert.equal(poker.uuidv7Time(undefined), null);
+});
+
 test('presence join, update and leave keep the canonical order', () => {
   const ZED = 'ffffffff-0000-4000-8000-000000000009';
   let state = poker.apply(snapshot(), { k: 'presence.join', d: { pid: ZED, kind: 'guest', name: 'Zed' } });
