@@ -62,7 +62,7 @@ public sealed class RoundCommandTests {
         Rejected(room.Send(Bob, new PokerRoundCreate(R(3), "not a key")), NackCode.Invalid);
         Rejected(room.Send(Bob, new PokerRoundCreate(R(3), "ABC-0")), NackCode.Invalid);
         Rejected(room.Send(Bob, new PokerRoundCreate(R(2), "ABC-3")), NackCode.Invalid);
-        Rejected(Quick().Send(Bob, new PokerRoundCreate(R(3), "42")), NackCode.Invalid);
+        Rejected(PokerHarness.Team(jira: false).Send(Bob, new PokerRoundCreate(R(3), "42")), NackCode.Invalid);
     }
 
     [Fact]
@@ -285,15 +285,6 @@ public sealed class RoundCommandTests {
     }
 
     [Fact]
-    public void Delete_in_a_quick_session_needs_a_signed_in_participant() {
-        var room = Quick();
-        room.Accepted(Guest, new PokerRoundCreate(R(2), ForceNew: true));
-
-        Rejected(room.Send(Guest, new PokerRoundDelete(R(2))), NackCode.Forbidden);
-        room.Accepted(Outsider, new PokerRoundDelete(R(2)));
-    }
-
-    [Fact]
     public void Deleting_the_spotlight_round_moves_the_spotlight_to_the_pointer_round_before_the_delete() {
         var room = PokerHarness.Team();
         room.Join(Carol);
@@ -361,10 +352,10 @@ public sealed class RoundCommandTests {
 
     [Fact]
     public void Clear_all_without_a_spotlight_leaves_it_released() {
-        var room = Quick();
+        var room = PokerHarness.Team();
 
         Rejected(room.Send(Guest, new PokerRoundsClearAll(R(9))), NackCode.Forbidden);
-        var events = room.Accepted(Bob, new PokerRoundsClearAll(R(9)));
+        var events = room.Accepted(Dave, new PokerRoundsClearAll(R(9)));
 
         Assert.Equal(["RoundsReset", "PointerMoved"], Kinds(events));
         Assert.Null(room.State.Spotlight);

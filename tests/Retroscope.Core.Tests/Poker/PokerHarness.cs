@@ -65,8 +65,10 @@ internal sealed class PokerHarness {
 
     public static Viewer Dave { get; } = Viewer(4, "Dave");
 
+    /// <summary>A legacy guest principal: never a caller (UX18).</summary>
     public static Viewer Guest { get; } = Viewer(5, "Gus", PrincipalKind.Guest);
 
+    /// <summary>Signed in, not a member of the team.</summary>
     public static Viewer Outsider { get; } = Viewer(6, "Olga");
 
     /// <summary>Alice is the owner, Dave an admin, Bob and Carol members; round 1 is current and the room is warm.</summary>
@@ -76,16 +78,13 @@ internal sealed class PokerHarness {
         access.Roles[Dave.Who.Id] = TeamRole.Admin;
         access.Roles[Bob.Who.Id] = TeamRole.Member;
         access.Roles[Carol.Who.Id] = TeamRole.Member;
-        var state = NewState(TeamId);
+        var state = NewState();
         state.Jira = jira ? new TeamJiraSettings(true, "ABC", true) : TeamJiraSettings.None;
         foreach (var member in new[] { Alice, Bob, Carol, Dave }) {
             state.Roster[member.Who.Id] = Info(member);
         }
         return new PokerHarness(state, access);
     }
-
-    /// <summary>A quick session created by Alice; round 1 is current and the room is warm.</summary>
-    public static PokerHarness Quick() => new(NewState(null), new TestAccess());
 
     public static PrincipalInfo Info(Viewer viewer) {
         return new PrincipalInfo(viewer.Who.Id, viewer.Who.Kind, viewer.Who.DisplayName);
@@ -170,12 +169,11 @@ internal sealed class PokerHarness {
 
     public Round Round(int n) => State.Rounds[R(n)];
 
-    private static PokerState NewState(TeamId? team) {
+    private static PokerState NewState() {
         var state = new PokerState {
             SessionId = Session,
-            Code = team is null ? "QUICK1" : "TEAM01",
-            TeamId = team,
-            CreatedBy = Alice.Who.Id,
+            Code = "TEAM01",
+            TeamId = TeamId,
             WarmUntil = Start,
             CurrentRoundId = R(1),
             NextRoundNumber = 2,
@@ -192,6 +190,4 @@ internal sealed class TestAccess : IAccessView {
     public TeamRole? RoleIn(TeamId team, PrincipalId principal) {
         return team == PokerHarness.TeamId && Roles.TryGetValue(principal, out var role) ? role : null;
     }
-
-    public bool HasCurrentGrant(BoardId board, PrincipalId principal, DateTimeOffset? passwordSetAt) => false;
 }
