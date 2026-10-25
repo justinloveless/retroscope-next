@@ -88,7 +88,8 @@ public sealed class MeBootContributor(MeBuilder builder) : IBootContributor {
 
 /// <summary>
 /// A signed-in <c>/</c> leads to the team the user visited last, else their first team by name, else the
-/// create-or-join screen at <c>/teams</c> (UX18 decision 8). The client applies the same rule for in-app navigation.
+/// create-or-join screen at <c>/teams</c> (UX18 decision 8). It cannot see a pending invite, which waits in the
+/// browser: the client lets that win on in-app navigation, and sign-in and the create-or-join screen resume it.
 /// </summary>
 public sealed class HomeRedirect(UsersRepo users) : IShellRedirect {
     public async ValueTask<string?> RedirectAsync(ShellRoute route, Caller caller, CancellationToken cancellationToken) {
