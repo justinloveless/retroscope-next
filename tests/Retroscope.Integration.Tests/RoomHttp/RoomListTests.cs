@@ -120,10 +120,9 @@ public sealed class RoomListTests(PostgresFixture postgres) {
 
         var item = Assert.Single(active.GetProperty("items").EnumerateArray());
         Assert.Equal(
-            ["id", "code", "title", "visibility", "archived", "createdAt"],
+            ["id", "code", "title", "archived", "createdAt"],
             item.EnumerateObject().Select(x => x.Name));
         Assert.Equal(open.GetProperty("code").GetString(), item.GetProperty("code").GetString());
-        Assert.Equal("team", item.GetProperty("visibility").GetString());
         var oldItem = Assert.Single(old.GetProperty("items").EnumerateArray());
         Assert.Equal("Archived", oldItem.GetProperty("title").GetString());
         Assert.True(oldItem.GetProperty("archived").GetBoolean());

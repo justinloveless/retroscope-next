@@ -13,11 +13,11 @@ public sealed partial class RoomLookupTests(PostgresFixture postgres) {
     [Fact]
     public async Task By_code_answers_id_and_access_only_and_ignores_case() {
         await using var app = await RoomHttpApp.StartAsync(postgres);
-        var guest = RoomHttpApp.Guest(await app.GuestAsync());
-        var created = await RoomHttpApp.JsonAsync(await app.PostAsync("/api/poker", guest), HttpStatusCode.Created);
+        var (member, team) = await MemberAsync(app);
+        var created = await RoomHttpApp.JsonAsync(await app.PostAsync($"/api/teams/{team}/poker-sessions", member), HttpStatusCode.Created);
         var code = created.GetProperty("code").GetString()!;
 
-        var poker = await RoomHttpApp.JsonAsync(await app.GetAsync($"/api/poker/by-code/{code.ToLowerInvariant()}", guest));
+        var poker = await RoomHttpApp.JsonAsync(await app.GetAsync($"/api/poker/by-code/{code.ToLowerInvariant()}", member));
 
         Assert.Equal(["id", "access"], poker.EnumerateObject().Select(x => x.Name));
         Assert.Equal(created.GetProperty("id").GetGuid(), poker.GetProperty("id").GetGuid());
@@ -53,22 +53,6 @@ public sealed partial class RoomLookupTests(PostgresFixture postgres) {
     }
 
     [Fact]
-    public async Task By_code_reports_a_password_board_without_revealing_more() {
-        await using var app = await RoomHttpApp.StartAsync(postgres);
-        var creator = RoomHttpApp.User(await app.UserAsync());
-        var visitor = RoomHttpApp.Guest(await app.GuestAsync());
-        var board = await RoomHttpApp.JsonAsync(await app.PostAsync("/api/retro", creator), HttpStatusCode.Created);
-        var id = board.GetProperty("id").GetGuid();
-        using var locked = await app.SendAsync(HttpMethod.Patch, $"/api/retro/{id}", creator, new { password = "open sesame" });
-        Assert.Equal(HttpStatusCode.NoContent, locked.StatusCode);
-
-        var seen = await RoomHttpApp.JsonAsync(await app.GetAsync($"/api/retro/by-code/{board.GetProperty("code").GetString()}", visitor));
-
-        Assert.Equal(["id", "access"], seen.EnumerateObject().Select(x => x.Name));
-        Assert.Equal("password", seen.GetProperty("access").GetString());
-    }
-
-    [Fact]
     public async Task Code_lookups_share_the_resolver_limit_per_ip() {
         await using var app = await RoomHttpApp.StartAsync(postgres);
         var guest = RoomHttpApp.Guest(await app.GuestAsync());
@@ -90,11 +74,11 @@ public sealed partial class RoomLookupTests(PostgresFixture postgres) {
     [Fact]
     public async Task The_shell_embeds_the_viewers_snapshot_for_a_poker_session() {
         await using var app = await RoomHttpApp.StartAsync(postgres);
-        var guest = RoomHttpApp.Guest(await app.GuestAsync());
-        var created = await RoomHttpApp.JsonAsync(await app.PostAsync("/api/poker", guest), HttpStatusCode.Created);
+        var (member, team) = await MemberAsync(app);
+        var created = await RoomHttpApp.JsonAsync(await app.PostAsync($"/api/teams/{team}/poker-sessions", member), HttpStatusCode.Created);
         var code = created.GetProperty("code").GetString()!;
 
-        using var page = await app.GetAsync($"/poker/{code}", guest);
+        using var page = await app.GetAsync($"/poker/{code}", member);
         var room = BootOf(await page.Content.ReadAsStringAsync(RoomHttpApp.Token)).GetProperty("room");
 
         Assert.Equal($"poker:{created.GetProperty("id").GetGuid()}", room.GetProperty("r").GetString());
@@ -107,26 +91,22 @@ public sealed partial class RoomLookupTests(PostgresFixture postgres) {
     }
 
     [Fact]
-    public async Task Boot_embeds_board_snapshots_and_password_gates() {
+    public async Task Boot_embeds_board_snapshots_for_members_only() {
         await using var app = await RoomHttpApp.StartAsync(postgres);
-        var creator = RoomHttpApp.User(await app.UserAsync());
-        var visitor = RoomHttpApp.Guest(await app.GuestAsync());
-        var board = await RoomHttpApp.JsonAsync(await app.PostAsync("/api/retro", creator, new { title = "Friday" }), HttpStatusCode.Created);
+        var (member, team) = await MemberAsync(app);
+        var outsider = RoomHttpApp.User(await app.UserAsync());
+        var board = await RoomHttpApp.JsonAsync(
+            await app.PostAsync($"/api/teams/{team}/boards", member, new { title = "Friday" }), HttpStatusCode.Created);
         var code = board.GetProperty("code").GetString()!;
         var key = $"board:{board.GetProperty("id").GetGuid()}";
 
-        var open = await RoomHttpApp.JsonAsync(await app.GetAsync($"/api/boot?path=/retro/{code}", visitor));
-        using (await app.SendAsync(HttpMethod.Patch, $"/api/retro/{board.GetProperty("id").GetGuid()}", creator, new { password = "open sesame" })) {
-        }
-        var gated = await RoomHttpApp.JsonAsync(await app.GetAsync($"/api/boot?path=/retro/{code}", visitor));
-        var mine = await RoomHttpApp.JsonAsync(await app.GetAsync($"/api/boot?path=/retro/{code}", creator));
+        var mine = await RoomHttpApp.JsonAsync(await app.GetAsync($"/api/boot?path=/retro/{code}", member));
+        var theirs = await RoomHttpApp.JsonAsync(await app.GetAsync($"/api/boot?path=/retro/{code}", outsider));
 
-        Assert.Equal(key, open.GetProperty("room").GetProperty("r").GetString());
-        Assert.Equal("Friday", open.GetProperty("room").GetProperty("d").GetProperty("meta").GetProperty("title").GetString());
-        Assert.Equal(["r", "access"], gated.GetProperty("room").EnumerateObject().Select(x => x.Name));
-        Assert.Equal("password", gated.GetProperty("room").GetProperty("access").GetString());
+        Assert.Equal(key, mine.GetProperty("room").GetProperty("r").GetString());
         Assert.Equal("granted", mine.GetProperty("room").GetProperty("access").GetString());
-        Assert.True(mine.GetProperty("room").TryGetProperty("d", out _));
+        Assert.Equal("Friday", mine.GetProperty("room").GetProperty("d").GetProperty("meta").GetProperty("title").GetString());
+        Assert.False(theirs.TryGetProperty("room", out _));
     }
 
     [Fact]
@@ -150,6 +130,12 @@ public sealed partial class RoomLookupTests(PostgresFixture postgres) {
         Assert.False(wrongTeam.TryGetProperty("room", out _));
         Assert.False(forbidden.TryGetProperty("room", out _));
         Assert.False(missing.TryGetProperty("room", out _));
+    }
+
+    /// <summary>A member of a new team, as a caller, and the team.</summary>
+    private static async Task<(string Member, Guid Team)> MemberAsync(RoomHttpApp app) {
+        var user = await app.UserAsync();
+        return (RoomHttpApp.User(user), await app.TeamAsync((user, "member")));
     }
 
     private static JsonElement BootOf(string body) {

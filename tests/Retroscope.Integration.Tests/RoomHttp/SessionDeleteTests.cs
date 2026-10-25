@@ -9,20 +9,22 @@ namespace Retroscope.Integration.Tests.RoomHttp;
 [Collection(SharedPostgres.Name)]
 public sealed class SessionDeleteTests(PostgresFixture postgres) {
     [Fact]
-    public async Task The_creator_deletes_a_quick_session_and_its_subscribers_are_kicked() {
+    public async Task A_deleted_session_kicks_its_subscribers_and_leaves_no_rows() {
         await using var app = await RoomHttpApp.StartAsync(postgres);
-        var creator = RoomHttpApp.Guest(await app.GuestAsync());
-        var other = RoomHttpApp.Guest(await app.GuestAsync());
-        var created = await RoomHttpApp.JsonAsync(await app.PostAsync("/api/poker", creator), HttpStatusCode.Created);
+        var owner = await app.UserAsync();
+        var member = await app.UserAsync();
+        var team = await app.TeamAsync((owner, "owner"), (member, "member"));
+        var created = await RoomHttpApp.JsonAsync(
+            await app.PostAsync($"/api/teams/{team}/poker-sessions", RoomHttpApp.User(member)), HttpStatusCode.Created);
         var id = created.GetProperty("id").GetGuid();
-        var subscriber = await app.SubscribeAsync(RoomKey.Poker(new SessionId(id)), other);
+        var subscriber = await app.SubscribeAsync(RoomKey.Poker(new SessionId(id)), RoomHttpApp.User(member));
         await subscriber.UntilAsync<SnapFrame>();
 
-        using var refused = await app.SendAsync(HttpMethod.Delete, $"/api/poker/{id}", other);
-        using var deleted = await app.SendAsync(HttpMethod.Delete, $"/api/poker/{id}", creator);
+        using var refused = await app.SendAsync(HttpMethod.Delete, $"/api/poker/{id}", RoomHttpApp.User(member));
+        using var deleted = await app.SendAsync(HttpMethod.Delete, $"/api/poker/{id}", RoomHttpApp.User(owner));
         var kick = await subscriber.UntilAsync<KickFrame>();
-        using var lookup = await app.GetAsync($"/api/poker/by-code/{created.GetProperty("code").GetString()}", creator);
-        using var again = await app.SendAsync(HttpMethod.Delete, $"/api/poker/{id}", creator);
+        using var lookup = await app.GetAsync($"/api/poker/by-code/{created.GetProperty("code").GetString()}", RoomHttpApp.User(owner));
+        using var again = await app.SendAsync(HttpMethod.Delete, $"/api/poker/{id}", RoomHttpApp.User(owner));
 
         Assert.Equal("forbidden", await RoomHttpApp.ProblemCodeAsync(refused, HttpStatusCode.Forbidden));
         Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);

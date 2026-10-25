@@ -4,12 +4,11 @@ using Retroscope.Integration.Tests.Schema;
 
 namespace Retroscope.Integration.Tests.RoomHttp;
 
-// §d: mentions are listed only on boards the user can still read; anonymous sources carry no author.
+// §d: mentions are listed only on boards the user can still read, those of the user's teams (UX18); anonymous
+// sources carry no author.
 [Trait("Category", "RoomHttp")]
 [Collection(SharedPostgres.Name)]
 public sealed class MentionsTests(PostgresFixture postgres) {
-    private static readonly string PasswordHash = "$2a$10$" + new string('a', 53);
-
     [Fact]
     public async Task Only_mentions_on_readable_boards_are_listed_newest_first() {
         await using var app = await RoomHttpApp.StartAsync(postgres);
@@ -19,23 +18,18 @@ public sealed class MentionsTests(PostgresFixture postgres) {
         var otherTeam = await app.TeamAsync((ann, "owner"));
         var seed = new Seed(app, me, ann);
 
-        await seed.CardAsync("quick link", minutesAgo: 1, team: null, visibility: "link");
-        await seed.CommentAsync("anonymous on my team", minutesAgo: 2, team: myTeam, visibility: "team", anonymous: true);
-        await seed.CardAsync("other team, team only", minutesAgo: 3, team: otherTeam, visibility: "team");
-        await seed.CardAsync("other team, link", minutesAgo: 4, team: otherTeam, visibility: "link");
-        await seed.CardAsync("password, no grant", minutesAgo: 5, team: null, visibility: "password");
-        await seed.CardAsync("password, current grant", minutesAgo: 6, team: null, visibility: "password", grant: Grant.Current);
-        await seed.CardAsync("password, old grant", minutesAgo: 7, team: null, visibility: "password", grant: Grant.Stale);
-        await seed.CardAsync("deleted board", minutesAgo: 8, team: null, visibility: "link", deleted: true);
-        await seed.CardAsync("names hidden", minutesAgo: 9, team: null, visibility: "link", showAuthors: false);
-        await seed.CardAsync("deleted team", minutesAgo: 10, team: await DeletedTeamAsync(app, me), visibility: "team");
+        await seed.CardAsync("my team", minutesAgo: 1, team: myTeam);
+        await seed.CommentAsync("anonymous on my team", minutesAgo: 2, team: myTeam, anonymous: true);
+        await seed.CardAsync("other team", minutesAgo: 3, team: otherTeam);
+        await seed.CardAsync("leftover quick board", minutesAgo: 4, team: null);
+        await seed.CardAsync("deleted board", minutesAgo: 5, team: myTeam, deleted: true);
+        await seed.CardAsync("names hidden", minutesAgo: 6, team: myTeam, showAuthors: false);
+        await seed.CardAsync("deleted team", minutesAgo: 7, team: await DeletedTeamAsync(app, me));
 
         var page = await RoomHttpApp.JsonAsync(await app.GetAsync("/api/me/mentions", RoomHttpApp.User(me)));
         var items = page.GetProperty("items").EnumerateArray().ToList();
 
-        Assert.Equal(
-            ["quick link", "anonymous on my team", "other team, link", "password, current grant", "names hidden"],
-            items.Select(x => x.GetProperty("boardTitle").GetString()));
+        Assert.Equal(["my team", "anonymous on my team", "names hidden"], items.Select(x => x.GetProperty("boardTitle").GetString()));
         Assert.Equal(JsonValueKind.Null, page.GetProperty("next").ValueKind);
         var first = items[0];
         Assert.Equal("card", first.GetProperty("sourceKind").GetString());
@@ -44,7 +38,25 @@ public sealed class MentionsTests(PostgresFixture postgres) {
         Assert.StartsWith("M", first.GetProperty("boardCode").GetString(), StringComparison.Ordinal);
         Assert.Equal("comment", items[1].GetProperty("sourceKind").GetString());
         Assert.False(items[1].TryGetProperty("author", out _));
-        Assert.False(items[4].TryGetProperty("author", out _));
+        Assert.False(items[2].TryGetProperty("author", out _));
+    }
+
+    [Fact]
+    public async Task Leaving_the_team_drops_its_mentions() {
+        await using var app = await RoomHttpApp.StartAsync(postgres);
+        var me = await app.UserAsync("Mia");
+        var ann = await app.UserAsync("Ann");
+        var team = await app.TeamAsync((me, "member"), (ann, "owner"));
+        var seed = new Seed(app, me, ann);
+        await seed.CardAsync("our board", minutesAgo: 1, team: team);
+        await app.ExecAsync("update users set mentions_seen_at = now() - interval '1 day' where id = $1", me);
+
+        var before = await RoomHttpApp.JsonAsync(await app.GetAsync("/api/me/mentions", RoomHttpApp.User(me)));
+        await app.ExecAsync("delete from team_members where team_id = $1 and user_id = $2", team, me);
+        var after = await RoomHttpApp.JsonAsync(await app.GetAsync("/api/me/mentions", RoomHttpApp.User(me)));
+
+        Assert.Single(before.GetProperty("items").EnumerateArray());
+        Assert.Empty(after.GetProperty("items").EnumerateArray());
     }
 
     [Fact]
@@ -52,9 +64,10 @@ public sealed class MentionsTests(PostgresFixture postgres) {
         await using var app = await RoomHttpApp.StartAsync(postgres);
         var me = await app.UserAsync("Mia");
         var ann = await app.UserAsync("Ann");
+        var team = await app.TeamAsync((me, "member"), (ann, "member"));
         var seed = new Seed(app, me, ann);
         for (var i = 0; i < 5; i++) {
-            await seed.CardAsync($"board {i}", minutesAgo: i, team: null, visibility: "link");
+            await seed.CardAsync($"board {i}", minutesAgo: i, team: team);
         }
         await app.ExecAsync("update users set mentions_seen_at = now() - interval '1 day' where id = $1", me);
 
@@ -83,38 +96,24 @@ public sealed class MentionsTests(PostgresFixture postgres) {
         return team;
     }
 
-    private enum Grant {
-        None,
-        Current,
-        Stale,
-    }
-
     private sealed class Seed(RoomHttpApp app, Guid me, Guid author) {
         private int _boards;
 
         public string Body => $"Thanks [[mention:{me}:Mia]]";
 
-        public Task CardAsync(
-            string title,
-            int minutesAgo,
-            Guid? team,
-            string visibility,
-            Grant grant = Grant.None,
-            bool deleted = false,
-            bool showAuthors = true) {
-            return PostAsync(title, minutesAgo, team, visibility, grant, deleted, showAuthors, comment: false, anonymous: false);
+        /// <param name="team">Null seeds a leftover team-less board, as the quick-board feature left them.</param>
+        public Task CardAsync(string title, int minutesAgo, Guid? team, bool deleted = false, bool showAuthors = true) {
+            return PostAsync(title, minutesAgo, team, deleted, showAuthors, comment: false, anonymous: false);
         }
 
-        public Task CommentAsync(string title, int minutesAgo, Guid? team, string visibility, bool anonymous) {
-            return PostAsync(title, minutesAgo, team, visibility, Grant.None, false, true, comment: true, anonymous);
+        public Task CommentAsync(string title, int minutesAgo, Guid team, bool anonymous) {
+            return PostAsync(title, minutesAgo, team, false, true, comment: true, anonymous);
         }
 
         private async Task PostAsync(
             string title,
             int minutesAgo,
             Guid? team,
-            string visibility,
-            Grant grant,
             bool deleted,
             bool showAuthors,
             bool comment,
@@ -122,21 +121,17 @@ public sealed class MentionsTests(PostgresFixture postgres) {
             var board = Guid.CreateVersion7();
             var column = Guid.CreateVersion7();
             var card = Guid.CreateVersion7();
-            var password = visibility == "password";
             await app.ExecAsync(
                 """
-                insert into retro_boards (id, code, team_id, title, created_by, visibility, password_hash, password_set_at,
-                                          show_author_names, deleted_at)
-                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                insert into retro_boards (id, code, team_id, title, created_by, visibility, show_author_names, deleted_at)
+                values ($1, $2, $3, $4, $5, $6, $7, $8)
                 """,
                 board,
                 $"M{_boards++:D9}",
                 team,
                 title,
                 author,
-                visibility,
-                password ? PasswordHash : null,
-                password ? DateTimeOffset.UtcNow.AddHours(-1) : null,
+                team is null ? "link" : "team",
                 showAuthors,
                 deleted ? DateTimeOffset.UtcNow : null);
             await app.ExecAsync(
@@ -167,17 +162,6 @@ public sealed class MentionsTests(PostgresFixture postgres) {
                 board,
                 me,
                 minutesAgo);
-            if (grant != Grant.None) {
-                await app.ExecAsync(
-                    """
-                    insert into board_access_grants (board_id, principal_id, password_epoch)
-                    select id, $2, case when $3 then password_set_at else password_set_at - interval '1 day' end
-                    from retro_boards where id = $1
-                    """,
-                    board,
-                    me,
-                    grant == Grant.Current);
-            }
         }
     }
 }
