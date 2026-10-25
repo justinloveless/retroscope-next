@@ -80,6 +80,23 @@ public sealed record JiraIssueCreate(
 /// <summary>What a config save learns from Jira with credentials that are not stored yet.</summary>
 public sealed record JiraProbeResult(JiraUser Myself, JiraFieldIds Fields, JiraBoard? Board);
 
+/// <summary>What a board's configuration says about the field it estimates with (DESIGN §f).</summary>
+public abstract record JiraBoardEstimation {
+    private JiraBoardEstimation() {
+    }
+
+    /// <summary>The board estimates with this custom field, the one Jira's sprint report sums.</summary>
+    public sealed record Field(string Id) : JiraBoardEstimation;
+
+    /// <summary>The board estimates by issue count, by time or not at all, or it is gone or hidden from the credentials.</summary>
+    public sealed record None : JiraBoardEstimation {
+        public static None Instance { get; } = new();
+    }
+
+    /// <summary>The configuration could not be read for now, so nothing is known about the field.</summary>
+    public sealed record Unknown(JiraError Error) : JiraBoardEstimation;
+}
+
 /// <summary>
 /// The only way the server talks to Jira (DESIGN §f). Every call goes through one <see cref="HttpClient"/> whose
 /// handler resolves DNS itself, refuses non-public addresses and never follows redirects; through the team's
@@ -96,6 +113,8 @@ public sealed partial class JiraClient : IDisposable {
 
     private static readonly TimeSpan FieldsTtl = TimeSpan.FromHours(6);
     private static readonly TimeSpan BoardConfigurationTtl = TimeSpan.FromHours(1);
+    private static readonly TimeSpan BoardMissingTtl = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan BoardFailureTtl = TimeSpan.FromSeconds(30);
     private static readonly string[] AttachmentTypes = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
     private readonly Credentials _credentials;
@@ -230,51 +249,90 @@ public sealed partial class JiraClient : IDisposable {
         GetAsync(team, $"/rest/agile/1.0/board/{boardId}", "/rest/agile/1.0/board/{id}", JiraClientJsonContext.Default.JiraBoard, cancellationToken);
 
     /// <summary>
-    /// The custom field a Scrum board estimates with, which Jira's own sprint report sums; null when the board estimates
-    /// by issue count, by time or not at all. The board's configuration is cached for an hour.
+    /// What the board's configuration says about the field it estimates with. A read is cached for an hour. A board that
+    /// is gone or hidden from the credentials (404, 403) is remembered as having none for 5 minutes, and any other failure
+    /// for 30 seconds, so a burst of calls does not repeat a failing request. Every entry carries the team tag, so a
+    /// settings save drops it.
     /// </summary>
-    public async Task<string?> GetBoardEstimationFieldAsync(TeamId team, long boardId, CancellationToken cancellationToken) {
-        var configuration = await _cache.GetOrCreateAsync(
-            JiraCache.Key(team, "board-configuration", boardId.ToString(CultureInfo.InvariantCulture)),
-            BoardConfigurationTtl,
-            async () => {
+    public Task<JiraBoardEstimation> GetBoardEstimationAsync(TeamId team, long boardId, CancellationToken cancellationToken) =>
+        _cache.GetOrCreateAsync<JiraBoardEstimation>(BoardConfigurationKey(team, boardId), async () => {
+            IReadOnlyCollection<string> tags = [JiraCache.TeamTag(team)];
+            try {
                 var response = await FetchAsync(
                     team,
                     Get($"/rest/agile/1.0/board/{boardId}/configuration", "/rest/agile/1.0/board/{id}/configuration"),
                     CancellationToken.None);
-                var read = Deserialize(response, JiraClientJsonContext.Default.JiraBoardConfiguration);
-                return (read, (long)response.Body.Length, (IReadOnlyCollection<string>?)[JiraCache.TeamTag(team)]);
-            },
-            cancellationToken);
-        return EstimationFieldId(configuration);
+                var configuration = Deserialize(response, JiraClientJsonContext.Default.JiraBoardConfiguration);
+                return (EstimationOf(EstimationFieldId(configuration)), response.Body.Length, BoardConfigurationTtl, tags);
+            } catch (JiraException e) {
+                LogBoardConfigurationFailed(team.Value, boardId, e.Error.Code);
+                return e.Error.Code is JiraErrorCode.NotFound or JiraErrorCode.Forbidden
+                    ? (JiraBoardEstimation.None.Instance, 1, BoardMissingTtl, tags)
+                    : (new JiraBoardEstimation.Unknown(e.Error), 1, BoardFailureTtl, tags);
+            }
+        }, cancellationToken);
+
+    /// <summary>The board's estimation field as Jira has it now, read past the cache; null when it has none or cannot be read.</summary>
+    public async Task<string?> LiveBoardEstimationFieldAsync(TeamId team, long boardId, CancellationToken cancellationToken) {
+        _cache.Remove(BoardConfigurationKey(team, boardId));
+        return (await GetBoardEstimationAsync(team, boardId, cancellationToken) as JiraBoardEstimation.Field)?.Id;
     }
+
+    private static string BoardConfigurationKey(TeamId team, long boardId) =>
+        JiraCache.Key(team, "board-configuration", boardId.ToString(CultureInfo.InvariantCulture));
 
     private static string? EstimationFieldId(JiraBoardConfiguration configuration) =>
         configuration.Estimation is { Type: "field", Field.FieldId: var fieldId } && JiraMap.IsCustomFieldId(fieldId) ? fieldId : null;
 
+    private static JiraBoardEstimation EstimationOf(string? fieldId) =>
+        fieldId is null ? JiraBoardEstimation.None.Instance : new JiraBoardEstimation.Field(fieldId);
+
     /// <summary>
-    /// The team's config with the points field every points read and write uses (DESIGN §f). A Cloud site can carry
-    /// several story points fields that Jira all accepts writes to, and discovery may store one the board does not
-    /// estimate with; so the field is the one an admin chose, else the board's estimation field (as Jira's own sprint
-    /// report sums), else the stored one, else the site's field catalogue, which imported teams need until an admin
-    /// saves the settings. Reading the board's configuration only refines the field, so its failure falls back.
+    /// The team's config with the points field every points read uses (DESIGN §f). A Cloud site can carry several story
+    /// points fields that Jira all accepts writes to, and discovery may store one the board does not estimate with; so
+    /// the field is the one an admin chose, else the board's estimation field (as Jira's own sprint report sums), else
+    /// the stored one, else the site's field catalogue, which imported teams need until an admin saves the settings.
+    /// A read only refines the field, so a board configuration or field catalogue that cannot be read falls back.
     /// </summary>
-    public async Task<JiraTeamConfig> EffectiveConfigAsync(TeamId team, CancellationToken cancellationToken) {
+    public Task<JiraTeamConfig> EffectiveConfigAsync(TeamId team, CancellationToken cancellationToken) =>
+        ResolveConfigAsync(team, strict: false, cancellationToken);
+
+    /// <summary>
+    /// <see cref="EffectiveConfigAsync"/> for a points write or filter, which must use the field the board shows. A board
+    /// configuration that cannot be read for now fails the call with its error rather than fall back to a field the board
+    /// may not use, and so does a field catalogue that cannot be read. A remembered failure is read again first, so only
+    /// this call's own attempt can fail it. A board that is gone or hidden still falls back, as no retry would help.
+    /// </summary>
+    public Task<JiraTeamConfig> StrictConfigAsync(TeamId team, CancellationToken cancellationToken) =>
+        ResolveConfigAsync(team, strict: true, cancellationToken);
+
+    private async Task<JiraTeamConfig> ResolveConfigAsync(TeamId team, bool strict, CancellationToken cancellationToken) {
         var stored = await ConfigAsync(team, cancellationToken);
         if (stored.PointsFieldOverridden) {
             return stored;
         }
-        var points = (stored.BoardId is { } board ? await BoardEstimationFieldOrNullAsync(team, board, cancellationToken) : null)
+        var points = (stored.BoardId is { } board ? await BoardFieldAsync(team, board, strict, cancellationToken) : null)
             ?? stored.PointsFieldId
-            ?? JiraMap.DiscoverFields(await GetFieldsAsync(team, cancellationToken)).PointsFieldId;
+            ?? await DiscoveredPointsFieldAsync(team, strict, cancellationToken);
         return stored with { PointsFieldId = points };
     }
 
-    /// <summary><see cref="GetBoardEstimationFieldAsync"/>, or null when the board's configuration cannot be read.</summary>
-    public async Task<string?> BoardEstimationFieldOrNullAsync(TeamId team, long boardId, CancellationToken cancellationToken) {
+    private async Task<string?> BoardFieldAsync(TeamId team, long boardId, bool strict, CancellationToken cancellationToken) {
+        var key = BoardConfigurationKey(team, boardId);
+        if (strict && _cache.TryGet<JiraBoardEstimation>(key, out var remembered) && remembered is JiraBoardEstimation.Unknown) {
+            _cache.Remove(key);
+        }
+        return await GetBoardEstimationAsync(team, boardId, cancellationToken) switch {
+            JiraBoardEstimation.Field field => field.Id,
+            JiraBoardEstimation.Unknown unknown when strict => throw new JiraException(unknown.Error),
+            _ => null,
+        };
+    }
+
+    private async Task<string?> DiscoveredPointsFieldAsync(TeamId team, bool strict, CancellationToken cancellationToken) {
         try {
-            return await GetBoardEstimationFieldAsync(team, boardId, cancellationToken);
-        } catch (JiraException) {
+            return JiraMap.DiscoverFields(await GetFieldsAsync(team, cancellationToken)).PointsFieldId;
+        } catch (JiraException) when (!strict) {
             return null;
         }
     }
@@ -502,9 +560,12 @@ public sealed partial class JiraClient : IDisposable {
         return PutIssueAsync(team, issueKey, body, cancellationToken);
     }
 
-    /// <summary>Writes points through the team's effective points field only; null clears it. Decimals are kept.</summary>
+    /// <summary>
+    /// Writes points through the team's effective points field only (<see cref="StrictConfigAsync"/>), so a write that
+    /// succeeds lands where the board shows it; null clears it. Decimals are kept.
+    /// </summary>
     public async Task SetPointsAsync(TeamId team, string issueKey, decimal? points, CancellationToken cancellationToken) {
-        var config = await EffectiveConfigAsync(team, cancellationToken);
+        var config = await StrictConfigAsync(team, cancellationToken);
         if (config.PointsFieldId is not { } fieldId || !JiraMap.IsCustomFieldId(fieldId)) {
             throw new JiraException(JiraError.NotConfigured);
         }
@@ -1010,6 +1071,9 @@ public sealed partial class JiraClient : IDisposable {
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not record a Jira authentication failure")]
     private partial void LogStatusWriteFailed(Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not read the configuration of Jira board {BoardId} for team {TeamId}: {Code}")]
+    private partial void LogBoardConfigurationFailed(Guid teamId, long boardId, string code);
 
     private sealed record JiraTarget(TeamId Team, string Host, byte[]? Box, string? BasicParameter, bool Saved);
 

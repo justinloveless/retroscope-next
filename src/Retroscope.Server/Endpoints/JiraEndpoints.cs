@@ -505,8 +505,8 @@ public static partial class JiraEndpoints {
             var myself = await client.GetMyselfAsync(call.Team, context.RequestAborted);
             var discovered = JiraMap.DiscoverFields(await client.GetFieldsAsync(call.Team, context.RequestAborted));
             JiraBoard? board = config.BoardId is { } id ? await client.GetBoardAsync(call.Team, id, context.RequestAborted) : null;
-            // The field a save without a chosen one would store.
-            var points = (board is null ? null : await client.BoardEstimationFieldOrNullAsync(call.Team, board.Id, context.RequestAborted))
+            // The field a save without a chosen one would store, as the board has it now.
+            var points = (board is null ? null : await client.LiveBoardEstimationFieldAsync(call.Team, board.Id, context.RequestAborted))
                 ?? discovered.PointsFieldId;
             if (config.Status is not JiraConfigStatus.RotateRequired) {
                 await credentials.MarkStatusAsync(call.Team, JiraConfigStatus.Ok, context.RequestAborted);
@@ -549,9 +549,10 @@ public static partial class JiraEndpoints {
         }
 
         return await GuardAsync(async () => {
-            // A stored field is never resolved away, so only a team without one can lack an effective points field.
+            // A stored field is never resolved away, so only a team without one can lack an effective points field. A
+            // filter needs the field the board shows, so a lookup Jira fails reports that failure, not a missing field.
             if (parsedPoints.Kind != BrowsePointsKind.Any && call!.RequiredConfig.PointsFieldId is null
-                && (await client.EffectiveConfigAsync(call.Team, context.RequestAborted)).PointsFieldId is null) {
+                && (await client.StrictConfigAsync(call.Team, context.RequestAborted)).PointsFieldId is null) {
                 return Problem.Result(StatusCodes.Status400BadRequest, "invalid", new Dictionary<string, string> { ["points"] = "no_points_field" });
             }
             var query = new BrowseQuery(Blank(q) ? null : q!.Trim(), parsedStatus, parsedPoints, parsedScope);
