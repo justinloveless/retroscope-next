@@ -12,7 +12,6 @@
     "team": 10240,
     "landing": 10240,
     "auth": 10240,
-    "dashboard": 10240,
     "account": 10240,
     "mentions": 10240,
     "invite": 10240,
