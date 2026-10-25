@@ -1,5 +1,6 @@
 // The sign-in card: Google and Microsoft, email and password, creating an account, the emailed sign-in link
-// and the password reset request. /login shows it (screens/auth.js), and so does the welcome page at '/'.
+// and the password reset request. /login shows it (screens/auth.js), and so does the welcome page at '/'
+// (UX18 decision 15). Without a ?return= it lands on '/', which finds the user's team or pending invite.
 
 import { h, replaceContent } from '../core/h.js';
 import { http } from '../core/http.js';
@@ -81,9 +82,9 @@ export function signInCard(query) {
   });
 
   const panelFor = {
-    signin: [signIn.el, h('div', { style: row('1rem') },
-      h('button', { type: 'button', class: 'btn btn-ghost btn-sm', dataset: { mode: 'magic' } }, 'Email me a sign-in link'),
-      h('button', { type: 'button', class: 'btn btn-ghost btn-sm', dataset: { mode: 'reset' } }, 'Forgot password?'))],
+    signin: [signIn.el, h('div', { style: { ...row('1rem'), 'justify-content': 'space-between' } },
+      h('button', { type: 'button', class: 'btn btn-link btn-sm', dataset: { mode: 'magic' } }, 'Email me a sign-in link'),
+      h('button', { type: 'button', class: 'btn btn-link btn-sm', dataset: { mode: 'reset' } }, 'Forgot password?'))],
     signup: [signUp.el],
     magic: [muted('We will email you a link that signs you in. It works once and expires in 15 minutes.'), emailLinkForm({
       path: '/api/auth/magic/request',
@@ -107,6 +108,9 @@ export function signInCard(query) {
     panel.append(...panelFor[id]);
   }
   const back = h('button', { type: 'button', class: 'btn btn-ghost btn-sm', dataset: { mode: 'signin' } }, 'Back to sign in');
+  const providers = oidcButtons(returnTo);
+  const line = () => h('span', { style: { flex: '1', height: '1px', background: 'hsl(var(--border))' } });
+  const divider = h('p', { style: { ...row('0.625rem'), 'flex-wrap': 'nowrap', color: 'hsl(var(--muted-foreground))', 'font-size': '0.8125rem' } }, line(), 'or', line());
 
   function show(mode) {
     const tabbed = mode === 'signin' || mode === 'signup';
@@ -116,6 +120,8 @@ export function signInCard(query) {
       replaceContent(other, panelFor[mode], back);
     }
     tabs.el.hidden = !tabbed;
+    providers.hidden = !tabbed;
+    divider.hidden = !tabbed;
     for (const [id, panel] of tabs.panels) {
       panel.hidden = !tabbed || id !== tabs.selected;
     }
@@ -127,10 +133,12 @@ export function signInCard(query) {
 
   const error = query.get('error');
   const body = card(null,
+    tabs.el,
     error ? h('p', { role: 'alert', style: { color: 'var(--red)' }, text: OIDC_ERRORS[error] ?? 'Signing in did not work. Try again.' }) : null,
-    oidcButtons(returnTo),
-    h('p', { style: { 'text-align': 'center', color: 'hsl(var(--muted-foreground))', 'font-size': '0.8125rem' }, text: 'or' }),
-    tabs.el, ...tabs.panels.values(), other);
+    providers,
+    divider,
+    ...tabs.panels.values(), other);
+  body.setAttribute('aria-label', 'Sign in');
   body.addEventListener('click', (event) => {
     const mode = event.target.closest('[data-mode]')?.dataset.mode;
     if (mode) {
