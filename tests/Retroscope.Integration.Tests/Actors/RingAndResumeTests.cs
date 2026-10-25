@@ -189,7 +189,7 @@ public sealed class RingAndResumeTests {
         var builds = 0;
         var room = new CounterRoom(tracksPresence: false, slowSnapshot: state => {
             Interlocked.Increment(ref builds);
-            return new PokerSnapshot(new SessionId(Room.Id), $"v{state.Value}", true, true, [], [], [], [], []);
+            return new PokerSnapshot(new SessionId(Room.Id), $"v{state.Value}", true, true, [], [], [], [], [], CounterTeam);
         });
         var actor = await room.ActorAsync();
         await actor.AskAsync(new CounterInput.Add(4), Alice, Token);
@@ -231,7 +231,7 @@ public sealed class RingAndResumeTests {
             InterlockedMax(ref peak, now);
             Thread.Sleep(50);
             Interlocked.Decrement(ref current);
-            return new PokerSnapshot(new SessionId(Room.Id), "slow", true, true, [], [], [], [], []);
+            return new PokerSnapshot(new SessionId(Room.Id), "slow", true, true, [], [], [], [], [], CounterTeam);
         });
         var peers = new List<TestPeer>();
         for (var n = 0; n < 8; n++) {

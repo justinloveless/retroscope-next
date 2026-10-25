@@ -113,14 +113,13 @@ internal sealed class RetroScope : IAsyncDisposable {
         return Assert.IsType<NackFrame>(await SendAsync(registry, room, peer, q, command));
     }
 
-    /// <summary>The shared snapshot (both variants, without presence) and the overlays of the given viewers, as JSON.</summary>
+    /// <summary>The shared snapshot (without presence) and the overlays of the given viewers, as JSON.</summary>
     public Task<string> DescribeAsync(ActorRegistry registry, RoomKey room, params Viewer[] viewers) {
         var projection = new RetroProjection(Tagger);
         return registry.QueryAsync<RetroState, RetroInput, string>(room, view => {
             var state = view.State!;
             var parts = new List<string> {
-                JsonSerializer.Serialize(RetroProjection.Snapshot(state, [], forMembers: true), WireJsonContext.Default.RetroSnapshot),
-                JsonSerializer.Serialize(RetroProjection.Snapshot(state, [], forMembers: false), WireJsonContext.Default.RetroSnapshot),
+                JsonSerializer.Serialize(RetroProjection.Snapshot(state, []), WireJsonContext.Default.RetroSnapshot),
             };
             parts.AddRange(viewers.Select(viewer => JsonSerializer.Serialize(projection.Overlay(state, viewer.Who.Id), WireJsonContext.Default.RetroOverlay)));
             return ValueTask.FromResult(string.Join('\n', parts));

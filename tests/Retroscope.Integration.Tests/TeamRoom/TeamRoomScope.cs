@@ -211,18 +211,14 @@ internal sealed class TeamRoomScope : IAsyncDisposable {
 
         public bool CanSubscribe(RetroState state, Viewer viewer, IAccessView access) => true;
 
-        public bool IsMember(RetroState state, Viewer viewer, IAccessView access) {
-            return state.TeamId is { } team && access.RoleIn(team, viewer.Who.Id) is not null;
-        }
-
         public RoomSnapshot Snapshot(RetroState state, IReadOnlyList<PrincipalInfo> presence, bool forMembers) {
-            return RetroProjection.Snapshot(state, presence, forMembers);
+            return RetroProjection.Snapshot(state, presence);
         }
 
         public RoomOverlay? Overlay(RetroState state, Viewer viewer) => _projection.Overlay(state, viewer.Who.Id);
 
         public IReadOnlyList<WireEvent> Project(RetroState state, IReadOnlyList<RetroEvent> events, PrincipalId viewer, bool viewerIsMember) {
-            return _projection.ForViewer(state, events, viewer, viewerIsMember);
+            return _projection.ForViewer(state, events, viewer);
         }
     }
 

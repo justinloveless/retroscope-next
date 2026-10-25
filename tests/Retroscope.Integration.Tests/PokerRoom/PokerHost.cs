@@ -131,7 +131,7 @@ internal sealed class PokerHost : IAsyncDisposable {
 
     public static string Describe(PokerState state) {
         var text = new StringBuilder();
-        text.AppendLine(CultureInfo.InvariantCulture, $"{state.Code} team={state.TeamId} by={state.CreatedBy} presence={state.PresenceEnabled} follow={state.FollowSpotlight}");
+        text.AppendLine(CultureInfo.InvariantCulture, $"{state.Code} team={state.TeamId} presence={state.PresenceEnabled} follow={state.FollowSpotlight}");
         text.AppendLine(CultureInfo.InvariantCulture, $"observers={string.Join(',', state.Observers.Select(x => x.ToString()).Order(StringComparer.Ordinal))}");
         var spotlight = state.Spotlight;
         text.AppendLine(CultureInfo.InvariantCulture, $"spotlight={spotlight?.Holder}/{spotlight?.HolderClient}/{spotlight?.RoundId}");
@@ -181,8 +181,6 @@ internal sealed class TestAccess : IAccessView {
     public TeamRole? RoleIn(TeamId team, PrincipalId principal) {
         return _roles.TryGetValue((team, principal), out var role) ? role : null;
     }
-
-    public bool HasCurrentGrant(BoardId board, PrincipalId principal, DateTimeOffset? passwordSetAt) => false;
 }
 
 /// <summary>Records every call; meta comes from <see cref="Issues"/>, submits answer with <see cref="SubmitResult"/>.</summary>
