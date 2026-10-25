@@ -1,21 +1,21 @@
 // The poker toolbar leads back (UX18 decision 12): "<team> / Poker / <day>" from the snapshot's team, named
-// from `me`, and the session's day from its id. The address becomes the session's under its own team without a
-// history entry, Copy link shows for every session, and a session that is missing or not the user's shows the
-// no-access screen with the app header.
+// from `me`, and the day the session was created from the snapshot's createdAt (else from a UUIDv7 id). The
+// address becomes the session's under its own team without a history entry, Copy link shows for every session, and
+// a session that is missing or not the user's shows the no-access screen with the app header.
 import { problem } from '../../../web-fake-server/http.js';
 import { expect, test } from '../_harness/fixtures.js';
 import { memberMe } from '../_harness/me.js';
 import { CODE, ME, ROOM, TEAM, openTable, setupPoker, snapshot } from './_poker.js';
 
-const CREATED = Date.UTC(2026, 9, 14, 13, 5);
-// A UUIDv7 carries its creation time in its first 48 bits, which is where the toolbar's day comes from.
-const SESSION_V7 = `${CREATED.toString(16).padStart(12, '0').replace(/^(.{8})(.{4})$/, '$1-$2')}-7000-8000-0000000000a7`;
+const ID_TIME = Date.UTC(2026, 8, 30, 9, 40);
+// A UUIDv7 carries its creation time in its first 48 bits, where the toolbar looks when a snapshot has no createdAt.
+const SESSION_V7 = `${ID_TIME.toString(16).padStart(12, '0').replace(/^(.{8})(.{4})$/, '$1-$2')}-7000-8000-0000000000a7`;
 const OTHER_TEAM = '0a000000-0000-4000-8000-0000000000b9';
 
 const crumbs = (page) => page.locator('.nt-toolbar').getByRole('navigation', { name: 'Breadcrumb' });
 
 function setup(fake, snap = {}) {
-  setupPoker(fake, { snap: snapshot({ sessionId: SESSION_V7, ...snap }) });
+  setupPoker(fake, { snap: snapshot(snap) });
 }
 
 test('the toolbar leads back with “<team> / Poker / <day>”', async ({ page, fake }) => {
@@ -25,12 +25,19 @@ test('the toolbar leads back with “<team> / Poker / <day>”', async ({ page, 
   await expect(crumbs(page).getByRole('link')).toHaveText(['PPlatform', 'Poker']);
   await expect(crumbs(page).getByRole('link', { name: 'Platform' })).toHaveAttribute('href', `/teams/${TEAM.id}`);
   await expect(crumbs(page).getByRole('link', { name: 'Poker' })).toHaveAttribute('href', `/teams/${TEAM.id}`);
-  await expect(crumbs(page).locator('[aria-current="page"]')).toHaveText(/Oct 14/);
+  await expect(crumbs(page).locator('[aria-current="page"]')).toHaveText('Oct 14, 2025');
   await expect(page.locator('header.app-header')).toBeHidden();
 
   await crumbs(page).getByRole('link', { name: 'Poker' }).click();
   await expect(page).toHaveURL(new RegExp(`/teams/${TEAM.id}$`));
   await expect(page.locator('header.app-header')).toBeVisible();
+});
+
+test('without createdAt the day comes from a UUIDv7 id', async ({ page, fake }) => {
+  setup(fake, { sessionId: SESSION_V7, createdAt: undefined });
+  await openTable(page, `/teams/${TEAM.id}/poker/${CODE}`);
+
+  await expect(crumbs(page).locator('[aria-current="page"]')).toHaveText(/^Sep 30/);
 });
 
 for (const [name, path] of [['/poker/:code', `/poker/${CODE}`], ['another team’s address', `/teams/${OTHER_TEAM}/poker/${CODE}`]]) {
