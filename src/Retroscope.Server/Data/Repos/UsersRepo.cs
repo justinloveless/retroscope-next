@@ -252,8 +252,8 @@ public sealed class UsersRepo(NpgsqlDataSource dataSource) {
 
     /// <summary>
     /// Mentions newer than <c>mentions_seen_at</c> on boards the user can still read: the board and its team are not
-    /// deleted, and the user is a member, or the board is <c>link</c>, or it is <c>password</c> and the user holds a
-    /// current grant (or created the quick board). The same rules as <c>Policy.Can(Subscribe)</c> for a board.
+    /// deleted, and the user is a member of the board's team. The same rule as <c>Policy.Can(Subscribe)</c> for a
+    /// board (UX18).
     /// </summary>
     public async Task<int> UnreadMentionsAsync(PrincipalId id, CancellationToken cancellationToken) {
         await using var command = dataSource.CreateCommand("""
@@ -261,18 +261,10 @@ public sealed class UsersRepo(NpgsqlDataSource dataSource) {
             from mentions m
             join users u on u.id = m.user_id
             join retro_boards b on b.id = m.board_id and b.deleted_at is null
-            left join teams t on t.id = b.team_id
-            left join team_members tm on tm.team_id = b.team_id and tm.user_id = m.user_id
+            join teams t on t.id = b.team_id and t.deleted_at is null
+            join team_members tm on tm.team_id = b.team_id and tm.user_id = m.user_id
             where m.user_id = $1
               and m.created_at > u.mentions_seen_at
-              and (b.team_id is null or t.deleted_at is null)
-              and (tm.user_id is not null
-                or b.visibility = 'link'
-                or (b.visibility = 'password'
-                    and ((b.team_id is null and b.created_by = m.user_id)
-                      or exists (select 1 from board_access_grants g
-                                 where g.board_id = b.id and g.principal_id = m.user_id
-                                   and g.password_epoch = b.password_set_at))))
             """);
         command.Parameters.Add(new() { Value = id.Value });
         return (int)(await command.ExecuteScalarAsync(cancellationToken))!;
