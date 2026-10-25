@@ -221,7 +221,7 @@ test('a link invite opened while signed out leads through an emailed sign-in lin
   expect(await sql(`select u.email_verified_at is not null, m.role from users u join team_members m on m.user_id = u.id
     where u.email = '${email}' and m.team_id = '${team.id}'`)).toEqual([['t', 'member']]);
 
-  // Accepting cleared the pending invite: '/' now goes straight to the team.
-  await page.goto('/');
-  await teamHome(page, team);
+  // Accepting cleared the pending invite, so no later in-app '/' reopens it. A full page load of '/' could not
+  // tell: the server sends it to the team without seeing the browser's storage.
+  expect(await page.evaluate(() => localStorage.getItem('rs.invite'))).toBeNull();
 });
