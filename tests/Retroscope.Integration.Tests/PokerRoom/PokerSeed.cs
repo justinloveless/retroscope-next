@@ -17,12 +17,6 @@ internal sealed class PokerSeed(TestDatabase database, TestAccess access) {
         return new Principal(new PrincipalId(id), PrincipalKind.User, name, null, false);
     }
 
-    public async Task<Principal> GuestAsync(string name) {
-        var id = Guid.CreateVersion7();
-        await ExecuteAsync("insert into principals (id, kind, display_name) values ($1, 'guest', $2)", id, name);
-        return new Principal(new PrincipalId(id), PrincipalKind.Guest, name, null, false);
-    }
-
     public async Task<TeamId> TeamAsync(params (Principal Who, TeamRole Role)[] members) {
         var team = new TeamId(Guid.CreateVersion7());
         await ExecuteAsync(
