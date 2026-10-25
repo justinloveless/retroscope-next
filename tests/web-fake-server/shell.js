@@ -22,6 +22,26 @@ export function shellRoute(pathname) {
   return routes.find((route) => match(route.path, pathname) !== null)?.path ?? null;
 }
 
+const byNameThenId = (a, b) => {
+  const [x, y] = [a, b].map((t) => [String(t.name).toLowerCase(), String(t.id)]);
+  return x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : x[1] < y[1] ? -1 : x[1] > y[1] ? 1 : 0;
+};
+
+/**
+ * Where the real Shell's HomeRedirect sends a full page load of '/' by a signed-in user (UX18 decision 8): the
+ * team visited last (`me.lastTeamId`, set only while the user is still in it), else the first team by name
+ * ignoring case and then by id, else the create-or-join screen. Like the server it cannot see a pending invite,
+ * which waits in the browser. Null when nobody is signed in: '/' is then the welcome page.
+ */
+export function homeRedirect(me) {
+  if (!me?.user) {
+    return null;
+  }
+  const teams = me.teams ?? [];
+  const team = teams.find((t) => t.id === me.lastTeamId) ?? [...teams].sort(byNameThenId)[0];
+  return team ? `/teams/${encodeURIComponent(team.id)}` : '/teams';
+}
+
 export function bootJson(boot) {
   return JSON.stringify(boot).replace(/</g, '\\u003c');
 }

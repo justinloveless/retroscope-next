@@ -62,10 +62,13 @@ const client = await TestClient.connect(fake);   // a protocol client for node -
 | `fake.waitForConnection()`, `fake.waitForFrame(pred, {after, timeout})` | Waits for a hello'd connection or a matching client frame |
 | `fake.waitForSubscription(roomKey)` | Waits until a live connection holds the room (its snap or replay was sent); pages join rooms after the tab socket's hello |
 
-The fake has no page redirects but one: `GET /dashboard` answers a no-store 302 to `/`, as the real shell does
-for the installed app's old start URL (UX18). Sending a signed-out visitor to `/login` and a signed-in `/` to
-the user's team are left to the client (`web/src/screens/app.js`, `redirectFor`), which applies them on the
-first page as well as in-app.
+The fake has the real shell's two home redirects (UX18), both no-store 302s. `GET /dashboard`, the installed
+app's old start URL, goes to `/`. A full page load of `/` by a signed-in user (the boot JSON's `me` has a `user`)
+goes to `/teams/<me.lastTeamId>`, else the first of `me.teams` by name ignoring case and then by id, else
+`/teams`, as `HomeRedirect` does, and carries the `shellHeaders` a page would (the demo's `?as=` cookie). Like
+the server, it cannot see a pending invite, which waits in the browser's localStorage. Signed out, `/` is the
+welcome page. Sending a signed-out visitor from a member page to `/login` is left to the client
+(`web/src/screens/app.js`, `redirectFor`), which applies it on the first page as well as in-app.
 
 `sub` answers the way the real server does: the current `{e, s}` gets an empty replay, an older `s` in the
 same epoch gets the missed txs, and anything else gets a snapshot. `lastQ` is the highest acked `q` of

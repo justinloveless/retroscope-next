@@ -14,7 +14,7 @@ import { CLOSE, MAX_FRAME_BYTES, NACK } from '../../web/src/net/protocol.gen.js'
 import { Router, problem, writeResponse } from './http.js';
 import { installJira } from './jira.js';
 import { assertServerFrame, checkClientFrame, roomKind } from './protocol.js';
-import { loadDist, renderShell, securityHeaders, shellRoute } from './shell.js';
+import { homeRedirect, loadDist, renderShell, securityHeaders, shellRoute } from './shell.js';
 import { createReplay, loadTranscript } from './transcripts.js';
 import { acceptUpgrade } from './ws.js';
 
@@ -269,8 +269,7 @@ export class FakeServer extends EventEmitter {
     if (req.method === 'GET' || req.method === 'HEAD') {
       if (url.pathname === '/dashboard') {
         // As the real Shell (UX18 decision 6): the Dashboard is gone, and its old address, the installed app's
-        // former start URL, sends visitors home. The fake has no other page redirects: '/' and the sign-in gate
-        // are the client's (app.js redirectFor), as for in-app navigation.
+        // former start URL, sends visitors home.
         await writeResponse(res, { status: 302, headers: { Location: '/', 'Cache-Control': 'no-store' } });
         return;
       }
@@ -284,8 +283,18 @@ export class FakeServer extends EventEmitter {
       }
       const route = shellRoute(url.pathname);
       if (route) {
-        const html = renderShell(this.dist, route, this.bootFor(url.pathname + url.search, req));
-        const headers = { 'Content-Type': 'text/html; charset=utf-8', ...securityHeaders(this.dist, this.hostOf(req)), ...this.shellHeaders?.(req, url) };
+        const boot = this.bootFor(url.pathname + url.search, req);
+        const extra = this.shellHeaders?.(req, url);
+        // As the real Shell's HomeRedirect: a signed-in '/' goes to the user's team before any page script runs,
+        // so a pending invite in the browser does not count here. The sign-in gate stays the client's
+        // (app.js redirectFor), as for in-app navigation.
+        const home = route === '/' ? homeRedirect(boot?.me) : null;
+        if (home) {
+          await writeResponse(res, { status: 302, headers: { Location: home, 'Cache-Control': 'no-store', ...extra } });
+          return;
+        }
+        const html = renderShell(this.dist, route, boot);
+        const headers = { 'Content-Type': 'text/html; charset=utf-8', ...securityHeaders(this.dist, this.hostOf(req)), ...extra };
         await writeResponse(res, { body: html, headers });
         return;
       }
