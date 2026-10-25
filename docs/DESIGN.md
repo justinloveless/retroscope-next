@@ -1112,26 +1112,29 @@ Disabled users and revoked sessions are closed through `ConnectionRegistry` (440
 Rules:
 - JSON only, STJ source generation, `JsonUnmappedMemberHandling.Disallow` on every request DTO.
 - Errors are `application/problem+json` with a stable `code` (and `fields` for validation).
-- Every endpoint declares a `RoutePolicy` (`Public`, `Guest`, `User`, `VerifiedUser`, `TeamMember`, `TeamAdmin`, `TeamOwner`, `AppAdmin`, `BoardAccess`, `BoardManage`, `SessionManage`) **and** a `RateLimit` policy; a route-inventory test fails the build if any route lacks either.
+- Every endpoint declares a `RoutePolicy` (`Public`, `User`, `VerifiedUser`, `TeamMember`, `TeamAdmin`, `TeamOwner`, `AppAdmin`, `BoardAccess`, `BoardManage`, `SessionManage`) **and** a `RateLimit` policy; a route-inventory test fails the build if any route lacks either. UX18 removed `Guest`; `BoardManage` and `SessionManage` require a signed-in user at the route filter and leave the team-admin check to the handler.
+- **Who may call what (UX18).** Every team resource (team room, poker sessions, retro boards, action items, kudos, members, settings, Jira, images on boards) needs a signed-in user who is a member of the team. App admins keep the audited admin Teams tool (names, member counts, membership repair) and nothing else; there is no admin bypass to team or room content.
 - **CSRF**: every non-GET request needs the header `X-RS: 1` **and** `Origin == PUBLIC_ORIGIN` (or no Origin with `Sec-Fetch-Site: same-origin`). There is no CORS at all, so a cross-site page can neither send the custom header without a preflight nor pass the Origin check. Cookies are also `SameSite=Lax`.
 - Lists are cursor-paginated (`?cursor=&limit=`, limit ≤ 100).
 - **Client IP (S13).** `ForwardedHeaders` with `ForwardLimit=1` (rightmost hop only) and `KnownNetworks` from `TRUSTED_PROXY_CIDRS`, which the RUNBOOK sets to the Coolify proxy network's subnet only (the app container joins only its compose network and that proxy network). Optional `CLIENT_IP_HEADER=CF-Connecting-IP` mode when Cloudflare fronts Traefik. IPv6 addresses are keyed by /64.
-- **Rate limits** are in-process token buckets in one bounded LRU (100k keys, oldest evicted). Every `G` (guest-reachable) route is limited **per IP and per principal** (S7).
+- **Rate limits** are in-process token buckets in one bounded LRU (100k keys, oldest evicted). Every room route a signed-in user reaches before the handler's membership check (`BoardAccess`, `BoardManage`, `SessionManage`) is limited **per IP and per principal** (S7).
 - **Email budget (S8).** One `EmailBudget` gates every outbound mail (signup, "you already have an account", magic link, reset, verify, invite): per recipient 3/h, per IP 20/h, per sender user 20/day, global 200/h. Over budget, the endpoint still answers 202 (no oracle) and the mail is dropped and counted.
-- **Room codes (S9).** Every code lookup (shell routes, `/api/boot`, `by-code`, WS `sub` by code) goes through one `RoomResolver` with a 30/min/IP limit and an identical response for missing and forbidden.
+- **Room codes (S9).** Every code lookup (shell routes, `/api/boot`, `by-code`, WS `sub` by code) goes through one `RoomResolver` with a 30/min/IP limit and an identical response for missing and forbidden. A signed-out caller is refused before any lookup (UX18): the shell redirects to sign-in and `by-code` answers 401.
 - HTTP retry rule for the client: `http.js` retries idempotent requests (GET, PUT, DELETE) on 502/503 honouring `Retry-After` (≤ 3 tries); POSTs are not retried automatically (S25 residual).
 
-Notation: **P** public, **G** guest or user, **U** user, **V** user with a verified email, **M** team member, **A** team admin/owner, **O** owner, **X** app admin.
+Notation: **P** public, **U** signed-in user, **V** user with a verified email, **M** team member, **A** team admin/owner, **O** owner, **X** app admin. (UX18 removed **G**, guest or user.)
 
 | Method | Route | Authz | Notes |
 |---|---|---|---|
 | GET | `/healthz` | P | 200 when the process is leader and the DB answers (there is no standby, so one probe suffices) |
-| GET | `/`, `/login`, `/auth/*`, `/dashboard`, `/account`, `/mentions`, `/teams`, `/teams/{id}`, `/teams/{id}/settings`, `/teams/{tid}/poker/{code}`, `/poker/{code}`, `/retro/{code}`, `/invite`, `/admin/*` | P | Shell HTML (~3 KB, `no-store`) with boot JSON (me, theme, build id) and route `modulepreload`s; room routes embed the viewer snapshot (§c.3) via `RoomResolver` |
+| GET | `/`, `/login`, `/auth/*`, `/invite` | P | Shell HTML (~3 KB, `no-store`) with boot JSON (me, theme, build id) and route `modulepreload`s. Signed out, `/` is the welcome page. Signed in, `/` answers a no-store `302` to `/teams/<me.lastTeamId>`, else the first team in `me.teams`, else `/teams` (UX18) |
+| GET | `/account`, `/mentions`, `/teams`, `/teams/{id}`, `/teams/{id}/settings`, `/teams/{tid}/poker/{code}`, `/poker/{code}`, `/retro/{code}`, `/admin/*` | U | The same shell; room routes embed the viewer snapshot (§c.3) via `RoomResolver`. A signed-out request answers a no-store `302` to `/login?return=<path and query>`, decided in `Shell` before the boot contributors run, so no room lookup is spent on a caller who can never be admitted (UX18) |
+| GET | `/dashboard` | P | Permanent no-store `302` to `/` (UX18). It left the route table; it stays because it was the installed app's start URL and sits in bookmarks |
 | GET | `/api/boot?path=` | P | Same boot JSON for in-app navigation; room paths go through `RoomResolver` |
 | GET | `/assets/*` | P | Hashed, precompressed, `public, max-age=31536000, immutable` |
-| GET | `/media/timer-music` | G | The deploy-time timer track from `MUSIC_FILE` (UX13): streamed from disk with range requests, strong ETag and `Last-Modified`, `private, max-age=86400`, `nosniff`; 401 without a session; 404 when not configured or refused at startup; 120/min/IP and 60/min per principal. The `/retro/{code}` boot JSON carries `timerMusic: true` when it exists |
-| GET | `/blob/{id}` | avatar: P; board_image: board access | `nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, `Cross-Origin-Resource-Policy: same-origin`; avatars `public, immutable`, board images `private, max-age=31536000, immutable` |
-| GET | `/ws` | G | WebSocket; exact Origin; ≤ 20 sockets per IP |
+| GET | `/media/timer-music` | U | The deploy-time timer track from `MUSIC_FILE` (UX13): streamed from disk with range requests, strong ETag and `Last-Modified`, `private, max-age=86400`, `nosniff`; 401 without a session; 404 when not configured or refused at startup; 120/min/IP and 60/min per principal. The `/retro/{code}` boot JSON carries `timerMusic: true` when it exists |
+| GET | `/blob/{id}` | avatar: P; board_image: a member of the board's team | `nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, `Cross-Origin-Resource-Policy: same-origin`; avatars `public, immutable`, board images `private, max-age=31536000, immutable` |
+| GET | `/ws` | U | WebSocket; exact Origin; ≤ 20 sockets per IP. A signed-in user, verified or not (`aot-smoke` probes it as an unverified user) |
 | POST | `/api/auth/signup` | P | `{email, password, fullName}`; password 10–72 bytes, not in the embedded top-10k list (signup and password change only, **never** login, S30); always 202; an existing email gets an "you already have an account" email; 5/h/IP + email budget. Verification mail says "If you didn't create this account, ignore this email" |
 | POST | `/api/auth/login` | P | `{email, password}`; password checked as raw UTF-8 bytes, no policy, no normalization (imported 6-char passwords work, S30); 10/min/IP; backoff keyed on (account, IP /24 or /64) after 5 failures up to 15 min, plus a slower global per-account cap (50/h) that, when hit, emails an unlock link instead of hard-locking (S13); dummy bcrypt on unknown email |
 | POST | `/api/auth/logout`, `/api/auth/logout-all` | U | Deletes sessions, evicts cache, closes sockets |
@@ -1139,23 +1142,21 @@ Notation: **P** public, **G** guest or user, **U** user, **V** user with a verif
 | POST | `/api/auth/magic/consume` | P | `{token}`; posted only after the user clicks "Sign in as j•••@x.com" on `/auth/magic` (no auto-POST, S18) |
 | POST | `/api/auth/reset/request`, `/api/auth/reset/consume` | P | `{email}` / `{token, password}`; request 3/h/email, 20/h/IP + email budget; consume revokes all sessions, marks email verified |
 | POST | `/api/auth/verify/consume` | U | `{token}`; verifies only when the request carries a session of the token's user; otherwise the page shows "Sign in to finish verifying" (S4) |
+| POST | `/api/auth/verify/request` | U | A signed-in user whose email is not verified asks for the verification email again (UX18); under `EmailBudget` and a per-user limit; answers the same way whether or not a mail was sent |
 | GET | `/auth/oidc/{google\|entra}/start?return=` | P | 302; sets `__Host-rs_oidc` (AES-GCM: state, nonce, PKCE verifier, return, link flag; 10 min; `SameSite=Lax`; single use) |
 | GET | `/auth/oidc/{provider}/callback` | P | §e; `response_mode=query` for both providers (S20) |
 | POST | `/api/me/identities/{provider}/link` | U | Starts OIDC with the link flag; a `(provider, subject)` already linked to another user is refused |
-| POST / PATCH | `/api/guest` | P / guest | `{displayName}` 1–40 chars plain text, email-shaped names rejected (S21); create 20/h/IP; issues or renames `__Host-rs_guest` |
-| GET | `/api/me` | G | `{principal, user?, teams:[{id,name,role}], unreadMentions}` |
+| GET | `/api/me` | U | `{principal, user, teams:[{id,name,role,openActions}], lastTeamId, unreadMentions}`. `openActions` is one grouped count over the open action-items index, joined to the user's memberships; `lastTeamId` is §c.5 (UX18). UX18 removed `/api/guest` |
 | PATCH | `/api/me` | U | `{fullName?, nickname?, theme?}` only |
 | PUT | `/api/me/password` | U | `{current?, new}`. `current` required if a password exists. Adding a **first** password requires a session younger than 10 minutes from an OIDC or magic-link sign-in (re-auth), S17. Revokes other sessions |
 | PUT / DELETE | `/api/me/avatar` | U | Body: image ≤ 256 KiB (client crops/resizes to 128 px WebP); magic-byte sniffing |
 | GET | `/api/me/sessions`, DELETE `/api/me/sessions/{id}` | U | |
-| GET / POST | `/api/me/mentions?cursor=`, `/api/me/mentions/seen` | U | Only boards the user can still read; anonymous sources show "Anonymous" |
-| GET | `/api/me/endorsements` | U | Received |
-| GET | `/api/dashboard` | U | One batched query: recent teams/boards/sessions (5 each, access re-checked) + favorites |
-| GET / POST | `/api/teams` | U / **V** | Create requires a verified email (S7/S8); creator → owner; seeds default template (Good/Bad/Kudos/Action Items) and 3 endorsement types in one transaction; 10/day/user |
-| GET | `/api/teams/{id}` | M | `{name, description, role, pointDescriptions, maxEndorsements, jira:{configured, siteHost, projectKey, boardId, ticketPrefix, status, membersCanEdit}, counts}` |
+| GET / POST | `/api/me/mentions?cursor=`, `/api/me/mentions/seen` | U | Only boards of teams the user is still a member of (UX18; the unread count uses the same rule); anonymous sources show "Anonymous" |
+| GET | `/api/me/endorsements` | U | Received, from the user's current teams only (UX18): no kudos, type names or endorser names from a team the user has left |
+| POST | `/api/teams` | **V** | Create requires a verified email (S7/S8); creator → owner; seeds default template (Good/Bad/Kudos/Action Items) and 3 endorsement types in one transaction; 10/day/user |
+| GET | `/api/teams/{id}` | M | `{name, description, role, pointDescriptions, maxEndorsements, jira:{configured, siteHost, projectKey, boardId, ticketPrefix, status, membersCanEdit}, counts}`; touches the team (§c.5). UX18 removed `GET /api/teams` (the list) |
 | PATCH | `/api/teams/{id}` | A | name, description, pointDescriptions (deck keys only, ≤ 100 chars), maxEndorsementsPerBoard; posts `TeamSettingsChanged` |
-| DELETE | `/api/teams/{id}` | O | `{confirmName}`; soft delete; kicks all rooms of the team |
-| PUT / DELETE | `/api/teams/{id}/favorite` | M | |
+| DELETE | `/api/teams/{id}` | O | `{confirmName}`; soft delete; kicks all rooms of the team. UX18 removed the `favorite` routes |
 | GET | `/api/teams/{id}/members` | M | name, avatar, role; **no emails** |
 | PATCH | `/api/teams/{id}/members/{userId}` | O | `{role: admin\|member}` via TeamActor |
 | DELETE | `/api/teams/{id}/members/{userId}` | A for members, **O for admins**, or self to leave | Owner cannot be removed; via TeamActor, then `AccessChanged` (S19) |
@@ -1164,8 +1165,8 @@ Notation: **P** public, **G** guest or user, **U** user, **V** user with a verif
 | DELETE | `/api/teams/{id}/invites/{inviteId}` | A | Revoke |
 | POST | `/api/invites/preview` | P | `{token}` → `{teamName, kind, expired}`; 30/min/IP |
 | POST | `/api/invites/accept` | U | `{token}`; email invites need a verified email equal to the invite email; single use. Link invites are reusable until expiry or revoke. Membership is inserted **by TeamActor** (R24) |
-| GET / POST | `/api/teams/{id}/boards?archived=&cursor=` | M | Create `{title, visibility='team', password?, templateId?}`; columns and config from the chosen or default template; 10-char Crockford code |
-| GET / POST | `/api/teams/{id}/poker-sessions?cursor=` | M | List with `{pointed, total, parentKeys:[{key,count}]}` computed in SQL; create clones settings from the team's latest session |
+| GET / POST | `/api/teams/{id}/boards?archived=&cursor=` | M | Create `{title, templateId?}`; columns and config from the chosen or default template; 10-char Crockford code. List items carry `lastActivityAt`, `stage`, `stagesEnabled` and `cardCount`, and no `visibility` (UX18) |
+| GET / POST | `/api/teams/{id}/poker-sessions?cursor=` | M | List with `{pointed, total, parentKeys:[{key,count}], lastActivityAt}` computed in SQL; create (empty body) clones settings from the team's latest session |
 | GET | `/api/teams/{id}/action-items?status=&assignee=&sort=&cursor=` | M | Live updates via `team:` |
 | GET | `/api/teams/{id}/action-items/{itemId}/comments` | M | Comments of the source card (lives on another board), projected with the board's anonymity rules (R22) |
 | POST | `/api/teams/{id}/action-items/{itemId}/comments` | M | `{commentId, body}`; routed to the source board's actor (Ask) |
@@ -1177,19 +1178,15 @@ Notation: **P** public, **G** guest or user, **U** user, **V** user with a verif
 | POST | `/api/teams/{id}/jira/test` | A | `{ok, accountName, discovered:{pointsFieldId, sprintFieldId, boardId}}`; a 401 gives the specific hint "use a classic (unscoped) API token" (F24) |
 | DELETE | `/api/teams/{id}/jira` | A | |
 | * | `/api/teams/{id}/jira/...` | M (writes: M if `members_can_edit`, else A) | §f |
-| POST | `/api/poker` | G | Quick session; server generates a 10-char code → `{id, code}`; 10/h/principal and 30/h/IP |
-| GET | `/api/poker/by-code/{code}` | P | `{id, access}`; exact match, then upper-case; via `RoomResolver`; identical shape for missing and forbidden; **no `teamId`** (S9) |
-| DELETE | `/api/poker/{id}` | A (team) / creator (quick) | Ask → `poker.session.deleted` → kick → delete |
-| POST | `/api/retro` | G | Quick board `{title?}`; 10-char Crockford code; default columns; config `max_votes_per_user=3` (parity); 10/h/principal and 30/h/IP |
-| GET | `/api/retro/by-code/{code}` | P | `{id, access:'granted'\|'password'\|'signin'\|'denied'}`; via `RoomResolver`; same shape for 404/403 |
-| POST | `/api/retro/{id}/unlock` | G | `{password}`; 5/min per principal per board, 20/h/IP; grant via Ask |
-| PATCH | `/api/retro/{id}` | BoardManage (team admin, or quick creator) | `{visibility?, password?}`; password change bumps `password_set_at` (invalidates grants; affected subscribers kicked) |
-| POST | `/api/retro/{id}/archive`, `/unarchive` | BoardManage | |
-| DELETE | `/api/retro/{id}` | BoardManage | `{confirmTitle}`; soft delete; kick |
-| POST | `/api/retro/{id}/images` | board access + stage allows adding | Image ≤ 2 MiB; magic bytes; → `{blobId}`; 30/h/principal **and** 60/h/IP; per-board quota 50 MiB; global board-image ceiling (`BLOB_BYTES_MAX`, default 2 GiB) → 507 + log alert; unattached images GC'd after 24 h (S7) |
+| GET | `/api/poker/by-code/{code}` | U | `{id, access:'granted'}`; exact match, then upper-case; via `RoomResolver`; a missing session and one of a team the caller is not in answer alike; **no `teamId`** (S9). UX18 removed `POST /api/poker` (quick sessions) |
+| DELETE | `/api/poker/{id}` | SessionManage (team admin/owner) | Ask → `poker.session.deleted` → kick → delete |
+| GET | `/api/retro/by-code/{code}` | U | `{id, access:'granted'}`; via `RoomResolver`; same answer for missing and forbidden. UX18 removed `POST /api/retro` (quick boards), `POST /api/retro/{id}/unlock` and `PATCH /api/retro/{id}` (visibility and password) |
+| POST | `/api/retro/{id}/archive`, `/unarchive` | BoardManage (team admin/owner) | |
+| DELETE | `/api/retro/{id}` | BoardManage (team admin/owner) | `{confirmTitle}`; soft delete; kick |
+| POST | `/api/retro/{id}/images` | a member of the board's team + stage allows adding | Image ≤ 2 MiB; magic bytes; → `{blobId}`; 30/h/principal **and** 60/h/IP; per-board quota 50 MiB; global board-image ceiling (`BLOB_BYTES_MAX`, default 2 GiB) → 507 + log alert; unattached images GC'd after 24 h (S7) |
 | GET | `/api/admin/users?q=` | X | Email prefix or name; results show masked email |
 | PATCH | `/api/admin/users/{id}` | X | `{disabled?, isAdmin?}`; cannot demote the last admin; disable revokes sessions and kicks sockets; audited |
-| GET | `/api/admin/teams?q=` | X | |
+| GET | `/api/admin/teams?q=` | X | Names and member counts only, never team content (UX18) |
 | POST / DELETE | `/api/admin/teams/{id}/members[/{userId}]` | X | Membership repair via TeamActor; audited |
 | GET | `/api/admin/stats` | X | RSS, live rooms, sockets, pool usage, ring bytes, blob bytes, email budget drops |
 
@@ -1206,7 +1203,9 @@ Notation: **P** public, **G** guest or user, **U** user, **V** user with a verif
 - Login, password change and privilege change rotate the token.
 - WebSockets authenticate from the cookie on upgrade and re-validate every 5 minutes; revocation is also pushed.
 
-**Guests.** `__Host-rs_guest` holds a 32-byte token whose hash is in `guest_tokens` (180 days, slid daily). A user cookie takes precedence. Signing in does not merge the guest principal (its votes keep their identity); the guest cookie is kept so the browser's old seats stay the same guest when signed out. Guest names may not be email-shaped; guest seats and authors carry a visible "guest" badge (S21). Guest creation is limited to 20/h/IP.
+**Guests (removed, UX18).** Nobody signs in as a guest. The server no longer reads the `__Host-rs_guest` cookie, and sign-in and sign-out expire any that remains; migration 0003 dropped `guest_tokens`. Guest and Slack (`external`) principals, imported or created before UX18, stay as history: their cards, votes, seats and readiness keep a visible "guest" badge (S21), and they are never merged into user accounts. A former guest's open tab gets a 401 on its next socket upgrade; there is no shim that tells it why.
+
+**Sign-in gate (UX18).** A signed-out visitor reaches only `/`, `/login`, `/auth/*` and `/invite`; every other page sends them to `/login?return=<path and query>` (§d, §g.2). Every post-auth landing (`safeReturn`'s default, magic-link consume, the verify page's "Continue", OIDC's default `return`) goes to `/`, which resolves the user's team or a pending invite.
 
 **Passwords.**
 - bcrypt for everything: imported Supabase `$2a$`/`$2b$` cost-10 hashes are stored unchanged; new hashes use **cost 10** (matching the imported hashes; no rehash-on-login). One algorithm, no migration path. U16 measures hashes/s on the target VPS and records it.
@@ -1240,7 +1239,8 @@ Notation: **P** public, **G** guest or user, **U** user, **V** user with a verif
 - A magic link for an unknown email creates a verified account on consume; for an unverified existing account it applies the takeover rule.
 - `verify/consume` verifies only for a signed-in session of the same user (S4).
 - The token row and the `email_outbox` row are written in one transaction, subject to `EmailBudget`. `EmailWorker` sends via SMTP submission (587 STARTTLS or 465 TLS) using `System.Net.Mail.SmtpClient` **(AOT behaviour unverified; U17 falls back to a ~250-line in-house client if it warns or fails)**. Retries back off to 6 attempts; the row is deleted on success; after the final failure `body_text` is nulled (S23). Bodies are plain text from fixed templates; no HTML mail; any value reaching a header is rejected if it contains CR/LF.
-- Signup sends a verification email but does not block login (parity). Unverified accounts cannot accept email invites, cannot create teams or send email invites, and are never auto-linked.
+- Signup sends a verification email but does not block login (parity). Unverified accounts cannot accept email invites, cannot create teams or send email invites, and are never auto-linked. They can ask for the email again (`POST /api/auth/verify/request`, UX18); the create-or-join screen offers it next to the disabled "Create a team".
+- An invite is the way in for a new member (UX18): `/invite` leads a signed-out visitor with "Email me a sign-in link", because consuming a magic link signs in, creates the account if needed and verifies the address, which an email invite requires.
 
 **Security headers (all HTML responses).**
 ```
@@ -1298,7 +1298,7 @@ The only inline script is the pre-paint theme snippet; `build.mjs` emits its has
 
 **JQL** (`Jql.cs`): values escaped (`"` and `\`), keys regex-validated, points filters use `cf[NNNNN]` from the configured field (never `"Story Points"`), status filters use `statusCategory`. Ranked browse fetches sprints with bounded parallelism 3 and surfaces errors (`partial:true` + code) instead of a silent `break`. Bucket order: sprints by startDate then name using `Core/Text/NaturalCompare` (ordinal, digit runs compared numerically; no ICU dependency under InvariantGlobalization, F22; validated against the golden vectors from `jiraBrowseSprintBuckets.ts`), Backlog last; within a bucket, Jira rank. `includeKeys` (keys already on session rounds) are merged in; browse rows carry `roundState: 'pointing'|'pointed'|null` and the add buttons are disabled with those reasons; the `hidePointedOrPointing` filter is ignored while a search text is present (parity, `jira.md` §5.2).
 
-**Proxy routes** (`/api/teams/{id}/jira/...`, TeamMember; never available in quick sessions). All caches are in process memory in one size-aware LRU capped at **8 MB**; nothing from Jira is persisted except issue keys, parent keys and submitted points.
+**Proxy routes** (`/api/teams/{id}/jira/...`, TeamMember). All caches are in process memory in one size-aware LRU capped at **8 MB**; nothing from Jira is persisted except issue keys, parent keys and submitted points.
 
 | Route | Cache |
 |---|---|
@@ -1349,7 +1349,7 @@ Every Jira write is recorded in `audit_log` (team, user, action, issue key; no c
 - **The editor (UX12).** "Edit description" in the drawer and the centre issue view loads the edit view and the `rich-editor` chunk together and opens ProseMirror on it (`web/src/rich/`). Everything the allow-list holds is edited in place: text in tables, panels, lists, layouts, expands, task and decision items. Tokens draw as read-only chips and blocks named by the view's labels; media come through the attachment proxy; nodes use the read view's `jira.css` classes and colours its theme tokens. The toolbar follows Jira's (text style, bold, italic, more formatting, text colour and highlight from Jira's palettes, lists with indent and outdent, link, insert quote, code block and divider, undo and redo), and so do the shortcuts and Jira's markdown autoformat. A save sends `descriptionAdf` with the view's `updated` as `descriptionBase`, and none at all when the document is canonical-equal to the view. On `stale` the client re-reads the edit view: if the description is unchanged (another field moved `updated`), the draft moves onto the new `updated` and is sent again; otherwise it keeps the draft and offers "Reload" (after a confirmation); `invalid` shows the code and path; Cancel with changes asks first. A dirty draft is kept in memory when the view moves to another issue or closes, by the user or by someone else's navigation, and "Edit description" brings it back. The chunk is prefetched on an idle callback when the drawer or centre view opens for a user who can edit.
 - The markup path with islands (F5, above) stays only as the fallback for an edit view with `editable: false`, then goes (UX10 phase 12).
 
-**Retro "Create in Jira".** Action-item cards on team boards with Jira configured get a "Create in Jira" action (U36) that calls `POST issues` (U26) with the card's text converted via `MarkupToAdf` and shows the created key.
+**Retro "Create in Jira".** Action-item cards on boards whose team has Jira configured get a "Create in Jira" action (U36) that calls `POST issues` (U26) with the card's text converted via `MarkupToAdf` and shows the created key.
 
 ---
 
