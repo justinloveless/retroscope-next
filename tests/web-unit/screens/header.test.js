@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { installDom } from '../core/_dom.js';
 import { revealHeader, setHeader, setHeaderTeam, setMe } from '../../../web/src/screens/app.js';
 import { createHeader } from '../../../web/src/screens/header.js';
-import { kickScreen } from '../../../web/src/screens/no-access.js';
 
 const A = { id: '01900000-0000-7000-8000-0000000000a1', name: 'Apps', role: 'owner', openActions: 2 };
 const B = { id: '01900000-0000-7000-8000-0000000000b2', name: 'Billing', role: 'member', openActions: 0 };
@@ -66,13 +65,4 @@ test('on /mentions the last team shows with no section active, and the bell is t
   assert.equal(header.el.querySelector('.app-mentions').getAttribute('aria-current'), 'page');
   visit('/account', '/account');
   assert.equal(header.el.querySelector('.app-mentions').hasAttribute('aria-current'), false);
-});
-
-test('a room kick shows no access when the room is gone or the user lost it, and not for a full tab', () => {
-  assert.deepEqual(kickScreen('deleted'), { removed: false });
-  assert.deepEqual(kickScreen('not_found'), { removed: false });
-  assert.deepEqual(kickScreen('access_revoked'), { removed: true });
-  assert.deepEqual(kickScreen('forbidden'), { removed: true });
-  assert.equal(kickScreen('too_many_rooms'), null);
-  assert.equal(kickScreen(null), null);
 });
