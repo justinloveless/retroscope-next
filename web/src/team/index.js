@@ -154,7 +154,8 @@ export function mount(root, boot, app = {}) {
     });
     unwatch.push(context.room.select(() => context.room.kicked, Object.is, (code) => {
       if (code) {
-        fail('removed');
+        // A tab over its room limit can come back; every other kick ends this user's access.
+        fail(code === 'too_many_rooms' ? { code } : 'removed');
       }
     }));
     unwatch.push(context.room.select((s) => s, Object.is, () => patchHeader(context)));
