@@ -49,54 +49,6 @@ public sealed class RetentionTests(PostgresFixture postgres) {
     }
 
     [Fact]
-    public async Task A_room_someone_is_in_is_skipped_and_purged_once_they_leave() {
-        await using var host = await StartAsync(postgres);
-        var user = await host.CreateUserAsync("u@example.com");
-        var session = await SessionAsync(host, "BUSY01", host.Time.GetUtcNow() - Idle);
-        var socket = await host.ConnectAsync(user);
-        await socket.SubscribeAsync(RoomKey.Poker(session));
-        // The subscription itself bumps nothing: the room stays idle in the rows.
-        await host.ExecuteAsync("update poker_sessions set last_activity_at = $2 where id = $1", session.Value, host.Time.GetUtcNow() - Idle);
-
-        var busy = await host.Service<RetentionJob>().RunAsync(Token);
-
-        Assert.Equal(0, busy.QuickSessions);
-        Assert.Equal(1, busy.SkippedLive);
-        Assert.True(await ExistsAsync(host, "poker_sessions", session.Value));
-
-        socket.Dispose();
-        await WaitUntilAsync(async () => (await host.Service<RetentionJob>().RunAsync(Token)).QuickSessions == 1);
-        Assert.False(await ExistsAsync(host, "poker_sessions", session.Value));
-    }
-
-    [Fact]
-    public async Task A_page_of_rooms_in_use_does_not_hide_the_idle_rooms_after_it() {
-        await using var host = await StartAsync(postgres);
-        var user = await host.CreateUserAsync("u@example.com");
-        var now = host.Time.GetUtcNow();
-        var oldest = await SessionAsync(host, "BUSY01", now - Idle - TimeSpan.FromHours(2));
-        var older = await SessionAsync(host, "BUSY02", now - Idle - TimeSpan.FromHours(1));
-        var idle = await SessionAsync(host, "IDLE01", now - Idle);
-        using var socket = await host.ConnectAsync(user);
-        await socket.SubscribeAsync(RoomKey.Poker(oldest));
-        await socket.SubscribeAsync(RoomKey.Poker(older));
-        var job = new RetentionJob(
-            host.Service<NpgsqlDataSource>(),
-            host.Service<Leader>(),
-            host.Registry,
-            host.Time,
-            host.App.Services,
-            NullLogger<RetentionJob>.Instance) { PageSize = 2 };
-
-        var report = await job.RunAsync(Token);
-
-        Assert.Equal((1, 2), (report.QuickSessions, report.SkippedLive));
-        Assert.False(await ExistsAsync(host, "poker_sessions", idle.Value));
-        Assert.True(await ExistsAsync(host, "poker_sessions", oldest.Value));
-        Assert.True(await ExistsAsync(host, "poker_sessions", older.Value));
-    }
-
-    [Fact]
     public async Task A_server_that_loses_leadership_mid_pass_stops_deleting() {
         var host = await StartAsync(postgres);
         try {
@@ -206,10 +158,11 @@ public sealed class RetentionTests(PostgresFixture postgres) {
     internal static async Task<BoardId> BoardAsync(AdminHost host, string code, DateTimeOffset lastActivity, TeamId? team = null) {
         var id = new BoardId(Guid.CreateVersion7());
         await host.ExecuteAsync(
-            "insert into retro_boards (id, code, team_id, title, visibility, last_activity_at) values ($1, $2, $3, 'Board', 'link', $4)",
+            "insert into retro_boards (id, code, team_id, title, visibility, last_activity_at) values ($1, $2, $3, 'Board', $4, $5)",
             id.Value,
             code,
             (object?)team?.Value ?? DBNull.Value,
+            team is null ? "link" : "team",
             lastActivity);
         return id;
     }

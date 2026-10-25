@@ -30,10 +30,13 @@ public sealed class RetroRoundTripTests(PostgresFixture postgres) {
     [Fact]
     public async Task Every_command_survives_a_restart_unchanged() {
         await using var scope = await RetroScope.StartAsync(postgres);
+        // Guests no longer take part (UX18), but an imported guest's card is history and reloads with its author.
+        await scope.ExecuteAsync(
+            "insert into retro_cards (id, board_id, column_id, body, author_id) values ($1, $2, $3, 'Hello from a guest', $4)",
+            FromGuest.Value, TeamBoard.Value, Good.Value, Gina.Who.Id.Value);
         var registry = scope.NewRegistry();
         var alice = await JoinAsync(registry, TeamBoardRoom, Alice);
         var bob = await JoinAsync(registry, TeamBoardRoom, Bob);
-        var gina = await JoinAsync(registry, TeamBoardRoom, Gina);
         var q = 0;
 
         await AckAsync(registry, TeamBoardRoom, alice, ++q, new RetroColumnAdd(Ideas, "Ideas", ColumnColor.Purple));
@@ -43,12 +46,11 @@ public sealed class RetroRoundTripTests(PostgresFixture postgres) {
         await AckAsync(registry, TeamBoardRoom, alice, ++q, new RetroCardAdd(Named, Good, $"Hi {Mention(Bob)} {Image(Image1)}", Anonymous: false));
         await AckAsync(registry, TeamBoardRoom, alice, ++q, new RetroCardAdd(Hidden, Good, "Psst", Anonymous: true));
         await AckAsync(registry, TeamBoardRoom, bob, 1, new RetroCardAdd(Action, Ideas, "Fix the build", Anonymous: false));
-        await AckAsync(registry, TeamBoardRoom, gina, 1, new RetroCardAdd(FromGuest, Good, "Hello from a guest", Anonymous: false));
         await AckAsync(registry, TeamBoardRoom, alice, ++q, new RetroCardEdit(Named, $"Hello {Mention(Bob)}", 1));
         await AckAsync(registry, TeamBoardRoom, bob, 2, new RetroVoteSet(Hidden, On: true));
-        await AckAsync(registry, TeamBoardRoom, gina, 2, new RetroVoteSet(Named, On: true));
-        await AckAsync(registry, TeamBoardRoom, gina, 3, new RetroVoteSet(Hidden, On: true));
-        await AckAsync(registry, TeamBoardRoom, gina, 4, new RetroVoteSet(Hidden, On: false));
+        await AckAsync(registry, TeamBoardRoom, alice, ++q, new RetroVoteSet(FromGuest, On: true));
+        await AckAsync(registry, TeamBoardRoom, alice, ++q, new RetroVoteSet(Named, On: true));
+        await AckAsync(registry, TeamBoardRoom, alice, ++q, new RetroVoteSet(Named, On: false));
         await AckAsync(registry, TeamBoardRoom, bob, 3, new RetroCommentAdd(Reply, Named, "Agreed", Anonymous: false));
         await AckAsync(registry, TeamBoardRoom, alice, ++q, new RetroCommentAdd(Whisper, Named, $"Quietly {Image(Image2)}", Anonymous: true));
         await AckAsync(registry, TeamBoardRoom, bob, 4, new RetroCommentAdd(Retracted, Named, "Oops", Anonymous: false));
@@ -95,17 +97,17 @@ public sealed class RetroRoundTripTests(PostgresFixture postgres) {
     public async Task Unarchiving_and_a_timer_that_runs_reload_as_they_were() {
         await using var scope = await RetroScope.StartAsync(postgres);
         var registry = scope.NewRegistry();
-        var alice = await JoinAsync(registry, QuickBoardRoom, Alice);
-        await AckAsync(registry, QuickBoardRoom, alice, 1, new RetroTimerStart(120_000, Alarm: true, Music: false, TimerState.Idle));
-        await registry.AskAsync<RetroState, RetroInput>(QuickBoardRoom, new RetroInput.ArchiveSet(true, Alice.Who.Id), null, Token);
-        await registry.AskAsync<RetroState, RetroInput>(QuickBoardRoom, new RetroInput.ArchiveSet(false, Alice.Who.Id), null, Token);
-        var live = await scope.DescribeAsync(registry, QuickBoardRoom, Alice);
+        var alice = await JoinAsync(registry, OtherBoardRoom, Alice);
+        await AckAsync(registry, OtherBoardRoom, alice, 1, new RetroTimerStart(120_000, Alarm: true, Music: false, TimerState.Idle));
+        await registry.AskAsync<RetroState, RetroInput>(OtherBoardRoom, new RetroInput.ArchiveSet(true, Alice.Who.Id), null, Token);
+        await registry.AskAsync<RetroState, RetroInput>(OtherBoardRoom, new RetroInput.ArchiveSet(false, Alice.Who.Id), null, Token);
+        var live = await scope.DescribeAsync(registry, OtherBoardRoom, Alice);
         await registry.ShutdownAsync(Token);
 
-        var loaded = await scope.DescribeAsync(scope.NewRegistry(), QuickBoardRoom, Alice);
+        var loaded = await scope.DescribeAsync(scope.NewRegistry(), OtherBoardRoom, Alice);
 
         Assert.Equal(live, loaded);
         Assert.Contains("\"state\":\"running\"", loaded, StringComparison.Ordinal);
-        Assert.Null(await scope.ScalarAsync<Guid?>("select archived_by from retro_boards where id = $1", QuickBoard.Value));
+        Assert.Null(await scope.ScalarAsync<Guid?>("select archived_by from retro_boards where id = $1", OtherBoard.Value));
     }
 }

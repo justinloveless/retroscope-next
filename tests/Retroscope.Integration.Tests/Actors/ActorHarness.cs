@@ -19,8 +19,8 @@ internal static class ActorHarness {
 
     public static RoomKey Room { get; } = RoomKey.Poker(new SessionId(Guid.Parse("00000000-0000-4000-8000-0000000000a0")));
 
-    /// <summary>The team the counter room's snapshot names; nothing reads it.</summary>
-    public static TeamId CounterTeam { get; } = new(Guid.Parse("00000000-0000-4000-8000-0000000000b0"));
+    /// <summary>The team the harness rooms belong to.</summary>
+    public static TeamId RoomTeam { get; } = new(Guid.Parse("00000000-0000-4000-8000-0000000000b0"));
 
     public static Viewer Alice { get; } = Viewer(1, "Alice");
 
@@ -491,7 +491,7 @@ internal sealed class CounterBinding(CounterDomain domain) : IRoomBinding<Counte
             [],
             [],
             presence,
-            ActorHarness.CounterTeam);
+            ActorHarness.RoomTeam);
     }
 
     public RoomOverlay? Overlay(Counter state, Viewer viewer) => new PokerOverlay([], state.Mine.Contains(viewer.Who.Id));

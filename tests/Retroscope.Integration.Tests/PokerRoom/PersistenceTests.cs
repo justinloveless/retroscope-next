@@ -13,7 +13,7 @@ public sealed class PersistenceTests(PostgresFixture postgres) {
     public async Task Reveal_turns_unlocked_votes_into_abstains_in_sql_and_stores_the_winner() {
         await using var scope = await PokerScope.CreateAsync(postgres);
         var (alice, bob, carol) = (await scope.Seed.UserAsync("Alice"), await scope.Seed.UserAsync("Bob"), await scope.Seed.UserAsync("Carol"));
-        var room = await scope.Seed.SessionAsync(alice);
+        var room = await scope.Seed.SessionAsync(alice, await scope.Seed.TeamOfAsync(alice, bob, carol));
         var r1 = (await scope.Seed.RoundsAsync(room))[0];
         var host = await scope.StartAsync();
         await using var a = await host.JoinAsync(alice, room);
@@ -43,7 +43,7 @@ public sealed class PersistenceTests(PostgresFixture postgres) {
     public async Task Reorder_rewrites_dense_sort_keys_under_the_deferred_unique_constraint() {
         await using var scope = await PokerScope.CreateAsync(postgres);
         var alice = await scope.Seed.UserAsync("Alice");
-        var room = await scope.Seed.SessionAsync(alice, null, "RS-1", "RS-2", "RS-3", "RS-4");
+        var room = await scope.Seed.SessionAsync(alice, await scope.Seed.TeamOfAsync(alice), "RS-1", "RS-2", "RS-3", "RS-4");
         var rounds = await scope.Seed.RoundsAsync(room);
         var host = await scope.StartAsync();
         await using var a = await host.JoinAsync(alice, room);
@@ -89,7 +89,7 @@ public sealed class PersistenceTests(PostgresFixture postgres) {
         await using var scope = await PokerScope.CreateAsync(postgres);
         var alice = await scope.Seed.UserAsync("Alice");
         var bob = await scope.Seed.UserAsync("Bob");
-        var room = await scope.Seed.SessionAsync(alice, null, "RS-1", "RS-2", "RS-3");
+        var room = await scope.Seed.SessionAsync(alice, await scope.Seed.TeamOfAsync(alice, bob), "RS-1", "RS-2", "RS-3");
         var rounds = await scope.Seed.RoundsAsync(room);
         var host = await scope.StartAsync();
         await using var a = await host.JoinAsync(alice, room);
@@ -115,7 +115,7 @@ public sealed class PersistenceTests(PostgresFixture postgres) {
     public async Task A_moved_spotlight_is_persisted_once_it_settles_and_on_shutdown() {
         await using var scope = await PokerScope.CreateAsync(postgres);
         var alice = await scope.Seed.UserAsync("Alice");
-        var room = await scope.Seed.SessionAsync(alice, null, "RS-1", "RS-2", "RS-3");
+        var room = await scope.Seed.SessionAsync(alice, await scope.Seed.TeamOfAsync(alice), "RS-1", "RS-2", "RS-3");
         var rounds = await scope.Seed.RoundsAsync(room);
         var host = await scope.StartAsync();
         await using var a = await host.JoinAsync(alice, room);
@@ -143,7 +143,7 @@ public sealed class PersistenceTests(PostgresFixture postgres) {
         await using var scope = await PokerScope.CreateAsync(postgres);
         var alice = await scope.Seed.UserAsync("Alice");
         var bob = await scope.Seed.UserAsync("Bob");
-        var room = await scope.Seed.SessionAsync(alice);
+        var room = await scope.Seed.SessionAsync(alice, await scope.Seed.TeamOfAsync(alice, bob));
         var r1 = (await scope.Seed.RoundsAsync(room))[0];
         var host = await scope.StartAsync();
         var a = await host.JoinAsync(alice, room);

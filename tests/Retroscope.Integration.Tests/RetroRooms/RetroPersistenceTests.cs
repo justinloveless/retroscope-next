@@ -61,17 +61,17 @@ public sealed class RetroPersistenceTests(PostgresFixture postgres) {
         var alice = await JoinAsync(registry, TeamBoardRoom, Alice);
 
         await AckAsync(registry, TeamBoardRoom, alice, 1, new RetroCardAdd(First, Good, $"Look {Image(Image1)}", Anonymous: false));
-        var fromQuickBoard = await NackAsync(registry, TeamBoardRoom, alice, 2, new RetroCardAdd(Second, Good, Image(QuickImage), Anonymous: false));
+        var fromOtherBoard = await NackAsync(registry, TeamBoardRoom, alice, 2, new RetroCardAdd(Second, Good, Image(OtherImage), Anonymous: false));
         var avatar = await NackAsync(registry, TeamBoardRoom, alice, 3, new RetroCardAdd(Second, Good, $"{Image(Image2)} {Image(Avatar)}", Anonymous: false));
         var missing = await NackAsync(registry, TeamBoardRoom, alice, 4, new RetroCommentAdd(Comment, First, Image(new BlobId(Id(0x5ff))), Anonymous: false));
 
         Assert.Equal(
             [[Image1.Value, Alice.Who.Id.Value, true], [Image2.Value, Alice.Who.Id.Value, false]],
             await scope.RowsAsync("select id, created_by, attached_at is not null from blobs where board_id = $1 order by id", TeamBoard.Value));
-        Assert.All(new[] { fromQuickBoard, avatar, missing }, nack => Assert.Equal(NackCode.Internal, nack.Code));
+        Assert.All(new[] { fromOtherBoard, avatar, missing }, nack => Assert.Equal(NackCode.Internal, nack.Code));
         Assert.Equal(1L, await scope.ScalarAsync<long>("select count(*) from retro_cards"));
         Assert.Equal(0L, await scope.ScalarAsync<long>("select count(*) from retro_comments"));
-        Assert.False(await scope.ScalarAsync<bool>("select attached_at is not null from blobs where id = $1", QuickImage.Value));
+        Assert.False(await scope.ScalarAsync<bool>("select attached_at is not null from blobs where id = $1", OtherImage.Value));
     }
 
     [Fact]
@@ -79,22 +79,23 @@ public sealed class RetroPersistenceTests(PostgresFixture postgres) {
         await using var scope = await RetroScope.StartAsync(postgres);
         var registry = scope.NewRegistry();
         var alice = await JoinAsync(registry, TeamBoardRoom, Alice);
-        var quick = await JoinAsync(registry, QuickBoardRoom, Alice);
+        var other = await JoinAsync(registry, OtherBoardRoom, Alice);
 
         await AckAsync(registry, TeamBoardRoom, alice, 1, new RetroCardAdd(First, Good, $"{Mention(Bob)} and {Mention(Carol)}", Anonymous: false));
         var added = await scope.RowsAsync("select source_kind, source_id, board_id, user_id from mentions");
         await AckAsync(registry, TeamBoardRoom, alice, 2, new RetroCommentAdd(Comment, First, $"cc {Mention(Alice)}", Anonymous: false));
         await AckAsync(registry, TeamBoardRoom, alice, 3, new RetroCardEdit(First, $"Over to {Mention(Alice)}", 1));
         var edited = await scope.RowsAsync("select source_kind, user_id from mentions order by source_kind, user_id");
-        await AckAsync(registry, QuickBoardRoom, quick, 1, new RetroCardAdd(Second, QuickColumn, Mention(Bob), Anonymous: false));
-        var withQuick = await scope.ScalarAsync<long>("select count(*) from mentions");
+        // Bob is not a member of the other board's team, so mentioning him there records nothing.
+        await AckAsync(registry, OtherBoardRoom, other, 1, new RetroCardAdd(Second, OtherColumn, Mention(Bob), Anonymous: false));
+        var withOther = await scope.ScalarAsync<long>("select count(*) from mentions");
         await AckAsync(registry, TeamBoardRoom, alice, 4, new RetroCardDelete(First));
 
         Assert.Equal([["card", First.Value, TeamBoard.Value, Bob.Who.Id.Value]], added);
         Assert.Equal(
             [["card", Alice.Who.Id.Value], ["comment", Alice.Who.Id.Value]],
             edited);
-        Assert.Equal(2L, withQuick);
+        Assert.Equal(2L, withOther);
         Assert.Equal(0L, await scope.ScalarAsync<long>("select count(*) from mentions"));
     }
 

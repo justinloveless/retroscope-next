@@ -72,13 +72,19 @@ public sealed class PokerRuntimeTests : IAsyncLifetime {
     private sealed class PokerRoom {
         private PokerRoom() {
             Time = Clock();
-            var state = new PokerState { SessionId = new SessionId(Room.Id), Code = "ABCD1234", WarmUntil = Start, NextRoundNumber = 2 };
+            var state = new PokerState {
+                SessionId = new SessionId(Room.Id), Code = "ABCD1234", TeamId = RoomTeam, WarmUntil = Start, NextRoundNumber = 2,
+            };
             var round = new Round { Id = Round(1), Number = 1 };
             state.Rounds[round.Id] = round;
             state.Order.Add(round.Id);
             state.CurrentRoundId = round.Id;
             Store = new MemoryStore<PokerState, PokerEvent>(state, x => x.Clone(), PokerApply.Apply);
-            Registry = new ActorRegistry(Runtime(Time), [RoomType.Of(new Binding(), Store, new TestAccess())]);
+            // The real policy decides: only members of the session's team act (UX18).
+            var access = new TestAccess();
+            access.Roles[(RoomTeam, Alice.Who.Id)] = TeamRole.Owner;
+            access.Roles[(RoomTeam, Bob.Who.Id)] = TeamRole.Member;
+            Registry = new ActorRegistry(Runtime(Time), [RoomType.Of(new Binding(), Store, access)]);
         }
 
         public Microsoft.Extensions.Time.Testing.FakeTimeProvider Time { get; }

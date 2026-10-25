@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
+using Retroscope.Core.Authz;
 using Retroscope.Core.Ids;
 using Retroscope.Core.Poker;
 using Retroscope.Core.Protocol;
@@ -199,7 +200,7 @@ internal sealed class TeamRoomScope : IAsyncDisposable {
         }
     }
 
-    /// <summary>Enough of U22's binding for a link team board: anyone may subscribe, members get the roster variant.</summary>
+    /// <summary>Enough of U22's binding for a team board: members of the team subscribe, as the real policy decides.</summary>
     private sealed class BoardBinding : IRoomBinding<RetroState, RetroInput, RetroEvent> {
         private readonly RetroProjection _projection = new(NoTags.Instance);
 
@@ -209,7 +210,9 @@ internal sealed class TeamRoomScope : IAsyncDisposable {
 
         public RetroInput? FromClient(Command command) => command is RetroCommand retro ? (RetroInput)retro : null;
 
-        public bool CanSubscribe(RetroState state, Viewer viewer, IAccessView access) => true;
+        public bool CanSubscribe(RetroState state, Viewer viewer, IAccessView access) {
+            return Policy.Can(viewer, Capability.Subscribe, RetroBinding.Facts(state), access);
+        }
 
         public RoomSnapshot Snapshot(RetroState state, IReadOnlyList<PrincipalInfo> presence, bool forMembers) {
             return RetroProjection.Snapshot(state, presence);

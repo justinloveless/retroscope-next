@@ -76,31 +76,6 @@ public sealed class CommandTests(PostgresFixture postgres) {
     }
 
     [Fact]
-    public async Task Quick_session_seats_voters_and_reloads_them_from_their_votes() {
-        await using var scope = await PokerScope.CreateAsync(postgres);
-        var alice = await scope.Seed.UserAsync("Alice");
-        var gus = await scope.Seed.GuestAsync("Gus");
-        var room = await scope.Seed.SessionAsync(alice);
-        var r1 = (await scope.Seed.RoundsAsync(room))[0];
-        var host = await scope.StartAsync();
-        await using var a = await host.JoinAsync(alice, room);
-        await using var g = await host.JoinAsync(gus, room);
-
-        Assert.Contains(await g.AckedAsync(room, new PokerVoteSet(r1, 8)), x => x is PokerRoster);
-        await host.AssertPersistedAsync(room);
-        var r2 = NewRound();
-        await g.AckedAsync(room, new PokerRoundCreate(r2, ForceNew: true));
-        Assert.Equal(NackCode.Forbidden, (await g.NackedAsync(room, new PokerRoundDelete(r2))).Code);
-        await a.AckedAsync(room, new PokerRoundDelete(r2));
-        await host.AssertPersistedAsync(room);
-
-        var loaded = await host.Store.LoadAsync(room, scope.Time.GetUtcNow(), PokerHost.Token);
-        Assert.Equal([gus.Id], loaded!.Roster.Keys);
-        Assert.Equal("Gus", loaded.Roster[gus.Id].Name);
-        Assert.Equal(PrincipalKind.Guest, loaded.Roster[gus.Id].Kind);
-    }
-
-    [Fact]
     public async Task Rejections_reach_the_client_as_nacks_and_change_nothing() {
         await using var scope = await PokerScope.CreateAsync(postgres);
         var alice = await scope.Seed.UserAsync("Alice");
@@ -130,7 +105,7 @@ public sealed class CommandTests(PostgresFixture postgres) {
     public async Task A_resent_command_is_acked_as_a_duplicate_and_applied_once() {
         await using var scope = await PokerScope.CreateAsync(postgres);
         var alice = await scope.Seed.UserAsync("Alice");
-        var room = await scope.Seed.SessionAsync(alice);
+        var room = await scope.Seed.SessionAsync(alice, await scope.Seed.TeamOfAsync(alice));
         var host = await scope.StartAsync();
         await using var a = await host.JoinAsync(alice, room);
 

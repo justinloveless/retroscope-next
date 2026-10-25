@@ -303,12 +303,14 @@ public sealed class AdminEndpointTests(PostgresFixture postgres) {
     public async Task Stats_report_rooms_sockets_pool_rings_blobs_and_mail() {
         await using var host = await StartAsync(postgres);
         var root = await host.CreateUserAsync("root@example.com", admin: true);
+        var team = await TeamAsync(host, "Stats", root.Id);
         var session = new SessionId(Guid.CreateVersion7());
-        await host.ExecuteAsync("insert into poker_sessions (id, code) values ($1, 'STATS1')", session.Value);
+        await host.ExecuteAsync("insert into poker_sessions (id, code, team_id) values ($1, 'STATS1', $2)", session.Value, team.Value);
         using var socket = await host.ConnectAsync(root);
         await socket.SubscribeAsync(RoomKey.Poker(session));
         var board = Guid.CreateVersion7();
-        await host.ExecuteAsync("insert into retro_boards (id, code, title, visibility) values ($1, 'STATSB', 'B', 'link')", board);
+        await host.ExecuteAsync(
+            "insert into retro_boards (id, code, team_id, title, visibility) values ($1, 'STATSB', $2, 'B', 'team')", board, team.Value);
         await host.ExecuteAsync("""
             insert into blobs (id, purpose, board_id, content_type, byte_size, sha256, bytes)
             values ($1, 'board_image', $2, 'image/png', 1234, sha256('x'), 'x')
