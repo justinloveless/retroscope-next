@@ -24,6 +24,3 @@ export function memberMe(who, teams = [], extra = {}) {
     ...extra,
   };
 }
-
-/** A room's PrincipalInfo for the socket's welcome: always a user. */
-export const principalOf = (who) => ({ pid: who.pid, kind: 'user', name: who.name, ...(who.avatar ? { avatar: who.avatar } : {}) });
