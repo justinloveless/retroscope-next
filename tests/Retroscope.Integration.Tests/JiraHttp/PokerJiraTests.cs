@@ -1,8 +1,10 @@
+using Microsoft.Extensions.DependencyInjection;
 using Retroscope.Core.Poker;
 using Retroscope.Core.Protocol;
 using Retroscope.Core.Room;
 using Retroscope.Fakes.FakeJira;
 using Retroscope.Integration.Tests.Schema;
+using Retroscope.Server.Jira;
 using Retroscope.Server.Realtime.Rooms;
 
 namespace Retroscope.Integration.Tests.JiraHttp;
@@ -11,6 +13,8 @@ namespace Retroscope.Integration.Tests.JiraHttp;
 [Trait("Category", "JiraHttp")]
 [Collection(SharedPostgres.Name)]
 public sealed class PokerJiraTests(PostgresFixture postgres) {
+    private const string BoardPointsField = "customfield_10028";
+
     [Fact]
     public async Task Ten_clients_cost_one_metadata_fetch_and_a_PATCH_refreshes_the_title_in_the_room() {
         await using var host = await JiraHttpHost.StartAsync(postgres);
@@ -86,6 +90,48 @@ public sealed class PokerJiraTests(PostgresFixture postgres) {
         var stored = await host.RowsAsync("select jira_points from poker_rounds where id = $1", round.Value);
         Assert.Equal(2.5m, (decimal)stored[0][0]!);
         Assert.Equal(["jira.points RS-1"], await host.AuditAsync(team));
+    }
+
+    [Fact]
+    public async Task A_submit_writes_the_boards_estimation_field_when_the_site_has_two_story_points_fields() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (ada, team) = await BrowseTests.TeamAsync(host);
+        host.Jira.BoardEstimation = FakeJiraServer.FieldEstimation(BoardPointsField, "Story Points");
+        host.Jira.EditableFields.Add(BoardPointsField);
+        host.Jira.AddIssue("RS-1", "Pay with a card");
+        var room = await host.SessionAsync(ada, team, ["RS-1"]);
+        var round = (await host.RoundsAsync(room))[0];
+        await host.ExecuteAsync("update poker_rounds set state = 'revealed', revealed_at = now() where id = $1", round.Value);
+        await using var tab = await host.JoinAsync(ada, room);
+
+        Assert.IsType<AckFrame>(await tab.CommandAsync(room, new PokerJiraSubmitPoints(round, 8)));
+        await tab.WaitForEventAsync<PokerJiraPoints>(e => e is { Status: JiraSubmitStatus.Ok, Points: 8m });
+
+        Assert.Equal(8m, (decimal?)host.Jira.Issues["RS-1"]["fields"]![BoardPointsField]);
+        Assert.Null(host.Jira.Issues["RS-1"]["fields"]![JiraHttpHost.PointsField]);
+    }
+
+    [Fact]
+    public async Task A_submit_fails_with_the_code_and_writes_nothing_when_the_board_configuration_cannot_be_read_for_now() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (ada, team) = await BrowseTests.TeamAsync(host);
+        host.Jira.BoardEstimation = FakeJiraServer.FieldEstimation(BoardPointsField, "Story Points");
+        host.Jira.EditableFields.Add(BoardPointsField);
+        host.Jira.AddIssue("RS-1", "Pay with a card");
+        var room = await host.SessionAsync(ada, team, ["RS-1"]);
+        var round = (await host.RoundsAsync(room))[0];
+        await host.ExecuteAsync("update poker_rounds set state = 'revealed', revealed_at = now() where id = $1", round.Value);
+        await using var tab = await host.JoinAsync(ada, room);
+        // Two, so the write still meets one if the room's metadata load reads the configuration first.
+        host.Jira.Script("GET", "/rest/agile/1.0/board/7/configuration", new FakeJiraResponse(500, "{}"), new FakeJiraResponse(500, "{}"));
+        host.App.Services.GetRequiredService<JiraCache>().InvalidateTag(JiraCache.TeamTag(team));
+
+        Assert.IsType<AckFrame>(await tab.CommandAsync(room, new PokerJiraSubmitPoints(round, 8)));
+        await tab.WaitForEventAsync<PokerJiraPoints>(e => e is { Status: JiraSubmitStatus.Failed, Code: "jira_unavailable" });
+
+        Assert.DoesNotContain(host.Jira.Requests, r => r.Method == "PUT");
+        Assert.Null(host.Jira.Issues["RS-1"]["fields"]![JiraHttpHost.PointsField]);
+        Assert.Empty(await host.AuditAsync(team));
     }
 
     [Fact]

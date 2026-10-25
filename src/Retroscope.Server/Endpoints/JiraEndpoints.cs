@@ -505,11 +505,14 @@ public static partial class JiraEndpoints {
             var myself = await client.GetMyselfAsync(call.Team, context.RequestAborted);
             var discovered = JiraMap.DiscoverFields(await client.GetFieldsAsync(call.Team, context.RequestAborted));
             JiraBoard? board = config.BoardId is { } id ? await client.GetBoardAsync(call.Team, id, context.RequestAborted) : null;
+            // The field a save without a chosen one would store, as the board has it now.
+            var points = (board is null ? null : await client.LiveBoardEstimationFieldAsync(call.Team, board.Id, context.RequestAborted))
+                ?? discovered.PointsFieldId;
             if (config.Status is not JiraConfigStatus.RotateRequired) {
                 await credentials.MarkStatusAsync(call.Team, JiraConfigStatus.Ok, context.RequestAborted);
             }
             return Ok(
-                new JiraTestView(true, myself.DisplayName, new JiraDiscovered(discovered.PointsFieldId, discovered.SprintFieldId, board?.Id)),
+                new JiraTestView(true, myself.DisplayName, new JiraDiscovered(points, discovered.SprintFieldId, board?.Id)),
                 JiraHttpJsonContext.Default.JiraTestView);
         } catch (JiraException e) {
             return ProbeProblem(e.Error);
@@ -528,7 +531,8 @@ public static partial class JiraEndpoints {
         Guid? session,
         bool? hidePointedOrPointing,
         JiraGate gate,
-        BrowseService browse) {
+        BrowseService browse,
+        JiraClient client) {
         var (call, refusal) = await gate.CheckAsync(context, teamId, Capability.Subscribe, needsConfig: true);
         if (refusal is not null) {
             return refusal;
@@ -540,14 +544,17 @@ public static partial class JiraEndpoints {
         if (q is { Length: > MaxSearchLength }) {
             fields["q"] = "too_long";
         }
-        if (parsedPoints.Kind != BrowsePointsKind.Any && call!.RequiredConfig.PointsFieldId is null) {
-            fields["points"] = "no_points_field";
-        }
         if (fields.Count > 0) {
             return Problem.Result(StatusCodes.Status400BadRequest, "invalid", fields);
         }
 
         return await GuardAsync(async () => {
+            // A stored field is never resolved away, so only a team without one can lack an effective points field. A
+            // filter needs the field the board shows, so a lookup Jira fails reports that failure, not a missing field.
+            if (parsedPoints.Kind != BrowsePointsKind.Any && call!.RequiredConfig.PointsFieldId is null
+                && (await client.StrictConfigAsync(call.Team, context.RequestAborted)).PointsFieldId is null) {
+                return Problem.Result(StatusCodes.Status400BadRequest, "invalid", new Dictionary<string, string> { ["points"] = "no_points_field" });
+            }
             var query = new BrowseQuery(Blank(q) ? null : q!.Trim(), parsedStatus, parsedPoints, parsedScope);
             var result = await browse.BrowseAsync(call!.Team, query, context.RequestAborted);
             var states = session is { } id

@@ -1,5 +1,6 @@
 using Retroscope.Core.Ids;
 using Retroscope.Core.Room;
+using Retroscope.Fakes.FakeJira;
 using Retroscope.Integration.Tests.Schema;
 
 namespace Retroscope.Integration.Tests.JiraHttp;
@@ -8,6 +9,8 @@ namespace Retroscope.Integration.Tests.JiraHttp;
 [Trait("Category", "JiraHttp")]
 [Collection(SharedPostgres.Name)]
 public sealed class SettingsTests(PostgresFixture postgres) {
+    private const string BoardPointsField = "customfield_10028";
+
     [Fact]
     public async Task Credentials_are_write_only_and_admins_see_only_their_masked_forms() {
         await using var host = await JiraHttpHost.StartAsync(postgres);
@@ -100,6 +103,63 @@ public sealed class SettingsTests(PostgresFixture postgres) {
         Assert.Equal("ok", (string)(await host.JsonAsync(HttpMethod.Get, admin, JiraHttpHost.Url(team)))["status"]!);
         var (status, _) = await host.ProblemAsync(HttpMethod.Post, member, JiraHttpHost.Url(team, "/test"), "{}");
         Assert.Equal(403, status);
+    }
+
+    [Fact]
+    public async Task A_save_without_a_chosen_field_stores_the_boards_estimation_field_and_the_test_reports_it() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (admin, _, team) = await TeamAsync(host);
+        host.Jira.BoardEstimation = FakeJiraServer.FieldEstimation(BoardPointsField, "Story Points");
+
+        var saved = await host.JsonAsync(HttpMethod.Put, admin, JiraHttpHost.Url(team), Save(host, boardId: 7));
+        var test = await host.JsonAsync(HttpMethod.Post, admin, JiraHttpHost.Url(team, "/test"), "{}");
+
+        Assert.Equal(BoardPointsField, (string)saved["pointsFieldId"]!);
+        var stored = Assert.Single(await host.RowsAsync("select points_field_id, points_field_overridden from team_jira_config where team_id = $1", team.Value));
+        Assert.Equal((BoardPointsField, false), ((string?)stored[0], (bool)stored[1]!));
+        Assert.Equal(BoardPointsField, (string)test["discovered"]!["pointsFieldId"]!);
+    }
+
+    [Fact]
+    public async Task The_connection_test_reads_the_boards_estimation_field_as_Jira_has_it_now() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (admin, _, team) = await TeamAsync(host);
+        host.Jira.BoardEstimation = FakeJiraServer.FieldEstimation(BoardPointsField, "Story Points");
+        await host.JsonAsync(HttpMethod.Put, admin, JiraHttpHost.Url(team), Save(host, boardId: 7));
+        var before = await host.JsonAsync(HttpMethod.Post, admin, JiraHttpHost.Url(team, "/test"), "{}");
+
+        host.Jira.BoardEstimation = FakeJiraServer.FieldEstimation("customfield_10016", "Story point estimate");
+        var after = await host.JsonAsync(HttpMethod.Post, admin, JiraHttpHost.Url(team, "/test"), "{}");
+
+        Assert.Equal(BoardPointsField, (string)before["discovered"]!["pointsFieldId"]!);
+        Assert.Equal("customfield_10016", (string)after["discovered"]!["pointsFieldId"]!);
+    }
+
+    [Theory]
+    [InlineData(200, """{"estimation":{"type":"issueCount"}}""")]
+    [InlineData(404, "{}")]
+    public async Task A_save_whose_board_has_no_estimation_field_stores_the_discovered_one(int status, string body) {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (admin, _, team) = await TeamAsync(host);
+        host.Jira.Script("GET", "/rest/agile/1.0/board/7/configuration", new FakeJiraResponse(status, body));
+
+        var saved = await host.JsonAsync(HttpMethod.Put, admin, JiraHttpHost.Url(team), Save(host, boardId: 7));
+
+        Assert.Equal("customfield_10016", (string)saved["pointsFieldId"]!);
+    }
+
+    [Fact]
+    public async Task A_chosen_points_field_is_stored_over_the_boards() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (admin, _, team) = await TeamAsync(host);
+        host.Jira.BoardEstimation = FakeJiraServer.FieldEstimation(BoardPointsField, "Story Points");
+
+        await host.JsonAsync(HttpMethod.Put, admin, JiraHttpHost.Url(team), new {
+            siteHost = JiraHttpHost.SiteHost, email = host.Jira.Email, token = host.Jira.Token, projectKey = "RS", boardId = 7, pointsFieldId = "customfield_10016",
+        });
+
+        var stored = Assert.Single(await host.RowsAsync("select points_field_id, points_field_overridden from team_jira_config where team_id = $1", team.Value));
+        Assert.Equal(("customfield_10016", true), ((string?)stored[0], (bool)stored[1]!));
     }
 
     [Fact]

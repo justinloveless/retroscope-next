@@ -8,6 +8,8 @@ namespace Retroscope.Integration.Tests.JiraHttp;
 [Trait("Category", "JiraHttp")]
 [Collection(SharedPostgres.Name)]
 public sealed class IssueTests(PostgresFixture postgres) {
+    private const string BoardPointsField = "customfield_10028";
+
     private const string Table = """{"type":"table","attrs":{"layout":"default"},"content":[{"type":"tableRow","content":[{"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"Visa"}]}]}]}]}""";
 
     private static readonly JsonNode Description = JsonNode.Parse($$"""
@@ -175,6 +177,95 @@ public sealed class IssueTests(PostgresFixture postgres) {
         var saved = await host.JsonAsync(HttpMethod.Patch, admin, JiraHttpHost.Url(team, "/issues/RS-12"), new { summary = "Admins may" });
         Assert.Equal("Admins may", (string)saved["fields"]!["summary"]!);
         Assert.Equal(["jira.update RS-12"], await host.AuditAsync(team));
+    }
+
+    [Fact]
+    public async Task Points_are_written_to_the_boards_estimation_field_when_the_site_has_two_story_points_fields() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (ada, team) = await BrowseTests.TeamAsync(host);
+        host.Jira.BoardEstimation = FakeJiraServer.FieldEstimation(BoardPointsField, "Story Points");
+        host.Jira.EditableFields.Add(BoardPointsField);
+        host.Jira.AddIssue("RS-12", "Saved card");
+
+        var result = await host.JsonAsync(HttpMethod.Put, ada, JiraHttpHost.Url(team, "/issues/RS-12/points"), """{"points":5}""");
+
+        Assert.Equal(5m, (decimal?)host.Jira.Issues["RS-12"]["fields"]![BoardPointsField]);
+        Assert.Null(host.Jira.Issues["RS-12"]["fields"]![JiraHttpHost.PointsField]);
+        Assert.Equal(5m, (decimal?)result["points"]);
+    }
+
+    [Fact]
+    public async Task A_points_field_an_admin_chose_takes_the_write_over_the_boards() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var ada = await host.UserAsync("Ada");
+        var team = await host.TeamAsync((ada, "member"));
+        await host.ConfigureAsync(team, pointsOverridden: true);
+        host.AddBoard();
+        host.Jira.BoardEstimation = FakeJiraServer.FieldEstimation(BoardPointsField, "Story Points");
+        host.Jira.EditableFields.Add(BoardPointsField);
+        host.Jira.AddIssue("RS-12", "Saved card");
+
+        await host.JsonAsync(HttpMethod.Put, ada, JiraHttpHost.Url(team, "/issues/RS-12/points"), """{"points":5}""");
+
+        Assert.Equal(5m, (decimal?)host.Jira.Issues["RS-12"]["fields"]![JiraHttpHost.PointsField]);
+        Assert.Null(host.Jira.Issues["RS-12"]["fields"]![BoardPointsField]);
+        Assert.DoesNotContain(host.Jira.Requests, r => r.Path == "/rest/agile/1.0/board/7/configuration");
+    }
+
+    [Theory]
+    [InlineData("""{"type":"issueCount"}""")]
+    [InlineData("""{"type":"none"}""")]
+    [InlineData("""{"type":"field","field":{"fieldId":"timeoriginalestimate","displayName":"Original Time Estimate"}}""")]
+    [InlineData(null)]
+    public async Task A_board_that_does_not_estimate_with_a_custom_field_leaves_writes_on_the_stored_field(string? estimation) {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (ada, team) = await BrowseTests.TeamAsync(host);
+        host.Jira.BoardEstimation = estimation is null ? null : JsonNode.Parse(estimation)!.AsObject();
+        host.Jira.AddIssue("RS-12", "Saved card");
+
+        await host.JsonAsync(HttpMethod.Put, ada, JiraHttpHost.Url(team, "/issues/RS-12/points"), """{"points":2}""");
+
+        Assert.Equal(2m, (decimal?)host.Jira.Issues["RS-12"]["fields"]![JiraHttpHost.PointsField]);
+    }
+
+    [Theory]
+    [InlineData(404)]
+    [InlineData(403)]
+    [InlineData(400)]
+    public async Task A_board_that_is_gone_or_hidden_leaves_writes_on_the_stored_field(int status) {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (ada, team) = await BrowseTests.TeamAsync(host);
+        host.Jira.BoardEstimation = FakeJiraServer.FieldEstimation(BoardPointsField, "Story Points");
+        host.Jira.EditableFields.Add(BoardPointsField);
+        host.Jira.Script("GET", "/rest/agile/1.0/board/7/configuration", new FakeJiraResponse(status, "{}"));
+        host.Jira.AddIssue("RS-12", "Saved card");
+
+        await host.JsonAsync(HttpMethod.Put, ada, JiraHttpHost.Url(team, "/issues/RS-12/points"), """{"points":2}""");
+
+        Assert.Equal(2m, (decimal?)host.Jira.Issues["RS-12"]["fields"]![JiraHttpHost.PointsField]);
+        Assert.Null(host.Jira.Issues["RS-12"]["fields"]![BoardPointsField]);
+    }
+
+    [Fact]
+    public async Task A_board_configuration_Jira_cannot_answer_for_now_fails_the_points_write_and_is_logged() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (ada, team) = await BrowseTests.TeamAsync(host);
+        host.Jira.BoardEstimation = FakeJiraServer.FieldEstimation(BoardPointsField, "Story Points");
+        host.Jira.EditableFields.Add(BoardPointsField);
+        host.Jira.Script("GET", "/rest/agile/1.0/board/7/configuration", new FakeJiraResponse(500, "{}"));
+        host.Jira.AddIssue("RS-12", "Saved card");
+
+        var (status, problem) = await host.ProblemAsync(HttpMethod.Put, ada, JiraHttpHost.Url(team, "/issues/RS-12/points"), """{"points":2}""");
+
+        Assert.Equal((503, "jira_unavailable"), (status, (string)problem["code"]!));
+        Assert.DoesNotContain(host.Jira.Requests, r => r.Method == "PUT");
+        Assert.Contains(host.Logs, line => line.StartsWith("Warning", StringComparison.Ordinal)
+            && line.Contains("board 7", StringComparison.Ordinal)
+            && line.Contains(team.Value.ToString(), StringComparison.Ordinal)
+            && line.Contains("jira_unavailable", StringComparison.Ordinal));
+
+        await host.JsonAsync(HttpMethod.Put, ada, JiraHttpHost.Url(team, "/issues/RS-12/points"), """{"points":2}""");
+        Assert.Equal(2m, (decimal?)host.Jira.Issues["RS-12"]["fields"]![BoardPointsField]);
     }
 
     [Fact]

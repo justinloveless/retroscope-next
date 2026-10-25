@@ -144,6 +144,67 @@ public sealed class BrowseTests(PostgresFixture postgres) {
     }
 
     [Fact]
+    public async Task Rows_metadata_details_and_points_filters_read_the_boards_estimation_field() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var (ada, team) = await TeamAsync(host);
+        const string boardField = "customfield_10028";
+        host.Jira.BoardEstimation = FakeJiraServer.FieldEstimation(boardField, "Story Points");
+        host.Jira.AddIssue("RS-1", "Pay", points: 3);
+        host.Jira.Issues["RS-1"]["fields"]![boardField] = 8m;
+
+        var filtered = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, "/browse?scope=open&points=8"));
+        var meta = await host.JsonAsync(HttpMethod.Post, ada, JiraHttpHost.Url(team, "/meta"), """{"keys":["RS-1"]}""");
+        var detail = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, "/issues/RS-1"));
+
+        Assert.Equal(8m, (decimal)Rows(filtered).Single()["points"]!);
+        Assert.Equal(8m, (decimal)meta["items"]![0]!["points"]!);
+        Assert.Equal(8m, (decimal)detail["fields"]!["points"]!);
+        var searches = host.Jira.Requests.Where(r => r.Path == "/rest/api/3/search/jql").Select(r => (string)JsonNode.Parse(r.Body)!["jql"]!).ToList();
+        Assert.Contains(searches, jql => jql.Contains("cf[10028] = 8", StringComparison.Ordinal));
+        Assert.Single(host.Jira.Requests, r => r.Path == "/rest/agile/1.0/board/7/configuration");
+    }
+
+    [Fact]
+    public async Task A_points_filter_works_for_a_team_without_a_stored_field_when_its_board_estimates_with_one() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var ada = await host.UserAsync("Ada");
+        var team = await host.TeamAsync((ada, "member"));
+        await host.ConfigureAsync(team, pointsField: null);
+        host.AddBoard();
+        const string boardField = "customfield_10028";
+        host.Jira.BoardEstimation = FakeJiraServer.FieldEstimation(boardField, "Story Points");
+        host.Jira.AddIssue("RS-1", "Pay", points: 5);
+        host.Jira.Issues["RS-1"]["fields"]![boardField] = 8m;
+
+        var browse = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, "/browse?scope=open&points=8"));
+
+        Assert.Equal(8m, (decimal)Rows(browse).Single()["points"]!);
+        var searches = host.Jira.Requests.Where(r => r.Path == "/rest/api/3/search/jql").Select(r => (string)JsonNode.Parse(r.Body)!["jql"]!).ToList();
+        Assert.Contains(searches, jql => jql.Contains("cf[10028] = 8", StringComparison.Ordinal));
+        Assert.DoesNotContain(searches, jql => jql.Contains("cf[10016]", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_field_catalogue_Jira_cannot_answer_leaves_rows_without_points_and_fails_a_points_filter_with_its_code() {
+        await using var host = await JiraHttpHost.StartAsync(postgres);
+        var ada = await host.UserAsync("Ada");
+        var team = await host.TeamAsync((ada, "member"));
+        await host.ConfigureAsync(team, pointsField: null);
+        host.AddBoard();
+        host.Jira.BoardEstimation = null;
+        host.Jira.AddIssue("RS-1", "Pay", points: 5);
+        host.Jira.Script("GET", "/rest/api/3/field", [.. Enumerable.Repeat(new FakeJiraResponse(500, "{}"), 10)]);
+
+        var browse = await host.JsonAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, "/browse?scope=open"));
+        var (status, problem) = await host.ProblemAsync(HttpMethod.Get, ada, JiraHttpHost.Url(team, "/browse?scope=open&points=5"));
+
+        var row = Rows(browse).Single();
+        Assert.Equal("RS-1", (string)row["key"]!);
+        Assert.Null(row["points"]);
+        Assert.Equal((503, "jira_unavailable"), (status, (string)problem["code"]!));
+    }
+
+    [Fact]
     public async Task Browse_filters_select_the_issues_Jira_would_return_in_rank_order() {
         await using var host = await JiraHttpHost.StartAsync(postgres);
         var (ada, team) = await TeamAsync(host);
