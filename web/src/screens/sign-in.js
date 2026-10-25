@@ -1,4 +1,4 @@
-// The sign-in card: Google and Microsoft, email and password, creating an account, the emailed sign-in link
+// The sign-in card: Google, email and password, creating an account, the emailed sign-in link
 // and the password reset request. /login shows it (screens/auth.js), and so does the welcome page at '/'
 // (UX18 decision 15). Without a ?return= it lands on the pending invite when one waits, else on '/', which
 // finds the user's team.
@@ -19,15 +19,12 @@ const LOGIN_ERRORS = {
 // OIDC failures come back to /login?error=<code>.
 const OIDC_ERRORS = {
   account_exists: 'An account with this email exists. Sign in with your existing method, then link this provider from Account settings.',
-  tenant_not_allowed: 'Your Microsoft organisation is not allowed to sign in here.',
   provider_disabled: 'That sign-in method is not available.',
 };
 
 function oidcButtons(returnTo) {
-  const start = (provider) => `/auth/oidc/${provider}/start?return=${encodeURIComponent(returnTo)}`;
   return h('div', { style: stack('0.5rem') },
-    h('a', { href: start('google'), class: 'btn btn-outline' }, 'Continue with Google'),
-    h('a', { href: start('entra'), class: 'btn btn-outline' }, 'Continue with Microsoft'));
+    h('a', { href: `/auth/oidc/google/start?return=${encodeURIComponent(returnTo)}`, class: 'btn btn-outline' }, 'Continue with Google'));
 }
 
 function emailLinkForm({ path, label, sent }) {
@@ -47,7 +44,7 @@ function emailLinkForm({ path, label, sent }) {
 
 /** The sign-in and create-account card, with the emailed-link and reset forms. Returns {el, destroy()}. */
 export function signInCard(query) {
-  // Google and Microsoft come back by a full page load, and the server answers '/' with the user's team: it
+  // Google comes back by a full page load, and the server answers '/' with the user's team: it
   // cannot see the invite, which waits in this browser. So a pending invite is named as the return itself.
   const returnTo = safeReturn(query.get('return'), pendingInvite() ? '/invite' : '/');
   const done = () => navigate(returnTo, { replace: true });

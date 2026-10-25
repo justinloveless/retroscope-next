@@ -18,13 +18,11 @@ namespace Retroscope.Server.Auth;
 
 public enum OidcProvider {
     Google,
-    Entra,
 }
 
 public static class OidcProviders {
     public static string Name(OidcProvider provider) => provider switch {
         OidcProvider.Google => "google",
-        OidcProvider.Entra => "entra",
         _ => throw new ArgumentOutOfRangeException(nameof(provider)),
     };
 
@@ -33,20 +31,21 @@ public static class OidcProviders {
             case "google":
                 provider = OidcProvider.Google;
                 return true;
-            case "entra":
-                provider = OidcProvider.Entra;
-                return true;
             default:
                 provider = default;
                 return false;
         }
     }
 
-    public static AuthMethod Method(OidcProvider provider) =>
-        provider == OidcProvider.Google ? AuthMethod.Google : AuthMethod.Entra;
+    public static AuthMethod Method(OidcProvider provider) => provider switch {
+        OidcProvider.Google => AuthMethod.Google,
+        _ => throw new ArgumentOutOfRangeException(nameof(provider)),
+    };
 
-    public static OwnershipProof Proof(OidcProvider provider) =>
-        provider == OidcProvider.Google ? OwnershipProof.Google : OwnershipProof.Entra;
+    public static OwnershipProof Proof(OidcProvider provider) => provider switch {
+        OidcProvider.Google => OwnershipProof.Google,
+        _ => throw new ArgumentOutOfRangeException(nameof(provider)),
+    };
 }
 
 /// <summary>One registered OIDC client: its credentials and the provider's two endpoints.</summary>
@@ -54,68 +53,29 @@ public sealed record OidcClient(string ClientId, string ClientSecret, Uri Author
 
 /// <summary>
 /// OIDC settings from the environment (§e, §i.1). Endpoints are static, with no discovery fetch. A provider is
-/// enabled when its client id and secret are set; Entra also needs a non-empty <c>ENTRA_ALLOWED_TENANTS</c> (S5).
+/// enabled when its client id and secret are set.
 /// </summary>
 public sealed record OidcOptions {
     public const string GoogleAuthorizeEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
     public const string GoogleTokenEndpoint = "https://oauth2.googleapis.com/token";
-    public const string EntraAuthority = "https://login.microsoftonline.com";
     public const string GooglePictureHost = "lh3.googleusercontent.com";
 
     public OidcClient? Google { get; init; }
 
-    public OidcClient? Entra { get; init; }
-
-    /// <summary>Lower-case tenant ids whose users may sign in with Entra.</summary>
-    public IReadOnlySet<string> EntraAllowedTenants { get; init; } = new HashSet<string>();
-
-    /// <summary>Per tenant id, the lower-case email domains whose Entra <c>email</c> claim is trusted.</summary>
-    public IReadOnlyDictionary<string, IReadOnlySet<string>> EntraTenantDomains { get; init; } =
-        new Dictionary<string, IReadOnlySet<string>>();
-
     /// <summary>The handler behind token exchange and the picture fetch; tests route it to the fake provider.</summary>
     public Func<HttpMessageHandler> CreateHandler { get; init; } = DefaultHandler;
 
-    public OidcClient? Client(OidcProvider provider) => provider == OidcProvider.Google ? Google : Entra;
+    public OidcClient? Client(OidcProvider provider) => provider switch {
+        OidcProvider.Google => Google,
+        _ => null,
+    };
 
     public static OidcOptions FromConfiguration(IConfiguration configuration) {
         var google = ReadClient(configuration, "GOOGLE", () => (
             new Uri(Setting(configuration, "GOOGLE_AUTHORIZE_URL") ?? GoogleAuthorizeEndpoint),
             new Uri(Setting(configuration, "GOOGLE_TOKEN_URL") ?? GoogleTokenEndpoint)));
 
-        var tenants = Split(configuration["ENTRA_ALLOWED_TENANTS"], ',').Select(x => x.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
-        var tenant = Setting(configuration, "ENTRA_TENANT") ?? "organizations";
-        if (!tenant.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '.')) {
-            throw new InvalidOperationException("ENTRA_TENANT must be 'organizations' or a tenant id.");
-        }
-        var authority = (Setting(configuration, "ENTRA_AUTHORITY_URL") ?? EntraAuthority).TrimEnd('/');
-        var entra = ReadClient(configuration, "ENTRA", () => (
-            new Uri($"{authority}/{tenant}/oauth2/v2.0/authorize"),
-            new Uri($"{authority}/{tenant}/oauth2/v2.0/token")));
-
-        return new OidcOptions {
-            Google = google,
-            Entra = tenants.Count == 0 ? null : entra,
-            EntraAllowedTenants = tenants,
-            EntraTenantDomains = ParseTenantDomains(configuration["ENTRA_TENANT_DOMAINS"]),
-        };
-    }
-
-    /// <summary>Parses <c>tid=acme.com|acme.io,tid2=example.org</c>.</summary>
-    public static IReadOnlyDictionary<string, IReadOnlySet<string>> ParseTenantDomains(string? value) {
-        var map = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
-        foreach (var entry in Split(value, ',')) {
-            var parts = entry.Split('=', 2, StringSplitOptions.TrimEntries);
-            if (parts.Length != 2 || parts[0].Length == 0) {
-                throw new InvalidOperationException("ENTRA_TENANT_DOMAINS entries must look like 'tid=domain1|domain2'.");
-            }
-            var domains = Split(parts[1], '|').Select(x => x.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
-            if (domains.Count == 0) {
-                throw new InvalidOperationException($"ENTRA_TENANT_DOMAINS entry for '{parts[0]}' lists no domain.");
-            }
-            map[parts[0].ToLowerInvariant()] = domains;
-        }
-        return map;
+        return new OidcOptions { Google = google };
     }
 
     private static OidcClient? ReadClient(IConfiguration configuration, string prefix, Func<(Uri Authorize, Uri Token)> endpoints) {
@@ -133,9 +93,6 @@ public sealed record OidcOptions {
 
     private static string? Setting(IConfiguration configuration, string name) =>
         string.IsNullOrWhiteSpace(configuration[name]) ? null : configuration[name]!.Trim();
-
-    private static string[] Split(string? value, char separator) =>
-        (value ?? "").Split(separator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     private static SocketsHttpHandler DefaultHandler() => new() {
         AllowAutoRedirect = false,
@@ -158,7 +115,7 @@ public sealed record OidcFlow(
 
 public sealed record OidcTokenResponse([property: JsonPropertyName("id_token")] string? IdToken);
 
-/// <summary>The ID token claims we read. Claims whose JSON type varies between providers stay as elements.</summary>
+/// <summary>The ID token claims we read. Claims whose JSON type can vary stay as elements.</summary>
 public sealed record IdTokenClaims(
     [property: JsonPropertyName("iss")] string? Iss,
     [property: JsonPropertyName("aud")] JsonElement? Aud,
@@ -169,15 +126,12 @@ public sealed record IdTokenClaims(
     [property: JsonPropertyName("sub")] string? Sub,
     [property: JsonPropertyName("email")] string? Email,
     [property: JsonPropertyName("email_verified")] JsonElement? EmailVerified,
-    [property: JsonPropertyName("tid")] string? Tid,
-    [property: JsonPropertyName("oid")] string? Oid,
-    [property: JsonPropertyName("xms_edov")] JsonElement? XmsEdov,
     [property: JsonPropertyName("name")] string? Name,
     [property: JsonPropertyName("picture")] string? Picture);
 
 /// <summary>A validated sign-in: the stable subject, and the email only as far as the provider vouches for it.</summary>
 /// <param name="Email">Normalized; null when the token carried no usable address.</param>
-/// <param name="EmailTrusted">Google <c>email_verified</c>, or Entra <c>xms_edov</c> / a listed tenant domain (§e).</param>
+/// <param name="EmailTrusted">Google <c>email_verified</c> (§e).</param>
 public sealed record OidcIdentity(OidcProvider Provider, string Subject, string? Email, bool EmailTrusted, string FullName, Uri? Picture);
 
 /// <summary>ID token validation (§e; OIDC Core §3.1.3.7). Returns an error code instead of throwing.</summary>
@@ -214,40 +168,19 @@ public static class IdTokenValidator {
             return false;
         }
 
-        var email = AuthEndpoints.NormalizeEmail(claims.Email);
-        var name = FullName(claims.Name);
-        Uri? picture = null;
-        string subject;
-        bool trusted;
-        if (provider == OidcProvider.Google) {
-            if (!GoogleIssuers.Contains(claims.Iss, StringComparer.Ordinal)) {
-                error = "oidc_issuer";
-                return false;
-            }
-            subject = claims.Sub ?? "";
-            trusted = IsTrue(claims.EmailVerified);
-            picture = GooglePicture(claims.Picture);
-        } else {
-            var tid = claims.Tid?.ToLowerInvariant();
-            if (tid is null || !options.EntraAllowedTenants.Contains(tid)) {
-                error = "oidc_tenant";
-                return false;
-            }
-            if (claims.Iss != $"https://login.microsoftonline.com/{claims.Tid}/v2.0") {
-                error = "oidc_issuer";
-                return false;
-            }
-            subject = string.IsNullOrEmpty(claims.Oid) ? "" : $"{tid}:{claims.Oid.ToLowerInvariant()}";
-            trusted = email is not null
-                && (IsTrue(claims.XmsEdov)
-                    || options.EntraTenantDomains.TryGetValue(tid, out var domains) && domains.Contains(email[(email.IndexOf('@') + 1)..]));
+        if (!GoogleIssuers.Contains(claims.Iss, StringComparer.Ordinal)) {
+            error = "oidc_issuer";
+            return false;
         }
+        var subject = claims.Sub ?? "";
         if (subject.Length is 0 or > MaxSubjectLength) {
             error = "oidc_subject";
             return false;
         }
 
-        identity = new OidcIdentity(provider, subject, email, trusted && email is not null, name, picture);
+        var email = AuthEndpoints.NormalizeEmail(claims.Email);
+        var trusted = IsTrue(claims.EmailVerified) && email is not null;
+        identity = new OidcIdentity(provider, subject, email, trusted, FullName(claims.Name), GooglePicture(claims.Picture));
         error = null;
         return true;
     }
@@ -285,7 +218,7 @@ public static class IdTokenValidator {
         return true;
     }
 
-    // Google sends a JSON boolean; the string forms are accepted because Entra documents xms_edov only as "Boolean".
+    // Google sends a JSON boolean; the string and number forms are accepted as the same claim.
     private static bool IsTrue(JsonElement? value) => value switch {
         { ValueKind: JsonValueKind.True } => true,
         { ValueKind: JsonValueKind.String } s => s.GetString() is "true" or "1",

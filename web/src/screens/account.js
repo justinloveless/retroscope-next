@@ -10,7 +10,7 @@ import { ago, card, createFrame, errorText, field, form, muted, row, stack } fro
 const AVATAR_PX = 128;
 const AVATAR_MAX_BYTES = 256 * 1024;
 
-const METHODS = { password: 'Password', google: 'Google', entra: 'Microsoft', magic_link: 'Email link' };
+const METHODS = { password: 'Password', google: 'Google', magic_link: 'Email link' };
 
 // §d: the client crops and scales avatars to 128 px WebP (PNG where the browser cannot encode WebP).
 async function shrinkImage(file) {
@@ -129,7 +129,7 @@ function passwordCard(user) {
     submitLabel: user.hasPassword ? 'Change password' : 'Add password',
     messages: {
       wrong_password: 'Your current password is incorrect.',
-      reauth_required: 'For your security, sign in again with Google, Microsoft or an email link, then add a password within 10 minutes.',
+      reauth_required: 'For your security, sign in again with Google or an email link, then add a password within 10 minutes.',
     },
     async submit(values) {
       await http.put('/api/me/password', user.hasPassword ? values : { new: values.new });
@@ -141,21 +141,18 @@ function passwordCard(user) {
 }
 
 function identitiesCard() {
-  const buttons = [['google', 'Link Google'], ['entra', 'Link Microsoft']].map(([provider, label]) => {
-    const button = h('button', { type: 'button', class: 'btn btn-outline btn-sm' }, label);
-    button.addEventListener('click', async () => {
-      button.disabled = true;
-      try {
-        const started = await http.post(`/api/me/identities/${provider}/link`, {});
-        location.assign(started.url);
-      } catch (error) {
-        toast(errorText(error, { already_linked: 'That account is already linked to another user.' }), { variant: 'error', duration: 6000 });
-        button.disabled = false;
-      }
-    });
-    return button;
+  const button = h('button', { type: 'button', class: 'btn btn-outline btn-sm' }, 'Link Google');
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    try {
+      const started = await http.post('/api/me/identities/google/link', {});
+      location.assign(started.url);
+    } catch (error) {
+      toast(errorText(error, { already_linked: 'That account is already linked to another user.' }), { variant: 'error', duration: 6000 });
+      button.disabled = false;
+    }
   });
-  return card('Sign-in methods', muted('Link a Google or Microsoft account to sign in with it.'), h('div', { style: row() }, buttons));
+  return card('Sign-in methods', muted('Link a Google account to sign in with it.'), h('div', { style: row() }, button));
 }
 
 function sessionsCard(signal) {
