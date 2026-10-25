@@ -241,6 +241,7 @@ test('poker keeps its own toolbar and docks the mentions bell and the account me
       roster: [{ pid: USER.principal.id, kind: 'user', name: USER.principal.name }],
       presence: [],
       teamId: TEAM_ID,
+      createdAt: Date.UTC(2025, 9, 14, 13, 5),
       currentRoundId: round,
     },
     overlay: { own: [], heldByThisTab: false },

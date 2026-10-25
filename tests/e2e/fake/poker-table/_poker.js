@@ -9,6 +9,9 @@ export const CODE = 'NEOTRO1234';
 export const R1 = '0a000000-0000-4000-8000-000000001001';
 export const R2 = '0a000000-0000-4000-8000-000000001002';
 export const TEAM = { id: '0a000000-0000-4000-8000-0000000000b0', name: 'Platform' };
+// When the session was created. It is in a past year, so the toolbar's day reads "Oct 14, 2025" whenever the specs
+// run, and the session's id is no UUIDv7, like an imported session's.
+export const CREATED = Date.UTC(2025, 9, 14, 13, 5);
 export const ME = { pid: '0a000000-0000-4000-8000-000000000001', kind: 'user', name: 'Ada' };
 export const BOB = { pid: '0a000000-0000-4000-8000-000000000002', kind: 'user', name: 'Bob' };
 export const GUS = { pid: '0a000000-0000-4000-8000-000000000003', kind: 'user', name: 'Gus' };
@@ -30,6 +33,7 @@ export function snapshot(extra = {}) {
     roster: [ME, BOB, GUS, DOT],
     presence: [ME, BOB, GUS],
     teamId: TEAM.id,
+    createdAt: CREATED,
     currentRoundId: R1,
     pointDescriptions: {},
     jiraSubmits: [],
