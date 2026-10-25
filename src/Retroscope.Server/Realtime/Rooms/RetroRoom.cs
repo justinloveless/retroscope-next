@@ -76,13 +76,7 @@ public sealed class RetroBinding(IAnonTagger tagger) : IRoomBinding<RetroState, 
     public IRoomDomain<RetroState, RetroInput, RetroEvent> Domain { get; } = new RetroDecider(tagger);
 
     public static ResourceFacts Facts(RetroState state) {
-        return new ResourceFacts(
-            RoomKey.Board(state.BoardId),
-            state.TeamId,
-            state.CreatedBy,
-            state.Visibility,
-            state.PasswordSetAt,
-            state.Archived);
+        return new ResourceFacts(RoomKey.Board(state.BoardId), state.TeamId, Archived: state.Archived);
     }
 
     public RetroInput? FromClient(Command command) => command is RetroCommand retro ? new RetroInput.Client(retro) : null;
@@ -90,13 +84,12 @@ public sealed class RetroBinding(IAnonTagger tagger) : IRoomBinding<RetroState, 
     public bool IsCreate(Command command) => command is RetroCardAdd or RetroCommentAdd or RetroColumnAdd or RetroEndorseGive;
 
     /// <summary>
-    /// Team membership and settings are written by the team actor, and visibility and password by their HTTP route
-    /// before it asks the board, so the board only sequences those changes. The deletion route soft-deletes the row
-    /// first, and the kick that follows is all subscribers see of it.
+    /// Team membership and settings are written by the team actor, so the board only sequences those changes. The
+    /// deletion route soft-deletes the row first, and the kick that follows is all subscribers see of it.
     /// </summary>
     public EventDurability DurabilityOf(RetroEvent evt) {
         return evt switch {
-            MembersReplaced or MaxEndorsementsChanged or AccessChanged => EventDurability.Ephemeral,
+            MembersReplaced or MaxEndorsementsChanged => EventDurability.Ephemeral,
             BoardDeleted => EventDurability.MemoryOnly,
             _ => EventDurability.Committed,
         };
@@ -108,18 +101,15 @@ public sealed class RetroBinding(IAnonTagger tagger) : IRoomBinding<RetroState, 
         return Policy.Can(viewer, Capability.Subscribe, Facts(state), access);
     }
 
-    public bool IsMember(RetroState state, Viewer viewer, IAccessView access) {
-        return Policy.Can(viewer, Capability.RetroViewRoster, Facts(state), access);
-    }
-
+    // Every subscriber is a member of the board's team (UX18), so the members-only snapshot variant is the only one.
     public RoomSnapshot Snapshot(RetroState state, IReadOnlyList<PrincipalInfo> presence, bool forMembers) {
-        return RetroProjection.Snapshot(state, presence, forMembers);
+        return RetroProjection.Snapshot(state, presence);
     }
 
     public RoomOverlay? Overlay(RetroState state, Viewer viewer) => _projection.Overlay(state, viewer.Who.Id);
 
     public IReadOnlyList<WireEvent> Project(RetroState state, IReadOnlyList<RetroEvent> events, PrincipalId viewer, bool viewerIsMember) {
-        return _projection.ForViewer(state, events, viewer, viewerIsMember);
+        return _projection.ForViewer(state, events, viewer);
     }
 }
 
