@@ -15,3 +15,6 @@ UF3 owns these paths for these changes only: `src/Retroscope.Core/{Poker,Retro,T
 11. **Team (U9):** prune action items closed more than 30 days ago from `TeamState` on apply, not just in the projection.
 
 **Check:** `dotnet test tests/Retroscope.Core.Tests` and `./build.sh test` green; every item above has a test that fails on the old code.
+
+**Status after UX18:** item 9 was done (`RetroRoles.MayPace`) and is moot now that only members of a board's team open
+the board (`docs/followups/UX18.md`).

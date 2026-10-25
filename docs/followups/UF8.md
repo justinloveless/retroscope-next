@@ -12,3 +12,6 @@ UF8 owns: `src/Retroscope.Importer/Map/**`, `tests/Retroscope.Importer.Tests/{Id
 8. **U41:** move `RetroText.Color` (Tailwind → palette) into `Map/Common.cs` and use it for templates too.
 
 **Check:** `dotnet test tests/Retroscope.Importer.Tests` and `./build.sh test` green; items 1, 3, 4, 6, 7 each have a test that fails on the old code.
+
+**Status after UX18:** item 5 is in place (`SyntheticIds.Guest(Guid)`, used by both maps) and still applies: UX18 keeps
+imported guest principals as history (`docs/followups/UX18.md`).
