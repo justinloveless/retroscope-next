@@ -125,6 +125,7 @@ export class PokerSession extends DemoRoom {
       roster: this.roster(),
       presence: this.presence.list(),
       teamId: this.team.id,
+      createdAt: this.createdAt,
       spotlight: this.spotlight ? { holder: this.spotlight.holder, roundId: this.spotlight.roundId } : undefined,
       currentRoundId: this.currentRoundId,
       pointDescriptions: this.team.pointDescriptions,

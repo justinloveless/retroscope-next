@@ -74,6 +74,7 @@ const pokerSnapshot = {
   votes: [],
   roster: [],
   presence: [],
+  createdAt: 1792454400000,
 };
 const voteState = (pid, extra) => ({ k: 'poker.vote.state', d: { roundId: ROUND, pid, ...extra } });
 const voteCmd = (q, points = 5) => ({ t: 'cmd', r: POKER, q, k: 'poker.vote.set', d: { roundId: ROUND, points } });

@@ -524,6 +524,7 @@ describe('HTTP', () => {
     const client = await connect('demo', [crowd.key]);
     const snap = await frame(client, (f) => f.t === 'snap');
     assert.equal(snap.d.teamId, ALL_HANDS_TEAM);
+    assert.equal(snap.d.createdAt, crowd.createdAt);
     assert.equal(snap.d.createdBy, undefined);
     assert.deepEqual(snap.d.roster.map((p) => p.pid).sort(), [DEMO.pid, ...CROWD.map((p) => p.pid)].sort());
     assert.ok(snap.d.roster.every((p) => p.kind === 'user'));
