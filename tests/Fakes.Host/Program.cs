@@ -7,7 +7,7 @@ using Retroscope.Fakes.Host;
 //   jira (default): FakeJira serves plain HTTP on loopback, so this process fronts it with TLS on :443 under a
 //     certificate from a throwaway CA. The CA (plus the system roots) is written to CERT_BUNDLE for the app container
 //     to trust through SSL_CERT_FILE; the file appearing is the health signal.
-//   oidc: FakeOidc (Google and Entra) on plain HTTP :8081, its clients from FAKEOIDC_CLIENTS (id:secret,…); READY_FILE
+//   oidc: FakeOidc (Google) on plain HTTP :8081, its clients from FAKEOIDC_CLIENTS (id:secret,…); READY_FILE
 //     appears once it listens.
 var role = Environment.GetEnvironmentVariable("FAKES_ROLE") ?? "jira";
 await using IAsyncDisposable running = role switch {

@@ -19,14 +19,13 @@ namespace Retroscope.Fakes.FakeOidc;
 public sealed record FakeOidcRequest(string Method, string Path, IReadOnlyDictionary<string, string> Values);
 
 /// <summary>
-/// An in-process stand-in for Google and Microsoft Entra on plain HTTP over loopback: the authorization endpoint
+/// An in-process stand-in for Google on plain HTTP over loopback: the authorization endpoint
 /// (answers at once with a redirect carrying the code, as if the user had consented), the token endpoint (checks the
 /// client secret, the redirect URI and the PKCE verifier; a code works once) and the profile-picture host. ID tokens
 /// carry a junk signature, because the server under test never checks it (§e).
 /// </summary>
 /// <remarks>
-/// Google lives under <c>/google/{authorize,token}</c>, Entra under <c>/entra/{tenant}/oauth2/v2.0/{authorize,token}</c>
-/// (so <see cref="EntraAuthority"/> plays <c>https://login.microsoftonline.com</c>), pictures under <c>/picture/…</c>.
+/// Google lives under <c>/google/{authorize,token}</c>, pictures under <c>/picture/…</c>.
 /// </remarks>
 public sealed class FakeOidcServer : IAsyncDisposable {
     // A 1×1 PNG with IHDR, IDAT and IEND, so the server's image sniffer accepts it.
@@ -49,14 +48,12 @@ public sealed class FakeOidcServer : IAsyncDisposable {
 
     public string GoogleTokenUrl => $"{BaseUrl}/google/token";
 
-    public string EntraAuthority => $"{BaseUrl}/entra";
-
     /// <summary>Registered clients: client id → secret.</summary>
     public ConcurrentDictionary<string, string> Clients { get; } = new(StringComparer.Ordinal);
 
     /// <summary>
     /// The user the next authorization signs in. <c>iss</c>, <c>aud</c>, <c>iat</c>, <c>exp</c> and <c>nonce</c> are
-    /// filled in when absent (Entra's issuer from <c>tid</c>); a test sets any of them to tamper with the token.
+    /// filled in when absent; a test sets any of them to tamper with the token.
     /// </summary>
     public JsonObject Claims { get; set; } = [];
 
@@ -110,16 +107,10 @@ public sealed class FakeOidcServer : IAsyncDisposable {
                 await context.Response.Body.WriteAsync(Picture);
                 return;
             case ["google", "authorize"] when HttpMethods.IsGet(request.Method):
-                Authorize(context, "google", tenant: null, values);
-                return;
-            case ["entra", var tenant, "oauth2", "v2.0", "authorize"] when HttpMethods.IsGet(request.Method):
-                Authorize(context, "entra", tenant, values);
+                Authorize(context, values);
                 return;
             case ["google", "token"] when HttpMethods.IsPost(request.Method):
-                await TokenAsync(context, "google", values);
-                return;
-            case ["entra", _, "oauth2", "v2.0", "token"] when HttpMethods.IsPost(request.Method):
-                await TokenAsync(context, "entra", values);
+                await TokenAsync(context, values);
                 return;
             default:
                 context.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -127,7 +118,7 @@ public sealed class FakeOidcServer : IAsyncDisposable {
         }
     }
 
-    private void Authorize(HttpContext context, string provider, string? tenant, Dictionary<string, string> query) {
+    private void Authorize(HttpContext context, Dictionary<string, string> query) {
         string? Value(string name) => query.GetValueOrDefault(name);
         var redirect = Value("redirect_uri");
         var valid = Value("response_type") == "code"
@@ -144,12 +135,12 @@ public sealed class FakeOidcServer : IAsyncDisposable {
         }
 
         var code = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(24));
-        _grants[code] = new Grant(provider, tenant, Value("client_id")!, redirect!, Value("code_challenge")!, Value("nonce")!, (JsonObject)Claims.DeepClone());
+        _grants[code] = new Grant(Value("client_id")!, redirect!, Value("code_challenge")!, Value("nonce")!, (JsonObject)Claims.DeepClone());
         var separator = redirect!.Contains('?', StringComparison.Ordinal) ? '&' : '?';
         context.Response.Redirect($"{redirect}{separator}code={Uri.EscapeDataString(code)}&state={Uri.EscapeDataString(Value("state")!)}");
     }
 
-    private async Task TokenAsync(HttpContext context, string provider, Dictionary<string, string> form) {
+    private async Task TokenAsync(HttpContext context, Dictionary<string, string> form) {
         string? Value(string name) => form.GetValueOrDefault(name);
         if (TokenStatus is { } status) {
             await WriteJsonAsync(context, status, new JsonObject { ["error"] = "invalid_grant" });
@@ -159,7 +150,6 @@ public sealed class FakeOidcServer : IAsyncDisposable {
         var grant = Value("code") is { } code && _grants.TryRemove(code, out var granted) ? granted : null;
         var valid = Value("grant_type") == "authorization_code"
             && grant is not null
-            && grant.Provider == provider
             && grant.ClientId == Value("client_id")
             && Clients.TryGetValue(grant.ClientId, out var secret) && secret == Value("client_secret")
             && grant.RedirectUri == Value("redirect_uri")
@@ -171,9 +161,7 @@ public sealed class FakeOidcServer : IAsyncDisposable {
 
         var claims = grant!.Claims;
         var now = Now();
-        claims.TryAdd("iss", provider == "google"
-            ? "https://accounts.google.com"
-            : $"https://login.microsoftonline.com/{claims["tid"]?.GetValue<string>()}/v2.0");
+        claims.TryAdd("iss", "https://accounts.google.com");
         claims.TryAdd("aud", grant.ClientId);
         claims.TryAdd("iat", now.ToUnixTimeSeconds());
         claims.TryAdd("exp", now.AddHours(1).ToUnixTimeSeconds());
@@ -193,12 +181,5 @@ public sealed class FakeOidcServer : IAsyncDisposable {
         await context.Response.WriteAsync(body.ToJsonString());
     }
 
-    private sealed record Grant(
-        string Provider,
-        string? Tenant,
-        string ClientId,
-        string RedirectUri,
-        string Challenge,
-        string Nonce,
-        JsonObject Claims);
+    private sealed record Grant(string ClientId, string RedirectUri, string Challenge, string Nonce, JsonObject Claims);
 }

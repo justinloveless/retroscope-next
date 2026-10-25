@@ -1,5 +1,5 @@
 # The e2e and drill stack (DESIGN §j, §i.1): the production compose shape, built locally instead of pulled, behind
-# Traefik with TLS as Coolify runs it, plus Mailpit, FakeJira and FakeOidc (Google and Entra).
+# Traefik with TLS as Coolify runs it, plus Mailpit, FakeJira and FakeOidc (Google).
 #   docker compose -f deploy/compose.test.yml up -d --build --wait      (./build.sh e2e does this)
 #   https://localhost:18443 (self-signed; RS_TEST_HTTPS_PORT moves it), Mailpit UI on http://localhost:18025
 #   docker compose -f deploy/compose.test.yml down -v
@@ -64,11 +64,6 @@ services:
       GOOGLE_CLIENT_SECRET: e2e-google-secret
       GOOGLE_AUTHORIZE_URL: http://fakeoidc:8081/google/authorize
       GOOGLE_TOKEN_URL: http://fakeoidc:8081/google/token
-      ENTRA_CLIENT_ID: e2e-entra
-      ENTRA_CLIENT_SECRET: e2e-entra-secret
-      ENTRA_AUTHORITY_URL: http://fakeoidc:8081/entra
-      ENTRA_ALLOWED_TENANTS: 7c1e5d2a-0b7e-4c55-9d1e-3f4a8b6c2e10
-      ENTRA_TENANT_DOMAINS: 7c1e5d2a-0b7e-4c55-9d1e-3f4a8b6c2e10=contoso.test
       DOTNET_GCHeapHardLimit: "0x8000000"
       DOTNET_gcServer: "0"
       DOTNET_gcConcurrent: "0"
@@ -176,7 +171,7 @@ services:
       dockerfile: deploy/Dockerfile.fakes
     environment:
       FAKES_ROLE: oidc
-      FAKEOIDC_CLIENTS: "e2e-google:e2e-google-secret,e2e-entra:e2e-entra-secret"
+      FAKEOIDC_CLIENTS: "e2e-google:e2e-google-secret"
     ports: ["127.0.0.1:${RS_TEST_OIDC_PORT:-18446}:8081"]
     healthcheck:
       test: ["CMD", "test", "-s", "/tmp/ready"]

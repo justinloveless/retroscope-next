@@ -1,11 +1,11 @@
-// Auth end to end (§e): sign-up, verification, password sign-in, magic link, reset, Google and Entra through
-// FakeOidc, and invites: an email invite refuses another account, and a link invite opened while signed out leads
+// Auth end to end (§e): sign-up, verification, password sign-in, magic link, reset, Google through FakeOidc,
+// and invites: an email invite refuses another account, and a link invite opened while signed out leads
 // through an emailed sign-in link into the team (UX18 decision 13). Every sign-in lands on '/', which goes on to the
 // user's team, or to the create-or-join screen for someone in none (decisions 7, 8). Mail goes through SMTP into
 // Mailpit.
 import { randomUUID } from 'node:crypto';
 import {
-  ENTRA_TENANT, PASSWORD, createTeam, expect, inviteLink, json, mailedToken, routeOidc, seedUsers, sql, test,
+  PASSWORD, createTeam, expect, inviteLink, json, mailedToken, routeOidc, seedUsers, sql, test,
 } from './_real.js';
 
 const field = (page, label) => page.getByLabel(label, { exact: true }).filter({ visible: true });
@@ -148,21 +148,12 @@ test('Google sign-in creates a verified account and signs in again by subject', 
   expect(me2).toBe(me1);
 });
 
-test('Entra sign-in trusts a tenant domain; an untrusted email never signs into an existing account', async ({ open }) => {
-  const trusted = await open();
-  const oid = randomUUID();
-  await routeOidc(trusted.context, { tid: ENTRA_TENANT, oid, email: `e2e-${randomUUID()}@contoso.test`, name: 'Ena Entra' });
-  await trusted.page.goto('/login');
-  await trusted.page.getByRole('link', { name: 'Continue with Microsoft' }).click();
-  await noTeam(trusted.page);
-  expect(await sql(`select u.email_verified_at is not null from users u join external_identities i on i.user_id = u.id
-    where i.provider = 'entra' and i.subject = '${ENTRA_TENANT}:${oid}'`)).toEqual([['t']]);
-
+test('an unverified Google email never signs into an existing account', async ({ open }) => {
   const [victim] = await seedUsers(['Vic Existing']);
   const attacker = await open();
-  await routeOidc(attacker.context, { tid: ENTRA_TENANT, oid: randomUUID(), email: victim.email, name: 'Mallory' });
+  await routeOidc(attacker.context, { sub: `g-${randomUUID()}`, email: victim.email, email_verified: false, name: 'Mallory' });
   await attacker.page.goto('/login');
-  await attacker.page.getByRole('link', { name: 'Continue with Microsoft' }).click();
+  await attacker.page.getByRole('link', { name: 'Continue with Google' }).click();
   await expect(attacker.page).toHaveURL(/\/login\?error=account_exists/);
   await expect(attacker.page.getByRole('alert')).toContainText('An account with this email exists.');
   expect((await attacker.page.request.get('/api/me')).status()).toBe(401);

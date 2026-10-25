@@ -73,7 +73,6 @@ public sealed class PasswordChangeTests(PostgresFixture postgres) {
     [Theory]
     [InlineData(AuthMethod.MagicLink)]
     [InlineData(AuthMethod.Google)]
-    [InlineData(AuthMethod.Entra)]
     public async Task A_first_password_needs_a_fresh_oidc_or_magic_link_session(AuthMethod method) {
         await using var host = await AuthHost.StartAsync(postgres);
         var user = await host.CreateUserAsync("ada@example.com", passwordHash: null, verified: true);

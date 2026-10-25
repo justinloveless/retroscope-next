@@ -22,7 +22,6 @@ const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 export const OIDC = `http://localhost:${process.env.RS_TEST_OIDC_PORT ?? 18446}`;
 // The app's view of FakeOidc (compose.test.yml); a browser cannot resolve it, so contexts route it to OIDC.
 const OIDC_IN_STACK = 'http://fakeoidc:8081';
-export const ENTRA_TENANT = '7c1e5d2a-0b7e-4c55-9d1e-3f4a8b6c2e10';
 
 /** The options a project's device gives the default context, for contexts a test opens itself. */
 function deviceOptions(project) {

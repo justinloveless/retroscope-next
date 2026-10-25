@@ -272,8 +272,7 @@ test.describe('invites', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Join Platform' })).toBeVisible();
     await expect(page).toHaveURL(/\/invite$/);
     await expect(page.getByText('Sign in or create an account to accept.', { exact: false })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Google' })).toHaveAttribute('href', '/auth/oidc/google/start?return=%2Finvite');
-    await expect(page.getByRole('link', { name: 'Microsoft' })).toHaveAttribute('href', '/auth/oidc/entra/start?return=%2Finvite');
+    await expect(page.getByRole('link', { name: 'Continue with Google' })).toHaveAttribute('href', '/auth/oidc/google/start?return=%2Finvite');
     await field(page, 'Email').fill('ada@example.com');
     await page.getByRole('button', { name: 'Email me a sign-in link' }).click();
 
@@ -342,7 +341,7 @@ test.describe('invites', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Join Platform' })).toBeVisible();
     await header(page).getByRole('link', { name: 'Retroscope home' }).click();
     await expect(page.getByRole('heading', { level: 1, name: 'Planning poker and retros for your team' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Continue with Microsoft' })).toHaveAttribute('href', '/auth/oidc/entra/start?return=%2Finvite');
+    await expect(page.getByRole('link', { name: 'Continue with Google' })).toHaveAttribute('href', '/auth/oidc/google/start?return=%2Finvite');
     await page.getByRole('link', { name: 'Continue with Google' }).click();
 
     await expect(page).toHaveURL(/\/invite$/);

@@ -64,7 +64,7 @@ public sealed class UserCreationTests(PostgresFixture postgres) {
         var user = await host.CreateUserAsync("ada@example.com");
         await host.ExecuteAsync("insert into external_identities (provider, subject, user_id) values ('google', 'g-1', $1)", user.Value);
 
-        var claimed = await host.Service<AccountClaims>().ClaimAsync(user, OwnershipProof.Entra, AuthHost.Token);
+        var claimed = await host.Service<AccountClaims>().ClaimAsync(user, OwnershipProof.MagicLink, AuthHost.Token);
 
         Assert.True(claimed);
         Assert.Equal(0L, await host.ScalarAsync<long>("select count(*) from external_identities"));
