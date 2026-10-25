@@ -144,6 +144,7 @@ export function mount(root, boot = {}, app = {}) {
   // The team from /teams/:tid/poker/:code until the snapshot names the session's own, and the one the header has.
   let urlTeam = null;
   let headerTeam = null;
+  let crumbsKey = null;
 
   const send = (k, d, options) => room?.send(k, stripUndefined(d), options);
 
@@ -301,12 +302,15 @@ export function mount(root, boot = {}, app = {}) {
     const teamId = view?.teamId ?? urlTeam;
     const team = teamId ? currentMe()?.teams?.find((t) => t.id === teamId) ?? null : null;
     crumbs.hidden = team === null;
-    if (team) {
+    const created = view ? createdAt(view) : null;
+    const day = created === null ? view?.code ?? code ?? '' : formatDay(created);
+    const key = team && `${team.id}\n${team.name}\n${day}`;
+    if (team && key !== crumbsKey) {
+      crumbsKey = key;
       replaceContent(teamCrumb, teamBadge(team), h('span', { class: 'nt-crumb-name', text: team.name }));
       teamCrumb.href = teamPath(team.id);
       pokerCrumb.href = teamPath(team.id, 'poker');
-      const created = view ? createdAt(view) : null;
-      dayCrumb.textContent = created === null ? view?.code ?? code ?? '' : formatDay(created);
+      dayCrumb.textContent = day;
     }
     if (view?.teamId && view.teamId !== headerTeam) {
       headerTeam = view.teamId;
