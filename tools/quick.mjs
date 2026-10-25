@@ -68,7 +68,10 @@ const RULES = [
   [/^src\/Retroscope\.Server\/Realtime\/(Rooms|Stores)\/Team/, { integration: ['TeamRoom'], sim: SIM }],
   [/^src\/Retroscope\.Server\/Realtime\//, { integration: ['Actors', 'PokerRoom', 'RetroRoom', 'TeamRoom'], sim: SIM, fallback: true }],
   [/^src\/Retroscope\.Server\/Data\/(Leader|Db)\.cs$/, { integration: ['Leader'], sim: SIM }],
-  [/^src\/Retroscope\.Server\/Data\/(Db|Migrator)\.cs$|^db\/migrations\//, { integration: ['Schema', 'Deploy'] }],
+  [/^src\/Retroscope\.Server\/Data\/(Db|Migrator)\.cs$/, { integration: ['Schema', 'Deploy'] }],
+  // The importer's target is migrated from db/migrations and its COPYs name the columns.
+  [/^db\/migrations\//, { integration: ['Schema', 'Deploy'], importer: 'all',
+    note: 'a migration can break any test that seeds rows by SQL; grep tests/ for the tables and columns it changes.' }],
   [/^src\/Retroscope\.Server\/Data\/Repos\/(Users|Sessions)Repo/, { integration: ['AuthCore'] }],
   // me.teams, me.lastTeamId and the home redirect (UsersRepo), team visits (ActivityRepo) and kudos received.
   [/^src\/Retroscope\.Server\/Data\/Repos\/(Users|Activity|Endorsements)Repo/, { integration: ['TeamHttp'] }],
@@ -98,6 +101,8 @@ const RULES = [
 
   [/^src\/Retroscope\.Importer\/Map\/Poker/, { importer: ['PokerMap'] }],
   [/^src\/Retroscope\.Importer\/(Map\/Retro|Html\/)/, { importer: ['RetroMap'] }],
+  // The expected source schema drives preflight and every stage's table disposition.
+  [/^src\/Retroscope\.Importer\/Map\/expected-columns\.json$/, { importer: ['Source', 'Identity', 'EndToEnd'] }],
   [/^src\/Retroscope\.Importer\/Map\//, { importer: ['Identity'], fallback: true }],
   [/^src\/Retroscope\.Importer\/(Source|Storage)\//, { importer: ['Source'] }],
   [/^src\/Retroscope\.Importer\/(Archive\/|Verify\/|Program\.cs)/, { importer: ['EndToEnd'] }],
