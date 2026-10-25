@@ -20,15 +20,16 @@ export function createSettings(ctx) {
     h('div', { class: 'team-heading' },
       h('h1', { class: 'team-title', text: 'Team settings' }),
       h('p', { class: 'team-description', text: team.name })));
+  document.title = `Team settings · ${team.name} · Retroscope`;
 
   if (!ctx.isAdmin()) {
-    const el = h('div', { class: 'team-screen' }, header,
+    const el = h('main', { class: 'team-screen' }, header,
       h('p', { class: 'team-message card', text: 'Only team admins and the owner can change the settings.' }));
     return { el, settings: true, destroy: () => el.remove() };
   }
 
   const parts = [createJiraSettings(ctx), createTemplatesSettings(ctx), createEndorsementTypesSettings(ctx)];
-  const el = h('div', { class: 'team-screen team-settings' }, header,
+  const el = h('main', { class: 'team-screen team-settings' }, header,
     general(ctx), ...parts.map((p) => p.el), ctx.isOwner() ? dangerZone(ctx) : null);
 
   if (location.hash === '#jira') {

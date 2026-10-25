@@ -1,6 +1,6 @@
 import { h, replaceContent } from '../core/h.js';
 import { reconcile } from '../core/list.js';
-import { formatDate } from '../core/fmt.js';
+import { formatDate, plural } from '../core/fmt.js';
 import { createAvatar } from '../ui/avatar.js';
 import { createButton } from '../ui/button.js';
 import { createChoice } from '../ui/choice.js';
@@ -18,22 +18,23 @@ const ROLE = {
 };
 
 export function createMembersTab(ctx) {
-  const title = h('h2', { class: 'team-section-title' });
+  const count = h('span', { class: 'team-muted' });
   const list = h('ul', { class: 'team-list team-members', 'aria-label': 'Team members' });
   const inviteActions = h('div', { class: 'team-actions' });
   const invites = h('ul', { class: 'team-list team-invites', 'aria-label': 'Pending invites' });
   const invitesSection = h('section', { class: 'team-subsection', 'aria-label': 'Invites' },
-    h('div', { class: 'team-toolbar' }, h('h3', { class: 'team-section-title', text: 'Invites' }), inviteActions),
+    h('div', { class: 'team-toolbar' }, h('h2', { class: 'team-section-title', text: 'Invites' }), inviteActions),
     invites);
   const el = h('section', { class: 'team-section' },
-    h('div', { class: 'team-toolbar' }, title), list, invitesSection);
+    h('div', { class: 'team-toolbar' }, h('div', { class: 'team-heading-row' }, h('h1', { class: 'team-title', text: 'Members' }), count)),
+    list, invitesSection);
 
   let pending = [];
   let invitesLoaded = false;
 
   function render() {
     const members = ctx.room.view?.members ?? [];
-    title.textContent = `Team members (${members.length})`;
+    count.textContent = plural(members.length, 'member');
     reconcile(list, members, (m) => m.pid, (member) => {
       const row = h('li', { class: 'team-member', dataset: { pid: member.pid } });
       updateRow(row, member);

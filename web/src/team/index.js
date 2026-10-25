@@ -1,16 +1,14 @@
 // /teams/:id (sections: poker, retros, actions, kudos, members, chosen by ?tab=) and /teams/:id/settings.
 // The team room carries members, action items and the list notices; the lists themselves come over HTTP.
-// The app header shows the sections (UX18); this page keeps the header's team name, role and open
+// The app header owns the team's name and its sections (UX18 decisions 9 and 11): this page shows one
+// section in its <main>, with that section's h1, and keeps the header's team name, role and open
 // action-item count live.
 
 import { h, replaceContent } from '../core/h.js';
 import { getSocket, navigate, patchTeam } from '../screens/app.js';
-import { SECTIONS, sectionOf, teamPath } from '../screens/header.js';
+import { SECTIONS, sectionOf } from '../screens/header.js';
 import { showNoAccess } from '../screens/no-access.js';
-import { createTabs } from '../ui/tabs.js';
-import { createButton } from '../ui/button.js';
 import { icon } from '../ui/icons.js';
-import { plural } from '../core/fmt.js';
 import { model } from './model.js';
 import { errorMessage, teamApi, toastError, loading } from './util.js';
 
@@ -25,9 +23,9 @@ const LOADERS = {
 const TABS = SECTIONS.map(([id, label]) => ({ id, label, load: LOADERS[id] }));
 
 function message(title, retry) {
-  return h('div', { class: 'team-message card' },
+  return h('main', { class: 'team-screen' }, h('div', { class: 'team-message card' },
     h('h1', { text: title }),
-    h('button', { type: 'button', class: 'btn btn-secondary', on: { click: retry } }, 'Try again'));
+    h('button', { type: 'button', class: 'btn btn-secondary', on: { click: retry } }, 'Try again')));
 }
 
 export function mount(root, boot, app = {}) {
@@ -213,77 +211,67 @@ export function mount(root, boot, app = {}) {
   };
 }
 
+// One section at a time inside the page's <main>; the header's links choose it (UX18 decision 11). A section
+// loaded once stays alive while the page shows the team, so switching back to it is instant.
 function createTeamScreen(ctx) {
-  const name = h('h1', { class: 'team-title' });
-  const description = h('p', { class: 'team-description' });
-  const meta = h('p', { class: 'team-meta' });
   const banner = h('div', { class: 'team-banner', role: 'alert', hidden: true });
-  const settingsLink = h('a', { class: 'btn btn-secondary', href: `/teams/${ctx.teamId}/settings`, 'data-nav': '' },
-    icon('settings'), h('span', { class: 'btn-label', text: 'Settings' }));
-  const actions = h('div', { class: 'team-actions' },
-    createButton({
-      label: 'New board',
-      icon: 'plus',
-      variant: 'primary',
-      onClick: () => import('./boards.js').then((m) => m.openCreateBoard(ctx)),
-    }).el,
-    createButton({
-      label: 'New poker session',
-      icon: 'spade',
-      variant: 'emerald',
-      onClick: () => import('./poker-list.js').then((m) => m.createPokerSession(ctx)),
-    }).el,
-    settingsLink);
+  const host = h('div', { class: 'team-section-host' });
+  const el = h('main', { class: 'team-screen' }, banner, host);
 
   const created = new Map();
+  let selected = null;
   let destroyed = false;
-  const tabs = createTabs({
-    tabs: TABS.map(({ id, label }) => ({ id, label })),
-    selected: selectedTab(),
-    label: 'Team sections',
-    // A section is a page of its own (UX18 decision 9): choosing one pushes history, as the header's
-    // links do, and drops the other sections' filters. The route update then selects it.
-    onChange(id) {
-      ctx.navigate(teamPath(ctx.teamId, id));
-    },
-  });
-  const tabsHost = h('div', { class: 'team-tabs' }, tabs.el, ...tabs.panels.values());
 
   function selectedTab() {
     return sectionOf(ctx.query());
   }
 
-  function select(id) {
-    tabs.select(id);
-    if (created.has(id)) {
+  function retitle() {
+    const label = TABS.find((t) => t.id === selected)?.label;
+    const team = ctx.team()?.name ?? ctx.room.view?.name;
+    document.title = [label, team, 'Retroscope'].filter(Boolean).join(' · ');
+  }
+
+  function failed(id, error) {
+    created.delete(id);
+    toastError(error, 'This section could not be loaded.');
+    if (selected === id && !destroyed) {
+      host.replaceChildren(h('div', { class: 'team-message card' },
+        h('h1', { text: 'This section could not be loaded.' }),
+        h('button', { type: 'button', class: 'btn btn-secondary', on: { click: () => select(id, true) } }, 'Try again')));
+    }
+  }
+
+  function select(id, force = false) {
+    if (id === selected && !force) {
       created.get(id)?.queryChanged?.();
       return;
     }
+    selected = id;
+    retitle();
+    if (created.has(id)) {
+      const component = created.get(id);
+      host.replaceChildren(component ? component.el : loading('Loading…'));
+      component?.queryChanged?.();
+      return;
+    }
     created.set(id, null);
-    const panel = tabs.panels.get(id);
-    panel.replaceChildren(loading('Loading…'));
+    host.replaceChildren(loading('Loading…'));
     TABS.find((t) => t.id === id).load().then((create) => {
-      if (!destroyed) {
-        const component = create(ctx);
-        created.set(id, component);
-        panel.replaceChildren(component.el);
+      if (destroyed) {
+        return;
       }
-    }, (error) => {
-      created.delete(id);
-      toastError(error, 'This section could not be loaded.');
-    });
+      const component = create(ctx);
+      created.set(id, component);
+      if (selected === id) {
+        host.replaceChildren(component.el);
+      }
+    }, (error) => failed(id, error));
   }
 
-  function renderHeader() {
-    const team = ctx.team();
-    const state = ctx.room.view;
-    name.textContent = team?.name ?? state?.name ?? '';
-    description.textContent = team?.description ?? '';
-    description.hidden = !team?.description;
-    const members = state?.members.length ?? team?.counts?.members;
-    meta.textContent = members == null ? '' : plural(members, 'member');
-    settingsLink.hidden = !ctx.isAdmin();
-    const status = team?.jira?.status;
+  // The Jira banner is for the team's admins: a saved token that Jira refuses or that must be replaced.
+  function renderBanner() {
+    const status = ctx.team()?.jira?.status;
     const warn = ctx.isAdmin() && (status === 'rotate_required' || status === 'auth_failed');
     banner.hidden = !warn;
     if (warn) {
@@ -293,23 +281,22 @@ function createTeamScreen(ctx) {
             ? 'The Jira API token must be replaced before Jira can be trusted again.'
             : 'Jira rejected the saved credentials.',
         }),
-        h('a', { href: `/teams/${ctx.teamId}/settings#jira`, 'data-nav': '' }, 'Update Jira settings'));
+        h('a', { href: `/teams/${encodeURIComponent(ctx.teamId)}/settings#jira`, 'data-nav': '' }, 'Update Jira settings'));
     }
   }
 
-  const stop = ctx.room.select((s) => s && [s.name, s.members], (a, b) => a?.[0] === b?.[0] && a?.[1] === b?.[1], renderHeader);
-  renderHeader();
+  const stop = ctx.room.select((s) => s && [s.name, s.members], (a, b) => a?.[0] === b?.[0] && a?.[1] === b?.[1], () => {
+    renderBanner();
+    retitle();
+  });
+  renderBanner();
   select(selectedTab());
-
-  const el = h('div', { class: 'team-screen' },
-    h('header', { class: 'team-header' }, h('div', { class: 'team-heading' }, name, description, meta), actions),
-    banner,
-    tabsHost);
 
   return {
     el,
     teamChanged() {
-      renderHeader();
+      renderBanner();
+      retitle();
       for (const component of created.values()) {
         component?.teamChanged?.();
       }
@@ -323,7 +310,6 @@ function createTeamScreen(ctx) {
       for (const component of created.values()) {
         component?.destroy();
       }
-      tabs.destroy();
       el.remove();
     },
   };
