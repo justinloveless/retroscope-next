@@ -122,8 +122,35 @@ test.describe("'/'", () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Welcome, Ada' })).toBeVisible();
   });
 
-  test('a pending invite wins over the team', async ({ page, fake }) => {
+  test("reached in-app, a pending invite wins over the team: the verify page's Continue reopens it", async ({ page, fake }) => {
     useSession(fake, USER);
+    fake.route('POST', '/api/auth/verify/consume', { status: 204 });
+    await page.goto('/invite#t=invite-token-9');
+    await expect(page.getByRole('heading', { level: 1, name: 'Join Platform' })).toBeVisible();
+    // The verification link from the email, opened in the same browser: its Continue goes to '/' in-app.
+    await page.goto('/auth/verify#t=verify-token-9');
+    await expect(page.getByText('Your email is verified.')).toBeVisible();
+    await page.getByRole('link', { name: 'Continue' }).click();
+    await expect(page).toHaveURL(/\/invite$/);
+    await expect(page.getByRole('button', { name: 'Accept invite' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Not now' }).click();
+    await expect(page).toHaveURL(new RegExp(`/teams/${TEAM_ID}$`));
+    expect(await pendingInvite(page)).toBeNull();
+  });
+
+  test('a full page load by a member goes to the team: the server cannot see the waiting invite', async ({ page, fake }) => {
+    useSession(fake, USER);
+    await page.goto('/invite#t=invite-token-9');
+    await expect(page.getByRole('heading', { level: 1, name: 'Join Platform' })).toBeVisible();
+    await page.goto('/');
+    await expect(page).toHaveURL(new RegExp(`/teams/${TEAM_ID}$`));
+    await expect(page.getByRole('main').getByRole('heading', { level: 1, name: 'Poker' })).toBeVisible();
+    expect((await pendingInvite(page)).t).toBe('invite-token-9');
+  });
+
+  test('someone in no team who reloads it lands on the waiting invite, through create-or-join', async ({ page, fake }) => {
+    useSession(fake, NEWCOMER);
     await page.goto('/invite#t=invite-token-9');
     await expect(page.getByRole('heading', { level: 1, name: 'Join Platform' })).toBeVisible();
     await page.goto('/');
@@ -131,7 +158,8 @@ test.describe("'/'", () => {
     await expect(page.getByRole('button', { name: 'Accept invite' })).toBeVisible();
 
     await page.getByRole('button', { name: 'Not now' }).click();
-    await expect(page).toHaveURL(new RegExp(`/teams/${TEAM_ID}$`));
+    await expect(page).toHaveURL(/\/teams$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Welcome, Ada' })).toBeVisible();
     expect(await pendingInvite(page)).toBeNull();
   });
 
@@ -301,6 +329,26 @@ test.describe('invites', () => {
     await page.getByRole('button', { name: 'Accept invite' }).click();
     await expect(page).toHaveURL(new RegExp(`/teams/${TEAM_ID}$`));
     expect(requests(fake, 'POST', '/api/invites/accept').map((r) => r.json)).toEqual([{ token: 'invite-token-3' }]);
+  });
+
+  test('Google from the welcome page comes back to the waiting invite', async ({ page, fake }) => {
+    const setMe = useSession(fake, null);
+    // The provider's round trip: the callback signs the visitor in and redirects to the return, a full page load.
+    fake.route('GET', '/auth/oidc/:provider/start', (req) => {
+      setMe(NEWCOMER);
+      return { status: 302, headers: { Location: req.query.get('return') } };
+    });
+    await page.goto('/invite#t=invite-token-7');
+    await expect(page.getByRole('heading', { level: 1, name: 'Join Platform' })).toBeVisible();
+    await header(page).getByRole('link', { name: 'Retroscope home' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Planning poker and retros for your team' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Continue with Microsoft' })).toHaveAttribute('href', '/auth/oidc/entra/start?return=%2Finvite');
+    await page.getByRole('link', { name: 'Continue with Google' }).click();
+
+    await expect(page).toHaveURL(/\/invite$/);
+    await expect(page.getByText('You are signed in as ada@example.com.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Accept invite' })).toBeVisible();
+    expect(requests(fake, 'GET', '/auth/oidc/google/start').map((r) => r.query.get('return'))).toEqual(['/invite']);
   });
 
   test('an invite for another address explains why it failed', async ({ page, fake }) => {
