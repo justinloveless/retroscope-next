@@ -98,7 +98,6 @@ internal sealed class OidcHost : IAsyncDisposable {
         Db.AddServices(services, builder.Configuration);
         AuthEndpoints.AddServices(services, builder.Configuration);
         MeEndpoints.AddServices(services, builder.Configuration);
-        GuestEndpoints.AddServices(services, builder.Configuration);
         BlobEndpoints.AddServices(services, builder.Configuration);
         OidcEndpoints.AddServices(services, builder.Configuration);
 

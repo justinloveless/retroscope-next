@@ -99,7 +99,6 @@ internal sealed class EmailHost : IAsyncDisposable {
         Db.AddServices(services, builder.Configuration);
         AuthEndpoints.AddServices(services, builder.Configuration);
         MeEndpoints.AddServices(services, builder.Configuration);
-        GuestEndpoints.AddServices(services, builder.Configuration);
         var before = services.Count;
         EmailModule.AddServices(services, builder.Configuration);
         if (!runWorker) {
@@ -115,7 +114,6 @@ internal sealed class EmailHost : IAsyncDisposable {
         HostingModule.Map(app);
         AuthEndpoints.Map(app);
         MeEndpoints.Map(app);
-        GuestEndpoints.Map(app);
         EmailModule.Map(app);
         await app.StartAsync(Token);
         return new EmailHost(app, database, time, smtp);

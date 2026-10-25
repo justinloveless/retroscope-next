@@ -34,6 +34,5 @@ namespace Retroscope.Server.Json;
 [JsonSerializable(typeof(EndorsementTypeInfo))]
 [JsonSerializable(typeof(Leaderboard))]
 [JsonSerializable(typeof(IReadOnlyList<ReceivedEndorsement>))]
-[JsonSerializable(typeof(Dashboard))]
 public sealed partial class TeamHttpJsonContext : JsonSerializerContext {
 }

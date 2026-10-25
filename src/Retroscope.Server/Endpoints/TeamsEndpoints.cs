@@ -190,6 +190,7 @@ public static class TeamsEndpoints {
 
     public static void AddServices(IServiceCollection services, IConfiguration configuration) {
         services.AddSingleton<TeamsRepo>();
+        services.AddSingleton<ActivityRepo>();
         services.AddSingleton<TeamAccess>();
         services.AddSingleton<TeamActors>();
     }
