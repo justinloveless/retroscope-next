@@ -130,6 +130,7 @@ const RULES = [
   [/^tests\/web-unit\/core\/_dom\.js$/, { node: WEB_CORE_DOM.concat('tests/web-unit/editor.test.js', ...SHORTCUTS) }],
   [/^tests\/web-unit\/net\/_fakes\.js$/, { node: WEB_NET }],
   [/^tests\/web-unit\/rich\/_project\.js$/, { node: RICH }],
+  [/^tests\/web-unit\/team\/_ctx\.js$/, { node: ['tests/web-unit/team/boards.test.js', 'tests/web-unit/team/poker-list.test.js'] }],
   [/^tests\/web-fake-server\//, { node: FAKE_SERVER }],
   // commands.test.js opens every edit view the fake serves.
   [/^tests\/web-fake-server\/edit-views\.gen\.json$/, { node: ['tests/web-unit/rich/commands.test.js'] }],
@@ -137,7 +138,10 @@ const RULES = [
   [/^tests\/web-fake-server\/((fixtures|demo)\/jira|edit-views\.gen)\.json$/, { core: ['Adf'] }],
   // SprintReportTests holds the fixtures' sprintReport blocks to the server's property names.
   [/^tests\/web-fake-server\/(fixtures|demo)\/jira\.json$/, { integration: ['JiraHttp'] }],
-  [/^tests\/e2e\//, { note: 'Run the changed spec alone: ./build.sh fake-e2e "<area>/<file>.spec.js".' }],
+  [/^tests\/e2e\/fake\//, { note: 'Run the changed spec alone: ./build.sh fake-e2e "<area>/<file>.spec.js".' }],
+  [/^tests\/e2e\/(real|smoke)\//, { note: 'Run the changed spec alone against the test stack: ./build.sh e2e "<dir>/<file>.spec.js".' }],
+  [/^tests\/e2e\/(screenshots\/|[^/]+$)/, { note: 'Run the specs that use it: ./build.sh fake-e2e or ./build.sh screenshots.' }],
+  [/^(tests\/Retroscope\.Soak|deploy\/drills)\//, { note: 'The soak and the drills run by hand against compose.test.yml (deploy/RUNBOOK.md).' }],
 
   [/^web\//, { web: true }],
   [/^web\/src\/core\/router\.js$/, { node: ['tests/web-fake-server/self.test.js'] }],
