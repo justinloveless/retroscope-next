@@ -1,8 +1,11 @@
-// /teams/:id (tabs: boards, poker, members, actions, kudos) and /teams/:id/settings. The team room
-// carries members, action items and the list notices; the lists themselves come over HTTP.
+// /teams/:id (sections: poker, retros, actions, kudos, members, chosen by ?tab=) and /teams/:id/settings.
+// The team room carries members, action items and the list notices; the lists themselves come over HTTP.
+// The app header shows the sections (UX18); this page keeps the header's team name, role and open
+// action-item count live.
 
 import { h, replaceContent } from '../core/h.js';
-import { getSocket, navigate } from '../screens/app.js';
+import { getSocket, navigate, patchTeam } from '../screens/app.js';
+import { SECTIONS, sectionOf, teamPath } from '../screens/header.js';
 import { showNoAccess } from '../screens/no-access.js';
 import { createTabs } from '../ui/tabs.js';
 import { createButton } from '../ui/button.js';
@@ -12,15 +15,14 @@ import { model } from './model.js';
 import { errorMessage, teamApi, toastError, loading } from './util.js';
 
 // Each tab is its own chunk, so the team page stays within its budget (§g.7).
-const TABS = [
-  { id: 'boards', label: 'Boards', load: () => import('./boards.js').then((m) => m.createBoardsTab) },
-  { id: 'poker', label: 'Poker', load: () => import('./poker-list.js').then((m) => m.createPokerTab) },
-  { id: 'members', label: 'Members', load: () => import('./members.js').then((m) => m.createMembersTab) },
-  { id: 'actions', label: 'Actions', load: () => import('./action-items.js').then((m) => m.createActionItemsTab) },
-  { id: 'kudos', label: 'Kudos', load: () => import('./kudos.js').then((m) => m.createKudosTab) },
-];
-// Each tab keeps its filters in the query string; switching tabs drops the others' filters.
-const TAB_PARAMS = ['archived', 'status', 'assignee', 'sort', 'period'];
+const LOADERS = {
+  poker: () => import('./poker-list.js').then((m) => m.createPokerTab),
+  retros: () => import('./boards.js').then((m) => m.createBoardsTab),
+  actions: () => import('./action-items.js').then((m) => m.createActionItemsTab),
+  kudos: () => import('./kudos.js').then((m) => m.createKudosTab),
+  members: () => import('./members.js').then((m) => m.createMembersTab),
+};
+const TABS = SECTIONS.map(([id, label]) => ({ id, label, load: LOADERS[id] }));
 
 function message(title, retry) {
   return h('div', { class: 'team-message card' },
@@ -87,6 +89,21 @@ export function mount(root, boot, app = {}) {
     }
   }
 
+  // The header's values for this team, live: the role from the roster, the name from the team's details
+  // (the room's name is set only when its actor loads, so it can be older) and the open action items.
+  function patchHeader(context) {
+    const state = context.room?.view;
+    let open = 0;
+    for (const item of state?.items.values() ?? []) {
+      open += item.doneAt == null ? 1 : 0;
+    }
+    patchTeam(context.teamId, {
+      name: context.team()?.name,
+      role: context.role() ?? undefined,
+      openActions: state ? open : undefined,
+    });
+  }
+
   async function open(id) {
     teardown();
     teamId = id;
@@ -110,6 +127,7 @@ export function mount(root, boot, app = {}) {
       async reloadTeam() {
         try {
           team = await context.api.get('');
+          patchHeader(context);
           screen?.teamChanged?.();
         } catch (error) {
           toastError(error, 'The team could not be reloaded.');
@@ -139,6 +157,8 @@ export function mount(root, boot, app = {}) {
         fail('removed');
       }
     }));
+    unwatch.push(context.room.select((s) => s, Object.is, () => patchHeader(context)));
+    patchHeader(context);
     return true;
   }
 
@@ -220,16 +240,16 @@ function createTeamScreen(ctx) {
     tabs: TABS.map(({ id, label }) => ({ id, label })),
     selected: selectedTab(),
     label: 'Team sections',
+    // A section is a page of its own (UX18 decision 9): choosing one pushes history, as the header's
+    // links do, and drops the other sections' filters. The route update then selects it.
     onChange(id) {
-      ctx.setQuery(Object.fromEntries([['tab', id === 'boards' ? null : id], ...TAB_PARAMS.map((p) => [p, null])]));
-      select(id);
+      ctx.navigate(teamPath(ctx.teamId, id));
     },
   });
   const tabsHost = h('div', { class: 'team-tabs' }, tabs.el, ...tabs.panels.values());
 
   function selectedTab() {
-    const tab = ctx.query().get('tab');
-    return TABS.some((t) => t.id === tab) ? tab : 'boards';
+    return sectionOf(ctx.query());
   }
 
   function select(id) {
