@@ -5,6 +5,7 @@ import { h } from '../core/h.js';
 import { createButton } from '../ui/button.js';
 import { icon } from '../ui/icons.js';
 import { toast } from '../ui/toast.js';
+import { refreshMe } from '../screens/app.js';
 import { card, confirmTyped, field, input, toastError } from './util.js';
 import { createJiraSettings } from './jira-settings.js';
 import { createTemplatesSettings } from './templates.js';
@@ -88,6 +89,10 @@ function general(ctx) {
     try {
       await ctx.api.patch('', body);
       await ctx.reloadTeam();
+      if (body.name) {
+        // The switcher reads `me`, which a navigation inside the team page does not reload (UX18).
+        refreshMe().catch(() => {});
+      }
       toast('Settings saved.', { variant: 'success', duration: 3000 });
     } catch (error) {
       toastError(error, 'The settings could not be saved.');
@@ -118,7 +123,9 @@ function dangerZone(ctx) {
       confirmLabel: 'Delete team',
       async submit() {
         await ctx.api.del('', { confirmName: ctx.team().name });
-        ctx.navigate('/teams');
+        // '/' goes to another of the user's teams, or to create-or-join when this was the last one.
+        await refreshMe().catch(() => {});
+        ctx.navigate('/');
       },
     }),
   });

@@ -8,6 +8,7 @@ import { createMenu } from '../ui/menu.js';
 import { confirmDialog } from '../ui/confirm.js';
 import { icon } from '../ui/icons.js';
 import { toast } from '../ui/toast.js';
+import { refreshMe } from '../screens/app.js';
 import { avatarSrc, copyText, field, formDialog, input, toastError } from './util.js';
 
 const ROLE = {
@@ -94,6 +95,7 @@ export function createMembersTab(ctx) {
     try {
       if (action === 'admin' || action === 'member') {
         await ctx.api.patch(path, { role: action });
+        refreshMe().catch(() => {});
         toast(`${member.name} is now ${action === 'admin' ? 'an admin' : 'a member'}.`, { variant: 'success', duration: 3000 });
       } else if (action === 'transfer') {
         if (await confirmDialog({
@@ -103,6 +105,7 @@ export function createMembersTab(ctx) {
           destructive: true,
         })) {
           await ctx.api.post('/transfer-ownership', { userId: member.pid });
+          refreshMe().catch(() => {});
           toast(`${member.name} now owns the team.`, { variant: 'success', duration: 3000 });
         }
       } else if (action === 'remove') {
@@ -118,7 +121,9 @@ export function createMembersTab(ctx) {
       } else if (action === 'leave') {
         if (await confirmDialog({ title: 'Leave this team?', message: 'You need a new invite to come back.', confirmLabel: 'Leave team', destructive: true })) {
           await ctx.api.del(path);
-          ctx.navigate('/teams');
+          // '/' goes to another of the user's teams, or to create-or-join when this was the last one.
+          await refreshMe().catch(() => {});
+          ctx.navigate('/');
         }
       }
     } catch (error) {
