@@ -298,19 +298,11 @@
 .retro-timer-input { width: 4.5rem; font-variant-numeric: tabular-nums; }
 .retro-timer-colon { padding-bottom: 0.5rem; font-weight: 700; }
 
-.retro-config, .retro-share-access { display: grid; gap: 0.75rem; }
+.retro-config { display: grid; gap: 0.75rem; }
 .retro-config-group { display: grid; gap: 0.5rem; margin: 0; padding: 0; border: 0; }
 .retro-config-group legend { margin-bottom: 0.25rem; font-weight: 600; }
 .retro-config-help { font-size: 0.75rem; color: hsl(var(--muted-foreground)); }
-.retro-config-notice, .retro-share-reveal { margin: 0; padding: 0.5rem 0.75rem; border-radius: var(--radius-md); background: #fef3c7; color: #92400e; font-size: 0.875rem; }
-.retro-share-reveal { display: grid; gap: 0.5rem; }
-.retro-share-reveal p { margin: 0; }
-.retro-share .dialog-body { display: grid; gap: 0.75rem; }
-.retro-share-row { display: flex; gap: 0.5rem; }
-.retro-share-value { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 0.8125rem; }
-.retro-share-status { margin: 0; font-size: 0.875rem; color: hsl(var(--muted-foreground)); }
-.retro-share-option { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
-.retro-share-actions { display: flex; justify-content: flex-end; }
+.retro-config-notice { margin: 0; padding: 0.5rem 0.75rem; border-radius: var(--radius-md); background: #fef3c7; color: #92400e; font-size: 0.875rem; }
 
 /* Action items and kudos (retro/actions.js, prev-actions.js, kudos.js) */
 .retro-card-done .retro-card-body { text-decoration: line-through; color: hsl(var(--muted-foreground)); }
