@@ -348,8 +348,9 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
             return;
         }
         var existing = _subs.GetValueOrDefault(peer.Id);
+        // Not Forbidden: the principal still has access, and the client must not say it was removed (UX18 decision 2).
         if (existing is null && _presence.ConnectionsOf(viewer.Who.Id) >= _runtime.Options.ConnectionsPerPrincipal) {
-            peer.Kick(Key, KickCode.Forbidden);
+            peer.Kick(Key, KickCode.TooManyConnections);
             return;
         }
         var member = _binding.IsMember(state, viewer, _access);
