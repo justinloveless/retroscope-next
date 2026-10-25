@@ -1,5 +1,5 @@
 import { expect, test } from '../_harness/fixtures.js';
-import { ALICE, BOB, card, cardsIn, editorIn, openBoard, sent, serveBoard, snapshot, teamSnapshot, typeCard } from './_board.js';
+import { ALICE, BOB, card, cardsIn, editorIn, openBoard, sent, serveBoard, snapshot, typeCard } from './_board.js';
 
 const COMMENT = 'c0aa0000-0000-4000-8000-000000000001';
 
@@ -33,7 +33,7 @@ test('comments open per card, post at once and delete your own', async ({ page, 
 });
 
 test('a team member is mentioned by keyboard and shows by their current name', async ({ page, fake }) => {
-  const snap = teamSnapshot({ cards: [card(1)] });
+  const snap = snapshot({ cards: [card(1)] });
   serveBoard(fake, snap);
   await openBoard(page, fake, { snap });
   const target = cardsIn(page, 'Good').first();
@@ -63,7 +63,7 @@ test('a team member is mentioned by keyboard and shows by their current name', a
 });
 
 test('arrow keys choose among several people', async ({ page, fake }) => {
-  const snap = teamSnapshot();
+  const snap = snapshot();
   serveBoard(fake, snap);
   await openBoard(page, fake, { snap });
   await typeCard(page, 'Good', 'Thanks @');

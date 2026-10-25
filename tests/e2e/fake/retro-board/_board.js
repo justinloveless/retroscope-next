@@ -1,15 +1,19 @@
 // Shared setup for the retro board specs: a board snapshot, the boot JSON that points the page at it,
-// and a small scripted server that answers board commands with the events the real decider emits.
+// and a small scripted server that answers board commands with the events the real decider emits. Every
+// board belongs to a team, and its viewers are signed-in members (UX18).
 import { expect } from '../_harness/fixtures.js';
+import { memberMe } from '../_harness/me.js';
 
 export const BOARD_ID = 'b0000000-0000-4000-8000-0000000000b1';
 export const ROOM = `board:${BOARD_ID}`;
 export const CODE = 'RETRO12345';
 export const TEAM_ID = '7e000000-0000-4000-8000-000000000001';
+export const TEAM_NAME = 'Platform';
 
 export const ALICE = { pid: 'a1000000-0000-4000-8000-000000000001', kind: 'user', name: 'Alice' };
 export const BOB = { pid: 'b2000000-0000-4000-8000-000000000002', kind: 'user', name: 'Bob' };
 export const CAROL = { pid: 'c3000000-0000-4000-8000-000000000003', kind: 'user', name: 'Carol Danvers' };
+// A guest of the original app: guests are gone (UX18), but their cards and comments stay, with the guest badge.
 export const GUEST = { pid: '90000000-0000-4000-8000-000000000004', kind: 'guest', name: 'Sneaky Penguin' };
 
 export const GOOD = 'c0000000-0000-4000-8000-000000000001';
@@ -39,11 +43,19 @@ export function card(n, fields = {}) {
   return author ? { ...base, author: { pid: author.pid, name: author.name, guest: author.kind === 'guest' }, ...rest } : { ...base, ...rest };
 }
 
+/** The board's team: Alice owns it, Bob and Carol are members. */
+export const MEMBERS = [
+  { pid: ALICE.pid, name: ALICE.name, role: 'owner' },
+  { pid: BOB.pid, name: BOB.name, role: 'member' },
+  { pid: CAROL.pid, name: CAROL.name, role: 'member' },
+];
+
+/** A board of Platform as its members see it. */
 export function snapshot(fields = {}) {
   return {
     boardId: BOARD_ID,
     code: CODE,
-    meta: { title: 'Sprint 42 retro', visibility: 'link', archived: false },
+    meta: { title: 'Sprint 42 retro', archived: false },
     config: CONFIG,
     stage: 'thinking',
     timer: { state: 'idle', durationMs: 900000, alarm: true, music: false },
@@ -57,24 +69,19 @@ export function snapshot(fields = {}) {
     votes: [],
     readiness: { stage: 'thinking', ready: [] },
     presence: [ALICE, BOB],
-    ...fields,
-  };
-}
-
-/** A team board where Alice and Bob are members, as members see it. */
-export function teamSnapshot(fields = {}) {
-  return snapshot({
     teamId: TEAM_ID,
-    members: [
-      { pid: ALICE.pid, name: ALICE.name, role: 'owner' },
-      { pid: BOB.pid, name: BOB.name, role: 'member' },
-      { pid: CAROL.pid, name: CAROL.name, role: 'member' },
-    ],
+    members: MEMBERS,
     endorsements: [],
     endorsementTypes: [],
     maxEndorsements: 3,
     ...fields,
-  });
+  };
+}
+
+/** The boot JSON's `me` of a member of the board's team, with their role on it (member when not listed). */
+export function boardMe(who, snap = snapshot()) {
+  const role = snap.members?.find((m) => m.pid === who.pid)?.role ?? 'member';
+  return memberMe(who, [{ id: snap.teamId ?? TEAM_ID, name: TEAM_NAME, role }]);
 }
 
 export const EMPTY_OVERLAY = { mineCards: [], mineComments: [], myVotes: [] };
@@ -82,7 +89,7 @@ export const EMPTY_OVERLAY = { mineCards: [], mineComments: [], myVotes: [] };
 /** Points the page at the board and waits for its columns. The snapshot arrives over the socket. */
 export async function openBoard(page, fake, { snap = snapshot(), overlay = EMPTY_OVERLAY, me = ALICE, seedBoot = false } = {}) {
   fake.me = me;
-  fake.boot = { build: 'fake', theme: 'light', me, room: seedBoot ? { r: ROOM, e: 'aaaaaaaaaaaaaaaa', s: 0, d: snap, o: overlay } : { r: ROOM } };
+  fake.boot = { build: 'fake', theme: 'light', me: boardMe(me, snap), room: seedBoot ? { r: ROOM, e: 'aaaaaaaaaaaaaaaa', s: 0, d: snap, o: overlay } : { r: ROOM } };
   fake.room(ROOM, { snapshot: snap, overlay, epoch: 'aaaaaaaaaaaaaaaa', seq: 0 });
   await page.goto(`/retro/${CODE}`);
   await expect(page.locator('.retro-column')).toHaveCount(snap.columns.length);

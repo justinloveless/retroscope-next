@@ -2,7 +2,7 @@
 // retro-board/_board.js, a second person in their own browser context, a recording AudioContext and a
 // skewable Date.now().
 import { expect, test } from '../_harness/fixtures.js';
-import { EMPTY_OVERLAY, ROOM, snapshot } from '../retro-board/_board.js';
+import { EMPTY_OVERLAY, ROOM, boardMe, snapshot } from '../retro-board/_board.js';
 
 export * from '../retro-board/_board.js';
 
@@ -19,7 +19,8 @@ export function servePeople(fake, people, snap, { overlay = EMPTY_OVERLAY, boot 
   fake.boot = (path, req) => {
     const me = who(req);
     const room = boot(me);
-    return room ? { build: 'fake', theme: 'light', me, room } : { build: 'fake', theme: 'light', me };
+    const signedIn = boardMe(me, snap);
+    return room ? { build: 'fake', theme: 'light', me: signedIn, room } : { build: 'fake', theme: 'light', me: signedIn };
   };
   fake.room(ROOM, { snapshot: snap, overlay, epoch: 'aaaaaaaaaaaaaaaa', seq: 0 });
 }

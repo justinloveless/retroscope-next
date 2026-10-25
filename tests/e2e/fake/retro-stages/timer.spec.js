@@ -1,6 +1,6 @@
 import { expect, test } from '../_harness/fixtures.js';
 import {
-  ALICE, BOB, GUEST, ROOM, alarms, asPerson, fakeAudio, openAs, openBoard, personPage, sent, servePeople, skewedClock, snapshot,
+  ALICE, BOB, ROOM, alarms, asPerson, fakeAudio, openAs, openBoard, personPage, sent, servePeople, skewedClock, snapshot,
 } from './_stages.js';
 
 const SKEW_MS = 30_000;
@@ -27,7 +27,7 @@ async function unlockAudio(page) {
   await expect.poll(() => page.evaluate(() => window.__tones !== undefined)).toBe(true);
 }
 
-test('a facilitator starts the timer from the dialog; a guest is told to sign in', async ({ page, fake }) => {
+test('a facilitator starts the timer from the dialog', async ({ page, fake }) => {
   await openBoard(page, fake, { snap: snapshot() });
   await page.getByRole('button', { name: 'Timer' }).click();
   const dialog = page.getByRole('dialog', { name: 'Set the timer' });
@@ -44,10 +44,7 @@ test('a facilitator starts the timer from the dialog; a guest is told to sign in
   await dialog.getByRole('button', { name: 'Start timer' }).click();
   await expect(dialog.getByRole('alert')).toHaveText('Choose between 1 second and 120 minutes.');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
-
-  await openBoard(page, fake, { snap: snapshot({ presence: [ALICE, GUEST] }), me: GUEST });
-  await expect(page.locator('.retro-timer-hint')).toHaveText('Sign in to use the timer');
-  await expect(page.getByRole('button', { name: 'Timer' })).toBeHidden();
+  await expect(page.locator('.retro-timer-hint')).toHaveCount(0);
 });
 
 test('the countdown follows the server and pause, resume and reset go through it', async ({ page, fake }) => {
@@ -288,7 +285,7 @@ test('a volume saved before levels is migrated to the level that sounds the same
   await expect(slider).toHaveValue('70');
 });
 
-test('facilitators switch the alarm and music for the board; others get only their own sound', async ({ page, fake }) => {
+test('facilitators switch the alarm and music for the board', async ({ page, fake }) => {
   await openBoard(page, fake, { snap: snapshot({ timer: running(fake, 240_000) }) });
   const { panel } = await soundPanel(page);
   const board = panel.getByRole('group', { name: 'Everyone on the board' });
@@ -302,12 +299,6 @@ test('facilitators switch the alarm and music for the board; others get only the
   await music.click();
   await alarm.click();
   await expect.poll(() => sent(fake, 'retro.timer.setFlags')).toEqual([{ music: true }, { alarm: false }]);
-
-  await openBoard(page, fake, { snap: snapshot({ presence: [ALICE, GUEST], timer: running(fake, 240_000) }), me: GUEST });
-  const guest = await soundPanel(page);
-  await expect(guest.panel.getByRole('switch', { name: 'Alarm when time is up' })).toBeHidden();
-  await expect(guest.slider).toBeVisible();
-  await expect(guest.mute).toBeVisible();
 });
 
 test('the sound popover closes when the timer stops under it', async ({ page, fake }) => {

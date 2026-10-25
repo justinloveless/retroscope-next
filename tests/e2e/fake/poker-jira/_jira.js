@@ -54,7 +54,7 @@ export function setupJira(fake, {
   fixture,
 } = {}) {
   const rounds = initial.map((r) => ({ ...r }));
-  setupPoker(fake, { viewer, snap: snapshot({ rounds, currentRoundId: rounds[0].id, ...snap }), ...(overlay ? { overlay } : {}) });
+  setupPoker(fake, { viewer, role, snap: snapshot({ rounds, currentRoundId: rounds[0].id, ...snap }), ...(overlay ? { overlay } : {}) });
   fake.route('GET', `/api/teams/${TEAM}`, {
     body: {
       id: TEAM,

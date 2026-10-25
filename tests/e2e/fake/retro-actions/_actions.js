@@ -2,9 +2,9 @@
 // team room its members also join, and a scripted team decider for assign/done.
 import { expect } from '../_harness/fixtures.js';
 import { json } from '../../../web-fake-server/http.js';
-import { ACTIONS, ALICE, BOB, CAROL, CODE, EMPTY_OVERLAY, ROOM, TEAM_ID, card, teamSnapshot } from '../retro-board/_board.js';
+import { ACTIONS, ALICE, BOB, CAROL, CODE, EMPTY_OVERLAY, ROOM, TEAM_ID, boardMe, card, snapshot } from '../retro-board/_board.js';
 
-export { ACTIONS, ALICE, BOARD_ID, BOB, CAROL, GOOD, ROOM, TEAM_ID, card, cardId, sent, serveBoard, snapshot, teamSnapshot } from '../retro-board/_board.js';
+export { ACTIONS, ALICE, BOARD_ID, BOB, CAROL, GOOD, ROOM, TEAM_ID, card, cardId, sent, serveBoard, snapshot } from '../retro-board/_board.js';
 
 export const TEAM_ROOM = `team:${TEAM_ID}`;
 export const OTHER_BOARD = 'b0000000-0000-4000-8000-0000000000b2';
@@ -53,7 +53,7 @@ export function teamRoom(fields = {}) {
 }
 
 export function boardFor(fields = {}) {
-  return teamSnapshot({ members: MEMBERS, endorsementTypes: TYPES, ...fields });
+  return snapshot({ members: MEMBERS, endorsementTypes: TYPES, ...fields });
 }
 
 /** The board's own column titled `title` (not the open-action-items column). */
@@ -67,7 +67,7 @@ export const cardsIn = (page, title) => column(page, title).locator('.retro-card
  */
 export async function openBoard(page, fake, { snap = boardFor(), overlay = EMPTY_OVERLAY, me = ALICE } = {}) {
   fake.me = me;
-  fake.boot = { build: 'fake', theme: 'light', me, room: { r: ROOM } };
+  fake.boot = { build: 'fake', theme: 'light', me: boardMe(me, snap), room: { r: ROOM } };
   fake.room(ROOM, { snapshot: snap, overlay, epoch: 'aaaaaaaaaaaaaaaa', seq: 0 });
   await page.goto(`/retro/${CODE}`);
   await expect(page.locator('.retro-column-list > .retro-column')).toHaveCount(snap.columns.length);

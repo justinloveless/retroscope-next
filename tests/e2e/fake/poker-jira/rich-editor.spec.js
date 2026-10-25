@@ -470,8 +470,9 @@ test('someone who cannot edit gets no editor chunk and no edit button', async ({
   expect(chunkRequests(fake)).toHaveLength(0);
 });
 
-test('a quick session, which has no team and no Jira, gets no editor chunk', async ({ page, fake }) => {
-  setupPoker(fake, { snap: snapshot({ teamId: null }) });
+test('a team without Jira gets no editor chunk', async ({ page, fake }) => {
+  setupPoker(fake, { snap: snapshot() });
+  fake.route('GET', `/api/teams/${snapshot().teamId}`, { body: { id: snapshot().teamId, name: 'No Jira', role: 'member', jira: { configured: false } } });
   await page.goto('/poker/NEOTRO1234');
   await page.locator('.nt-table').waitFor();
   await page.waitForTimeout(PREFETCH_WINDOW_MS);

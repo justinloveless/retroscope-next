@@ -48,7 +48,7 @@ test('hostile cards, comments, names and titles render as text', async ({ page, 
   const evil = { pid: BOB.pid, kind: 'user', name: HOSTILE_NAME };
   const cards = CORPUS.map((body, i) => card(i + 1, { body, author: evil }));
   const snap = snapshot({
-    meta: { title: `<script>${RUN}</script>`, visibility: 'link', archived: false },
+    meta: { title: `<script>${RUN}</script>`, archived: false },
     columns: [{ id: GOOD, title: HOSTILE_NAME, color: 'green', actionItems: false, version: 1 }],
     cards,
     comments: CORPUS.map((body, i) => ({
@@ -81,7 +81,7 @@ test('hostile text typed into the composer stays text', async ({ page, fake }) =
   await typeCard(page, 'Good', CORPUS[1]);
   await page.keyboard.press('Enter');
   await expect(cardsIn(page, 'Good').first().locator('.retro-card-body')).toHaveText(CORPUS[1]);
-  fake.tx(ROOM, [{ k: 'retro.board.meta', d: { title: HOSTILE_NAME, visibility: 'link', archived: false } }]);
+  fake.tx(ROOM, [{ k: 'retro.board.meta', d: { title: HOSTILE_NAME, archived: false } }]);
   await expect(page.locator('.retro-title')).toHaveText(HOSTILE_NAME);
   await expect(page).toHaveTitle(`${HOSTILE_NAME} · Retroscope`);
   await expectInert(page);

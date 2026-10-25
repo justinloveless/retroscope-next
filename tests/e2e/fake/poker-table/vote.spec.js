@@ -1,5 +1,5 @@
 import { expect, test } from '../_harness/fixtures.js';
-import { BOB, DOT, GUS, ME, R1, ROOM, handCard, lastCommand, openTable, seat, setupPoker, snapshot } from './_poker.js';
+import { BOB, CODE, DOT, GUS, ME, R1, ROOM, handCard, lastCommand, openTable, seat, setupPoker, snapshot } from './_poker.js';
 
 test('picking, locking and abstaining send set-semantics commands and update my hand', async ({ page, fake }) => {
   setupPoker(fake);
@@ -91,14 +91,13 @@ test('shortcuts stay quiet while the ticket field has focus', async ({ page, fak
   expect(fake.received.filter(({ frame }) => frame.t === 'cmd')).toEqual([]);
 });
 
-test('other players: status only, dimmed when away, guests carry a badge', async ({ page, fake }) => {
+test('other players: status only, dimmed when away', async ({ page, fake }) => {
   setupPoker(fake);
   await openTable(page);
 
-  await expect(seat(page, GUS).locator('.nt-badge-guest')).toBeVisible();
-  await expect(seat(page, GUS)).toHaveAttribute('aria-label', 'Gus (guest), waiting');
+  await expect(seat(page, GUS)).toHaveAttribute('aria-label', 'Gus, waiting');
   await expect(seat(page, DOT)).toHaveAttribute('aria-label', 'Dot, waiting, away');
-  await expect(seat(page, BOB).locator('.nt-badge-guest')).toBeHidden();
+  await expect(page.locator('.nt-badge-guest:visible')).toHaveCount(0);
   await expect(seat(page, DOT)).toHaveAttribute('data-absent', '');
   await expect(seat(page, DOT)).toHaveCSS('opacity', '0.5');
 
@@ -134,19 +133,13 @@ test('a final nack rolls the optimistic vote back and says why', async ({ page, 
   await expect(page.locator('.nt-hand-pill')).toHaveCount(0);
 });
 
-test('a guest without a name picks one before joining', async ({ page, fake }) => {
-  setupPoker(fake, { viewer: GUS });
+test('a signed-out visitor is sent to sign in first and opens no socket', async ({ page, fake }) => {
+  setupPoker(fake);
   fake.boot = (path) => ({ build: 'fake', theme: 'light', me: null, path });
-  fake.route('POST', '/api/guest', (req) => ({
-    status: 201,
-    body: { principal: { id: GUS.pid, kind: 'guest', name: req.body.displayName } },
-  }));
-  await page.goto('/poker/NEOTRO1234');
-  await page.getByRole('textbox', { name: 'Your name' }).fill('Gus');
-  await page.getByRole('button', { name: 'Join' }).click();
-  await expect(page.locator('.nt-hand')).toBeVisible();
-  await expect(seat(page, GUS)).toHaveCount(0);
-  await expect(seat(page, BOB)).toBeVisible();
-  const post = fake.requests.find((r) => r.method === 'POST' && r.path === '/api/guest');
-  expect(post.json).toEqual({ displayName: 'Gus' });
+  await page.goto(`/poker/${CODE}?round=2`);
+  await expect(page.getByRole('heading', { level: 1, name: 'Sign in to Retroscope' })).toBeVisible();
+  expect(new URL(page.url()).searchParams.get('return')).toBe(`/poker/${CODE}?round=2`);
+  await expect(page.locator('.nt-table')).toHaveCount(0);
+  expect(fake.connections).toHaveLength(0);
+  expect(fake.requests.some((r) => r.path.startsWith('/api/poker/'))).toBe(false);
 });

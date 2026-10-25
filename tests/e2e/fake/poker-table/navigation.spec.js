@@ -3,6 +3,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '../_harness/fixtures.js';
+import { memberMe } from '../_harness/me.js';
 import { apply, fromSnapshot, roundById } from '../../../../web/src/poker/model.js';
 import { CODE, R1, R2, ROOM, openTable, round, setupPoker, snapshot } from './_poker.js';
 
@@ -18,7 +19,7 @@ for (const transcript of transcripts) {
     const [snap, ...txs] = frames;
     const viewer = { pid: transcript.viewer.pid, kind: 'user', name: 'Viewer' };
     fake.me = viewer;
-    fake.boot = (path) => ({ build: 'fake', theme: 'light', me: { principal: { id: viewer.pid, kind: 'user', name: 'Viewer' } }, path });
+    fake.boot = (path) => ({ build: 'fake', theme: 'light', me: memberMe(viewer, snap.d.teamId ? [{ id: snap.d.teamId, name: 'Platform' }] : []), path });
     fake.route('GET', '/api/poker/by-code/:code', { body: { id: snap.d.sessionId, access: 'granted' } });
     const player = fake.replayTranscript(transcript, { step: true });
 

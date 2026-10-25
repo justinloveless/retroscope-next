@@ -1,11 +1,12 @@
 // Shared setup for the strip, spotlight, settings, history and mobile specs: a session with several
 // rounds and a small scripted server that decides the strip's commands the way the real decider does
 // (U7 decisions 3–6) for whoever sends them, so two pages in one test see each other's changes.
-import { BOB, CODE, DOT, GUS, ME, ROOM, SESSION, round, snapshot } from '../poker-table/_poker.js';
+import { memberMe } from '../_harness/me.js';
+import { BOB, CODE, DOT, GUS, ME, ROOM, SESSION, TEAM as SESSION_TEAM, round, snapshot } from '../poker-table/_poker.js';
 
 export { BOB, CODE, DOT, GUS, ME, ROOM, SESSION, round };
 
-export const TEAM = '0a000000-0000-4000-8000-0000000000b0';
+export const TEAM = SESSION_TEAM.id;
 export const roundId = (n) => `0a000000-0000-4000-8000-0000000010${String(n).padStart(2, '0')}`;
 
 export function rounds(count = 6) {
@@ -31,12 +32,9 @@ export function setupStrip(fake, { viewer = ME, role = 'member', theme = 'light'
     sent: {},
   };
   fake.me = viewer;
-  fake.boot = (path) => ({
-    build: 'fake',
-    theme,
-    me: { principal: { id: viewer.pid, kind: viewer.kind, name: viewer.name }, teams: [{ id: TEAM, name: 'Team', role }] },
-    path,
-  });
+  const me = memberMe(viewer, [{ ...SESSION_TEAM, role }]);
+  me.user.theme = theme;
+  fake.boot = (path) => ({ build: 'fake', theme, me, path });
   fake.route('GET', '/api/poker/by-code/:code', { body: { id: SESSION, access: 'granted' } });
   fake.room(ROOM, {
     snapshot: () => ({

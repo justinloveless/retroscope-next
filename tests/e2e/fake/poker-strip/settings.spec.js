@@ -97,7 +97,7 @@ test.describe('observers', () => {
     expect(state.sent['poker.settings.update']).toBeUndefined();
     // Observers keep their seat, dimmed and without a card.
     await expect(page.locator(`.nt-seat[data-pid="${GUS.pid}"]`)).toHaveAttribute('data-observer', '');
-    await expect(page.locator(`.nt-seat[data-pid="${GUS.pid}"]`)).toHaveAttribute('aria-label', 'Gus (guest), observer');
+    await expect(page.locator(`.nt-seat[data-pid="${GUS.pid}"]`)).toHaveAttribute('aria-label', 'Gus, observer');
     await expect(page.locator(`.nt-seat[data-pid="${DOT.pid}"]`)).not.toHaveAttribute('data-observer', '');
     await expect(page.locator(`.nt-seat[data-pid="${BOB.pid}"]`)).toHaveCount(1);
   });
@@ -122,17 +122,5 @@ test.describe('delete all rounds', () => {
     await openStrip(page);
     const dialog = await openSettings(page);
     await expect(dialog.getByRole('button', { name: 'Delete all rounds' })).toHaveCount(0);
-  });
-
-  test('in a quick session any signed-in user may', async ({ page, fake }) => {
-    setupStrip(fake, { snap: { teamId: undefined } });
-    await openStrip(page);
-    await expect((await openSettings(page)).getByRole('button', { name: 'Delete all rounds' })).toBeVisible();
-  });
-
-  test('guests of a quick session do not get the danger zone', async ({ page, fake }) => {
-    setupStrip(fake, { viewer: GUS, snap: { teamId: undefined } });
-    await openStrip(page);
-    await expect((await openSettings(page)).getByRole('button', { name: 'Delete all rounds' })).toHaveCount(0);
   });
 });
