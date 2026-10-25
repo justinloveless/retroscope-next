@@ -388,6 +388,10 @@ class Element extends Node {
     return this.children[0] ?? null;
   }
 
+  get childElementCount() {
+    return this.children.length;
+  }
+
   matches(selector) {
     return matches(this, selector);
   }
