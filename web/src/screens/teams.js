@@ -2,7 +2,9 @@
 // none lands here, and the team switcher's "Create a team" leads here. Creating needs a verified email: until
 // then the form is disabled, with a link that sends the verification email again. Teams are invite-only, so
 // joining means opening an invite; a pasted invite link (or its token) is kept as the pending invite and
-// previewed on /invite. There is no team discovery and no request to join.
+// previewed on /invite. There is no team discovery and no request to join. A pending invite wins here as it
+// does on '/': a full page load of '/' by someone in no team reaches this screen through the server's
+// redirect, which cannot see the invite waiting in this browser.
 
 import { h } from '../core/h.js';
 import { http } from '../core/http.js';
@@ -10,7 +12,7 @@ import { icon } from '../ui/icons.js';
 import { currentMe, currentUser, navigate, refreshMe, session } from './app.js';
 import { MUTED, createFrame, errorText, field, form, muted, row, stack } from './frame.js';
 import { teamPath } from './header.js';
-import { parseInvite, savePendingInvite } from './pending-invite.js';
+import { parseInvite, pendingInvite, savePendingInvite } from './pending-invite.js';
 
 function panel(id, symbol, tint, title, ...children) {
   return h('section', { class: 'card', 'aria-labelledby': id, style: { ...stack('1rem'), padding: '1.5rem' } },
@@ -142,6 +144,10 @@ export function mount(root) {
     update() {
       if (!currentUser()) {
         navigate(`/login?return=${encodeURIComponent('/teams')}`, { replace: true });
+        return;
+      }
+      if (pendingInvite()) {
+        navigate('/invite', { replace: true });
         return;
       }
       render();
