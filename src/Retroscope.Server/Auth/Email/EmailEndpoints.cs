@@ -27,6 +27,13 @@ public static class EmailEndpoints {
 
     public static readonly RateLimit Consume = RateLimit.Define("auth.token.consume", RateRule.PerIp(30, TimeSpan.FromMinutes(1)));
 
+    /// <summary>Asking for the verification mail again; the handler also allows each user 3 mails an hour.</summary>
+    public static readonly RateLimit VerifyRequest = RateLimit.Define(
+        "auth.verify.request", RateRule.PerIp(20, TimeSpan.FromHours(1)), RateRule.PerPrincipal(10, TimeSpan.FromHours(1)));
+
+    /// <summary>Per user, checked in the handler; over it the request still answers 202 and nothing is sent.</summary>
+    public static readonly RateLimit VerifyPerUser = RateLimit.Define("auth.verify.user", RateRule.PerPrincipal(3, TimeSpan.FromHours(1)));
+
     public static readonly RateLimit Verify = RateLimit.Define(
         "auth.verify.consume", RateRule.PerIp(30, TimeSpan.FromMinutes(1)), RateRule.PerPrincipal(30, TimeSpan.FromMinutes(1)));
 
@@ -46,6 +53,9 @@ public static class EmailEndpoints {
         app.MapPost("/api/auth/reset/consume", ResetConsumeAsync)
             .RequireRoutePolicy(RoutePolicy.Public)
             .RequireRateLimit(Consume);
+        app.MapPost("/api/auth/verify/request", VerifyRequestAsync)
+            .RequireRoutePolicy(RoutePolicy.User)
+            .RequireRateLimit(VerifyRequest);
         app.MapPost("/api/auth/verify/consume", VerifyConsumeAsync)
             .RequireRoutePolicy(RoutePolicy.User)
             .RequireRateLimit(Verify);
@@ -207,6 +217,24 @@ public static class EmailEndpoints {
         sessions.EvictUser(use.User!.Value);
         Sessions.ClearCookie(context.Response);
         return Results.NoContent();
+    }
+
+    // UX18 decision 14: an unverified user can neither create a team nor accept an email invite, and the sign-up mail is
+    // sent once with a 24-hour link, so the create-or-join screen offers to send it again. The answer is 202 whether a
+    // mail went out, the address was already verified, or the user or the mail budget is over its limit.
+    private static async Task<IResult> VerifyRequestAsync(
+        HttpContext context,
+        UsersRepo users,
+        RateLimiter limiter,
+        AccountMail mail) {
+        var cancellationToken = context.RequestAborted;
+        var user = (await context.GetCallerAsync())!.Principal.Id;
+        // The row decides: the session's EmailVerified is cached and can be stale.
+        if (await users.GetProfileAsync(user, cancellationToken) is { EmailVerified: false } profile
+            && limiter.TryAcquire(VerifyPerUser, new RateKeys(null, user.ToString(), null), out _)) {
+            await mail.VerifyEmailAsync(user, profile.Email, ClientIp.Of(context), cancellationToken);
+        }
+        return Results.StatusCode(StatusCodes.Status202Accepted);
     }
 
     // Verifies only for a session of the token's own user (S4): a link opened in someone else's signed-in browser
