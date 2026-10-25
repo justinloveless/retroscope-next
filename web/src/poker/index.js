@@ -1,12 +1,17 @@
 // The poker screen (/poker/:code and /teams/:tid/poker/:code): joins the room, paints from the boot
 // snapshot, follows pointer and spotlight navigation (R13), keeps ?round=N in the URL and wires the stage
 // (the issue with the players seated around it), the hand, drag-to-play and the shortcuts to the room's
-// commands.
+// commands. The toolbar stands in for the app header (UX18 decision 12): "<team> / Poker / <day>" from the
+// snapshot's teamId, Copy link, and the header's mentions and account menu docked at its end. The address
+// becomes /teams/<teamId>/poker/<code> once the snapshot names the team.
 
 import { h, replaceContent } from '../core/h.js';
 import { ApiError, http } from '../core/http.js';
 import { shallowEq } from '../core/store.js';
-import { getSocket, setMe } from '../screens/app.js';
+import { formatDay } from '../core/day.js';
+import { currentMe, getSocket, navigate as go, session, setHeaderTeam } from '../screens/app.js';
+import { navLink, teamBadge, teamPath } from '../screens/header.js';
+import { kickScreen, showNoAccess } from '../screens/no-access.js';
 import { createButton } from '../ui/button.js';
 import { icon } from '../ui/icons.js';
 import { toast } from '../ui/toast.js';
@@ -27,6 +32,7 @@ import {
   roundPhase,
   ticketIntent,
   uuidv7,
+  uuidv7Time,
   voteIntent,
 } from './model.js';
 import { createObserverToggle } from './observers.js';
@@ -69,6 +75,16 @@ function stripUndefined(object) {
   return Object.fromEntries(Object.entries(object).filter(([, v]) => v !== undefined));
 }
 
+/** The session's address under its team, which every link to it uses. */
+export function sessionPath(teamId, code) {
+  return `${teamPath(teamId)}/poker/${encodeURIComponent(code)}`;
+}
+
+/** When the session was created: the snapshot's createdAt, else the time in its UUIDv7 id; null if neither. */
+export function createdAt(view) {
+  return view.createdAt ?? uuidv7Time(view.sessionId);
+}
+
 function message(title, text, ...actions) {
   return h('div', { class: 'nt-message', role: 'status' },
     h('h1', { class: 'nt-message-title', text: title }),
@@ -77,14 +93,18 @@ function message(title, text, ...actions) {
 }
 
 export function mount(root, boot = {}, app = {}) {
-  const backLink = h('a', { class: 'btn btn-ghost btn-sm nt-back', href: '/', dataset: { nav: '' } }, icon('chevron-left'), h('span', { text: 'Back' }));
-  const codeChip = h('span', { class: 'nt-code' });
+  const teamCrumb = navLink('/', null, { class: 'nt-crumb nt-crumb-team' });
+  const pokerCrumb = navLink('/', 'Poker', { class: 'nt-crumb' });
+  const dayCrumb = h('span', { class: 'nt-crumb-here', 'aria-current': 'page' });
+  const crumbs = h('nav', { class: 'nt-crumbs', 'aria-label': 'Breadcrumb', hidden: true },
+    teamCrumb, h('span', { 'aria-hidden': 'true', text: '/' }), pokerCrumb, h('span', { 'aria-hidden': 'true', text: '/' }), dayCrumb);
   const copy = createButton({
     label: 'Copy link',
     icon: 'link',
     iconOnly: true,
-    variant: 'ghost',
+    variant: 'outline',
     size: 'sm',
+    className: 'btn-icon nt-copy',
     onClick() {
       navigator.clipboard?.writeText(location.origin + location.pathname)
         .then(() => toast('Link copied!', { variant: 'success' }), () => toast('Could not copy the link.', { variant: 'error' }));
@@ -93,10 +113,12 @@ export function mount(root, boot = {}, app = {}) {
   const prevButton = createButton({ label: 'Previous round', icon: 'chevron-left', iconOnly: true, variant: 'default', press: true, size: 'sm', onClick: () => step(-1) });
   const nextButton = createButton({ label: 'Next round', icon: 'chevron-right', iconOnly: true, variant: 'default', press: true, size: 'sm', onClick: () => step(1) });
   const roundName = h('span', { class: 'nt-round-name', 'aria-live': 'polite' });
-  const extras = h('div', { class: 'nt-toolbar-extras' });
+  // The features' controls, then Copy link; the header docks mentions and the account menu after them.
+  const tools = h('div', { class: 'nt-toolbar-tools' });
+  const extras = h('div', { class: 'nt-toolbar-extras' }, tools, copy.el);
   const rounds = h('nav', { class: 'nt-toolbar-center', 'aria-label': 'Rounds' }, prevButton.el, roundName, nextButton.el);
   const toolbar = h('header', { class: 'nt-toolbar' },
-    h('div', { class: 'nt-toolbar-start' }, backLink, codeChip, copy.el),
+    h('div', { class: 'nt-toolbar-start' }, crumbs),
     rounds,
     extras);
   const banner = h('p', { class: 'nt-offline', role: 'status', hidden: true, text: 'Reconnecting… your changes are saved and will sync.' });
@@ -119,6 +141,9 @@ export function mount(root, boot = {}, app = {}) {
   let features = [];
   let disposed = false;
   let seeded = false;
+  // The team from /teams/:tid/poker/:code until the snapshot names the session's own, and the one the header has.
+  let urlTeam = null;
+  let headerTeam = null;
 
   const send = (k, d, options) => room?.send(k, stripUndefined(d), options);
 
@@ -229,6 +254,8 @@ export function mount(root, boot = {}, app = {}) {
   }
 
   const unbindKeys = bindKeyboard(onShortcut);
+  // A renamed team, or `me` arriving late, renames the crumb.
+  const stopCrumbs = session.select((state) => state.me, Object.is, () => renderCrumbs());
 
   function step(delta) {
     const rounds = room?.view?.rounds ?? [];
@@ -249,15 +276,41 @@ export function mount(root, boot = {}, app = {}) {
     render();
   }
 
+  // The address is the session's under its own team (a link to /poker/:code, or one under another team's id,
+  // is corrected in place) with the round being viewed.
   function syncUrl(view) {
-    const round = roundById(view, viewed);
-    if (!round || typeof history === 'undefined') {
+    if (typeof history === 'undefined') {
       return;
     }
     const url = new URL(location.href);
-    if (url.searchParams.get('round') !== String(round.number)) {
+    if (view.teamId && view.code) {
+      url.pathname = sessionPath(view.teamId, view.code);
+    }
+    const round = roundById(view, viewed);
+    if (round) {
       url.searchParams.set('round', String(round.number));
-      history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+    }
+    const next = url.pathname + url.search + url.hash;
+    if (next !== location.pathname + location.search + location.hash) {
+      history.replaceState(history.state, '', next);
+    }
+  }
+
+  // "<team> / Poker / <day>": the snapshot's team (the URL's until it arrives), named from `me`.
+  function renderCrumbs(view = room?.view) {
+    const teamId = view?.teamId ?? urlTeam;
+    const team = teamId ? currentMe()?.teams?.find((t) => t.id === teamId) ?? null : null;
+    crumbs.hidden = team === null;
+    if (team) {
+      replaceContent(teamCrumb, teamBadge(team), h('span', { class: 'nt-crumb-name', text: team.name }));
+      teamCrumb.href = teamPath(team.id);
+      pokerCrumb.href = teamPath(team.id, 'poker');
+      const created = view ? createdAt(view) : null;
+      dayCrumb.textContent = created === null ? view?.code ?? code ?? '' : formatDay(created);
+    }
+    if (view?.teamId && view.teamId !== headerTeam) {
+      headerTeam = view.teamId;
+      setHeaderTeam(headerTeam);
     }
   }
 
@@ -268,20 +321,22 @@ export function mount(root, boot = {}, app = {}) {
     roundName.textContent = round ? `Round ${round.number}${round.ticketKey ? ` · ${round.ticketKey}` : ''}` : '';
     prevButton.update({ disabled: at <= 0 });
     nextButton.update({ disabled: at < 0 || at >= rounds.length - 1 });
-    codeChip.textContent = view.code ?? code ?? '';
-    copy.el.hidden = Boolean(view.teamId);
+    renderCrumbs(view);
   }
 
   function renderView(view) {
     if (view.deleted) {
       replaceContent(center, message('Session deleted', 'This poker session was deleted.',
-        h('a', { class: 'btn btn-primary', href: backLink.getAttribute('href'), dataset: { nav: '' }, text: 'Go back' })));
+        h('a', { class: 'btn btn-primary', href: view.teamId ? teamPath(view.teamId, 'poker') : '/', dataset: { nav: '' }, text: 'Back to Poker' })));
       return;
     }
     if (room.kicked) {
-      replaceContent(center, message('You left this session', room.kicked === 'deleted'
-        ? 'This poker session was deleted.'
-        : 'You no longer have access to this session.'));
+      const screen = kickScreen(room.kicked);
+      if (screen) {
+        noAccess(screen);
+      } else {
+        replaceContent(center, message('Too many rooms open', 'This tab has too many rooms open. Close one of them, then reload this page.'));
+      }
       return;
     }
     if (!center.contains(table.el)) {
@@ -363,61 +418,45 @@ export function mount(root, boot = {}, app = {}) {
     return `poker:${found.id}`;
   }
 
-  function askName() {
-    return new Promise((resolve) => {
-      const input = h('input', { class: 'input', name: 'displayName', required: true, maxlength: '40', autocomplete: 'nickname', 'aria-label': 'Your name' });
-      const error = h('p', { class: 'nt-join-error', role: 'alert', hidden: true });
-      const form = h('form', {
-        class: 'nt-join',
-        on: {
-          async submit(event) {
-            event.preventDefault();
-            try {
-              const result = await http.post('/api/guest', { displayName: input.value.trim() });
-              setMe({ principal: result.principal, teams: [], unreadMentions: 0 });
-              resolve(pidOf(result));
-            } catch (failure) {
-              error.hidden = false;
-              error.textContent = failure instanceof ApiError && failure.code === 'invalid'
-                ? 'Please choose another name.'
-                : 'Could not join right now. Try again.';
-            }
-          },
-        },
-      },
-      h('label', { class: 'field' }, h('span', { class: 'field-label', text: 'Your name' }), input),
-      error,
-      createButton({ label: 'Join', type: 'submit', variant: 'green', press: true }).el);
-      replaceContent(center, message('Join the planning poker session', 'Pick a name the others will see.', form));
-      input.focus();
-    });
+  // Missing and not yours look the same (UX18 decision 2), and so does a kick that ends the user's access. The
+  // screen replaces the whole page, toolbar included, and the app header shows above it.
+  function noAccess(screen) {
+    close();
+    showNoAccess(root, screen);
   }
 
   async function open(sessionCode, tid) {
     code = sessionCode;
-    backLink.setAttribute('href', tid ? `/teams/${encodeURIComponent(tid)}?tab=poker` : '/');
+    urlTeam = tid ?? null;
+    if (page.parentNode !== root) {
+      root.replaceChildren(page);
+    }
+    renderCrumbs(null);
     replaceContent(center, message('Joining the session…'));
     if (me === null) {
-      me = await askName();
-      if (disposed) {
-        return;
-      }
+      // The router sends signed-out visitors to sign in first; this covers a stale boot JSON.
+      go(`/login?return=${encodeURIComponent(location.pathname + location.search)}`, { replace: true });
+      return;
     }
     let key;
     try {
       key = await roomKey(sessionCode);
     } catch (error) {
-      if (!disposed) {
-        replaceContent(center, message('Session not found', 'Check the link, or ask for a new one.',
-          h('a', { class: 'btn btn-primary', href: '/', dataset: { nav: '' }, text: 'Start over' })));
+      if (disposed || code !== sessionCode) {
+        return;
+      }
+      if (error instanceof ApiError && (error.status === 404 || error.status === 403)) {
+        showNoAccess(root);
+      } else {
+        replaceContent(center, message('The session could not be loaded', error?.code === 'network' ? 'The server could not be reached.' : null,
+          h('button', { type: 'button', class: 'btn btn-primary', on: { click: () => open(sessionCode, tid) } }, 'Try again')));
       }
       return;
     }
     if (disposed || code !== sessionCode) {
       return;
     }
-    // The entry hands over the tab's socket when the visitor already had a principal; a guest who just
-    // joined gets the one made for their new principal.
+    // The entry hands over the tab's socket; otherwise this is the first room of the tab.
     const shared = app.socket ?? await getSocket();
     if (disposed || code !== sessionCode) {
       return;
@@ -435,7 +474,7 @@ export function mount(root, boot = {}, app = {}) {
       room.select((view) => [view, room.extras, room.kicked], shallowEq, render),
       watchStatus(),
     ];
-    const slots = { toolbar: extras, rounds, bottom, strip, left, right, center, page, issue: table.issue, issueScroller: table.scroller, results: table.results };
+    const slots = { toolbar: tools, rounds, bottom, strip, left, right, center, page, issue: table.issue, issueScroller: table.scroller, results: table.results };
     const ctx = { room, socket, me, actions, navigate, get viewed() { return viewed; }, slots };
     features = FEATURES.map((feature) => feature(ctx));
     render();
@@ -472,6 +511,7 @@ export function mount(root, boot = {}, app = {}) {
     },
     unmount() {
       disposed = true;
+      stopCrumbs();
       close();
       unbindKeys();
       hand.destroy();

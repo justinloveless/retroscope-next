@@ -498,6 +498,12 @@ export function cardScale(players, mobile = false) {
   return 0.8;
 }
 
+/** The milliseconds a UUIDv7 starts with, or null for any other id (an imported session's, say). */
+export function uuidv7Time(id) {
+  const hex = String(id ?? '').replace(/-/g, '');
+  return /^[0-9a-f]{12}7[0-9a-f]{19}$/i.test(hex) ? parseInt(hex.slice(0, 12), 16) : null;
+}
+
 /** A UUIDv7 for client-minted round ids (§c.4). */
 export function uuidv7(now = Date.now(), random = (n) => crypto.getRandomValues(new Uint8Array(n))) {
   const bytes = random(16);
