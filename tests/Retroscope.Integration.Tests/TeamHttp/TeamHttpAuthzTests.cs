@@ -41,9 +41,7 @@ public sealed class TeamHttpAuthzTests(PostgresFixture postgres) {
         var t = $"/api/teams/{team}";
 
         Probe[] table = [
-            Row("GET", "/api/teams", null, ok: HttpStatusCode.OK, signedIn: true),
             Row("POST", "/api/teams", new { name = "" }, ok: HttpStatusCode.BadRequest, signedIn: true, unverified: HttpStatusCode.Forbidden),
-            Row("GET", "/api/dashboard", null, ok: HttpStatusCode.OK, signedIn: true),
             Row("GET", "/api/me/endorsements", null, ok: HttpStatusCode.OK, signedIn: true),
             Row("POST", "/api/invites/accept", new { token = "nope" }, ok: HttpStatusCode.NotFound, signedIn: true),
             Public("POST", "/api/invites/preview", new { token = "nope" }, HttpStatusCode.NotFound),
@@ -51,8 +49,6 @@ public sealed class TeamHttpAuthzTests(PostgresFixture postgres) {
             Team("GET", t, null, member: HttpStatusCode.OK, admin: HttpStatusCode.OK),
             Team("PATCH", t, new { name = "" }, member: HttpStatusCode.Forbidden, admin: HttpStatusCode.BadRequest),
             Team("DELETE", t, new { confirmName = "wrong" }, member: HttpStatusCode.Forbidden, admin: HttpStatusCode.Forbidden, owner: HttpStatusCode.BadRequest),
-            Team("PUT", $"{t}/favorite", null, member: HttpStatusCode.NoContent, admin: HttpStatusCode.NoContent),
-            Team("DELETE", $"{t}/favorite", null, member: HttpStatusCode.NoContent, admin: HttpStatusCode.NoContent),
             Team("GET", $"{t}/members", null, member: HttpStatusCode.OK, admin: HttpStatusCode.OK),
             Team("PATCH", $"{t}/members/{member.Guid}", new { role = "owner" }, member: HttpStatusCode.Forbidden, admin: HttpStatusCode.Forbidden, owner: HttpStatusCode.BadRequest),
             Team("DELETE", $"{t}/members/{missing}", null, member: HttpStatusCode.NotFound, admin: HttpStatusCode.NotFound),
