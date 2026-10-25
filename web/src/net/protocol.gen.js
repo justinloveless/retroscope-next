@@ -146,7 +146,7 @@ export const NACK = Object.freeze({
   jira_unavailable: Object.freeze({ retry: true }),
 });
 
-export const KICK_CODES = Object.freeze(['access_revoked', 'deleted', 'not_found', 'forbidden', 'too_many_rooms']);
+export const KICK_CODES = Object.freeze(['access_revoked', 'deleted', 'not_found', 'forbidden', 'too_many_rooms', 'too_many_connections']);
 export const BYE_CODES = Object.freeze(['restart']);
 
 /** WebSocket close codes. */

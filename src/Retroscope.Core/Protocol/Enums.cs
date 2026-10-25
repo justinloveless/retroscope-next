@@ -69,6 +69,8 @@ public enum KickCode : byte {
     [JsonStringEnumMemberName("not_found")] NotFound,
     [JsonStringEnumMemberName("forbidden")] Forbidden,
     [JsonStringEnumMemberName("too_many_rooms")] TooManyRooms,
+    /// <summary>The principal already holds <c>ConnectionsPerPrincipal</c> subscriptions to the room (one per tab).</summary>
+    [JsonStringEnumMemberName("too_many_connections")] TooManyConnections,
 }
 
 [JsonConverter(typeof(StrictEnumConverter<ByeCode>))]

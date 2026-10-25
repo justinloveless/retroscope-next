@@ -490,7 +490,7 @@ Protocol version 1. One same-origin WebSocket per tab at `GET /ws`; every frame 
 
 ## Kick and bye codes
 
-Kick: `access_revoked`, `deleted`, `not_found`, `forbidden`, `too_many_rooms`. Bye: `restart`.
+Kick: `access_revoked`, `deleted`, `not_found`, `forbidden`, `too_many_rooms`, `too_many_connections`. Bye: `restart`.
 
 ## Close codes
 
