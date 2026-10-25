@@ -18,6 +18,27 @@ const VIEWPORTS = {
 
 const poker = `/teams/${TEAM}/poker/${CODES.teamPoker}`;
 
+/** Opens the header's team switcher, or on a phone the slide-out sheet that holds the teams. */
+async function teamSwitcher(page) {
+  if (page.viewportSize().width < 768) {
+    await accountMenu(page);
+    return;
+  }
+  await page.locator('header.app-header').getByRole('button', { name: 'Demo Team', exact: true }).click();
+  await expect(page.getByRole('menu', { name: 'Teams' })).toBeVisible();
+}
+
+/** Opens the account menu, or on a phone the slide-out sheet. */
+async function accountMenu(page) {
+  await page.locator('header.app-header').getByRole('button', { name: /^Account menu for / }).filter({ visible: true }).click();
+  if (page.viewportSize().width < 768) {
+    await expect(page.getByRole('dialog', { name: 'Menu' })).toBeVisible();
+  } else {
+    await expect(page.getByRole('menuitem', { name: 'Sign out' })).toBeVisible();
+  }
+  await page.waitForTimeout(300);
+}
+
 async function centre(locator) {
   const box = await locator.boundingBox();
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
@@ -40,10 +61,26 @@ async function jiraPanel(page) {
 
 /** Key states beyond the plain routes: `act` brings the page into the state after it has drawn. */
 const STATES = [
-  { route: 'team', state: 'tab-poker', path: `/teams/${TEAM}?tab=poker`, ready: 'text=stories pointed' },
-  { route: 'team', state: 'tab-members', path: `/teams/${TEAM}?tab=members`, ready: 'text=Priya Raman' },
+  { route: 'team', state: 'tab-retros', path: `/teams/${TEAM}?tab=retros`, ready: 'text=Sprint 42 retro' },
+  { route: 'team', state: 'tab-retros-archived', path: `/teams/${TEAM}?tab=retros&archived=true`, ready: 'text=Q2 planning retro' },
+  {
+    route: 'team',
+    state: 'new-board',
+    path: `/teams/${TEAM}?tab=retros`,
+    ready: 'text=Sprint 42 retro',
+    async act(page) {
+      await page.getByRole('main').getByRole('button', { name: 'New board' }).click();
+      await expect(page.getByRole('dialog', { name: 'New retro board' })).toBeVisible();
+      await page.waitForTimeout(300);
+    },
+  },
   { route: 'team', state: 'tab-actions', path: `/teams/${TEAM}?tab=actions`, ready: 'text=Quarantine a flaky e2e test' },
-  { route: 'team', state: 'tab-kudos', path: `/teams/${TEAM}?tab=kudos`, ready: 'text=Kudos leaderboard' },
+  { route: 'team', state: 'tab-kudos', path: `/teams/${TEAM}?tab=kudos`, ready: 'text=Helping Hand' },
+  { route: 'team', state: 'tab-members', path: `/teams/${TEAM}?tab=members`, ready: 'text=Priya Raman' },
+  { route: 'team', state: 'team-switcher', path: `/teams/${TEAM}`, ready: 'text=Latest session', act: teamSwitcher },
+  { route: 'team', state: 'account-menu', path: `/teams/${TEAM}`, ready: 'text=Latest session', act: accountMenu },
+  { route: 'create-or-join', state: 'unverified', path: '/teams?as=tom', ready: 'text=Verify your email first' },
+  { route: 'invite', state: 'signed-out', path: '/invite?as=signed-out#t=demo-team-link', ready: 'text=Email me a sign-in link' },
   { route: 'team-settings', state: 'jira', path: `/teams/${TEAM}/settings#jira`, ready: 'text=demo-retail.atlassian.net' },
   { route: 'poker', state: 'voting', path: poker, ready: '.nt-seat[data-status="locked"]' },
   { route: 'poker', state: 'revealed', path: `${poker}?round=1`, ready: '.nt-seat .nt-flip.is-flipped' },
@@ -170,25 +207,9 @@ const STATES = [
   },
   { route: 'admin', state: 'teams', path: '/admin/teams', ready: 'role=searchbox', act: search('Platform Guild') },
   { route: 'admin', state: 'stats', path: '/admin/stats', ready: 'text=liveRooms' },
-  {
-    route: 'dashboard',
-    state: 'header-menu',
-    path: '/dashboard',
-    ready: 'text=Recent retros',
-    async act(page) {
-      const burger = page.getByRole('button', { name: 'Menu', exact: true });
-      if (await burger.isVisible()) {
-        await burger.click();
-        await expect(page.getByRole('dialog', { name: 'Menu' })).toBeVisible();
-      } else {
-        await page.getByRole('button', { name: /Account menu/ }).click();
-        await expect(page.getByRole('menuitem', { name: 'Sign out' })).toBeVisible();
-      }
-    },
-  },
 ];
 
-// Poker keeps its own toolbar, with the header's theme and account menus docked into it.
+// Poker keeps its own toolbar, with the header's mentions and account menu docked into it.
 const headerOf = (shot) => (shot.path.includes('/poker/') ? '.nt-toolbar .app-dock' : 'header.app-header');
 
 const SHOTS = [...ROUTES.map((r) => ({ ...r, state: r.state ?? 'default' })), ...STATES];
@@ -200,7 +221,7 @@ for (const shot of SHOTS) {
       test(name, async ({ browser, baseURL }) => {
         const context = await browser.newContext({ ...device, baseURL, colorScheme: theme, reducedMotion: 'reduce' });
         const page = await context.newPage();
-        const problems = watchConsole(page);
+        const problems = watchConsole(page, { allow: shot.allow });
         await page.goto(shot.path);
         await expect(page.locator(shot.ready).first()).toBeVisible();
         await expect(page.locator(headerOf(shot))).toBeVisible();
