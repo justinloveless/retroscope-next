@@ -6,9 +6,9 @@ namespace Retroscope.Server.Realtime.Transport;
 
 /// <summary>
 /// <c>GET /ws</c> (§c.3): one same-origin socket per tab, authenticated by the session cookie on upgrade. The route
-/// policy answers an upgrade without a signed-in user with 401 before it is accepted; a verified email is not needed. Refusals that the client must be
-/// able to tell apart (bad Origin, too many sockets from one IP) are close codes on an accepted socket, because a
-/// browser cannot read the HTTP status of a failed upgrade.
+/// policy answers an upgrade without a signed-in user with 401 before it is accepted; a verified email is not needed.
+/// Refusals that the client must be able to tell apart (bad Origin, too many sockets from one IP) are close codes on an
+/// accepted socket, because a browser cannot read the HTTP status of a failed upgrade.
 /// </summary>
 public static class WsEndpoint {
     public const string Path = "/ws";
