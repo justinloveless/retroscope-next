@@ -10,6 +10,8 @@ import {
   seedUsers, signIn, sql, test as stack,
 } from '../smoke/_stack.js';
 
+export { networkSwitch } from '../network-switch.js';
+
 export {
   BASE, MAILPIT, PASSWORD, addMembers, clientIp, compose, createPoker, createTeam, expect, inviteLink, json, mailedToken,
   seedUsers, signIn, sql,
@@ -168,41 +170,6 @@ export async function watch(context, problems) {
     problems.push(`dialog: ${dialog.type()} ${dialog.message()}`);
     await dialog.dismiss().catch(() => {});
   });
-}
-
-/**
- * Takes a context off the network and back. `context.setOffline` cuts HTTP everywhere, but Firefox and WebKit keep an
- * open WebSocket alive through it, so the room socket runs through a route that this switch closes, and that refuses
- * new sockets while offline. Install it before the page opens its socket (reload a page that already has one).
- */
-export async function networkSwitch(context) {
-  let offline = false;
-  const open = new Set();
-  await context.routeWebSocket(/\/ws$/, (page) => {
-    if (offline) {
-      page.close({ code: 1001, reason: 'offline' });
-      return;
-    }
-    const server = page.connectToServer();
-    const pair = { page, server };
-    open.add(pair);
-    page.onClose(() => open.delete(pair));
-  });
-  return {
-    async offline() {
-      offline = true;
-      await context.setOffline(true);
-      for (const { page, server } of open) {
-        await server.close({ code: 1001, reason: 'offline' });
-        await page.close({ code: 1001, reason: 'offline' });
-      }
-      open.clear();
-    },
-    async online() {
-      offline = false;
-      await context.setOffline(false);
-    },
-  };
 }
 
 export async function connectJira(request, teamId, { projectKey = 'ACME', boardId = 1 } = {}) {
