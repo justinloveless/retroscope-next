@@ -26,9 +26,6 @@ team_id=00000000-0000-0000-0000-0000000000c3 | user_id=00000000-0000-0000-0000-0
 team_id=00000000-0000-0000-0000-0000000000c3 | user_id=00000000-0000-0000-0000-0000000000a4 | role=admin | joined_at=2025-01-10T00:00:00Z
 team_id=00000000-0000-0000-0000-0000000000c4 | user_id=00000000-0000-0000-0000-0000000000a2 | role=member | joined_at=2025-03-01T00:00:00Z
 team_id=00000000-0000-0000-0000-0000000000c4 | user_id=00000000-0000-0000-0000-0000000000a4 | role=owner | joined_at=2025-01-20T00:00:00Z
-## team_favorites
-user_id=00000000-0000-0000-0000-0000000000a1 | team_id=00000000-0000-0000-0000-0000000000c1 | created_at=2025-01-01T00:00:00Z
-user_id=00000000-0000-0000-0000-0000000000a4 | team_id=00000000-0000-0000-0000-0000000000c1 | created_at=2025-01-02T00:00:00Z
 ## team_invites
 ## board_templates
 id=00000000-0000-0000-0000-000000000e01 | team_id=00000000-0000-0000-0000-0000000000c1 | name=Classic | is_default=False | allow_anonymous=True | voting_enabled=True | max_votes_per_user=null | show_author_names=True | stages_enabled=True | enforce_readiness=False | allow_self_votes=True | vote_emoji=🔥 | created_at=2025-01-01T00:00:00Z | updated_at=2025-01-01T00:00:00Z
@@ -58,10 +55,8 @@ id=d68ccdd2-556a-5aee-a5f8-09f9bcb6dd9d | team_id=00000000-0000-0000-0000-000000
 id=00000000-0000-0000-0000-000000000701 | board_id=00000000-0000-0000-0000-000000000901 | team_id=00000000-0000-0000-0000-0000000000c1 | type_id=00000000-0000-0000-0000-000000000b01 | from_user_id=00000000-0000-0000-0000-0000000000a1 | to_user_id=00000000-0000-0000-0000-0000000000a2 | created_at=2025-01-01T00:00:00Z
 id=00000000-0000-0000-0000-000000000702 | board_id=00000000-0000-0000-0000-000000000901 | team_id=00000000-0000-0000-0000-0000000000c1 | type_id=00000000-0000-0000-0000-000000000b01 | from_user_id=00000000-0000-0000-0000-0000000000a4 | to_user_id=00000000-0000-0000-0000-0000000000a2 | created_at=2025-01-02T00:00:00Z
 ## recent_activity
-user_id=00000000-0000-0000-0000-0000000000a1 | entity_kind=board | entity_id=00000000-0000-0000-0000-000000000901 | last_at=2025-03-02T00:00:00Z
-user_id=00000000-0000-0000-0000-0000000000a1 | entity_kind=poker | entity_id=00000000-0000-0000-0000-000000000801 | last_at=2025-03-03T00:00:00Z
 user_id=00000000-0000-0000-0000-0000000000a1 | entity_kind=team | entity_id=00000000-0000-0000-0000-0000000000c1 | last_at=2025-03-01T00:00:00Z
-user_id=00000000-0000-0000-0000-0000000000a4 | entity_kind=board | entity_id=00000000-0000-0000-0000-000000000901 | last_at=2025-03-05T00:00:00Z
+user_id=00000000-0000-0000-0000-0000000000a4 | entity_kind=team | entity_id=00000000-0000-0000-0000-0000000000c3 | last_at=2025-03-05T00:00:00Z
 ## archive.rows
 source_table=auth.users | source_pk=00000000-0000-0000-0000-0000000000a3 | row={"id": "00000000-0000-0000-0000-0000000000a3", "email": "dup@example.com", "phone": null, "created_at": "2025-01-01T00:00:00.0000000Z", "deleted_at": null, "updated_at": "2025-01-01T00:00:00.0000000Z", "banned_until": null, "is_anonymous": false, "phone_change": {"stripped": true}, "recovery_token": null, "last_sign_in_at": "2026-01-01T00:00:00.0000000Z", "raw_app_meta_data": null, "confirmation_token": null, "email_confirmed_at": null, "encrypted_password": null, "phone_change_token": {"stripped": true}, "raw_user_meta_data": null, "confirmation_sent_at": null, "email_change_token_new": null, "reauthentication_token": {"stripped": true}, "email_change_token_current": {"stripped": true}}
 source_table=auth.users#meta | source_pk=00000000-0000-0000-0000-0000000000a1 | row={"phone_change": {"stripped": true}, "phone_change_token": {"stripped": true}, "reauthentication_token": {"stripped": true}, "email_change_token_current": {"stripped": true}}
@@ -100,21 +95,20 @@ source_table=public.template_columns | source_pk=00000000-0000-0000-0000-0000000
     },
     "public.user_favorite_teams": {
       "source": 4,
+      "imported": 0,
+      "archived": 0,
+      "skipped": {},
+      "excluded": 4
+    },
+    "public.user_recent_activity": {
+      "source": 7,
       "imported": 2,
       "archived": 0,
       "skipped": {
         "merged_duplicate": 1,
-        "no_account": 1
-      }
-    },
-    "public.user_recent_activity": {
-      "source": 7,
-      "imported": 4,
-      "archived": 0,
-      "skipped": {
-        "merged_duplicate": 1,
         "no_account": 1,
-        "no_entity": 1
+        "no_entity": 1,
+        "not_team": 2
       }
     },
     "public.board_templates": {
@@ -157,7 +151,6 @@ source_table=public.template_columns | source_pk=00000000-0000-0000-0000-0000000
     "nulledActorRefs.public.endorsements.to_user_id": 1,
     "nulledActorRefs.public.team_members.user_id": 1,
     "nulledActorRefs.public.teams.creator_id": 1,
-    "nulledActorRefs.public.user_favorite_teams.user_id": 1,
     "nulledActorRefs.public.user_recent_activity.user_id": 1,
     "seededEndorsementTypes": 4
   },

@@ -25,7 +25,7 @@ public sealed class IdentityImport {
     ];
 
     private static readonly string[] TargetTables = [
-        "principals", "users", "external_identities", "teams", "team_jira_config", "team_members", "team_favorites", "team_invites",
+        "principals", "users", "external_identities", "teams", "team_jira_config", "team_members", "team_invites",
         "board_templates", "template_columns", "endorsement_types", "endorsements", "recent_activity",
     ];
 
@@ -73,7 +73,6 @@ public sealed class IdentityImport {
         new EndorsementTypesMap(),
         new TemplatesMap(),
         new InvitesMap(),
-        new FavoritesMap(),
         new DelegateStage(450, async (context, token) => {
             observe?.Invoke(context);
             await LoadRoomsAsync(context, token);
@@ -145,15 +144,27 @@ public sealed class IdentityImport {
         _ => value.ToString()!,
     };
 
-    // Stands in for the poker and retro stages: endorsements and recent activity only need the rooms to exist.
+    // Stands in for the poker and retro stages: endorsements only need the boards to exist. Like those stages, it loads
+    // only the rooms of imported teams (UX18).
     private static async Task LoadRoomsAsync(ImportContext context, CancellationToken cancellationToken) {
+        var teams = new HashSet<Guid>();
+        await using (var command = new NpgsqlCommand("select id from teams", context.Target))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken)) {
+            while (await reader.ReadAsync(cancellationToken)) {
+                teams.Add(reader.GetGuid(0));
+            }
+        }
         foreach (var board in await context.Source.ReadAsync("public.retro_boards", cancellationToken)) {
-            await ExecuteAsync(context, "insert into retro_boards (id, code, title, visibility, team_id) values ($1, $2, 'Board', 'link', $3)",
-                cancellationToken, board.Uuid("id")!.Value, board.Text("room_id")!, (object?)board.Uuid("team_id") ?? DBNull.Value);
+            if (board.Uuid("team_id") is { } team && teams.Contains(team)) {
+                await ExecuteAsync(context, "insert into retro_boards (id, code, title, team_id) values ($1, $2, 'Board', $3)",
+                    cancellationToken, board.Uuid("id")!.Value, board.Text("room_id")!, team);
+            }
         }
         foreach (var session in await context.Source.ReadAsync("public.poker_sessions", cancellationToken)) {
-            await ExecuteAsync(context, "insert into poker_sessions (id, code, team_id) values ($1, $2, $3)",
-                cancellationToken, session.Uuid("id")!.Value, session.Text("room_id")!, (object?)session.Uuid("team_id") ?? DBNull.Value);
+            if (session.Uuid("team_id") is { } team && teams.Contains(team)) {
+                await ExecuteAsync(context, "insert into poker_sessions (id, code, team_id) values ($1, $2, $3)",
+                    cancellationToken, session.Uuid("id")!.Value, session.Text("room_id")!, team);
+            }
         }
     }
 
