@@ -176,6 +176,25 @@ describe('identity', () => {
     assert.equal(boot(await out.text()).me, null);
   });
 
+  test("'/' sends a signed-in visitor to their team before the page loads, ?as= included, and welcomes the signed out", async () => {
+    const home = (path) => fetch(`${fake.url}${path}`, { redirect: 'manual' });
+    const demoUser = await home('/');
+    assert.equal(demoUser.status, 302);
+    assert.equal(demoUser.headers.get('location'), `/teams/${DEMO_TEAM}`);
+    assert.equal(demoUser.headers.get('cache-control'), 'no-store');
+
+    const lena = await home('/?as=lena');
+    assert.equal(lena.headers.get('location'), `/teams/${GUILD_TEAM}`, 'Lena has visited no team yet: her first one');
+    assert.match(lena.headers.get('set-cookie'), /rs_demo_as=lena/, 'the redirect keeps who ?as= picked');
+
+    assert.equal((await http(`/api/teams/${GUILD_TEAM}`)).status, 200);
+    assert.equal((await home('/')).headers.get('location'), `/teams/${GUILD_TEAM}`, 'the team Demo User visited last');
+
+    const out = await home('/?as=signed-out');
+    assert.equal(out.status, 200);
+    assert.match(out.headers.get('set-cookie'), /rs_demo_as=signed-out/);
+  });
+
   test('a signed-out visitor has no socket: /ws admits signed-in users only', async () => {
     const ws = await connectWebSocket(fake.wsUrl, { origin: fake.origin, headers: { cookie: 'rs_demo_as=signed-out' } });
     const client = new TestClient(ws);
