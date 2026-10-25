@@ -432,6 +432,32 @@
   color: var(--red);
 }
 
+.menu-item[aria-checked="true"] { background: hsl(var(--accent)); font-weight: 600; }
+.menu-item-text { display: grid; flex: 1; }
+.menu-item-detail { color: hsl(var(--muted-foreground)); font-size: 0.75rem; font-weight: 400; }
+.menu-item-check { margin-left: auto; color: var(--indigo); }
+
+.menu-heading {
+  display: block;
+  padding: 0.375rem 0.5rem 0.125rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* A group of radio items drawn as a segmented control (the account menu's theme). */
+.menu-segmented {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.125rem;
+  padding: 0.25rem 0.5rem 0.5rem;
+}
+
+.menu-segmented .menu-heading { grid-column: 1 / -1; padding: 0.125rem 0 0.25rem; }
+.menu-segmented .menu-item { justify-content: center; background: hsl(var(--muted)); }
+.menu-segmented .menu-item[aria-checked="true"] { background: hsl(var(--background)); box-shadow: var(--shadow-sm); }
+.menu-segmented .menu-item-check { display: none; }
+
 .menu-separator {
   height: 1px;
   margin: 0.25rem -0.25rem;
