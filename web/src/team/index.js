@@ -9,7 +9,7 @@ import { getSocket, navigate, patchTeam } from '../screens/app.js';
 import { SECTIONS, sectionOf } from '../screens/header.js';
 import { showNoAccess } from '../screens/no-access.js';
 import { icon } from '../ui/icons.js';
-import { model } from './model.js';
+import { model, openActions } from './model.js';
 import { errorMessage, teamApi, toastError, loading } from './util.js';
 
 // Each tab is its own chunk, so the team page stays within its budget (§g.7).
@@ -91,14 +91,10 @@ export function mount(root, boot, app = {}) {
   // (the room's name is set only when its actor loads, so it can be older) and the open action items.
   function patchHeader(context) {
     const state = context.room?.view;
-    let open = 0;
-    for (const item of state?.items.values() ?? []) {
-      open += item.doneAt == null ? 1 : 0;
-    }
     patchTeam(context.teamId, {
       name: context.team()?.name,
       role: context.role() ?? undefined,
-      openActions: state ? open : undefined,
+      openActions: state ? openActions(state) : undefined,
     });
   }
 
