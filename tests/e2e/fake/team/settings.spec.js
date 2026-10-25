@@ -47,10 +47,11 @@ test.describe('team settings', () => {
   });
 
   test('the owner deletes the team by typing its name', async ({ page, fake }) => {
-    setupTeam(fake, { me: OWNER });
+    const calls = setupTeam(fake, { me: OWNER });
     let body = null;
     fake.route('DELETE', `/api/teams/${TEAM_ID}`, (req) => {
       body = req.body;
+      calls.leave();
       return { status: 204 };
     });
     await page.goto(settingsUrl);
@@ -132,7 +133,7 @@ test.describe('Jira settings', () => {
   test('members never see the rotate-required banner', async ({ page, fake }) => {
     setupTeam(fake, { me: MEMBER, teamInfo: team('member', { jira: { configured: true, status: 'rotate_required', membersCanEdit: true } }) });
     await page.goto(teamUrl());
-    await expect(page.getByRole('heading', { name: 'Sprint 41 retro' })).toBeVisible();
+    await expect(page.getByRole('main').getByRole('heading', { level: 1, name: 'Poker' })).toBeVisible();
     await expect(page.locator('.team-banner')).toBeHidden();
   });
 

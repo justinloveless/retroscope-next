@@ -75,6 +75,7 @@ test.describe('members tab', () => {
     let left = null;
     fake.route('DELETE', `/api/teams/${TEAM_ID}/members/:pid`, (req) => {
       left = req.params.pid;
+      calls.leave();
       return { status: 204 };
     });
     await page.goto(teamUrl('?tab=members'));
@@ -85,7 +86,9 @@ test.describe('members tab', () => {
     await row(page, MEMBER).getByRole('button', { name: 'Actions for Mia Member' }).click();
     await page.getByRole('menuitem', { name: 'Leave team' }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Leave team' }).click();
+    // '/' finds the user's next team; with none left, that is the create-or-join screen.
     await expect(page).toHaveURL(/\/teams$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Welcome, Mia Member' })).toBeVisible();
     expect(left).toBe(MEMBER);
   });
 
