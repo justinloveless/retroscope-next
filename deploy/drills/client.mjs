@@ -1,6 +1,8 @@
 // A minimal Retroscope client for the drills against deploy/compose.test.yml: HTTPS requests and a raw WebSocket over
-// TLS (so close codes, PING and timing are all visible), speaking the wire protocol in docs/protocol.md. The stack's
-// certificate is self-signed, so verification is off; never point this at anything else.
+// TLS (so close codes, PING and timing are all visible), speaking the wire protocol in docs/protocol.md, and psql in
+// the stack's db container. The stack's certificate is self-signed, so verification is off; never point this at
+// anything else.
+import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import https from 'node:https';
 import tls from 'node:tls';
@@ -10,6 +12,14 @@ const ORIGIN = BASE.origin;
 const PASSWORD = 'correct horse battery staple';
 
 export const clientIp = () => `10.${crypto.randomInt(256)}.${crypto.randomInt(256)}.${crypto.randomInt(1, 255)}`;
+
+const COMPOSE = ['compose', '-f', new URL('../compose.test.yml', import.meta.url).pathname];
+
+/** One statement through psql in compose.test.yml's db container, as the owner; returns the output's lines. */
+export function psql(sql) {
+  return execFileSync('docker', [...COMPOSE, 'exec', '-T', 'db', 'psql', '-U', 'retroscope_owner', '-d', 'retroscope', '-Atc', sql])
+    .toString().trim().split('\n').filter(Boolean);
+}
 
 export function request(method, path, { body, cookie, ip } = {}) {
   const payload = Buffer.from(body === undefined ? '' : JSON.stringify(body));

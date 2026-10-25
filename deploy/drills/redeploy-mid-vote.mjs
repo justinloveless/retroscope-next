@@ -3,9 +3,9 @@
 // nothing is applied twice, and every tab is back in the room within 15 s.
 //   docker compose -f deploy/compose.test.yml up -d --build --wait
 //   node deploy/drills/redeploy-mid-vote.mjs [--players 6] [--before 8] [--after 10]
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
-import { parseArgs, request, sleep, user } from './client.mjs';
+import { parseArgs, psql, request, sleep, user } from './client.mjs';
 import { Tab } from './tab.mjs';
 
 const args = parseArgs(process.argv.slice(2));
@@ -17,11 +17,6 @@ const POINTS = [1, 2, 3, 5, 8, 13, 21];
 const COMPOSE = ['compose', '-f', new URL('../compose.test.yml', import.meta.url).pathname];
 
 const log = (message) => console.log(`[${new Date().toISOString().slice(11, 23)}] ${message}`);
-
-function psql(sql) {
-  return execFileSync('docker', [...COMPOSE, 'exec', '-T', 'db', 'psql', '-U', 'retroscope_owner', '-d', 'retroscope', '-Atc', sql])
-    .toString().trim().split('\n').filter(Boolean);
-}
 
 function redeploy() {
   return new Promise((resolve, reject) => {
