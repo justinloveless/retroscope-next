@@ -175,7 +175,7 @@ public sealed class BrowseService(JiraClient client, Credentials credentials, Ji
         return buckets;
     }
 
-    /// <summary>The fields a row needs, with the team's points and sprint fields.</summary>
+    /// <summary>The fields a row needs, with the team's effective points field and its sprint field.</summary>
     public static IReadOnlyList<string> RowFields(JiraTeamConfig config) {
         var fields = new List<string> { "summary", "status", "priority", "assignee", "parent", "issuetype" };
         if (config.PointsFieldId is { } points) {
@@ -212,7 +212,7 @@ public sealed class BrowseService(JiraClient client, Credentials credentials, Ji
     }
 
     private async Task<BrowseResult> FetchBrowseAsync(TeamId team, BrowseQuery query) {
-        var config = await ConfigAsync(team, CancellationToken.None);
+        var config = await client.EffectiveConfigAsync(team, CancellationToken.None);
         var fields = RowFields(config);
         var text = query.Text?.Trim();
 
@@ -333,7 +333,7 @@ public sealed class BrowseService(JiraClient client, Credentials credentials, Ji
     // A chunk of keys in one search. Jira refuses the whole query when one key does not exist, so a refused chunk
     // falls back to one GET per key (parity), and keys Jira cannot find are left out.
     private async Task<Dictionary<string, IssueRow>> FetchRowsAsync(TeamId team, string[] keys) {
-        var config = await ConfigAsync(team, CancellationToken.None);
+        var config = await client.EffectiveConfigAsync(team, CancellationToken.None);
         var fields = RowFields(config);
         var boardSprints = await BoardSprintsAsync(team, config);
         List<JiraIssue> issues;
@@ -368,6 +368,7 @@ public sealed class BrowseService(JiraClient client, Credentials credentials, Ji
         }
     }
 
+    /// <summary>The stored config, for reads that do not touch points; rows use <see cref="JiraClient.EffectiveConfigAsync"/>.</summary>
     private async Task<JiraTeamConfig> ConfigAsync(TeamId team, CancellationToken cancellationToken) =>
         await credentials.LoadAsync(team, cancellationToken) ?? throw new JiraException(JiraError.NotConfigured);
 

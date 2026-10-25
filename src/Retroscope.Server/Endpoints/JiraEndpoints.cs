@@ -528,7 +528,8 @@ public static partial class JiraEndpoints {
         Guid? session,
         bool? hidePointedOrPointing,
         JiraGate gate,
-        BrowseService browse) {
+        BrowseService browse,
+        JiraClient client) {
         var (call, refusal) = await gate.CheckAsync(context, teamId, Capability.Subscribe, needsConfig: true);
         if (refusal is not null) {
             return refusal;
@@ -540,14 +541,16 @@ public static partial class JiraEndpoints {
         if (q is { Length: > MaxSearchLength }) {
             fields["q"] = "too_long";
         }
-        if (parsedPoints.Kind != BrowsePointsKind.Any && call!.RequiredConfig.PointsFieldId is null) {
-            fields["points"] = "no_points_field";
-        }
         if (fields.Count > 0) {
             return Problem.Result(StatusCodes.Status400BadRequest, "invalid", fields);
         }
 
         return await GuardAsync(async () => {
+            // A stored field is never resolved away, so only a team without one can lack an effective points field.
+            if (parsedPoints.Kind != BrowsePointsKind.Any && call!.RequiredConfig.PointsFieldId is null
+                && (await client.EffectiveConfigAsync(call.Team, context.RequestAborted)).PointsFieldId is null) {
+                return Problem.Result(StatusCodes.Status400BadRequest, "invalid", new Dictionary<string, string> { ["points"] = "no_points_field" });
+            }
             var query = new BrowseQuery(Blank(q) ? null : q!.Trim(), parsedStatus, parsedPoints, parsedScope);
             var result = await browse.BrowseAsync(call!.Team, query, context.RequestAborted);
             var states = session is { } id

@@ -26,7 +26,7 @@ public sealed record IslandSet(IReadOnlyDictionary<string, string> Islands, bool
 /// first, so an edit made in Jira during those 60 s is never overwritten: the save is refused as stale unless Jira's
 /// <c>updated</c> is still the one the edit started from, and the islands it splices back are that version's.
 /// </summary>
-public sealed class IslandStore(JiraClient client, Credentials credentials, JiraCache cache) {
+public sealed class IslandStore(JiraClient client, JiraCache cache) {
     public static readonly TimeSpan Ttl = TimeSpan.FromSeconds(60);
     public const int FirstComments = 20;
 
@@ -97,7 +97,7 @@ public sealed class IslandStore(JiraClient client, Credentials credentials, Jira
             comment.Body is { } body ? AdfToDoc.Render(body, attachments) : new Doc([]));
 
     private async Task<IssueDetail> FetchAsync(TeamId team, string issueKey) {
-        var config = await credentials.LoadAsync(team, CancellationToken.None) ?? throw new JiraException(JiraError.NotConfigured);
+        var config = await client.EffectiveConfigAsync(team, CancellationToken.None);
         var issue = await client.GetIssueAsync(team, issueKey, DetailFields(config), CancellationToken.None);
         var fields = issue.Fields;
         var attachments = Attachments(issue);

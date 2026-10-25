@@ -7,7 +7,8 @@ namespace Retroscope.Server.Jira;
 
 /// <summary>
 /// The poker room's way to Jira (<see cref="IPokerJiraPort"/>, DESIGN §f): submits write points through the team's
-/// configured field, and metadata comes from the shared 5 minute cache, so a room's chips cost at most one search.
+/// effective points field (<see cref="JiraClient.EffectiveConfigAsync"/>), and metadata comes from the shared 5 minute
+/// cache, so a room's chips cost at most one search.
 /// </summary>
 /// <remarks>
 /// The client and the browse service are resolved on first use: the poker room builds its port at startup, and the
