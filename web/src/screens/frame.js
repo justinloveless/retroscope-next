@@ -115,11 +115,11 @@ export function field({ label, hint, ...attrs }) {
 
 /**
  * A form that submits through `submit(values)`. ApiError `fields` land on the matching fields, anything
- * else in the form's alert line. Returns {el, setError(text)}.
+ * else in the form's alert line. Returns {el, button, setError(text)}.
  */
-export function form({ fields, submitLabel, submit, messages, fieldMessages = {}, extra }) {
+export function form({ fields, submitLabel, submit, messages, fieldMessages = {}, extra, submitClass = 'btn btn-primary' }) {
   const alert = h('p', { role: 'alert', hidden: true, style: { color: 'var(--red)', 'font-size': '0.875rem' } });
-  const button = h('button', { type: 'submit', class: 'btn btn-primary' }, submitLabel);
+  const button = h('button', { type: 'submit', class: submitClass }, submitLabel);
   const el = h('form', { style: stack('1rem') },
     ...Object.values(fields).map((f) => f.el), alert, h('div', { style: row() }, button, extra));
 
@@ -158,7 +158,7 @@ export function form({ fields, submitLabel, submit, messages, fieldMessages = {}
     }
   });
 
-  return { el, setError };
+  return { el, button, setError };
 }
 
 /** Shows `text` in place of the screen body: loading, empty and error states. */
