@@ -266,9 +266,11 @@ public sealed partial class JiraClient : IDisposable {
                 return (EstimationOf(EstimationFieldId(configuration)), response.Body.Length, BoardConfigurationTtl, tags);
             } catch (JiraException e) {
                 LogBoardConfigurationFailed(team.Value, boardId, e.Error.Code);
-                return e.Error.Code is JiraErrorCode.NotFound or JiraErrorCode.Forbidden
-                    ? (JiraBoardEstimation.None.Instance, 1, BoardMissingTtl, tags)
-                    : (new JiraBoardEstimation.Unknown(e.Error), 1, BoardFailureTtl, tags);
+                // Only an outage or a rate limit can pass; any other refusal would refuse every write until it
+                // changed, so it counts as a board without an estimation field.
+                return e.Error.Code is JiraErrorCode.Unavailable or JiraErrorCode.RateLimited
+                    ? (new JiraBoardEstimation.Unknown(e.Error), 1, BoardFailureTtl, tags)
+                    : (JiraBoardEstimation.None.Instance, 1, BoardMissingTtl, tags);
             }
         }, cancellationToken);
 
@@ -301,7 +303,7 @@ public sealed partial class JiraClient : IDisposable {
     /// <see cref="EffectiveConfigAsync"/> for a points write or filter, which must use the field the board shows. A board
     /// configuration that cannot be read for now fails the call with its error rather than fall back to a field the board
     /// may not use, and so does a field catalogue that cannot be read. A remembered failure is read again first, so only
-    /// this call's own attempt can fail it. A board that is gone or hidden still falls back, as no retry would help.
+    /// this call's own attempt can fail it. Any other refusal (a board that is gone or hidden, or one Jira will not configure) still falls back, as no retry would help.
     /// </summary>
     public Task<JiraTeamConfig> StrictConfigAsync(TeamId team, CancellationToken cancellationToken) =>
         ResolveConfigAsync(team, strict: true, cancellationToken);
