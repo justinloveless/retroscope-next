@@ -161,7 +161,7 @@ docker run --rm --network rs-import_default \
   -e "DATABASE_OWNER_URL=Host=import-db;Database=retroscope;Username=retroscope_owner;Password=<DB_OWNER_PASSWORD>;GSS Encryption Mode=Disable" \
   -e APP_KEYS -e ANON_TAG_KEY -e SMTP_HOST=localhost -e SMTP_FROM=noreply@example.invalid -e TRUSTED_PROXY_CIDRS=127.0.0.1/32 \
   $APP spot-load --sample 1
-# Applied 2 migration(s) … spot-load: poker 0, board 0, team 0 loaded; 0 failed
+# Applied 3 migration(s) … spot-load: poker 0, board 0, team 0 loaded; 0 failed
 ```
 
 ## 6. plan, fetch-storage, run, verify
@@ -192,7 +192,9 @@ $I $IMPORTER verify                                      # verify: 11 checks, 0 
 - **`run`** fences the target (bumps `leader_epoch`, so an app still attached to it fails its next write), then
   truncates and reloads every app table in **one transaction**, archives dropped tables and columns, and runs every
   verification check before `COMMIT`. A failed check rolls everything back. Re-running before cutover is safe and
-  deterministic. It prints a per-table summary.
+  deterministic. It prints a per-table summary. Since UX18 every room belongs to a team: source poker sessions and
+  retro boards with no team (the original's quick rooms) are skipped and counted, boards get no visibility or
+  password, and favorites and board or session recency are not imported (`docs/DESIGN.md` §h.2).
 - **`verify`** repeats the checks read-only. Run it between `run` and `cutover`. After cutover, users change passwords,
   so the `password-hashes` check reports differences by design.
 
@@ -209,9 +211,10 @@ docker exec rs-import-import-db-1 psql -U retroscope_owner -d retroscope -Atc \
 - `tables`: per source table, `source = imported + archived + sum(skipped)`. The `counts` check already enforces it.
 - `counters` and `findings`: the soft checks of §h.5. Review before cutover:
   `admins` and `ignoredAdminRoles` (who is admin), `jiraRotateRequired` (teams whose Jira token must be rotated),
-  `jiraConfigsRejected` (teams that lose their Jira config; the owner re-enters it), `rotatedBoardPasswords` (sealed;
-  open them and send each to the board's creator), `mergedAccounts`, `nulledPasswordHashes` (users who must reset),
-  `skippedPhoneOnly`, `recodedBoards` (old links with these codes stop working; the board is reachable by id),
+  `jiraConfigsRejected` (teams that lose their Jira config; the owner re-enters it), the skipped team-less boards and
+  sessions (UX18; the first import had `rotatedBoardPasswords` instead), `mergedAccounts`,
+  `nulledPasswordHashes` (users who must reset), `skippedPhoneOnly`, `recodedBoards` (old links with these codes stop
+  working; the board is reachable by id),
   `pokerRenumberedRounds`, `pokerWinnerMismatches`, `skippedAvatars`, `emailsInFullName`.
 - `facts.autoconfirmProbe`: accounts whose email was never confirmed by mail. Every imported account starts with an
   unverified email, except Google sign-ins whose Google email matches.
@@ -245,15 +248,16 @@ docker run --rm --network container:<db> -e DATABASE_URL=… -e DATABASE_OWNER_U
 1. Announce the window. Put the old app into maintenance (no writes from here on).
 2. Take the final Supabase backup (section 4b command) and keep it with the seal key.
 3. Off-box, against live Supabase: `plan`, `fetch-storage`, `run`, `verify` (sections 5 and 6).
-4. Review the report (section 7): admins, Jira configs requiring rotation or rejected, rotated board passwords,
+4. Review the report (section 7): admins, Jira configs requiring rotation or rejected, skipped team-less rooms,
    merged emails, nulled hashes, recoded boards.
 5. Stop the app on the VPS; restore the import dump; `spot-load --sample 20` (section 8).
 6. Start the app; check `/healthz` and sign in as an admin.
 7. `cutover` against the VPS database, from the importer image on the VPS network (app running):
    `docker run --rm --network container:<db> -e DATABASE_OWNER_URL=… $IMPORTER cutover`.
    From now on `run` refuses unless given `--force-reimport --i-have-a-dump=<path>` and the database name at a prompt.
-8. Switch the Coolify domain or DNS to the new app. Old links keep working: `/retro/:code`, `/poker/:code`,
-   `/teams/:teamId/poker/:code` and `/invite/:token`.
+8. Switch the Coolify domain or DNS to the new app. Old links keep working for members: `/retro/:code`,
+   `/poker/:code` and `/teams/:teamId/poker/:code` open for a signed-in member of the room's team (UX18), and
+   `/invite/:token` for everyone.
 9. Rotate credentials (section 11) and clean up (section 12).
 
 ## 10. Rollback
@@ -279,8 +283,8 @@ Treat every credential imported from the original as compromised and rotate it:
   settings.
 - **Link invites** are treated as compromised: they import with role `member` and expire at most 7 days after the
   import. Team admins re-issue what they still need.
-- **Board passwords** of private quick boards are treated as compromised: they are replaced by random ones
-  (`rotatedBoardPasswords`, sealed) and the creator sets a new one.
+- **Board passwords** no longer exist (UX18): every board is open to its team's members only, and the importer
+  honours no source password. (The first import rotated the passwords of private quick boards.)
 - **Supabase:** rotate the database password and the JWT secret (which invalidates the `anon` and `service_role`
   keys), then pause or delete the project once the rollback window is over.
 - Remove `IMPORT_SOURCE_PG`, `IMPORT_SEAL_PUBKEY`, `IMPORT_ADMIN_EMAILS` and `IMPORT_STORAGE_URL` from Coolify and from
