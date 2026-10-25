@@ -69,7 +69,9 @@ const RULES = [
   [/^src\/Retroscope\.Server\/Realtime\//, { integration: ['Actors', 'PokerRoom', 'RetroRoom', 'TeamRoom'], sim: SIM, fallback: true }],
   [/^src\/Retroscope\.Server\/Data\/(Leader|Db)\.cs$/, { integration: ['Leader'], sim: SIM }],
   [/^src\/Retroscope\.Server\/Data\/(Db|Migrator)\.cs$|^db\/migrations\//, { integration: ['Schema', 'Deploy'] }],
-  [/^src\/Retroscope\.Server\/Data\/Repos\/(Users|Guests|Sessions)Repo/, { integration: ['AuthCore'] }],
+  [/^src\/Retroscope\.Server\/Data\/Repos\/(Users|Sessions)Repo/, { integration: ['AuthCore'] }],
+  // me.teams, me.lastTeamId and the home redirect (UsersRepo), team visits (ActivityRepo) and kudos received.
+  [/^src\/Retroscope\.Server\/Data\/Repos\/(Users|Activity|Endorsements)Repo/, { integration: ['TeamHttp'] }],
   [/^src\/Retroscope\.Server\/Data\/Repos\/(Teams|Invites)Repo/, { integration: ['TeamHttp'] }],
   [/^src\/Retroscope\.Server\/Data\/Repos\/MembershipCache/, { integration: ['TeamRoom'] }],
   [/^src\/Retroscope\.Server\/Data\/Repos\/CursorRepo/, { integration: ['Leader'] }],
@@ -78,8 +80,9 @@ const RULES = [
   [/^src\/Retroscope\.Server\/Hosting\//, { integration: ['Hosting'] }],
   [/^src\/Retroscope\.Server\/(Auth\/Oidc|Endpoints\/OidcEndpoints)/, { integration: ['Oidc'] }],
   [/^src\/Retroscope\.Server\/(Auth\/Email\/|Jobs\/EmailWorker)/, { integration: ['Email'] }],
-  [/^src\/Retroscope\.Server\/(Auth\/|Endpoints\/(Auth|Guest|Me)Endpoints)/, { integration: ['AuthCore'], fallback: true }],
-  [/^src\/Retroscope\.Server\/Endpoints\/(Poker|Retro|Dashboard|Mentions|Templates|Endorsements)Endpoints/, { integration: ['RoomHttp'] }],
+  [/^src\/Retroscope\.Server\/(Auth\/|Endpoints\/(Auth|Me)Endpoints)/, { integration: ['AuthCore'], fallback: true }],
+  [/^src\/Retroscope\.Server\/Endpoints\/MeEndpoints/, { integration: ['AuthCore', 'TeamHttp'] }],
+  [/^src\/Retroscope\.Server\/Endpoints\/(Poker|Retro|Mentions|Templates|Endorsements)Endpoints/, { integration: ['RoomHttp'] }],
   [/^src\/Retroscope\.Server\/Endpoints\/(Teams|Invites)Endpoints/, { integration: ['TeamHttp'] }],
   // RouteInventoryTests (Hosting) holds every route to a policy and a rate limit.
   [/^src\/Retroscope\.Server\/Endpoints\//, { integration: ['Hosting'] }],
