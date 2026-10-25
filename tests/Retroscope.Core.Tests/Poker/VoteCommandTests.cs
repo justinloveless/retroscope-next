@@ -150,16 +150,15 @@ public sealed class VoteCommandTests {
     }
 
     [Fact]
-    public void A_quick_session_seats_a_voter_on_their_first_vote() {
-        var room = Quick();
+    public void A_vote_never_changes_the_roster() {
+        var room = PokerHarness.Team();
+        var roster = room.State.Roster.Keys.ToHashSet();
 
-        var events = room.Accepted(Guest, new PokerVoteSet(R(1), 3));
-        room.Accepted(Guest, new PokerVoteSet(R(1), 5));
+        room.Accepted(Carol, new PokerVoteSet(R(1), 3));
+        room.Accepted(Carol, new PokerVoteSet(R(1), 5));
 
-        Assert.Single(events.OfType<RosterSet>());
-        Assert.Equal([Guest.Who.Id], room.State.Roster.Keys);
-        Assert.Equal(PrincipalKind.Guest, room.State.Roster[Guest.Who.Id].Kind);
-        Assert.Single(room.Log.SelectMany(x => x).OfType<RosterSet>());
+        Assert.Empty(room.Log.SelectMany(x => x).OfType<RosterSet>());
+        Assert.Equal(roster, room.State.Roster.Keys.ToHashSet());
     }
 
     [Fact]

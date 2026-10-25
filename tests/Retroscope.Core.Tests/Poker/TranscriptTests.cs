@@ -109,18 +109,18 @@ public sealed class TranscriptTests {
     }
 
     [Fact]
-    public void Quick_session_as_a_guest() {
-        var room = Quick();
-        JoinAll(room, Alice, Guest, Outsider);
-        var transcript = new Recorder("poker-quick-guest", "Voters are seated on their first vote; observers; the session is deleted.", room, Guest);
+    public void Observer_spotlight_and_deletion() {
+        var room = PokerHarness.Team();
+        JoinAll(room, Alice, Bob, Carol, Dave);
+        var transcript = new Recorder("poker-session-deleted", "Observers; a member takes the spotlight; a team admin deletes the session.", room, Bob);
 
-        room.Accepted(Guest, new PokerVoteSet(R(1), 2, Lock: true));
-        room.Accepted(Outsider, new PokerVoteSet(R(1), 21));
+        room.Accepted(Bob, new PokerVoteSet(R(1), 2, Lock: true));
+        room.Accepted(Carol, new PokerVoteSet(R(1), 21));
         room.Accepted(Alice, new PokerObserverSet(Alice.Who.Id, true));
-        room.Accepted(Outsider, new PokerRoundReveal(R(1)));
-        room.Accepted(Guest, new PokerRoundNext(R(1), R(2)));
-        room.Accepted(Outsider, new PokerSpotlightTake(R(2), false));
-        room.Accepted(Alice, new DeleteSession());
+        room.Accepted(Carol, new PokerRoundReveal(R(1)));
+        room.Accepted(Bob, new PokerRoundNext(R(1), R(2)));
+        room.Accepted(Carol, new PokerSpotlightTake(R(2), false));
+        room.Accepted(Dave, new DeleteSession());
 
         transcript.Finish();
     }

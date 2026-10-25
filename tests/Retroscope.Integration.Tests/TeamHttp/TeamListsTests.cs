@@ -79,7 +79,7 @@ public sealed class TeamListsTests(PostgresFixture postgres) {
         Assert.Equal(4, await host.ScalarAsync<int>("select sort_key from endorsement_types where id = $1", typeId));
 
         var board = Guid.CreateVersion7();
-        await host.ExecuteAsync("insert into retro_boards (id, code, team_id, title, visibility) values ($1, 'KUDOS00001', $2, 'Retro', 'team')", board, team);
+        await host.ExecuteAsync("insert into retro_boards (id, code, team_id, title) values ($1, 'KUDOS00001', $2, 'Retro')", board, team);
         var problemSolver = await host.ScalarAsync<Guid>("select id from endorsement_types where team_id = $1 and name = 'Problem Solver'", team);
         await EndorseAsync(host, board, team, typeId, owner, member, TimeSpan.Zero);
         await EndorseAsync(host, board, team, problemSolver, owner, member, TimeSpan.Zero);
@@ -118,7 +118,7 @@ public sealed class TeamListsTests(PostgresFixture postgres) {
         var member = await host.UserAsync("Mia");
         var team = await host.TeamAsync(owner, "Platform", (member, "member"));
         var board = Guid.CreateVersion7();
-        await host.ExecuteAsync("insert into retro_boards (id, code, team_id, title, visibility) values ($1, 'ITEMS00001', $2, 'Sprint 7', 'team')", board, team);
+        await host.ExecuteAsync("insert into retro_boards (id, code, team_id, title) values ($1, 'ITEMS00001', $2, 'Sprint 7')", board, team);
         var start = DateTimeOffset.UtcNow.AddDays(-10);
         var ids = new List<Guid>();
         for (var i = 0; i < 5; i++) {
@@ -168,7 +168,7 @@ public sealed class TeamListsTests(PostgresFixture postgres) {
         var board = Guid.CreateVersion7();
         var column = Guid.CreateVersion7();
         var card = Guid.CreateVersion7();
-        await host.ExecuteAsync("insert into retro_boards (id, code, team_id, title, visibility) values ($1, 'ITEMS00002', $2, 'Sprint 8', 'team')", board, team);
+        await host.ExecuteAsync("insert into retro_boards (id, code, team_id, title) values ($1, 'ITEMS00002', $2, 'Sprint 8')", board, team);
         await host.ExecuteAsync("insert into retro_columns (id, board_id, title, color, sort_key, is_action_items) values ($1, $2, 'Actions', 'yellow', 0, true)", column, board);
         await host.ExecuteAsync("insert into retro_cards (id, board_id, column_id, body, author_id) values ($1, $2, $3, 'Fix the build', $4)", card, board, column, owner.Guid);
         for (var i = 0; i < 2; i++) {
@@ -206,41 +206,48 @@ public sealed class TeamListsTests(PostgresFixture postgres) {
     }
 
     [Fact]
-    public async Task The_dashboard_lists_teams_favorites_and_the_rooms_the_user_can_still_open() {
+    public async Task Opening_a_team_records_a_visit_and_a_refused_one_records_nothing() {
         await using var host = await TeamHttpHost.StartAsync(postgres);
         var owner = await host.UserAsync("Olive");
         var member = await host.UserAsync("Mia");
         var team = await host.TeamAsync(owner, "Platform", (member, "member"));
         var hidden = await host.TeamAsync(owner, "Hidden");
-        (await host.SendAsync(member, HttpMethod.Put, $"/api/teams/{team}/favorite", null)).Dispose();
-        var teamBoard = Guid.CreateVersion7();
-        var hiddenBoard = Guid.CreateVersion7();
-        var quickBoard = Guid.CreateVersion7();
-        var session = Guid.CreateVersion7();
-        await host.ExecuteAsync("insert into retro_boards (id, code, team_id, title, visibility) values ($1, 'DASH000001', $2, 'Team retro', 'team')", teamBoard, team);
-        await host.ExecuteAsync("insert into retro_boards (id, code, team_id, title, visibility) values ($1, 'DASH000002', $2, 'Secret retro', 'team')", hiddenBoard, hidden);
-        await host.ExecuteAsync("insert into retro_boards (id, code, title, visibility, created_by) values ($1, 'DASH000003', 'My quick retro', 'link', $2)", quickBoard, member.Guid);
-        await host.ExecuteAsync("insert into poker_sessions (id, code, team_id) values ($1, 'DASHPOKER1', $2)", session, team);
-        foreach (var (kind, id) in new[] { ("board", teamBoard), ("board", hiddenBoard), ("poker", session) }) {
-            await host.ExecuteAsync("insert into recent_activity (user_id, entity_kind, entity_id) values ($1, $2, $3)", member.Guid, kind, id);
-        }
-
-        using var response = await host.GetAsync(member, "/api/dashboard");
-
-        var json = await TeamHttpHost.JsonAsync(response);
-        Assert.Equal([team], json.GetProperty("teams").EnumerateArray().Select(x => x.GetProperty("id").GetGuid()));
-        Assert.Equal([team], json.GetProperty("favorites").EnumerateArray().Select(x => x.GetProperty("id").GetGuid()));
-        var boards = json.GetProperty("boards").EnumerateArray().ToList();
-        Assert.Equal(new[] { teamBoard, quickBoard }.Order(), boards.Select(x => x.GetProperty("id").GetGuid()).Order());
-        Assert.Equal("Platform", boards.Single(x => x.GetProperty("id").GetGuid() == teamBoard).GetProperty("teamName").GetString());
-        var poker = Assert.Single(json.GetProperty("sessions").EnumerateArray());
-        Assert.Equal("DASHPOKER1", poker.GetProperty("code").GetString());
-        Assert.Equal(team, poker.GetProperty("teamId").GetGuid());
 
         using var visit = await host.GetAsync(member, $"/api/teams/{hidden}");
         Assert.Equal(HttpStatusCode.NotFound, visit.StatusCode);
         using var own = await host.GetAsync(member, $"/api/teams/{team}");
-        Assert.Equal(1L, await host.ScalarAsync<long>("select count(*) from recent_activity where user_id = $1 and entity_kind = 'team'", member.Guid));
+
+        Assert.Equal(team, await host.ScalarAsync<Guid>("select entity_id from recent_activity where user_id = $1 and entity_kind = 'team'", member.Guid));
+        Assert.Equal(1L, await host.ScalarAsync<long>("select count(*) from recent_activity where user_id = $1", member.Guid));
+    }
+
+    // UX18 decision 16: kudos are team data, so the account page shows only kudos from the user's current teams.
+    [Fact]
+    public async Task Kudos_received_come_only_from_teams_the_user_is_still_in() {
+        await using var host = await TeamHttpHost.StartAsync(postgres);
+        var owner = await host.UserAsync("Olive");
+        var member = await host.UserAsync("Mia");
+        var kept = await host.TeamAsync(owner, "Kept", (member, "member"));
+        var left = await host.TeamAsync(owner, "Left", (member, "member"));
+        var deleted = await host.TeamAsync(owner, "Deleted", (member, "member"));
+        foreach (var team in new[] { kept, left, deleted }) {
+            using var created = await host.PostAsync(owner, $"/api/teams/{team}/boards", new { title = "Retro" });
+            Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+            var board = (await TeamHttpHost.JsonAsync(created)).GetProperty("id").GetGuid();
+            var type = await host.ScalarAsync<Guid>("select id from endorsement_types where team_id = $1 and name = 'Team Player'", team);
+            await EndorseAsync(host, board, team, type, owner, member, TimeSpan.Zero);
+        }
+        await host.ExecuteAsync("delete from team_members where team_id = $1 and user_id = $2", left, member.Guid);
+        await host.ExecuteAsync("update teams set deleted_at = now() where id = $1", deleted);
+
+        using var received = await host.GetAsync(member, "/api/me/endorsements");
+
+        Assert.Equal(HttpStatusCode.OK, received.StatusCode);
+        var kudos = Assert.Single((await TeamHttpHost.JsonAsync(received)).EnumerateArray());
+        Assert.Equal("Kept", kudos.GetProperty("teamName").GetString());
+        Assert.Equal("Team Player", kudos.GetProperty("typeName").GetString());
+        Assert.Equal("Olive", kudos.GetProperty("fromName").GetString());
+        Assert.Equal(3L, await host.ScalarAsync<long>("select count(*) from endorsements where to_user_id = $1", member.Guid));
     }
 
     private static async Task<List<JsonElement>> ListAsync(TeamHttpHost host, TestUser user, Guid team) {

@@ -40,6 +40,8 @@ internal sealed class Run(Profile profile, TimeSpan duration, Stack stack, strin
         await toxiproxy.CreateAsync();
         using var monitor = new AppMonitor(stack.BaseUrl);
         await monitor.SignInAsAdminAsync(stack);
+        var owners = await Owners.SeedAsync(stack, profile);
+        Log($"seeded {owners.Count} team owners");
 
         var resultsPath = Path.Combine(output, "client-results.json");
         await using var clients = ClientHost.Start(root, stack.BaseUrl, new JsonObject {
@@ -51,6 +53,7 @@ internal sealed class Run(Profile profile, TimeSpan duration, Stack stack, strin
             },
             ["storm"] = new JsonObject { ["boards"] = profile.StormBoards, ["cards"] = profile.StormCards, ["creators"] = profile.StormCreators },
             ["rate"] = profile.CommandsPerSecond,
+            ["owners"] = owners,
             ["resultsPath"] = resultsPath,
         });
         var ready = await clients.WaitForAsync("ready", TimeSpan.FromMinutes(20));

@@ -1,5 +1,5 @@
 import { expect, test } from '../_harness/fixtures.js';
-import { ALICE, BOB, card, cardsIn, column, editorIn, openBoard, sent, serveBoard, snapshot, typeCard } from './_board.js';
+import { ALICE, BOB, TEAM_ID, card, cardsIn, column, editorIn, openBoard, sent, serveBoard, snapshot, typeCard } from './_board.js';
 
 test('a new card shows at once and stays when the server confirms it', async ({ page, fake }) => {
   let release;
@@ -70,7 +70,7 @@ test('deleting a card asks first, then removes it', async ({ page, fake }) => {
   expect(sent(fake, 'retro.card.delete')).toEqual([{ cardId: card(1).id }]);
 });
 
-test('anonymous cards carry no name, and guests cannot post anonymously', async ({ page, fake }) => {
+test('anonymous cards carry no name', async ({ page, fake }) => {
   serveBoard(fake);
   await openBoard(page, fake);
   await typeCard(page, 'Bad', 'Too many meetings');
@@ -83,20 +83,11 @@ test('anonymous cards carry no name, and guests cannot post anonymously', async 
   await expect.poll(() => sent(fake, 'retro.card.add').map((d) => d.anonymous)).toEqual([true]);
 });
 
-test.describe('as a guest', () => {
-  test('the anonymous toggle is not offered', async ({ page, fake }) => {
-    const guest = { pid: '90000000-0000-4000-8000-000000000004', kind: 'guest', name: 'Sneaky Penguin' };
-    serveBoard(fake);
-    await openBoard(page, fake, { me: guest });
-    await typeCard(page, 'Good', 'Hello');
-    await expect(column(page, 'Good').getByLabel('Post anonymously')).toBeHidden();
-  });
-});
-
 test('the boot snapshot paints the board before the socket answers', async ({ page, fake }) => {
   const snap = snapshot({ cards: [card(1, { body: 'From boot' })] });
   await openBoard(page, fake, { snap, seedBoot: true });
   await expect(cardsIn(page, 'Good').first()).toHaveText(/From boot/);
   const hello = await fake.waitForFrame((f) => f.t === 'hello');
-  expect(hello.frame.subs).toEqual([{ r: 'board:b0000000-0000-4000-8000-0000000000b1', e: 'aaaaaaaaaaaaaaaa', s: 0 }]);
+  // The board resumes from the boot snapshot; the team room (the header's open action items) is a fresh join.
+  expect(hello.frame.subs).toEqual([{ r: 'board:b0000000-0000-4000-8000-0000000000b1', e: 'aaaaaaaaaaaaaaaa', s: 0 }, { r: `team:${TEAM_ID}` }]);
 });

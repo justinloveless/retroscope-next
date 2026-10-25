@@ -87,7 +87,7 @@ public sealed partial class ShellTests : IDisposable {
     public async Task Other_shells_skip_the_font_and_route_css() {
         await using var app = await StartAsync();
 
-        var html = await GetHtmlAsync(app, "/dashboard");
+        var html = await GetHtmlAsync(app, "/account");
 
         Assert.DoesNotContain(FakeWebBuild.Font, html, StringComparison.Ordinal);
         Assert.DoesNotContain(FakeWebBuild.Neotro, html, StringComparison.Ordinal);
@@ -122,7 +122,7 @@ public sealed partial class ShellTests : IDisposable {
     public async Task Every_front_end_route_serves_the_shell(string path) {
         await using var app = await StartAsync();
 
-        using var response = await app.Client.GetAsync(new Uri(path, UriKind.Relative), TestContext.Current.CancellationToken);
+        using var response = await SignedInAsync(app, path);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
@@ -176,7 +176,7 @@ public sealed partial class ShellTests : IDisposable {
     public async Task Shell_links_the_favicon_the_svg_icon_and_the_web_manifest() {
         await using var app = await StartAsync();
 
-        var html = await GetHtmlAsync(app, "/dashboard");
+        var html = await GetHtmlAsync(app, "/login");
 
         Assert.Contains($"<meta name=\"theme-color\" content=\"{Shell.ThemeColor}\">", html, StringComparison.Ordinal);
         Assert.Contains("<link rel=\"icon\" href=\"/favicon.ico\" sizes=\"48x48\">", html, StringComparison.Ordinal);
@@ -191,10 +191,18 @@ public sealed partial class ShellTests : IDisposable {
             }
         });
 
+    // Pages other than the welcome, sign-in and invite pages need a signed-in caller (UX18); ShellRedirectTests covers
+    // what everyone else gets.
     private static async Task<string> GetHtmlAsync(TestApp app, string path) {
-        using var response = await app.Client.GetAsync(new Uri(path, UriKind.Relative), TestContext.Current.CancellationToken);
+        using var response = await SignedInAsync(app, path);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         return await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+    }
+
+    private static async Task<HttpResponseMessage> SignedInAsync(TestApp app, string path) {
+        using var request = TestApp.Get(path);
+        request.Headers.Add(TestApp.CallerHeader, "user");
+        return await app.Client.SendAsync(request, TestContext.Current.CancellationToken);
     }
 
     private static string BootElement(string html) {

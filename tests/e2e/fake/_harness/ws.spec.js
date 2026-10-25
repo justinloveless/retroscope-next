@@ -16,6 +16,7 @@ const SNAPSHOT = {
   votes: [],
   roster: [],
   presence: [],
+  createdAt: 1792454400000,
 };
 const vote = (q, points = 5) => ({ t: 'cmd', r: POKER, q, k: 'poker.vote.set', d: { roundId: ROUND, points } });
 

@@ -1,17 +1,18 @@
 // The demo scenario on top of the fake server (docs/followups/UP1.md): people and identity (`?as=<name>`
 // and cookies), Demo Team with its boards, poker sessions and Jira, the HTTP API the screens read, and the
-// simulated teammates. State lives in memory and is shared by every window connected to the server.
+// simulated teammates, who are members of the team like the visitor (UX18: no guests, no team-less rooms).
+// State lives in memory and is shared by every window connected to the server.
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { installJira } from '../jira.js';
 import { CODES, DEMO_TEAM, actionItems, boards, pokerSessions, teams } from './data.js';
-import { CROWD, DEMO, GUESTS, PEOPLE, personByKey, principalInfo } from './people.js';
+import { DEMO, PEOPLE, personByKey, principalInfo } from './people.js';
 import { PokerSession } from './poker.js';
 import { RetroBoard } from './retro.js';
 import { installRoutes } from './routes.js';
 import { Team } from './team.js';
-import { AS_COOKIE, GUEST_COOKIE, SIGNED_OUT, cookie, parseCookies, seededRandom } from './util.js';
+import { AS_COOKIE, SIGNED_OUT, cookie, parseCookies, seededRandom } from './util.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const DEMO_JIRA = join(here, 'jira.json');
@@ -36,7 +37,9 @@ export class Demo {
     this.boards = new Map();
     this.sessions = new Map();
     this.extraPeople = new Map();
-    this.guests = new Map([...GUESTS, ...CROWD].map((g) => [g.pid, g]));
+    // Person id → the team they visited last (`me.lastTeamId`): the team page and subscribing to any of the
+    // team's rooms count, as on the server.
+    this.lastTeam = new Map();
     this.blobs = new Map();
     this.tokens = new Map();
     this.mentionsSeenAt = new Map();
@@ -51,12 +54,16 @@ export class Demo {
       this.addRoom(new Team(this, seed));
     }
     for (const seed of boards(start)) {
-      this.addBoard(new RetroBoard(this, { ...seed, team: this.teams.get(seed.team) ?? null }));
+      this.addBoard(new RetroBoard(this, { ...seed, team: this.teams.get(seed.team) }));
     }
     for (const seed of pokerSessions(start)) {
-      this.addSession(new PokerSession(this, { ...seed, team: this.teams.get(seed.team) ?? null }));
+      this.addSession(new PokerSession(this, { ...seed, team: this.teams.get(seed.team) }));
     }
     this.seedActionItems(start);
+    // Demo Team is where its members were last, so '/' opens it.
+    for (const member of this.teams.get(DEMO_TEAM).members) {
+      this.lastTeam.set(member.pid, DEMO_TEAM);
+    }
 
     this.fake.boot = (path, req) => this.boot(path, req);
     this.fake.me = (req) => this.welcomeMe(req);
@@ -69,7 +76,21 @@ export class Demo {
         ctx.ack();
       }
     });
-    this.onSubscribe = (conn, room) => this.rooms.get(room.key)?.onSubscribe(conn);
+    // Every room is a team room that admits the team's members only, as on the server: anyone else's
+    // subscribe is kicked forbidden before any snapshot or presence join.
+    this.canSubscribe = (conn, room) => {
+      const team = this.teamOf(this.rooms.get(room.key));
+      return !team || Boolean(team.roleOf(conn.me?.pid));
+    };
+    this.fake.canSubscribe = this.canSubscribe;
+    this.onSubscribe = (conn, room) => {
+      const demoRoom = this.rooms.get(room.key);
+      demoRoom?.onSubscribe(conn);
+      const team = this.teamOf(demoRoom);
+      if (team && conn.me) {
+        this.visited(conn.me.pid, team);
+      }
+    };
     this.onUnsubscribe = (conn, room) => this.rooms.get(room.key)?.onUnsubscribe(conn);
     this.onError = (error) => this.problems.push(`fake server: ${error.message}`);
     this.onViolation = ({ errors }) => this.problems.push(`refused client frame: ${errors.join('; ')}`);
@@ -87,6 +108,9 @@ export class Demo {
   stop() {
     this.stopPeers();
     this.removeHandler?.();
+    if (this.fake.canSubscribe === this.canSubscribe) {
+      this.fake.canSubscribe = null;
+    }
     this.fake.off('subscribe', this.onSubscribe);
     this.fake.off('unsubscribe', this.onUnsubscribe);
     this.fake.off('error', this.onError);
@@ -135,6 +159,18 @@ export class Demo {
   addSession(session) {
     this.sessions.set(session.id, session);
     return this.addRoom(session);
+  }
+
+  /** The team a demo room belongs to (a team room is its own), or null for a room the demo does not run. */
+  teamOf(demoRoom) {
+    return demoRoom instanceof Team ? demoRoom : (demoRoom?.team ?? null);
+  }
+
+  /** Records a visit to `team` by a member, for `me.lastTeamId`. */
+  visited(pid, team) {
+    if (team.roleOf(pid)) {
+      this.lastTeam.set(pid, team.id);
+    }
   }
 
   boardsOf(team) {
@@ -189,7 +225,17 @@ export class Demo {
   // ---- identity ---------------------------------------------------------------------------------
 
   principal(pid) {
-    return PEOPLE.find((p) => p.pid === pid) ?? this.extraPeople.get(pid) ?? this.guests.get(pid) ?? null;
+    return PEOPLE.find((p) => p.pid === pid) ?? [...this.extraPeople.values()].find((p) => p.pid === pid) ?? null;
+  }
+
+  /** A new account (signing up, or a sign-in link to a new address), known by the key `new<n>`. */
+  addPerson({ email, name, emailVerified }) {
+    const n = this.extraPeople.size + 1;
+    const key = `new${n}`;
+    const pid = `0d3e0000-0002-7000-8000-${String(900 + n).padStart(12, '0')}`;
+    const who = { pid, key, kind: 'user', name, nickname: name.split(' ')[0], email, emailVerified, isAdmin: false, theme: 'system', hue: 190 };
+    this.extraPeople.set(key, who);
+    return who;
   }
 
   people() {
@@ -205,12 +251,12 @@ export class Demo {
     return principalInfo(this.principal(who.pid) ?? who);
   }
 
-  /** Who a request speaks for: `?as=` on a page load, then the cookies; Demo User by default. */
+  /** Who a request speaks for: `?as=` on a page load, then the cookies; Demo User by default, nobody when signed out. */
   identify(req, url = new URL(req.url ?? '/', 'http://demo')) {
     const cookies = parseCookies(req.headers?.cookie);
     const as = url.searchParams.get('as') ?? cookies[AS_COOKIE];
     if (as === SIGNED_OUT) {
-      return this.guests.get(cookies[GUEST_COOKIE]) ?? null;
+      return null;
     }
     return personByKey(as) ?? this.extraPeople.get(as) ?? DEMO;
   }
@@ -224,14 +270,16 @@ export class Demo {
     return who ? { 'Set-Cookie': cookie(AS_COOKIE, who, { maxAge: YEAR_SECONDS }) } : {};
   }
 
+  /** The /api/me body: the user, their teams by name (ignoring case) with open action items, and the last team. */
   meBody(who) {
     if (!who) {
       return null;
     }
     const principal = { id: who.pid, kind: who.kind, name: who.name, ...(who.avatar ? { avatar: who.avatar } : {}) };
-    if (who.kind !== 'user') {
-      return { principal, teams: [], unreadMentions: 0 };
-    }
+    const teams = [...this.teams.values()]
+      .filter((t) => !t.deleted && t.roleOf(who.pid))
+      .sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
+    const last = this.lastTeam.get(who.pid);
     return {
       principal,
       user: {
@@ -243,8 +291,9 @@ export class Demo {
         isAdmin: who.isAdmin,
         hasPassword: true,
       },
-      teams: [...this.teams.values()].filter((t) => !t.deleted && t.roleOf(who.pid)).map((t) => ({ id: t.id, name: t.name, role: t.roleOf(who.pid) })),
+      teams: teams.map((t) => ({ id: t.id, name: t.name, role: t.roleOf(who.pid), openActions: t.openActions() })),
       unreadMentions: this.mentionsOf(who).filter((m) => m.createdAt > (this.mentionsSeenAt.get(who.pid) ?? 0)).length,
+      lastTeamId: teams.some((t) => t.id === last) ? last : null,
     };
   }
 
@@ -254,9 +303,10 @@ export class Demo {
     return { build: 'demo', theme: who?.theme ?? 'system', me: this.meBody(who), path: url.pathname + url.search };
   }
 
+  /** The socket's principal; a signed-out visitor is refused, as /ws admits signed-in users only. */
   welcomeMe(req) {
-    const who = this.identify(req) ?? { pid: '0d3e0000-0009-7000-8000-ffffffffffff', kind: 'guest', name: 'Visitor' };
-    return principalInfo(who);
+    const who = this.identify(req);
+    return who ? principalInfo(who) : null;
   }
 
   // ---- mentions ---------------------------------------------------------------------------------
@@ -265,7 +315,7 @@ export class Demo {
     const marker = `[[mention:${who.pid}:`;
     const found = [];
     for (const board of this.boards.values()) {
-      if (board.deleted || (board.team && !board.team.roleOf(who.pid))) {
+      if (board.deleted || !board.team.roleOf(who.pid)) {
         continue;
       }
       for (const [sourceKind, list] of [['card', board.orderedCards], ['comment', board.orderedComments]]) {

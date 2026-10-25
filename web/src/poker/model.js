@@ -396,8 +396,8 @@ export function isPresent(state, pid) {
 }
 
 /**
- * The seats of a round (§c.4): roster ∪ present ∪ voted − observers for team sessions, present ∪ voted
- * − observers for quick ones. Each seat carries the public vote and whether the principal is present.
+ * The seats of a round (§c.4): roster ∪ present ∪ voted − observers. Each seat carries the public vote and
+ * whether the principal is present.
  */
 export function seatsOf(state, roundId) {
   const votes = state.votes[roundId] ?? {};
@@ -407,9 +407,7 @@ export function seatsOf(state, roundId) {
       info.set(p.pid, p);
     }
   };
-  if (state.teamId) {
-    state.roster.forEach(add);
-  }
+  state.roster.forEach(add);
   state.presence.forEach(add);
   for (const pid of Object.keys(votes)) {
     add(state.roster.find((p) => p.pid === pid) ?? { pid, kind: 'user', name: 'Unknown' });
@@ -496,6 +494,12 @@ export function cardScale(players, mobile = false) {
     }
   }
   return 0.8;
+}
+
+/** The milliseconds a UUIDv7 starts with, or null for any other id (an imported session's, say). */
+export function uuidv7Time(id) {
+  const hex = String(id ?? '').replace(/-/g, '');
+  return /^[0-9a-f]{12}7[0-9a-f]{19}$/i.test(hex) ? parseInt(hex.slice(0, 12), 16) : null;
 }
 
 /** A UUIDv7 for client-minted round ids (§c.4). */

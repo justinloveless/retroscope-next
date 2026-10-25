@@ -25,7 +25,8 @@ test('serves the built shell: boot JSON, theme before paint, stylesheets and the
     hostile: '</script><script>alert(1)</script>',
   });
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await expect(page.locator('#app .neotro, #app .nt-join').first()).toBeVisible();
+  // Signed out, the poker page sends the visitor to sign in first (UX18); the shell was the poker route's.
+  await expect(page.getByRole('heading', { level: 1, name: 'Sign in to Retroscope' })).toBeVisible();
   const manifest = fake.dist.manifest;
   for (const file of [manifest.entry[0], ...manifest.css, ...manifest.routeCss['/poker/:code']]) {
     expect(assets).toContainEqual({ path: file, status: 200 });
@@ -49,7 +50,7 @@ for (const colorScheme of ['dark', 'light']) {
 
 test('in-app boot JSON and unknown paths', async ({ page, fake }) => {
   fake.boot = (path) => ({ build: 'fake', theme: 'light', me: null, path });
-  await page.goto('/dashboard');
+  await page.goto('/login');
   const boot = await page.evaluate(async () => (await fetch('/api/boot?path=/retro/ABC')).json());
   expect(boot.path).toBe('/retro/ABC');
   const missing = await page.request.get('/no/such/page');

@@ -17,12 +17,6 @@ internal sealed class PokerSeed(TestDatabase database, TestAccess access) {
         return new Principal(new PrincipalId(id), PrincipalKind.User, name, null, false);
     }
 
-    public async Task<Principal> GuestAsync(string name) {
-        var id = Guid.CreateVersion7();
-        await ExecuteAsync("insert into principals (id, kind, display_name) values ($1, 'guest', $2)", id, name);
-        return new Principal(new PrincipalId(id), PrincipalKind.Guest, name, null, false);
-    }
-
     public async Task<TeamId> TeamAsync(params (Principal Who, TeamRole Role)[] members) {
         var team = new TeamId(Guid.CreateVersion7());
         await ExecuteAsync(
@@ -51,15 +45,23 @@ internal sealed class PokerSeed(TestDatabase database, TestAccess access) {
             team.Value, prefix, membersCanEdit);
     }
 
-    /// <summary>A session with <paramref name="keys"/>.Length rounds (a null key is a placeholder); the pointer is on round 1.</summary>
-    public async Task<RoomKey> SessionAsync(Principal creator, TeamId? team = null, params string?[] keys) {
+    /// <summary>A team that <paramref name="owner"/> owns, with <paramref name="members"/> as plain members.</summary>
+    public Task<TeamId> TeamOfAsync(Principal owner, params Principal[] members) {
+        return TeamAsync([(owner, TeamRole.Owner), .. members.Select(x => (x, TeamRole.Member))]);
+    }
+
+    /// <summary>
+    /// A session of <paramref name="team"/> (every session has one, UX18) with <paramref name="keys"/>.Length rounds (a
+    /// null key is a placeholder); the pointer is on round 1.
+    /// </summary>
+    public async Task<RoomKey> SessionAsync(Principal creator, TeamId team, params string?[] keys) {
         var session = Guid.CreateVersion7();
         if (keys.Length == 0) {
             keys = [null];
         }
         await ExecuteAsync(
             "insert into poker_sessions (id, code, team_id, created_by, next_round_number) values ($1, $2, $3, $4, $5)",
-            session, $"S{session:N}"[..12], team is { } t ? t.Value : DBNull.Value, creator.Id.Value, keys.Length + 1);
+            session, $"S{session:N}"[..12], team.Value, creator.Id.Value, keys.Length + 1);
         var first = Guid.Empty;
         for (var i = 0; i < keys.Length; i++) {
             var round = Guid.CreateVersion7();

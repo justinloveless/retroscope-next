@@ -878,8 +878,8 @@ internal sealed class World {
             Oracle.Fail($"team: the live room differs from a reload\n  live:   {liveTeam}\n  reload: {loadedTeam}");
         }
         var liveBoard = await QueryAsync<RetroState, RetroInput, string>(
-            BoardRoom, view => ValueTask.FromResult(Json(BoardRoom, RetroProjection.Snapshot(view.State!, [], forMembers: true))));
-        var loadedBoard = Json(BoardRoom, RetroProjection.Snapshot(Db.LoadRetro(), [], forMembers: true));
+            BoardRoom, view => ValueTask.FromResult(Json(BoardRoom, RetroProjection.Snapshot(view.State!, []))));
+        var loadedBoard = Json(BoardRoom, RetroProjection.Snapshot(Db.LoadRetro(), []));
         if (liveBoard != loadedBoard) {
             Oracle.Fail($"board: the live room differs from a reload\n  live:   {liveBoard}\n  reload: {loadedBoard}");
         }
@@ -896,7 +896,7 @@ internal sealed class World {
         var outcomes = string.Join(",", Oracle.Intents.Select(x => $"{x.Id}:{x.Outcome}:{x.Detail}:{x.Commits}"));
         var rows = Json(PokerRoom, PokerProjection.Snapshot(Db.PokerRows, []))
             + Json(TeamRoom, TeamProjection.Snapshot(Db.LoadTeam(), Start))
-            + Json(BoardRoom, RetroProjection.Snapshot(Db.RetroRows(), [], forMembers: true));
+            + Json(BoardRoom, RetroProjection.Snapshot(Db.RetroRows(), []));
         var bytes = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes($"{Clock.Now:O}|{outcomes}|{rows}"));
         return Convert.ToHexString(bytes)[..16];
     }
@@ -916,7 +916,7 @@ internal sealed class World {
             SessionId = new SessionId(PokerRoom.Id),
             Code = "SIMSESS1",
             TeamId = team.TeamId,
-            CreatedBy = _alice.Id,
+            CreatedAt = Start.AddHours(-1),
             WarmUntil = Start,
             NextRoundNumber = 2,
         };
@@ -937,20 +937,17 @@ internal sealed class World {
     }
 
     /// <summary>
-    /// A team-visible board with stages and enforced readiness, anonymous posts allowed and author names shown, so an
+    /// A team board with stages and enforced readiness, anonymous posts allowed and author names shown, so an
     /// anonymous post is the only one without its author.
     /// </summary>
     private Func<RetroState> Board(TeamId team, ColumnId[] columns) {
         var id = new BoardId(BoardRoom.Id);
-        var createdBy = _alice.Id;
         return () => {
             var board = new RetroState {
                 BoardId = id,
                 Code = "SIMBOARD",
                 TeamId = team,
-                CreatedBy = createdBy,
                 Title = "Sim retro",
-                Visibility = BoardVisibility.Team,
                 Config = RetroDefaults.Config with { StagesEnabled = true, EnforceReadiness = true },
             };
             string[] titles = ["Went well", "To improve", "Ideas"];

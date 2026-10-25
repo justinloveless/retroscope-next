@@ -34,8 +34,6 @@ internal sealed class SimAccess(TeamId team) : IAccessView {
     public TeamRole? RoleIn(TeamId teamId, PrincipalId principal) {
         return teamId == team && _roles.TryGetValue(principal, out var role) ? role : null;
     }
-
-    public bool HasCurrentGrant(BoardId board, PrincipalId principal, DateTimeOffset? passwordSetAt) => false;
 }
 
 /// <summary>
@@ -149,8 +147,6 @@ internal sealed class SimRetroBinding(Oracle oracle, Func<bool> live) : IRoomBin
     public EventDurability DurabilityOf(RetroEvent evt) => Real.DurabilityOf(evt);
 
     public bool CanSubscribe(RetroState state, Viewer viewer, IAccessView access) => Real.CanSubscribe(state, viewer, access);
-
-    public bool IsMember(RetroState state, Viewer viewer, IAccessView access) => Real.IsMember(state, viewer, access);
 
     public RoomSnapshot Snapshot(RetroState state, IReadOnlyList<PrincipalInfo> presence, bool forMembers) {
         return Real.Snapshot(state, presence, forMembers);

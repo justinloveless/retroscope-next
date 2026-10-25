@@ -17,9 +17,6 @@ public sealed class PokerPropertyTests {
     [Property(MaxTest = 300, EndSize = 120)]
     public void Team_sessions_keep_their_invariants(int[] ops) => new Run(PokerHarness.Team(), ops).Check();
 
-    [Property(MaxTest = 200, EndSize = 120)]
-    public void Quick_sessions_keep_their_invariants(int[] ops) => new Run(Quick(), ops).Check();
-
     private sealed class Run {
         private static readonly Viewer BobTab2 = Viewer(2, "Bob", tab: 1);
         private static readonly Viewer[] Actors = [Alice, Bob, Carol, Dave, Guest, Outsider, BobTab2];

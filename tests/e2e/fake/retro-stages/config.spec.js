@@ -1,5 +1,5 @@
 import { expect, test } from '../_harness/fixtures.js';
-import { CONFIG, GUEST, ALICE, ROOM, openBoard, sent, snapshot } from './_stages.js';
+import { CONFIG, ROOM, openBoard, sent, snapshot } from './_stages.js';
 
 const settingsButton = (page) => page.getByRole('button', { name: 'Board settings' });
 const dialogOf = (page) => page.getByRole('dialog', { name: 'Board settings' });
@@ -150,10 +150,4 @@ test('fields the facilitator has not touched follow other people\'s changes', as
   await dialog.getByRole('button', { name: 'Save' }).click();
   await expect(dialog).toBeHidden();
   expect(sent(fake, 'retro.config.update')).toEqual([{ patch: { votingEnabled: false }, expected: { votingEnabled: true } }]);
-});
-
-test('only facilitators see the settings', async ({ page, fake }) => {
-  await openBoard(page, fake, { snap: snapshot({ presence: [ALICE, GUEST] }), me: GUEST });
-  await expect(page.locator('.retro-column')).toHaveCount(3);
-  await expect(settingsButton(page)).toBeHidden();
 });

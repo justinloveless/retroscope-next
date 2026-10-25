@@ -8,18 +8,22 @@ const SESSION_2 = '0192f0a0-0000-7000-8000-000000005002';
 const CREATED = Date.UTC(2026, 9, 14, 13, 5);
 
 function session(id, code, extra = {}) {
-  return { id, code, createdAt: CREATED, pointed: 2, total: 5, parentKeys: [], ...extra };
+  return { id, code, createdAt: CREATED, pointed: 2, total: 5, parentKeys: [], lastActivityAt: CREATED, ...extra };
 }
 
+// The newest first, as the server lists them: the first is the latest session.
 function sessions() {
   return [
-    session(SESSION_1, 'POKER00001', { parentKeys: [{ key: 'PLAT-10', count: 4 }, { key: null, count: 1 }] }),
+    session(SESSION_1, 'POKER00001', { parentKeys: [{ key: 'PLAT-10', count: 4 }, { key: null, count: 1 }], lastActivityAt: Date.now() - 5 * 60_000 }),
     session(SESSION_2, 'POKER00002', { pointed: 0, total: 1, parentKeys: [{ key: null, count: 1 }] }),
   ];
 }
 
-test.describe('poker tab', () => {
-  test('lists sessions with progress and topic badges named through Jira', async ({ page, fake }) => {
+const latest = (page) => page.locator('.team-latest');
+const row = (page, id) => page.locator(`.team-session-row[data-id="${id}"]`);
+
+test.describe('poker section', () => {
+  test('highlights the latest session and lists the earlier ones, with topics named through Jira', async ({ page, fake }) => {
     const calls = setupTeam(fake);
     fake.route('GET', `/api/teams/${TEAM_ID}/poker-sessions`, json({ items: sessions(), nextCursor: null }));
     const metaRequests = [];
@@ -27,16 +31,26 @@ test.describe('poker tab', () => {
       metaRequests.push(req.body);
       return json({ items: [{ key: 'PLAT-10', summary: 'Checkout revamp', issueType: 'Epic', status: 'In Progress' }] });
     });
-    await page.goto(teamUrl('?tab=poker'));
+    await page.goto(teamUrl());
 
-    const first = page.locator(`[data-id="${SESSION_1}"]`);
-    await expect(first.getByText('2/5 stories pointed')).toBeVisible();
-    const badge = first.locator('.team-topic');
+    await expect(page.getByRole('main').getByRole('heading', { level: 1, name: 'Poker' })).toBeVisible();
+    await expect(latest(page)).toHaveAttribute('data-id', SESSION_1);
+    await expect(latest(page).getByText('Latest session')).toBeVisible();
+    await expect(latest(page).getByRole('heading', { level: 2 })).toHaveText(/Oct 14/);
+    await expect(latest(page).getByText('2 of 5 stories pointed · last activity 5 minutes ago')).toBeVisible();
+    const badge = latest(page).locator('.team-topic');
     await expect(badge).toHaveText('Checkout revamp');
     await expect(badge).toHaveAttribute('title', 'PLAT-10');
     await expect(badge).toHaveClass(new RegExp(`team-tone-${toneIndex('PLAT-10')}`));
-    await expect(first.getByRole('link', { name: 'Join' })).toHaveAttribute('href', `/teams/${TEAM_ID}/poker/POKER00001`);
-    await expect(page.locator(`[data-id="${SESSION_2}"] .team-topic`)).toHaveText('various topics');
+    await expect(latest(page).getByRole('link', { name: 'Join' })).toHaveAttribute('href', `/teams/${TEAM_ID}/poker/POKER00001`);
+
+    await expect(page.getByRole('heading', { level: 2, name: 'Earlier sessions' })).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Earlier sessions' }).getByRole('listitem')).toHaveCount(1);
+    await expect(row(page, SESSION_2).getByRole('link')).toHaveAttribute('href', `/teams/${TEAM_ID}/poker/POKER00002`);
+    await expect(row(page, SESSION_2)).toContainText('0 of 1 pointed');
+    await expect(row(page, SESSION_2)).toContainText('various topics');
+    // Sessions never close and nothing records that one is running: the list claims neither.
+    await expect(page.getByRole('main')).not.toContainText(/\b(live|in progress)\b/i);
     expect(metaRequests).toEqual([{ keys: ['PLAT-10'] }]);
     expect(calls.team.length).toBe(1);
   });
@@ -46,7 +60,7 @@ test.describe('poker tab', () => {
     fake.route('GET', `/api/teams/${TEAM_ID}/poker-sessions`, json({ items: sessions(), nextCursor: null }));
     fake.route('POST', `/api/teams/${TEAM_ID}/jira/meta`, problem(503, 'jira_unavailable'));
     await page.goto(teamUrl('?tab=poker'));
-    await expect(page.locator(`[data-id="${SESSION_1}"] .team-topic`)).toHaveText('PLAT-10');
+    await expect(latest(page).locator('.team-topic')).toHaveText('PLAT-10');
   });
 
   test('never asks Jira when the team has no Jira configured', async ({ page, fake }) => {
@@ -58,11 +72,11 @@ test.describe('poker tab', () => {
       return json({ items: [] });
     });
     await page.goto(teamUrl('?tab=poker'));
-    await expect(page.locator(`[data-id="${SESSION_1}"] .team-topic`)).toHaveText('PLAT-10');
+    await expect(latest(page).locator('.team-topic')).toHaveText('PLAT-10');
     expect(asked).toBe(false);
   });
 
-  test('patches progress from team.poker.changed and reloads for an unknown session', async ({ page, fake }) => {
+  test('patches progress from team.poker.changed, and a new session becomes the latest', async ({ page, fake }) => {
     const calls = setupTeam(fake);
     let list = sessions();
     fake.route('GET', `/api/teams/${TEAM_ID}/poker-sessions`, (req) => {
@@ -70,27 +84,29 @@ test.describe('poker tab', () => {
       return json({ items: list, nextCursor: null });
     });
     await page.goto(teamUrl('?tab=poker'));
-    await expect(page.locator(`[data-id="${SESSION_1}"]`).getByText('2/5 stories pointed')).toBeVisible();
+    await expect(latest(page).getByText(/^2 of 5 stories pointed/)).toBeVisible();
     await fake.waitForSubscription(ROOM);
 
     const loads = calls.sessions.length;
     fake.tx(ROOM, [{ k: 'team.poker.changed', d: { sessionId: SESSION_1, pointed: 3, total: 5 } }]);
-    await expect(page.locator(`[data-id="${SESSION_1}"]`).getByText('3/5 stories pointed')).toBeVisible();
+    await expect(latest(page).getByText('3 of 5 stories pointed · last activity now')).toBeVisible();
     expect(calls.sessions.length).toBe(loads);
 
     const SESSION_3 = '0192f0a0-0000-7000-8000-000000005003';
     list = [session(SESSION_3, 'POKER00003', { pointed: 0, total: 0 }), ...list];
     fake.tx(ROOM, [{ k: 'team.poker.changed', d: { sessionId: SESSION_3, pointed: 0, total: 0 } }]);
-    await expect(page.locator(`[data-id="${SESSION_3}"]`).getByText('0/0 stories pointed')).toBeVisible();
+    await expect(latest(page)).toHaveAttribute('data-id', SESSION_3);
+    await expect(latest(page).getByText(/^No stories yet/)).toBeVisible();
+    await expect(row(page, SESSION_1)).toContainText('3 of 5 pointed');
     expect(calls.sessions.length).toBe(loads + 1);
   });
 
-  test('creates a session and opens it', async ({ page, fake }) => {
+  test('starts a session and opens it', async ({ page, fake }) => {
     setupTeam(fake, { me: MEMBER });
     fake.route('POST', `/api/teams/${TEAM_ID}/poker-sessions`, json({ id: SESSION_1, code: 'NEWPOKER01' }, 201));
     await page.goto(teamUrl('?tab=poker'));
     await expect(page.getByRole('heading', { name: 'No poker sessions yet' })).toBeVisible();
-    await page.getByRole('button', { name: 'New poker session' }).first().click();
+    await page.getByRole('button', { name: 'Start poker session' }).click();
     await expect(page).toHaveURL(new RegExp(`/teams/${TEAM_ID}/poker/NEWPOKER01$`));
   });
 
@@ -103,10 +119,18 @@ test.describe('poker tab', () => {
       return { status: 204 };
     });
     await page.goto(teamUrl('?tab=poker'));
-    await page.locator(`[data-id="${SESSION_2}"]`).getByRole('button', { name: 'Delete poker session' }).click();
+    await row(page, SESSION_2).getByRole('button', { name: /^Delete the session of / }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Delete session' }).click();
-    await expect(page.locator(`[data-id="${SESSION_2}"]`)).toHaveCount(0);
+    await expect(row(page, SESSION_2)).toHaveCount(0);
     expect(deleted).toBe(SESSION_2);
+  });
+
+  test('members get no delete buttons', async ({ page, fake }) => {
+    setupTeam(fake, { me: MEMBER });
+    fake.route('GET', `/api/teams/${TEAM_ID}/poker-sessions`, json({ items: sessions(), nextCursor: null }));
+    await page.goto(teamUrl('?tab=poker'));
+    await expect(latest(page)).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Delete the session of / })).toHaveCount(0);
   });
 });
 

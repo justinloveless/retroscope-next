@@ -1,5 +1,5 @@
 // Poker helpers for the real-stack specs: a table of several signed-in people and the selectors the U31/U32 specs use.
-import { createPoker, expect, seedUsers } from './_real.js';
+import { createPoker, createTeam, expect, seedUsers } from './_real.js';
 
 export const seat = (page, user) => page.locator(`.nt-seat[data-pid="${user.id}"]`);
 export const handCard = (page, points) => page.locator(`.nt-hand-card[data-points="${points}"]`);
@@ -19,10 +19,11 @@ export async function openTable(page, code, query = '') {
 }
 
 /**
- * `names.length` people at one quick session created by the first; each page is open on the table and the first sees
- * every other player's seat. Returns [{context, page, user}], session {id, code}.
+ * `names.length` people at one session of a team: the first owns the team and made the session, the others joined
+ * the team through a link invite. Each page is open on the table and the first sees every other player's seat.
+ * Returns {players: [{context, page, user, frames}], session: {id, code}, team}.
  */
-export async function table(open, names, { teamId = null, create = null, ordered = false } = {}) {
+export async function table(open, names, { ordered = false } = {}) {
   const users = await seedUsers(names, { ordered });
   const players = [];
   for (const user of users) {
@@ -30,13 +31,17 @@ export async function table(open, names, { teamId = null, create = null, ordered
     player.frames = recordFrames(player.page);
     players.push(player);
   }
-  const session = create ? await create(players[0]) : await createPoker(players[0].page.request, teamId);
+  const [owner, ...others] = players.map((player) => player.page.request);
+  const team = await createTeam(owner, others);
+  const session = await createPoker(owner, team.id);
   for (const player of players) {
     await openTable(player.page, session.code);
   }
+  // A session opened by its code moves to its team's address (UX18 decision 12).
+  await expect(players[0].page).toHaveURL(new RegExp(`/teams/${team.id}/poker/${session.code}(?:[?#]|$)`));
   // Nobody has a seat of their own: the first sees everyone else.
   await expect(players[0].page.locator('.nt-seat')).toHaveCount(players.length - 1);
-  return { players, session };
+  return { players, session, team };
 }
 
 /** Every frame the server sends to `page`'s sockets from now on, parsed. */

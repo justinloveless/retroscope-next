@@ -13,8 +13,8 @@ public sealed class CorruptionTests(ImporterDatabases databases) : IAsyncLifetim
     public static readonly TheoryData<string, string, string> Corruptions = new() {
         { "no owner", "one-owner", $"update team_members set role = 'admin' where team_id = '{Alpha}' and role = 'owner'" },
         { "card on another board's column", "board-consistency",
-            $"update retro_cards set column_id = 'c0100000-0000-4000-8000-000000000003' where id = '{NamedCard}'" },
-        { "vote on the wrong board", "board-consistency", $"update retro_votes set board_id = '{QuickBoard}' where card_id = '{AnonCard}'" },
+            $"update retro_cards set column_id = '{OtherColumn}' where id = '{NamedCard}'" },
+        { "vote on the wrong board", "board-consistency", $"update retro_votes set board_id = '{OtherBoard}' where card_id = '{AnonCard}'" },
         { "sort key gap", "poker-rounds", $"update poker_rounds set sort_key = 5 where id = '{VotingRound}'" },
         { "unlocked vote on a revealed round", "poker-rounds",
             $"update poker_votes set locked = false where round_id = '{RevealedRound}' and not abstained" },

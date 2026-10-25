@@ -33,7 +33,7 @@ public sealed class IdempotentCreateTests {
 
     [Fact]
     public void A_repeated_action_item_card_creates_no_second_action_item() {
-        var fx = new RetroFixture(team: true);
+        var fx = new RetroFixture();
         var card = fx.AddCard(Alice, Actions, "Fix CI");
 
         fx.NoOp(Alice, new RetroCardAdd(card, Actions, "Fix CI", false));
@@ -54,7 +54,7 @@ public sealed class IdempotentCreateTests {
 
     [Fact]
     public void A_repeated_action_item_comment_acks() {
-        var fx = new RetroFixture(team: true);
+        var fx = new RetroFixture();
         var card = fx.AddCard(Alice, Actions);
         var comment = fx.NewCommentId();
         fx.Do(Bob, new RetroInput.ActionItemCommentAdd(comment, card, "Done?"));
@@ -84,7 +84,7 @@ public sealed class IdempotentCreateTests {
 
     [Fact]
     public void A_repeated_endorsement_acks_even_after_its_type_was_archived() {
-        var fx = new RetroFixture(team: true);
+        var fx = new RetroFixture();
         var id = fx.NewEndorsementId();
         fx.Do(Alice, new RetroEndorseGive(id, Bob.Id, Helper));
         fx.State.EndorsementTypes[0] = fx.State.EndorsementTypes[0] with { Archived = true };

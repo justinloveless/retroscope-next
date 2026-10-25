@@ -46,3 +46,5 @@ Run each of these:
 - `./build.sh preview real` brings up the stack, signup and login work, and the verify mail lands in Mailpit.
 - `./build.sh screenshots` writes at least one PNG per route and theme.
 - `./build.sh test` stays green.
+
+**Status after UX18:** the demo no longer has a dashboard or a quick poker session (`docs/followups/UX18.md`).

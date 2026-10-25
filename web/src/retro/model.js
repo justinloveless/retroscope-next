@@ -203,7 +203,8 @@ function authorOf(state, me, anonymous) {
   if (anonymous || !state.config.showAuthorNames || !me) {
     return null;
   }
-  const author = { name: me.name, guest: me.kind === 'guest', pid: me.pid };
+  // Only signed-in users act on a board (UX18); the server writes `guest: false` for them too.
+  const author = { name: me.name, guest: false, pid: me.pid };
   return me.avatar ? { ...author, avatar: me.avatar } : author;
 }
 
@@ -322,11 +323,9 @@ export function isMember(state, pid) {
   return state.members?.some((m) => m.pid === pid) ?? false;
 }
 
+/** Every member of the board's team facilitates (UX18: a board always has a team). */
 export function isFacilitator(state, me) {
-  if (!me || me.kind !== 'user') {
-    return false;
-  }
-  return state.teamId ? isMember(state, me.pid) : true;
+  return Boolean(me) && isMember(state, me.pid);
 }
 
 export function allowsContent(state, column) {

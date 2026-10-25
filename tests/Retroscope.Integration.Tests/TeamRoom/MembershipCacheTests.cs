@@ -65,23 +65,6 @@ public sealed class MembershipCacheTests(PostgresFixture postgres) {
     }
 
     [Fact]
-    public async Task A_grant_counts_only_for_the_current_password() {
-        await using var scope = await StartAsync(postgres);
-        await scope.AddUserAsync(Alice);
-        var first = new DateTimeOffset(2026, 10, 1, 9, 0, 0, TimeSpan.Zero);
-        var second = first.AddDays(1);
-        await scope.ExecAsync("insert into board_access_grants (board_id, principal_id, password_epoch) values ($1, $2, $3)", Board.Value, Alice.Who.Id.Value, first);
-
-        Assert.True(scope.Cache.HasCurrentGrant(Board, Alice.Who.Id, first));
-        Assert.False(scope.Cache.HasCurrentGrant(Board, Alice.Who.Id, second));
-        Assert.False(scope.Cache.HasCurrentGrant(Board, Alice.Who.Id, null));
-        Assert.False(scope.Cache.HasCurrentGrant(Board, Bob.Who.Id, first));
-
-        await scope.ExecAsync("update board_access_grants set password_epoch = $3 where board_id = $1 and principal_id = $2", Board.Value, Alice.Who.Id.Value, second);
-        Assert.True(scope.Cache.HasCurrentGrant(Board, Alice.Who.Id, second));
-    }
-
-    [Fact]
     public void The_module_registers_the_cache_as_the_access_view_and_the_membership_lookup() {
         var services = new ServiceCollection();
         services.AddSingleton(Npgsql.NpgsqlDataSource.Create("Host=localhost;Username=nobody"));

@@ -16,6 +16,8 @@ const MESSAGES = {
   jira_unavailable: 'Jira is not answering right now.',
   jira_not_configured: 'Jira is not configured for this team.',
   outbox_full: 'You have been offline too long; reload to continue.',
+  too_many_rooms: 'This tab has too many rooms open. Close some of them, then try again.',
+  too_many_connections: 'This team is open in too many of your tabs. Close some of them, then try again.',
   invalid: 'That was not accepted.',
 };
 

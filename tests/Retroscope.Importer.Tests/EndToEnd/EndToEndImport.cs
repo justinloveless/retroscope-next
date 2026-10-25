@@ -21,6 +21,8 @@ public sealed class EndToEndImport {
     public const string Beta = "7ea70000-0000-4000-8000-000000000002";
     public const string TeamBoard = "b0a40000-0000-4000-8000-000000000001";
     public const string QuickBoard = "b0a40000-0000-4000-8000-000000000002";
+    public const string OtherBoard = "b0a40000-0000-4000-8000-000000000003";
+    public const string OtherColumn = "c0100000-0000-4000-8000-000000000004";
     public const string AnonCard = "17e00000-0000-4000-8000-000000000001";
     public const string NamedCard = "17e00000-0000-4000-8000-000000000002";
     public const string AnonComment = "c0aa0000-0000-4000-8000-000000000001";

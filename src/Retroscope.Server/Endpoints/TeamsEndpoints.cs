@@ -15,8 +15,6 @@ using Retroscope.Server.Realtime.Stores;
 
 namespace Retroscope.Server.Endpoints;
 
-public sealed record TeamSummary(TeamId Id, string Name, string? Description, TeamRole Role, bool Favorite);
-
 public sealed record TeamCreated(TeamId Id);
 
 public sealed record TeamJiraSummary(
@@ -190,14 +188,13 @@ public static class TeamsEndpoints {
 
     public static void AddServices(IServiceCollection services, IConfiguration configuration) {
         services.AddSingleton<TeamsRepo>();
+        services.AddSingleton<ActivityRepo>();
+        services.AddSingleton<IRoomVisits>(sp => sp.GetRequiredService<ActivityRepo>());
         services.AddSingleton<TeamAccess>();
         services.AddSingleton<TeamActors>();
     }
 
     public static void Map(IEndpointRouteBuilder app) {
-        app.MapGet("/api/teams", ListAsync)
-            .RequireRoutePolicy(RoutePolicy.User)
-            .RequireRateLimit(Read);
         app.MapPost("/api/teams", CreateAsync)
             .RequireRoutePolicy(RoutePolicy.VerifiedUser)
             .RequireRateLimit(Create);
@@ -209,12 +206,6 @@ public static class TeamsEndpoints {
             .RequireRateLimit(Write);
         app.MapDelete("/api/teams/{id:guid}", DeleteAsync)
             .RequireRoutePolicy(RoutePolicy.TeamOwner)
-            .RequireRateLimit(Write);
-        app.MapPut("/api/teams/{id:guid}/favorite", AddFavoriteAsync)
-            .RequireRoutePolicy(RoutePolicy.TeamMember)
-            .RequireRateLimit(Write);
-        app.MapDelete("/api/teams/{id:guid}/favorite", RemoveFavoriteAsync)
-            .RequireRoutePolicy(RoutePolicy.TeamMember)
             .RequireRateLimit(Write);
         app.MapGet("/api/teams/{id:guid}/members", MembersAsync)
             .RequireRoutePolicy(RoutePolicy.TeamMember)
@@ -232,13 +223,6 @@ public static class TeamsEndpoints {
         app.MapGet("/api/teams/{id:guid}/action-items", ActionItemsAsync)
             .RequireRoutePolicy(RoutePolicy.TeamMember)
             .RequireRateLimit(Read);
-    }
-
-    private static async Task<IResult> ListAsync(HttpContext context, TeamsRepo teams) {
-        var caller = (await context.GetCallerAsync())!;
-        var rows = await teams.ListAsync(caller.Principal.Id, context.RequestAborted);
-        IReadOnlyList<TeamSummary> list = [.. rows.Select(x => new TeamSummary(x.Id, x.Name, x.Description, x.Role, x.Favorite))];
-        return Results.Json(list, TeamHttpJsonContext.Default.IReadOnlyListTeamSummary);
     }
 
     private static async Task<IResult> CreateAsync(
@@ -266,7 +250,7 @@ public static class TeamsEndpoints {
         if (check.Refusal is { } refusal) {
             return refusal;
         }
-        await activity.TouchAsync(check.Who, ActivityKind.Team, id, context.RequestAborted);
+        await activity.TouchAsync(check.Who, check.TeamId, context.RequestAborted);
         return await DetailsResultAsync(check, access, teams, context.RequestAborted);
     }
 
@@ -339,29 +323,6 @@ public static class TeamsEndpoints {
         // refuse every former member, and their next load sees the deleted team.
         memberships.Publish(check.TeamId, new Dictionary<PrincipalId, TeamRole>());
         actors.TeamGone(await store.RoomsAsync(check.TeamId, cancellationToken));
-        return Results.NoContent();
-    }
-
-    private static Task<IResult> AddFavoriteAsync(Guid id, HttpContext context, TeamAccess access, TeamsRepo teams, TimeProvider time) {
-        return SetFavoriteAsync(id, true, context, access, teams, time);
-    }
-
-    private static Task<IResult> RemoveFavoriteAsync(Guid id, HttpContext context, TeamAccess access, TeamsRepo teams, TimeProvider time) {
-        return SetFavoriteAsync(id, false, context, access, teams, time);
-    }
-
-    private static async Task<IResult> SetFavoriteAsync(
-        Guid id,
-        bool favorite,
-        HttpContext context,
-        TeamAccess access,
-        TeamsRepo teams,
-        TimeProvider time) {
-        var check = await access.CheckAsync(context, id, Capability.Subscribe);
-        if (check.Refusal is { } refusal) {
-            return refusal;
-        }
-        await teams.SetFavoriteAsync(check.Who, check.TeamId, favorite, time.GetUtcNow(), context.RequestAborted);
         return Results.NoContent();
     }
 
@@ -610,7 +571,7 @@ public static class TeamText {
             fields[field] = "required";
             return null;
         }
-        if (!GuestNames.IsPlainText(value) || Length(value) > max) {
+        if (!TextRules.IsPlainText(value) || Length(value) > max) {
             fields[field] = "invalid";
             return null;
         }
@@ -623,7 +584,7 @@ public static class TeamText {
         if (value is null) {
             return null;
         }
-        if (!GuestNames.IsPlainText(value.Replace('\n', ' ')) || Length(value) > max) {
+        if (!TextRules.IsPlainText(value.Replace('\n', ' ')) || Length(value) > max) {
             fields[field] = "invalid";
             return null;
         }

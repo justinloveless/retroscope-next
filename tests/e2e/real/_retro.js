@@ -14,17 +14,17 @@ export async function openBoard(page, code) {
 }
 
 /**
- * `names` on one board: a team board of a team they all belong to (the first owns it) unless `team` is false, then a
- * quick board. Every page is open on the board. Returns {players, board, team}.
+ * `names` on one board of a team they all belong to: the first owns the team and made the board, the others joined
+ * the team through a link invite. Every page is open on the board. Returns {players, board, team}.
  */
-export async function retroBoard(open, names, { team: withTeam = true, body = {} } = {}) {
+export async function retroBoard(open, names, { body = {} } = {}) {
   const users = await seedUsers(names);
   const players = [];
   for (const user of users) {
     players.push(await open(user));
   }
-  const team = withTeam ? await createTeam(players[0].page.request, players.slice(1).map((p) => p.page.request)) : null;
-  const board = await createBoard(players[0].page.request, team?.id ?? null, body);
+  const team = await createTeam(players[0].page.request, players.slice(1).map((p) => p.page.request));
+  const board = await createBoard(players[0].page.request, team.id, body);
   for (const player of players) {
     await openBoard(player.page, board.code);
   }

@@ -1,15 +1,20 @@
-// Shared setup for the poker table specs: a session the fake serves by code, the viewer's boot JSON and
-// a tiny scripted server that answers vote, lock, abstain and reveal the way the real decider does for
-// one viewer (the other players' votes are scripted by the spec).
+// Shared setup for the poker table specs: a session of a team the fake serves by code, the boot JSON of the
+// viewer (a signed-in member of the team, UX18) and a tiny scripted server that answers vote, lock, abstain
+// and reveal the way the real decider does for one viewer (the other players' votes are scripted by the spec).
+import { memberMe } from '../_harness/me.js';
 
 export const SESSION = '0a000000-0000-4000-8000-0000000000a1';
 export const ROOM = `poker:${SESSION}`;
 export const CODE = 'NEOTRO1234';
 export const R1 = '0a000000-0000-4000-8000-000000001001';
 export const R2 = '0a000000-0000-4000-8000-000000001002';
+export const TEAM = { id: '0a000000-0000-4000-8000-0000000000b0', name: 'Platform' };
+// When the session was created. It is in a past year, so the toolbar's day reads "Oct 14, 2025" whenever the specs
+// run, and the session's id is no UUIDv7, like an imported session's.
+export const CREATED = Date.UTC(2025, 9, 14, 13, 5);
 export const ME = { pid: '0a000000-0000-4000-8000-000000000001', kind: 'user', name: 'Ada' };
 export const BOB = { pid: '0a000000-0000-4000-8000-000000000002', kind: 'user', name: 'Bob' };
-export const GUS = { pid: '0a000000-0000-4000-8000-000000000003', kind: 'guest', name: 'Gus' };
+export const GUS = { pid: '0a000000-0000-4000-8000-000000000003', kind: 'user', name: 'Gus' };
 export const DOT = { pid: '0a000000-0000-4000-8000-000000000004', kind: 'user', name: 'Dot' };
 
 export function round(id, number, extra = {}) {
@@ -27,8 +32,8 @@ export function snapshot(extra = {}) {
     votes: [],
     roster: [ME, BOB, GUS, DOT],
     presence: [ME, BOB, GUS],
-    teamId: '0a000000-0000-4000-8000-0000000000b0',
-    createdBy: ME.pid,
+    teamId: TEAM.id,
+    createdAt: CREATED,
     currentRoundId: R1,
     pointDescriptions: {},
     jiraSubmits: [],
@@ -36,10 +41,15 @@ export function snapshot(extra = {}) {
   };
 }
 
-/** Serves the session to `viewer` and scripts the vote commands. Returns the votes the fake holds. */
-export function setupPoker(fake, { viewer = ME, theme = 'light', snap = snapshot(), overlay = { own: [], heldByThisTab: false }, others = {} } = {}) {
+/**
+ * Serves the session to `viewer`, a member of the session's team with `role`, and scripts the vote commands.
+ * Returns the votes the fake holds.
+ */
+export function setupPoker(fake, { viewer = ME, role = 'member', theme = 'light', snap = snapshot(), overlay = { own: [], heldByThisTab: false }, others = {} } = {}) {
   fake.me = viewer;
-  fake.boot = (path) => ({ build: 'fake', theme, me: { principal: { id: viewer.pid, kind: viewer.kind, name: viewer.name } }, path });
+  const me = memberMe(viewer, [{ ...TEAM, role }]);
+  me.user.theme = theme;
+  fake.boot = (path) => ({ build: 'fake', theme, me, path });
   fake.route('GET', '/api/poker/by-code/:code', { body: { id: SESSION, access: 'granted' } });
   fake.room(ROOM, { snapshot: snap, overlay });
   const votes = new Map(Object.entries(others));

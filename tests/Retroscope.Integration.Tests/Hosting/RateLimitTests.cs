@@ -11,8 +11,8 @@ namespace Retroscope.Integration.Tests.Hosting;
 public sealed class RateLimitTests {
     private static readonly RateLimit TwoPerMinute = RateLimit.Define("test.ip", RateRule.PerIp(2, TimeSpan.FromMinutes(1)));
 
-    private static readonly RateLimit GuestRoute = RateLimit.Define(
-        "test.guest",
+    private static readonly RateLimit PrincipalRoute = RateLimit.Define(
+        "test.principal",
         RateRule.PerIp(5, TimeSpan.FromMinutes(1)),
         RateRule.PerPrincipal(2, TimeSpan.FromMinutes(1)));
 
@@ -57,32 +57,32 @@ public sealed class RateLimitTests {
     }
 
     [Fact]
-    public async Task Guest_reachable_routes_limit_per_principal_across_ips() {
+    public async Task Per_principal_rules_limit_a_caller_across_ips() {
         await using var app = await StartAsync();
-        var caller = $"guest:{Guid.CreateVersion7()}";
+        var caller = $"user:{Guid.CreateVersion7()}";
 
-        Assert.Equal(HttpStatusCode.NoContent, await StatusAsync(app, "/test/guest", "198.51.100.1", caller));
-        Assert.Equal(HttpStatusCode.NoContent, await StatusAsync(app, "/test/guest", "198.51.100.2", caller));
+        Assert.Equal(HttpStatusCode.NoContent, await StatusAsync(app, "/test/principal", "198.51.100.1", caller));
+        Assert.Equal(HttpStatusCode.NoContent, await StatusAsync(app, "/test/principal", "198.51.100.2", caller));
 
-        Assert.Equal(HttpStatusCode.TooManyRequests, await StatusAsync(app, "/test/guest", "198.51.100.3", caller));
-        Assert.Equal(HttpStatusCode.NoContent, await StatusAsync(app, "/test/guest", "198.51.100.3", $"guest:{Guid.CreateVersion7()}"));
+        Assert.Equal(HttpStatusCode.TooManyRequests, await StatusAsync(app, "/test/principal", "198.51.100.3", caller));
+        Assert.Equal(HttpStatusCode.NoContent, await StatusAsync(app, "/test/principal", "198.51.100.3", $"user:{Guid.CreateVersion7()}"));
     }
 
     [Fact]
     public void A_refused_request_is_not_charged_to_the_other_rules() {
         var limiter = new RateLimiter(_time);
         var keys = new RateKeys("198.51.100.1", "p1");
-        Assert.True(limiter.TryAcquire(GuestRoute, keys, out _));
-        Assert.True(limiter.TryAcquire(GuestRoute, keys, out _));
+        Assert.True(limiter.TryAcquire(PrincipalRoute, keys, out _));
+        Assert.True(limiter.TryAcquire(PrincipalRoute, keys, out _));
 
         for (var i = 0; i < 10; i++) {
-            Assert.False(limiter.TryAcquire(GuestRoute, keys, out _));
+            Assert.False(limiter.TryAcquire(PrincipalRoute, keys, out _));
         }
 
-        Assert.True(limiter.TryAcquire(GuestRoute, new RateKeys("198.51.100.1", "p2"), out _));
-        Assert.True(limiter.TryAcquire(GuestRoute, new RateKeys("198.51.100.1", "p3"), out _));
-        Assert.True(limiter.TryAcquire(GuestRoute, new RateKeys("198.51.100.1", "p4"), out _));
-        Assert.False(limiter.TryAcquire(GuestRoute, new RateKeys("198.51.100.1", "p5"), out _));
+        Assert.True(limiter.TryAcquire(PrincipalRoute, new RateKeys("198.51.100.1", "p2"), out _));
+        Assert.True(limiter.TryAcquire(PrincipalRoute, new RateKeys("198.51.100.1", "p3"), out _));
+        Assert.True(limiter.TryAcquire(PrincipalRoute, new RateKeys("198.51.100.1", "p4"), out _));
+        Assert.False(limiter.TryAcquire(PrincipalRoute, new RateKeys("198.51.100.1", "p5"), out _));
     }
 
     [Fact]
@@ -141,14 +141,14 @@ public sealed class RateLimitTests {
     public void Retry_after_covers_every_refusing_bucket() {
         var limiter = new RateLimiter(_time);
         var keys = new RateKeys("198.51.100.1", "p1");
-        Assert.True(limiter.TryAcquire(GuestRoute, keys, out _));
-        Assert.True(limiter.TryAcquire(GuestRoute, keys, out _));
-        Assert.True(limiter.TryAcquire(GuestRoute, new RateKeys("198.51.100.1", "p2"), out _));
-        Assert.True(limiter.TryAcquire(GuestRoute, new RateKeys("198.51.100.1", "p2"), out _));
-        Assert.True(limiter.TryAcquire(GuestRoute, new RateKeys("198.51.100.1", "p3"), out _));
+        Assert.True(limiter.TryAcquire(PrincipalRoute, keys, out _));
+        Assert.True(limiter.TryAcquire(PrincipalRoute, keys, out _));
+        Assert.True(limiter.TryAcquire(PrincipalRoute, new RateKeys("198.51.100.1", "p2"), out _));
+        Assert.True(limiter.TryAcquire(PrincipalRoute, new RateKeys("198.51.100.1", "p2"), out _));
+        Assert.True(limiter.TryAcquire(PrincipalRoute, new RateKeys("198.51.100.1", "p3"), out _));
         _time.Advance(TimeSpan.FromSeconds(10));
 
-        Assert.False(limiter.TryAcquire(GuestRoute, keys, out var retryAfter));
+        Assert.False(limiter.TryAcquire(PrincipalRoute, keys, out var retryAfter));
 
         Assert.InRange(retryAfter.TotalSeconds, 19.999, 20.001);
     }
@@ -187,9 +187,9 @@ public sealed class RateLimitTests {
             app.MapGet("/test/ip", () => Results.NoContent())
                 .RequireRoutePolicy(RoutePolicy.Public)
                 .RequireRateLimit(TwoPerMinute);
-            app.MapGet("/test/guest", () => Results.NoContent())
-                .RequireRoutePolicy(RoutePolicy.Guest)
-                .RequireRateLimit(GuestRoute);
+            app.MapGet("/test/principal", () => Results.NoContent())
+                .RequireRoutePolicy(RoutePolicy.User)
+                .RequireRateLimit(PrincipalRoute);
         });
 
     private static async Task<HttpStatusCode> StatusAsync(TestApp app, string path, string peer, string? caller = null) {

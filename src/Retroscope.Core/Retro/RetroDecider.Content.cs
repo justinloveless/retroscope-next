@@ -5,7 +5,7 @@ using Retroscope.Core.Room;
 
 namespace Retroscope.Core.Retro;
 
-// Cards, comments and votes: open to every participant, subject to the stage gates and ownership.
+// Cards, comments and votes: open to every member, subject to the stage gates and ownership.
 public sealed partial class RetroDecider {
     private Decision<RetroEvent> AddCard(RetroState state, RetroCardAdd command, Principal who, CommandContext context) {
         if (state.Cards.TryGetValue(command.CardId, out var existing)) {
@@ -17,15 +17,15 @@ public sealed partial class RetroDecider {
         if (!StageRules.AllowsContent(state.Config, state.Stage, column.ActionItems)) {
             return Reject(NackCode.StageForbids);
         }
-        if (command.Anonymous && !MayPostAnonymously(state, who)) {
-            return Reject(NackCode.Forbidden, "Anonymous posting is not open to this caller.");
+        if (command.Anonymous && !state.Config.AllowAnonymous) {
+            return Reject(NackCode.Forbidden, "Anonymous posting is off on this board.");
         }
         if (CheckBody(state, command.Body, MarkupField.Card, context.Access, out var mentions, out var images) is { } rejection) {
             return rejection;
         }
         var authorship = AuthorshipOf(state, who, command.Anonymous);
         ActionItemInfo? actionItem = null;
-        if (column.ActionItems && state.TeamId is not null) {
+        if (column.ActionItems) {
             actionItem = new ActionItemInfo(
                 ActionItemIdFor(command.CardId),
                 command.Body,
@@ -74,14 +74,14 @@ public sealed partial class RetroDecider {
         return Accept(new CardEdited(command.CardId, command.Body, card.Version + 1, card.Authorship.Anonymous, mentions, images));
     }
 
-    private Decision<RetroEvent> DeleteCard(RetroState state, RetroCardDelete command, Principal who, IAccessView access) {
+    /// <summary>The author deletes a card; in the action-items column any member does, as a facilitator.</summary>
+    private Decision<RetroEvent> DeleteCard(RetroState state, RetroCardDelete command, Principal who) {
         if (!state.Cards.TryGetValue(command.CardId, out var card)) {
             return Reject(NackCode.NotFound, "No such card.");
         }
         var actionItems = IsActionItemsColumn(state, card.ColumnId);
-        var owner = RetroRoles.Owns(state, card.Authorship, who.Id, tagger);
-        if (!owner && !(actionItems && RetroRoles.IsFacilitator(state, who, access))) {
-            return Reject(NackCode.Forbidden, "Only the author, or a facilitator in the action-items column, deletes a card.");
+        if (!actionItems && !RetroRoles.Owns(state, card.Authorship, who.Id, tagger)) {
+            return Reject(NackCode.Forbidden, "Only the author deletes a card outside the action-items column.");
         }
         if (!StageRules.AllowsContent(state.Config, state.Stage, actionItems)) {
             return Reject(NackCode.StageForbids);
@@ -127,8 +127,8 @@ public sealed partial class RetroDecider {
         if (!StageRules.AllowsContent(state.Config, state.Stage, IsActionItemsColumn(state, card.ColumnId))) {
             return Reject(NackCode.StageForbids);
         }
-        if (command.Anonymous && !MayPostAnonymously(state, who)) {
-            return Reject(NackCode.Forbidden, "Anonymous posting is not open to this caller.");
+        if (command.Anonymous && !state.Config.AllowAnonymous) {
+            return Reject(NackCode.Forbidden, "Anonymous posting is off on this board.");
         }
         if (CheckBody(state, command.Body, MarkupField.Comment, context.Access, out var mentions, out var images) is { } rejection) {
             return rejection;

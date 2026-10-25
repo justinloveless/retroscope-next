@@ -9,8 +9,8 @@ using Retroscope.Server.Hosting;
 
 namespace Retroscope.Integration.Tests.Hosting;
 
-// §d/§j: every route of the real server declares a RoutePolicy and a RateLimit, and every guest-reachable route is
-// limited per IP and per principal (S7). Unsafe methods need no metadata: CSRF is a global middleware.
+// §d/§j: every route of the real server declares a RoutePolicy and a RateLimit, and every room route is limited per IP
+// and per principal (S7). Unsafe methods need no metadata: CSRF is a global middleware.
 [Trait("Category", "Hosting")]
 [Collection(SharedPostgres.Name)]
 public sealed partial class RouteInventoryTests(PostgresFixture postgres) {
@@ -27,18 +27,50 @@ public sealed partial class RouteInventoryTests(PostgresFixture postgres) {
     }
 
     [Fact]
-    public async Task Every_guest_reachable_route_is_limited_per_ip_and_per_principal() {
+    public async Task Every_room_route_is_limited_per_ip_and_per_principal() {
         var endpoints = await EndpointsAsync();
-        var guestPolicies = new[] { RoutePolicy.Guest, RoutePolicy.BoardAccess, RoutePolicy.BoardManage, RoutePolicy.SessionManage };
+        var roomPolicies = new[] { RoutePolicy.BoardAccess, RoutePolicy.BoardManage, RoutePolicy.SessionManage };
 
         var weak = endpoints
-            .Where(x => x.Metadata.GetMetadata<RoutePolicyMetadata>() is { } policy && guestPolicies.Contains(policy.Policy))
+            .Where(x => x.Metadata.GetMetadata<RoutePolicyMetadata>() is { } policy && roomPolicies.Contains(policy.Policy))
             .Where(x => x.Metadata.GetMetadata<RateLimitMetadata>() is not { } limit
                 || !limit.Limit.Has(RateScope.Ip)
                 || !limit.Limit.Has(RateScope.Principal))
             .Select(Describe)
             .ToList();
-        Assert.True(weak.Count == 0, "Guest-reachable routes without per-IP and per-principal limits:\n" + string.Join('\n', weak));
+        Assert.True(weak.Count == 0, "Room routes without per-IP and per-principal limits:\n" + string.Join('\n', weak));
+    }
+
+    // UX18: a signed-out visitor reaches only the shell (which redirects them from every page but the welcome, sign-in
+    // and invite pages), sign-in itself, the invite preview, health and blobs (avatars; board images ask the policy).
+    [Fact]
+    public async Task Only_the_shell_sign_in_invite_preview_health_and_blob_routes_are_public() {
+        var endpoints = await EndpointsAsync();
+        string[] expected = [
+            Health.Path,
+            Shell.BootPath,
+            Shell.DashboardPath,
+            "/invite/{token}",
+            "/blob/{id:guid}",
+            "/api/auth/signup",
+            "/api/auth/login",
+            "/api/auth/magic/request",
+            "/api/auth/magic/preview",
+            "/api/auth/magic/consume",
+            "/api/auth/reset/request",
+            "/api/auth/reset/consume",
+            "/auth/oidc/{provider}/start",
+            "/auth/oidc/{provider}/callback",
+            "/api/invites/preview",
+            .. ShellRoute.All.Select(x => x.Template),
+        ];
+
+        var open = endpoints
+            .Where(x => x.Metadata.GetMetadata<RoutePolicyMetadata>()?.Policy == RoutePolicy.Public)
+            .Select(x => x.RoutePattern.RawText!)
+            .Order(StringComparer.Ordinal);
+
+        Assert.Equal(expected.Order(StringComparer.Ordinal), open);
     }
 
     [Fact]

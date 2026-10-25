@@ -682,6 +682,7 @@
         "tenant_id": "uuid"
       },
       "archive": [
+        "is_private",
         "password_hash",
         "tenant_id"
       ],
@@ -927,16 +928,8 @@
       ]
     },
     "public.user_favorite_teams": {
-      "disposition": "map",
-      "primaryKey": [
-        "id"
-      ],
-      "columns": {
-        "id": "uuid",
-        "user_id": "uuid",
-        "team_id": "uuid",
-        "created_at": "timestamptz"
-      }
+      "disposition": "exclude",
+      "reason": "team favorites were removed (UX18)"
     },
     "public.user_recent_activity": {
       "disposition": "map",

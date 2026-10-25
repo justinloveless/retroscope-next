@@ -1,7 +1,7 @@
 // No theme flash: the first paint, taken while the entry script is still held back, is already in the
 // theme the app keeps after it starts (§g.8 pre-paint script).
 import { expect, test } from '../_harness/fixtures.js';
-import { ADMIN, installApi, meanLuminance, readPng, requests, useSession } from './_shell.js';
+import { ADMIN, installApi, meanLuminance, openAccount, readPng, requests, useSession } from './_shell.js';
 
 // Playwright's WebKit screenshot injects an inline <style> into the page, which the CSP reports
 // (asynchronously) as a style-src-elem violation. Those reports are the tool's, not the app's: in tests
@@ -37,11 +37,11 @@ for (const theme of ['dark', 'light']) {
     installApi(fake);
     useSession(fake, { ...ADMIN, user: { ...ADMIN.user, theme } });
 
-    const before = await firstPaint(page, '/dashboard');
+    const before = await firstPaint(page, '/account');
     expect(before.theme).toBe(theme);
 
-    await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
+    await page.goto('/account');
+    await expect(page.getByRole('heading', { level: 1, name: 'Account' })).toBeVisible();
     const after = meanLuminance(await screenshot(page));
     await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
     if (theme === 'dark') {
@@ -68,15 +68,15 @@ test('a signed-out visitor’s stored choice paints first when the boot JSON has
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 });
 
-test('the header theme menu switches the theme and saves it to the account', async ({ page, fake }) => {
+test('the account menu’s theme choice switches the theme and saves it to the account', async ({ page, fake }) => {
   installApi(fake);
   useSession(fake, { ...ADMIN, user: { ...ADMIN.user, theme: 'light' } });
   fake.route('PATCH', '/api/me', (req) => ({ status: 200, body: { ...ADMIN, user: { ...ADMIN.user, theme: req.body.theme } } }));
-  await page.goto('/dashboard');
+  await page.goto('/account');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
 
-  await page.getByRole('button', { name: 'Theme' }).click();
-  await page.getByRole('menuitem', { name: 'Dark' }).click();
+  const account = await openAccount(page);
+  await account.item('Dark').click();
 
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect.poll(() => requests(fake, 'PATCH', '/api/me').map((r) => r.json)).toEqual([{ theme: 'dark' }]);

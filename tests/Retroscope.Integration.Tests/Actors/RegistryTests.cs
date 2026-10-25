@@ -364,7 +364,33 @@ public sealed class RegistryTests {
 
         (await room.ActorAsync()).Subscribe(third, third.Viewer);
 
-        Assert.Equal(KickCode.Forbidden, (await third.NextAsync<KickFrame>()).Code);
+        Assert.Equal(KickCode.TooManyConnections, (await third.NextAsync<KickFrame>()).Code);
+    }
+
+    [Fact]
+    public async Task A_seventh_tab_of_one_principal_is_kicked_too_many_connections_not_forbidden_and_gets_in_once_a_tab_closes() {
+        var room = new CounterRoom();
+        Assert.Equal(6, ActorOptions.Default.ConnectionsPerPrincipal);
+        var tabs = new List<TestPeer>();
+        for (var tab = 0; tab < 6; tab++) {
+            tabs.Add((await room.JoinAsync(Viewer(1, "Alice", tab: tab))).Peer);
+        }
+        var actor = await room.ActorAsync();
+        var seventh = new TestPeer(Viewer(1, "Alice", tab: 6));
+
+        actor.Subscribe(seventh, seventh.Viewer);
+
+        // Alice is still a member: the kick must not read as lost access (UX18 decision 2).
+        var kick = await seventh.NextAsync<KickFrame>();
+        Assert.Equal((Room, KickCode.TooManyConnections), (kick.R, kick.Code));
+        await room.JoinAsync(Bob);
+
+        actor.ConnectionClosed(tabs[0].Id);
+        await room.SettleAsync();
+        var retry = new TestPeer(seventh.Viewer);
+        actor.Subscribe(retry, retry.Viewer);
+
+        await retry.NextAsync<SnapFrame>();
     }
 
     [Fact]

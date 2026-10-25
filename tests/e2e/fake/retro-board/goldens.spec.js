@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '../_harness/fixtures.js';
+import { memberMe } from '../_harness/me.js';
 import { apply, snapshot, sortItems, toWire } from '../../../../web/src/retro/model.js';
 
 const TRANSCRIPTS = fileURLToPath(new URL('../../../golden/transcripts/', import.meta.url));
@@ -67,12 +68,14 @@ test.describe('model.js against the C# goldens', () => {
 });
 
 test('a golden transcript replayed to the page shows its final board', async ({ page, fake }) => {
-  const file = 'retro-quick-board-alice.json';
+  // Alice's board, a team board since UX18.
+  const file = files.find((f) => f === 'retro-board-alice.json');
   const transcript = load(file);
   const { d, o } = transcript.expectedViewerState;
   const me = d.presence.find((p) => p.pid === transcript.viewer.pid);
+  const role = d.members?.find((m) => m.pid === me.pid)?.role;
   fake.me = me;
-  fake.boot = { build: 'fake', theme: 'light', me, room: { r: transcript.room } };
+  fake.boot = { build: 'fake', theme: 'light', me: memberMe(me, d.teamId ? [{ id: d.teamId, name: 'Platform', role }] : []), room: { r: transcript.room } };
   fake.replayTranscript(TRANSCRIPTS + file);
   await page.goto(`/retro/${d.code}`);
 

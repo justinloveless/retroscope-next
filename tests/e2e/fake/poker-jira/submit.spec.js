@@ -157,18 +157,9 @@ test('the chips are not shown while the round is voting', async ({ page, fake })
   await expect(submitBox(page)).toBeHidden();
 });
 
-test('quick sessions and teams without Jira get no Jira UI and no Jira requests', async ({ page, fake }) => {
-  setupPoker(fake, { snap: snapshot({ teamId: undefined, rounds: [revealed()] }) });
-  await page.goto(`/poker/${CODE}`);
-  await page.locator('.nt-table').waitFor();
-  await page.waitForTimeout(300);
-  await expect(jiraEntry(page)).toHaveCount(0);
-  await expect(page.locator('.nt-panel-left')).toBeHidden();
-  await expect(submitBox(page)).toHaveCount(0);
-  expect(fake.requests.filter((r) => r.path.startsWith('/api/teams/'))).toEqual([]);
-
+test('a team without Jira gets no Jira UI and no Jira requests', async ({ page, fake }) => {
+  setupPoker(fake, { snap: snapshot({ rounds: [revealed()] }) });
   fake.route('GET', `/api/teams/${TEAM}`, { body: { id: TEAM, name: 'No Jira', role: 'member', jira: { configured: false } } });
-  fake.room(ROOM, { snapshot: snapshot({ rounds: [revealed()] }), overlay: { own: [], heldByThisTab: false } });
   await page.goto(`/teams/${TEAM}/poker/${CODE}`);
   await page.locator('.nt-table').waitFor();
   await expect.poll(() => fake.requests.filter((r) => r.path === `/api/teams/${TEAM}`).length).toBe(1);

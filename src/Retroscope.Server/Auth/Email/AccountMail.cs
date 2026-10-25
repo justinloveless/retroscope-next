@@ -10,6 +10,10 @@ namespace Retroscope.Server.Auth.Email;
 /// </summary>
 public sealed class AccountMail(Outbox outbox, EmailBudget budget, HostingOptions hosting, TimeProvider time) : IAccountMail {
     public Task SignedUpAsync(PrincipalId user, string email, IPAddress? ip, CancellationToken cancellationToken) =>
+        VerifyEmailAsync(user, email, ip, cancellationToken);
+
+    /// <summary>A verification link for the user's address: at sign-up, and again when they ask (UX18 decision 14).</summary>
+    public Task VerifyEmailAsync(PrincipalId user, string email, IPAddress? ip, CancellationToken cancellationToken) =>
         SendWithTokenAsync(TokenPurpose.VerifyEmail, user, email, ip, Templates.VerifyEmail, cancellationToken);
 
     public async Task AlreadyRegisteredAsync(PrincipalId user, string email, IPAddress? ip, CancellationToken cancellationToken) {

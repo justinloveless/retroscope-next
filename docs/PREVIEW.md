@@ -42,7 +42,7 @@ to become another demo account. The choice is kept in a cookie for that host.
 | `jonas` | Jonas Weber | member |
 | `aisha` | Aisha Okafor | member |
 | `tom`, `lena` | Tom Becker, Lena Novak | Platform Guild only |
-| `signed-out` | nobody | (shows the landing page, sign-in and the guest join form) |
+| `signed-out` | nobody | (shows the welcome page and the sign-in card; any other page sends you to sign in) |
 
 On the sign-in page, any of the emails above (`priya.raman@example.test`, …) signs you in with any
 password. Signing up creates a new account. Mails (verification, sign-in links, resets, invites) are
@@ -51,13 +51,13 @@ printed in the terminal that runs the demo, with the link to open.
 ### What is in it
 
 - **Demo Team**: six members with avatars, two pending invites, three board templates, four kudos types
-  and a kudos leaderboard. **Platform Guild** is a second, quieter team.
-- **Dashboard and mentions**: recent boards and sessions, and cards and comments that mention you.
+  and a kudos leaderboard. **Platform Guild** is a second, quieter team; switch to it from the team switcher
+  in the header. `/` opens your last team (UX18: there is no dashboard and no teams list).
+- **Mentions**: cards and comments that mention you, behind the bell in the header.
 - **Jira**: a fake `DEMO` project with two sprints and a backlog. `DEMO-123` has a description with a
   table island, comments, links and attachments. Team settings show the connection.
 - **Team poker session** (`PKR41CHKT1`): three revealed rounds with winners and named votes, round 4
   (`DEMO-123`) in voting and round 5 (`DEMO-124`) pending as Priya's preview.
-- **Quick poker session** (`/poker/QCKPKR2026`) with two guests.
 - **Retro boards**, one per stage:
   - `SPR42THNK1`, thinking. The shared timer is running and new cards keep arriving.
   - `CHKVTNG042`, voting. Votes are counted and voters stay hidden.
@@ -122,8 +122,7 @@ they work as soon as those units merge. Until then:
 
 - **Realtime rooms.** An `UnavailableRoomGateway` stub is still registered, so the WebSocket does not
   reach poker or retro rooms yet.
-- **Teams, the dashboard and team lists, and creating sessions and boards over HTTP** (U24, U25). Until
-  then the dashboard shows an error.
+- **Teams, and creating sessions and boards over HTTP** (U24, U25).
 - **The Jira proxy** (U26).
 
 The server log is `artifacts/preview/server.log`. The session cookie is `__Host-rs_sid` (`Secure`), which

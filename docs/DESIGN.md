@@ -39,12 +39,13 @@ Scores run from 1 to 5 on Correctness, Simplicity, Performance and Security. "Ba
 | Question | Decision | Reason |
 |---|---|---|
 | Notifications | **Dropped.** The table goes to the archive. Mentions are kept as a `mentions` index table, a "Mentions" page and an unread badge computed from `users.mentions_seen_at`. | Today mentions never created notifications; the account page found them with a LIKE scan. None of the existing notification producers carry over. A pull-only index needs no fan-out and no push channel. |
-| Guests | Server principals with an HttpOnly cookie. They may join quick poker sessions and retro boards with `link` or `password` visibility. They may never join team poker sessions or `team` boards. Guests post under their guest name; the "Post anonymously" option is for signed-in users only (parity). | Identity must be server-issued. |
-| Quick-session expiry | Quick sessions and quick boards are purged after 30 days with no activity, and never while anyone is subscribed. | The original 1-hour cron deleted sessions mid-meeting. |
+| Guests | **Removed (UX18).** Nobody joins as a guest: every room belongs to a team, and only signed-in members of that team open it. Guest and Slack (`external`) principals imported from the original or created before UX18 are kept as history: their cards, votes, seats and readiness stay, and retro cards and comments keep a "guest" badge, but none of them can sign in or open a socket. On the poker table a past voter who is not a member shows as "Unknown" (`docs/followups/UX18.md`). The "Post anonymously" option is for signed-in users (parity). | One real team uses the app, and the owner chose members-only access. History is kept, not merged into user accounts. |
+| Quick sessions and boards | **Removed (UX18).** Every poker session and retro board belongs to a team. Migration 0003 deleted the team-less rooms that were left, with no archive. | Nobody could open them under members-only access, and keeping content nobody can open goes against tenet 4. |
+| Navigation | **Team-first (UX18).** The app header is the team: logo, team switcher, then the team's sections as tabs (§g.2). There is no Dashboard, no Teams list and no favorites; a signed-in visit to `/` opens the user's last team, and a user in no team gets a "create or join a team" screen. | Most people are in exactly one team, and the Dashboard mostly repeated the team page. |
 | Team deletion | Soft delete (`teams.deleted_at`). Everything the team owns becomes inaccessible at once; a hard cascade runs after 30 days. | A deleted team's boards must stop being reachable together with the team. |
 | Topic badges on the team poker tab | Parent **keys** are persisted per round; parent **summaries** are resolved live through the Jira cache; key-only badges when Jira is unreachable. | Locked decision: no Jira titles in Postgres. |
 | Pre-reveal votes | Persisted in `poker_votes` (crash safety), never projected to other principals before reveal. | "No lost updates" plus "hidden until reveal" is a wire property. |
-| Private boards | `visibility ∈ {link, team, password}`. Board passwords are bcrypt-hashed and checked on the server; a correct password writes a durable grant that a password change invalidates. New team boards default to `team`. | §8.2 covers the import mapping. |
+| Board access | **Members only (UX18).** A board opens to the members of its team and to nobody else. There is no board visibility, no board password and no access grant; the Share dialog is "Copy link". The original's `link` and `password` boards became ordinary team boards. | Replaces the first build's `link`/`team`/`password` visibility. §h.2 covers the import mapping. |
 | Poker chat panel | Chat is dropped (locked). The right-hand panel becomes a **Round panel** with two tabs: "Issue" (the Jira details drawer, inline on wide screens) and "History" (every round's result, with "Revealed by X · 14:02" lines that replace the old system chat messages). | Keeps the layout balanced and gives "history" a home. |
 | Cards moving between columns | Not added. | It is not parity. |
 | Retro "Create JIRA ticket" on action items | Replaced by a real create through the Jira proxy for team boards with Jira configured; the hard-coded employer Jira URL is gone. Owned by U26 (route reuse: `POST issues`) and U36 (button on action-item cards). | Parity of intent without the hard-coded org. |
@@ -73,7 +74,7 @@ retroscope-next/
     ci.yml                        # build + test + AOT smoke on every PR and push to main, then images.yml on main
     images.yml                    # from ci on main, and on tags: build app + importer for linux-x64, AOT smoke, push to GHCR by digest
   db/
-    migrations/0001_init.sql      # embedded into Retroscope.Server
+    migrations/0001_init.sql      # embedded into Retroscope.Server; later changes are new files (0002, 0003 for UX18, …)
   src/
     Retroscope.Core/              # PURE: no IO, no clock, no ASP.NET, no Npgsql. AOT-compatible.
       Ids/                        # PrincipalId, TeamId, SessionId, RoundId, BoardId, ColumnId, CardId… (readonly record structs),
@@ -101,7 +102,7 @@ retroscope-next/
                                   # Health, ShutdownCoordinator, SpotLoadCommand
       Json/                       # one JsonSerializerContext partial per module, chained in Program.cs
       Data/                       # Db (NpgsqlSlimDataSourceBuilder), Migrator, Leader (lease + fence), Repos/*.cs
-      Auth/                       # Sessions, Guests, Passwords, AccountClaims, Oidc, Tokens, Email/ (Outbox, SmtpSender, Templates)
+      Auth/                       # Sessions, Passwords, AccountClaims, Oidc, Tokens, Email/ (Outbox, SmtpSender, Templates)
       Realtime/
         Transport/                # WsEndpoint, Connection, OutboundQueue, ConnectionRegistry, ConnRateLimit
         Actors/                   # RoomActor<TState,TCmd,TEvt>, ActorRegistry, ByteBoundedRing, PresenceTable, ActorTimers, IRoomStore
@@ -109,7 +110,8 @@ retroscope-next/
         Stores/                   # PokerStore, RetroStore, TeamStore (load + persist events, SQL only)
       Jira/                       # JiraClient, JiraThrottle, JiraCache, Jql, BrowseService, JiraMap, Credentials,
                                   # PokerJiraPort (implements IPokerJiraPort; runs the meta loop), IslandStore
-      Endpoints/                  # Auth, Me, Guest, Dashboard, Teams, Invites, Templates, Endorsements, Retro, Poker, Jira, Blobs, Admin
+      Endpoints/                  # Auth, Me, Teams, Invites, Templates, Endorsements, Retro, Poker, Jira, Blobs, Admin
+                                  # (UX18 removed Guest and Dashboard)
       Jobs/                       # RetentionJob, EmailWorker, TokenSweepJob, TeamPurgeJob
     Retroscope.Importer/          # JIT console (not AOT), binary "retroscope-import"; references Core only; AngleSharp for HTML
       Program.cs  Source/  Archive/  Map/  Html/  Storage/  Verify/
@@ -172,7 +174,8 @@ Conventions:
 - `0001_init.sql` stays editable (owned by U1, change requests by PR) until U43 freezes it before the first production deploy; until then CI and Testcontainers always use fresh databases, so the migrator's sha guard never trips during development.
 
 ```sql
--- db/migrations/0001_init.sql
+-- db/migrations/0001_init.sql, with 0002 and 0003 (UX18) folded in; "Later migrations" below says what each changed.
+-- tests/schema.snapshot.sql is the exact schema.
 create schema if not exists archive;
 
 create table schema_migrations (
@@ -207,7 +210,8 @@ end $$;
 ------------------------------------------------------------------------------- identity
 create table principals (
   id           uuid primary key,
-  kind         text not null check (kind in ('user','guest','external')),   -- external = imported Slack voter
+  kind         text not null check (kind in ('user','guest','external')),   -- external = imported Slack voter;
+                                                                            -- guest and external are history only (UX18)
   display_name text check (display_name is null or char_length(display_name) between 1 and 60),
   created_at   timestamptz not null default now(),
   check (kind = 'user' or display_name is not null)                         -- users derive names from users row
@@ -273,12 +277,7 @@ create table sessions (
 create index sessions_user_ix on sessions (user_id);
 create index sessions_expiry_ix on sessions (idle_expires_at);
 
-create table guest_tokens (
-  token_hash   bytea primary key check (octet_length(token_hash) = 32),
-  principal_id uuid not null references principals(id) on delete cascade,
-  expires_at   timestamptz not null                                      -- 180 days, slid at most daily
-);
-create index guest_tokens_principal_ix on guest_tokens (principal_id);
+-- guest_tokens: dropped by 0003 (UX18); nobody signs in as a guest.
 
 create table auth_tokens (                    -- magic link, password reset, email verification
   token_hash  bytea primary key check (octet_length(token_hash) = 32),
@@ -326,12 +325,7 @@ create table team_members (
 create unique index team_members_one_owner_uq on team_members (team_id) where role = 'owner';
 create index team_members_user_ix on team_members (user_id);
 
-create table team_favorites (
-  user_id    uuid not null references users(id) on delete cascade,
-  team_id    uuid not null references teams(id) on delete cascade,
-  created_at timestamptz not null default now(),
-  primary key (user_id, team_id)
-);
+-- team_favorites: dropped by 0003 (UX18); personal data with no reader left once the Teams list went.
 
 create table team_invites (
   id          uuid primary key,
@@ -375,14 +369,15 @@ create table team_jira_config (
   updated_at      timestamptz not null default now()
 );
 
-create table recent_activity (
+create table recent_activity (               -- feeds me.lastTeamId (§c.5)
   user_id     uuid not null references users(id) on delete cascade,
-  entity_kind text not null check (entity_kind in ('team','board','poker')),
+  entity_kind text not null check (entity_kind in ('team')),   -- 0003 (UX18): board and poker rows went with the Dashboard
   entity_id   uuid not null,
   last_at     timestamptz not null default now(),
   primary key (user_id, entity_kind, entity_id)
 );
 create index recent_activity_user_ix on recent_activity (user_id, last_at desc);
+create index recent_activity_entity_ix on recent_activity (entity_kind, entity_id);   -- 0002: purges look up by entity
 
 ------------------------------------------------------------------------------- realtime infrastructure
 create table client_cursors (                 -- exactly-once command application per (room, tab)
@@ -400,7 +395,7 @@ create table client_cursors (                 -- exactly-once command applicatio
 create table poker_sessions (
   id                  uuid primary key,
   code                text not null check (code ~ '^[A-Za-z0-9-]{4,36}$'),   -- imported codes verbatim (incl. uuid text)
-  team_id             uuid references teams(id) on delete cascade,             -- null = quick session
+  team_id             uuid not null references teams(id) on delete cascade,    -- 0003 (UX18): every session has a team
   created_by          uuid references principals(id) on delete set null,
   presence_enabled    boolean not null default true,
   follow_spotlight    boolean not null default true,
@@ -416,7 +411,7 @@ create table poker_sessions (
 create unique index poker_sessions_code_uq on poker_sessions (code);
 create index poker_sessions_code_ci_ix on poker_sessions (upper(code));
 create index poker_sessions_team_ix on poker_sessions (team_id, created_at desc) where team_id is not null;
-create index poker_sessions_quick_idle_ix on poker_sessions (last_activity_at) where team_id is null;
+-- poker_sessions_quick_idle_ix (quick-session retention): dropped by 0003 (UX18).
 
 create table poker_observers (
   session_id   uuid not null references poker_sessions(id) on delete cascade,
@@ -478,12 +473,10 @@ create table poker_votes (                    -- pre-reveal rows persisted for c
 create table retro_boards (
   id                   uuid primary key,
   code                 text not null check (code ~ '^[A-Za-z0-9-]{3,64}$'),   -- new: 10-char Crockford (S9); imported verbatim
-  team_id              uuid references teams(id) on delete cascade,
+  team_id              uuid not null references teams(id) on delete cascade,   -- 0003 (UX18): every board has a team
   title                text not null check (char_length(title) between 1 and 200),
   created_by           uuid references principals(id) on delete set null,
-  visibility           text not null check (visibility in ('link','team','password')),
-  password_hash        text check (password_hash ~ '^\$2[aby]\$\d\d\$[./A-Za-z0-9]{53}$'),
-  password_set_at      timestamptz,
+  -- visibility, password_hash, password_set_at and their checks: dropped by 0003 (UX18); members only.
   stage                text not null default 'thinking' check (stage in ('thinking','voting','discussing','closed')),
   focus_card_id        uuid,
   -- config (1:1, inlined)
@@ -509,25 +502,16 @@ create table retro_boards (
   last_activity_at     timestamptz not null default now(),
   created_at           timestamptz not null default now(),
   updated_at           timestamptz not null default now(),
-  check ((visibility = 'password') = (password_hash is not null)),
-  check ((password_hash is null) = (password_set_at is null)),
-  check (visibility <> 'team' or team_id is not null),
   check ((timer_state = 'running') = (timer_ends_at is not null)),
   check ((timer_state = 'paused') = (timer_remaining_ms is not null))
 );
 create unique index retro_boards_code_uq on retro_boards (code);
 create index retro_boards_code_ci_ix on retro_boards (upper(code));
 create index retro_boards_team_ix on retro_boards (team_id, created_at desc) where team_id is not null and deleted_at is null;
-create index retro_boards_quick_idle_ix on retro_boards (last_activity_at) where team_id is null;
+-- retro_boards_quick_idle_ix (quick-board retention): dropped by 0003 (UX18).
 alter table blobs add constraint blobs_board_fk foreign key (board_id) references retro_boards(id) on delete cascade;
 
-create table board_access_grants (            -- password unlocked by this principal
-  board_id       uuid not null references retro_boards(id) on delete cascade,
-  principal_id   uuid not null references principals(id) on delete cascade,
-  password_epoch timestamptz not null,        -- = retro_boards.password_set_at at grant time; a change invalidates
-  granted_at     timestamptz not null default now(),
-  primary key (board_id, principal_id)
-);
+-- board_access_grants (password unlocks): dropped by 0003 (UX18).
 
 create table retro_columns (
   id              uuid primary key,
@@ -744,16 +728,20 @@ create table archive.excluded_tables (       -- foreign / non-Retroscope data: c
 -- revoke all on schema archive from retroscope_app;  (DBA/admin access only)
 ```
 
+**Later migrations.** `0001_init.sql` is frozen; every change is a new file.
+- `0002_recent_activity_entity_ix.sql` indexes `recent_activity` by entity, for the purges that delete by entity.
+- `0003` (UX18) contracts the schema for members-only access in the same release that stops using it (`deploy/RUNBOOK.md` §11): it deletes the team-less poker sessions and retro boards (cascading to their rounds, votes, cards, comments and every other row with a foreign key to them) and the `client_cursors` and `recent_activity` rows that point at them, which have no foreign key; sets `team_id` `NOT NULL` on both room tables and drops the two quick-room retention indexes; drops board visibility, the board password columns and `board_access_grants`; drops `guest_tokens` and `team_favorites`; deletes the `recent_activity` rows that are not of kind `team` and narrows its kind check. Every principal stays, `guest` and `external` ones included.
+
 **Retention** (`RetentionJob`, hourly, only on the leader):
-- Quick poker sessions and quick boards: delete when `last_activity_at < now() - 30 days`, through `ActorRegistry.TryPurge(roomKey, deleteFn)`, which atomically holds the room key closed (no `GetOrStart` can load it) while it re-checks "no subscribers", runs the delete and releases (R18).
-- Expired sessions, guest tokens, auth tokens, revoked or expired invites.
+- Quick rooms and their 30-day idle purge are gone (UX18). `ActorRegistry.TryPurge(roomKey, deleteFn)` remains for the team purge and board deletes, which must not race a load: it atomically holds the room key closed (no `GetOrStart` can load it) while it re-checks "no subscribers", runs the delete and releases (R18).
+- Expired sessions, auth tokens, revoked or expired invites.
 - `client_cursors` with `updated_on < current_date - 14` (sequential scan of a small table; no index, F23).
 - Board images with `attached_at is null and created_at < now() - 24 h` (S7).
 - `email_outbox` rows with `body_text is null` older than 7 days.
 - Teams with `deleted_at < now() - 30 days` are hard-deleted (cascade).
 - `audit_log` older than 180 days.
 
-**Display names.** A user's room name is `coalesce(nullif(nickname,''), nullif(full_name,''), 'User')` and is **never** the email. Guests and external principals use `principals.display_name`.
+**Display names.** A user's room name is `coalesce(nullif(nickname,''), nullif(full_name,''), 'User')` and is **never** the email. Guest and external principals (history only since UX18) use `principals.display_name`.
 
 ---
 
@@ -763,7 +751,7 @@ create table archive.excluded_tables (       -- foreign / non-Retroscope data: c
 
 ```csharp
 public readonly record struct PrincipalId(Guid Value);
-public enum PrincipalKind : byte { User, Guest, External }
+public enum PrincipalKind : byte { User, Guest, External }        // Guest and External: history only, never callers (UX18)
 public sealed record Principal(PrincipalId Id, PrincipalKind Kind, string DisplayName, Guid? AvatarBlobId, bool IsAppAdmin);
 
 public enum RoomKind : byte { Poker, Board, Team }
@@ -772,12 +760,11 @@ public readonly record struct ClientId(Guid Value);              // per tab (ses
 public readonly record struct ConnectionId(Guid Value);          // per socket
 
 public enum TeamRole : byte { Member, Admin, Owner }
-// Viewer carries identity only. Role and grant are resolved at DECIDE time (R12), never cached at subscribe,
-// so a demotion or an invalidated password grant takes effect on the very next command.
+// Viewer carries identity only. The role is resolved at DECIDE time (R12), never cached at subscribe,
+// so a removal or a demotion takes effect on the very next command.
 public sealed record Viewer(Principal Who, ClientId Client, ConnectionId Conn);
-public interface IAccessView {                       // backed by the versioned TeamMembershipCache + grant table
-    TeamRole? RoleIn(Guid teamId, PrincipalId p);
-    bool HasCurrentGrant(Guid boardId, PrincipalId p, DateTimeOffset? passwordSetAt);
+public interface IAccessView {                       // backed by the versioned TeamMembershipCache
+    TeamRole? RoleIn(Guid teamId, PrincipalId p);    // (UX18 removed the board-grant lookup)
 }
 public sealed record CommandContext(Viewer Viewer, DateTimeOffset Now, PresenceView Presence, IAccessView Access);
 // PresenceView: present principals (grace-smoothed) AND present ClientIds per principal (R7).
@@ -803,14 +790,14 @@ State is plain mutable classes owned by one actor thread (B). `Decide` is pure a
 
 ```csharp
 public sealed class PokerState {
-    public Guid SessionId; public string Code = ""; public Guid? TeamId; public PrincipalId? CreatedBy;
+    public Guid SessionId; public string Code = ""; public Guid TeamId;   // every session has a team (UX18)
     public bool PresenceEnabled, FollowSpotlight;
     public HashSet<PrincipalId> Observers = new();
     public Spotlight? Spotlight;                       // Holder, HolderClient (ClientId?), RoundId, Dirty (unpersisted move)
     public List<Guid> Order = new();                   // rounds by sort_key (dense)
     public Dictionary<Guid, Round> Rounds = new();
     public Guid? CurrentRoundId; public int NextRoundNumber;
-    public Dictionary<PrincipalId, Seat> Roster = new(); // team members (team); quick: trimmed to present ∪ voted (R27)
+    public Dictionary<PrincipalId, Seat> Roster = new(); // the team's members
     public DateTimeOffset WarmUntil;                   // load time + 15 s: no auto-reveal while clients reconnect
 }
 public sealed class Round {
@@ -826,7 +813,7 @@ public static class Deck { public static readonly short[] Values = [1, 2, 3, 5, 
 
 `Scoring.Winner` is a line-for-line port of `getWinningVoteFromSelections` (`orig/src/hooks/usePokerSession.ts:52-85`): abstains excluded; a between vote adds weight 1 to each endpoint; plurality wins; ties go to the higher value; no participants gives 0. It is checked against golden vectors produced by running the original TypeScript (§j).
 
-**Retro state** holds board meta, config, stage, focus, timer, archived flag, `List<Column>`, `Dictionary<Guid, Card>` (each card keeps `HashSet<PrincipalId> Voters`), `Dictionary<Guid, List<Comment>>`, `HashSet<PrincipalId> ReadyThisStage`, endorsements for the board, and the team's member list (from the team membership cache). The member list, mention candidates and endorsements are **projected only to team members** (S12); guests and non-members on `link`/`password` team boards never receive the roster. Anonymous ownership is checked through an injected `IAnonTagger` (HMAC-SHA256 with `k_anon`, per board), so the key never lives in state.
+**Retro state** holds board meta, config, stage, focus, timer, archived flag, `List<Column>`, `Dictionary<Guid, Card>` (each card keeps `HashSet<PrincipalId> Voters`), `Dictionary<Guid, List<Comment>>`, `HashSet<PrincipalId> ReadyThisStage`, endorsements for the board, and the team's member list (from the team membership cache). Every board belongs to a team and only its members subscribe (UX18), so the member list, mention candidates and endorsements reach members only (S12) without a separate rule. Anonymous ownership is checked through an injected `IAnonTagger` (HMAC-SHA256 with `k_anon`, per board), so the key never lives in state.
 
 **Team state** holds members and roles, open and recently closed action items, and endorsement types.
 
@@ -835,7 +822,7 @@ public static class Deck { public static readonly short[] Values = [1, 2, 3, 5, 
 | Room key | Actor | Single-writer tables | Subscribers |
 |---|---|---|---|
 | `poker:<sessionId>` | PokerActor | `poker_sessions`, `poker_observers`, `poker_rounds`, `poker_votes` | participants |
-| `board:<boardId>` | BoardActor | `retro_boards`, `retro_columns`, `retro_cards`, `retro_votes`, `retro_comments`, `retro_readiness`, `board_access_grants`, `mentions`, `endorsements`, `blobs` (board images, insert only) | board viewers |
+| `board:<boardId>` | BoardActor | `retro_boards`, `retro_columns`, `retro_cards`, `retro_votes`, `retro_comments`, `retro_readiness`, `mentions`, `endorsements`, `blobs` (board images, insert only) | board viewers (members of the board's team) |
 | `team:<teamId>` | TeamActor | `team_members`, `team_action_items` (after creation), `endorsement_types`, `board_templates`, `teams.max_endorsements_per_board` | team pages; board pages of that team (for live action items); poker pages of that team (roster) |
 
 Cross-room rules:
@@ -846,11 +833,11 @@ Cross-room rules:
 - **Every later mutation goes to the owner.** Assign and done, even from the board page, are sent by the client to `team:<id>`; board pages of team members subscribe to both rooms. Comments on action items from the team page are an HTTP call that the server routes to the source board's actor (`ActorRegistry.Ask` from an HTTP handler, never from an actor).
 - **Derived copies are monotonic.** BoardActor posts `SyncActionText(cardId, text, cardVersion)`; TeamActor applies it only if `cardVersion > source_version`. On load TeamActor repairs any copy left stale by a crash between the two commits:
   `update team_action_items t set text = c.body, source_version = c.version from retro_cards c where c.id = t.source_card_id and t.team_id = $1 and c.version > t.source_version`.
-- **Access changes fan out.** Member removal, role change, board visibility or password change, team deletion, session revocation and user disable post `AccessChanged` to affected live actors. Each actor re-runs `Policy.Can(Subscribe)` for its subscribers and sends `kick` where it now fails. Elevated rights need no refresh because deciders resolve role and grant at decide time through `IAccessView` (R12). A process-wide `TeamMembershipCache` (versioned, immutable map per team) backs both.
+- **Access changes fan out.** Member removal, role change, team deletion, session revocation and user disable post `AccessChanged` to affected live actors. Each actor re-runs `Policy.Can(Subscribe)` for its subscribers and sends `kick` where it now fails. Elevated rights need no refresh because deciders resolve the role at decide time through `IAccessView` (R12). A process-wide `TeamMembershipCache` (versioned, immutable map per team) backs both.
 
 ### c.3 Wire protocol
 
-One same-origin WebSocket per tab at `GET /ws`, authenticated by the session or guest cookie on upgrade, with an exact `Origin` check. Frames are UTF-8 JSON produced by STJ source generation. Inbound frames are capped at **64 KiB** (an 8,000-character card of emoji or CJK is up to 32 KB of UTF-8 before escaping, S32); body limits are enforced in characters by the deciders. permessage-deflate is not negotiated (frames are 50–400 bytes; snapshots go out once per subscription). All timestamps are Unix milliseconds of server time.
+One same-origin WebSocket per tab at `GET /ws`, authenticated by the session cookie on upgrade, with an exact `Origin` check. Only a signed-in user opens one, verified or not (UX18); anyone else gets a 401 on the upgrade. Frames are UTF-8 JSON produced by STJ source generation. Inbound frames are capped at **64 KiB** (an 8,000-character card of emoji or CJK is up to 32 KB of UTF-8 before escaping, S32); body limits are enforced in characters by the deciders. permessage-deflate is not negotiated (frames are 50–400 bytes; snapshots go out once per subscription). All timestamps are Unix milliseconds of server time.
 
 **Liveness is server-driven (R6).** The server accepts with `WebSocketAcceptContext { KeepAliveInterval = 15 s, KeepAliveTimeout = 30 s }` (protocol PING/PONG; browsers answer without running JS, so throttled background tabs stay connected; API verified in the ASP.NET Core WebSockets doc, AOT behaviour confirmed in U14). The app-level `ping` exists only for clock samples.
 
@@ -889,7 +876,7 @@ Close codes: `1012` restart/fencing loss/DB outage/outcome-unknown commit, `4400
 - On `sub` with `(e, s)`: `e == epoch && s == seq` → empty replay; `e == epoch && s >= ring.FirstSeq − 1` → replay from the ring; otherwise → snapshot. The ring is bounded in **bytes** (256 KB per room) under a global ring budget (16 MB) that trims the coldest rooms first; a trimmed ring just means a snapshot (R11).
 - Client rule: apply a tx only if `s == last + 1`; ignore `s <= last`; on `s > last + 1` drop the frame and send `sub {e, s:last}`.
 
-**Boot snapshot (from B).** `GET /poker/{code}`, `/teams/{tid}/poker/{code}` and `/retro/{code}` resolve the room through the shared `RoomResolver` (same per-IP code-lookup limit and identical miss/forbidden response as `by-code`, S9), check access and ask the actor (`ActorRegistry.Ask(Query(viewer))`, 400 ms timeout) for the viewer's projection plus `(epoch, seq)`. The shell embeds it in `<script type="application/json" id="boot">` (with `<` escaped as `\u003c`). The client paints from it immediately and sends `hello` with `{e, s}`; the server normally answers with an empty replay. On timeout the boot JSON simply omits the snapshot and the socket delivers it. This removes one long-haul round trip (the WebSocket's own TCP+TLS setup) from first paint.
+**Boot snapshot (from B).** `GET /poker/{code}`, `/teams/{tid}/poker/{code}` and `/retro/{code}` resolve the room through the shared `RoomResolver` (same per-IP code-lookup limit and identical miss/forbidden response as `by-code`, S9), check access and ask the actor (`ActorRegistry.Ask(Query(viewer))`, 400 ms timeout) for the viewer's projection plus `(epoch, seq)`. A signed-out request never gets that far: `Shell` answers it with a no-store `302` to `/login?return=<path and query>` before the boot contributors run (UX18, §d). The shell embeds it in `<script type="application/json" id="boot">` (with `<` escaped as `\u003c`). The client paints from it immediately and sends `hello` with `{e, s}`; the server normally answers with an empty replay. On timeout the boot JSON simply omits the snapshot and the socket delivers it. This removes one long-haul round trip (the WebSocket's own TCP+TLS setup) from first paint.
 
 ### c.4 Command and event catalogue
 
@@ -914,9 +901,9 @@ General rules for every poker command: the caller must not be an observer for `v
 | `poker.round.setTicket` | `{roundId, ticketKey\|null, baseVersion}` | Round voting and active; `baseVersion == round.version` else nack `stale {current:{ticketKey, version}}` (R5). Upper-cased; a bare number gets the team prefix; validated. Client debounces 500 ms and flushes on blur. `version+1`; `parent_key` is cleared and refilled by the Jira meta loop. | `poker.round.updated {roundId, ticketKey, parentKey:null, version}` |
 | `poker.round.commitPending` | `{roundId}` | Caller is the pending owner; round pending. | `poker.round.updated {pending:false}`, `poker.pointer {nav:true}` |
 | `poker.round.discardPending` | `{roundId}` | Caller is the owner; round still pending. Deletes it; pointer repaired (`cause:'repair'`). | `poker.round.deleted {roundId}`, (`poker.pointer`), (`poker.spotlight`) |
-| `poker.round.delete` | `{roundId}` | Team session: team admin/owner (resolved at decide time). Quick session: any signed-in participant. At least one other round remains. Spotlight repaired **before** the delete in the same transaction (moved to the pointer round, or released), then pointer repaired. | `poker.round.deleted`, (`poker.pointer`), (`poker.spotlight`) |
+| `poker.round.delete` | `{roundId}` | Team admin/owner (resolved at decide time). At least one other round remains. Spotlight repaired **before** the delete in the same transaction (moved to the pointer round, or released), then pointer repaired. | `poker.round.deleted`, (`poker.pointer`), (`poker.spotlight`) |
 | `poker.round.reorder` | `{order:[roundId…]}` | Must be a permutation of the current rounds, else nack `stale` (client rebases its intent once and retries). `sort_key` rewritten densely under the deferred unique constraint. | `poker.round.order {order}` |
-| `poker.rounds.clearAll` | `{newRoundId}` | Team: admin/owner. Quick: any signed-in participant. In one transaction: repair the spotlight (holder keeps it on the new round 1; if none, stays released), delete all rounds, create round 1, pointer `nav:true` (R9). | `poker.rounds.reset {round}`, `poker.pointer`, (`poker.spotlight`) |
+| `poker.rounds.clearAll` | `{newRoundId}` | Team admin/owner. In one transaction: repair the spotlight (holder keeps it on the new round 1; if none, stays released), delete all rounds, create round 1, pointer `nav:true` (R9). | `poker.rounds.reset {round}`, `poker.pointer`, (`poker.spotlight`) |
 | `poker.settings.update` | `{presenceEnabled?, followSpotlight?, expected:{…}}` | Any participant (parity). Each changed field's `expected` value must equal the current one, else nack `stale {current}` (R5). | `poker.settings {…}` |
 | `poker.observer.set` | `{principalId, observer}` | Any participant for anyone (parity). Becoming an observer deletes that principal's votes in voting rounds and bumps `AutoRevealGen` of every affected round (removing a blocker re-evaluates auto-reveal, R28). | `poker.observers {ids}`, `poker.vote.state`×n |
 | `poker.spotlight.take` | `{roundId, force}` | If another principal, or another bound tab of mine, holds it and `force` is false → nack `spotlight_held {holder}` (client shows "Take spotlight?"). Taking or losing the spotlight discards the previous holder's pending rounds in the same tx (R8). | `poker.spotlight {holder, roundId}`, (`poker.round.deleted`) |
@@ -929,7 +916,7 @@ General rules for every poker command: the caller must not be an observer for `v
 | internal presence change | | Principal first connection / last connection + 10 s grace → `join`/`leave`; every presence change re-arms `AutoRevealDue` (R14). The holder's **bound client** gone for 10 s → `HolderClient = null` (any tab of the holder may bind). The holder principal absent for **3 min** (`SpotlightGraceDue`) → release + discard their pending rounds (R6, R7). A pending owner absent past the 10 s grace → discard their pending rounds. | `presence.join/leave/update`, (`poker.spotlight`), (`poker.round.deleted`) |
 | internal `RosterChanged` / `TeamSettingsChanged` | | Team membership or point descriptions changed. | `poker.roster {seats}` / `team.settings {pointDescriptions}` |
 | internal `JiraMetaLoaded` / `JiraMetaInvalidated(key)` | | Loaded: persists `parent_key` only when it changed; titles stay in memory. Invalidated (after any PATCH/transition/points through the proxy, R15b): refetch that key. | `poker.round.updated {parentKey}` + unsequenced `x jira.meta` |
-| internal `SessionDeleted` (HTTP) | | Team admin, or quick creator. | `poker.session.deleted`, then `kick` everyone |
+| internal `SessionDeleted` (HTTP) | | Team admin/owner. | `poker.session.deleted`, then `kick` everyone |
 
 **Pointer and navigation (R13).** `poker.pointer {roundId, cause:'next'|'create'|'createMany'|'commit'|'reset'|'repair', nav}`.
 - `nav:true` (next, non-pending create, createMany, commitPending, clearAll): **every** client navigates to `roundId` (parity with `POKER_FOLLOW_CURRENT_ROUND_EVENT`, fix `32a5363`), including followers of a spotlight held by someone else. The spotlight itself does not move unless its holder issued the command; followers re-snap to the spotlight only when `poker.spotlight.roundId` next changes (parity: `context.tsx:913-929` reacts to *changes* of the spotlight round).
@@ -944,7 +931,7 @@ General rules for every poker command: the caller must not be an observer for `v
 
 **Auto-reveal (server only, R14).** `eligible = (present − observers) ∪ {absent principals whose vote is locked or abstained}`, where `present` is the grace-smoothed presence set, or `Roster ∪ present` when `presence_enabled=false`. An absent principal with an *unlocked* vote does not block. Fires when the round is active, voting, not pending, has `auto_reveal`, `eligible ≠ ∅`, every eligible principal is locked or abstained, and at least one vote is not abstained or everyone abstained. Any vote change or presence change bumps/re-arms `AutoRevealDue` 600 ms later; `OnWarm` arms it after load. It runs for every active round, not just the one someone is viewing. Deliberate change from the original: an absent teammate no longer blocks auto-reveal; a manual reveal still treats unlocked votes as abstains.
 
-**Seats shown** = `Roster ∪ present ∪ voted − observers` for team sessions, `present ∪ voted − observers` for quick sessions. Absent seats are dimmed. Guest seats carry a "guest" badge (S21). Pure projection; nothing is written.
+**Seats shown** = `Roster ∪ present ∪ voted − observers`; every session is a team session (UX18). Absent seats are dimmed. A guest seat has a "guest" badge (S21), but the snapshot describes only the roster and the present principals, so a past voter who is not a member (an imported or earlier guest, or a former member) shows as "Unknown" without one (`docs/followups/UX18.md`). Pure projection; nothing is written.
 
 #### Retro (`board:<boardId>`)
 
@@ -959,11 +946,11 @@ Stage gates (`Core/Retro/StageRules.cs`, applied only when `stages_enabled`):
 
 With stages off everything is allowed (subject to `voting_enabled`) and voters are shown. An archived board rejects every content command with `board_archived` and shows voters.
 
-**Facilitator (S12).** Boards with a `team_id`: **team members only**, whatever the visibility; non-members (signed-in or guest) on `link`/`password` team boards may add, edit their own, vote and comment, nothing more. Quick boards (no team): any signed-in principal with access (parity). Guests are never facilitators. Role is resolved at decide time (R12).
+**Facilitator (S12, UX18).** Every board belongs to a team and only the team's members subscribe, so every participant is a member and every member facilitates. Archiving, unarchiving and deleting stay with team admins and owners over HTTP (§d). The role is resolved at decide time (R12), so a removed member loses the board on the next command.
 
 | Command | `d` | Rules | Events |
 |---|---|---|---|
-| `retro.card.add` | `{cardId, columnId, body, anonymous}` | Stage gate; `anonymous` requires `allow_anonymous` and a signed-in user; markup validated; mentions extracted (team members only); `![](blob:id)` refs must be board images of this board and are marked `attached_at` in the same tx (and `created_by` nulled if `anonymous`, S6/S7). Action-items column on a team board also inserts `team_action_items` (create in place; `created_by` null when anonymous). | `retro.card.added {card}` |
+| `retro.card.add` | `{cardId, columnId, body, anonymous}` | Stage gate; `anonymous` requires `allow_anonymous` and a signed-in user; markup validated; mentions extracted (team members only); `![](blob:id)` refs must be board images of this board and are marked `attached_at` in the same tx (and `created_by` nulled if `anonymous`, S6/S7). A card in the action-items column also inserts `team_action_items` (create in place; `created_by` null when anonymous). | `retro.card.added {card}` |
 | `retro.card.edit` | `{cardId, body, baseVersion}` | Author or anon-tag match; stage gate; `baseVersion == card.version` else nack `stale {current:{body, version}}` (client shows a merge prompt with both texts, R5); `version+1`. Post-commit `SyncActionText`. | `retro.card.edited {cardId, body, version}` |
 | `retro.card.delete` | `{cardId}` | Author or anon-tag; or a facilitator in the action-items column. If it is the focused card, focus is cleared in the same tx (R21). | `retro.card.deleted {cardId}`, (`retro.focus {cardId:null}`) |
 | `retro.vote.set` | `{cardId, on}` | Stage gate, `voting_enabled`, self-vote rule (author or anon-tag), `max_votes_per_user` counted from the actor's vote sets. Same state → NoOp (set semantics, no precondition needed). | `retro.vote {cardId, count, voters?}` (+ per-viewer `mine`) |
@@ -979,13 +966,13 @@ With stages off everything is allowed (subject to `voting_enabled`) and voters a
 | `retro.stage.set` | `{from, to}` | Facilitator. `from == stage` (compare-and-set). With `enforce_readiness`, `to` must be the next stage and every present participant must be ready; Reset (→thinking), Reopen (closed→discussing) and Restart (→thinking) are always allowed. Deletes the old stage's readiness rows. | `retro.stage {stage}`, `retro.readiness {stage, ready:[]}` |
 | `retro.ready.set` | `{stage, ready}` | `stage == current`. | `retro.readiness {stage, ready:[pids]}` |
 | `retro.focus.set` | `{cardId\|null, from}` | Discussing stage when stages are on; any participant (parity). `from == current focus` precondition (a stale focus is discarded silently by the client). Persisted. | `retro.focus {cardId}` |
-| `retro.timer.start` | `{durationMs, alarm, music, from}` | Signed-in. `from == timer_state` (compare-and-set, R5). `ends_at = now + duration`. | `retro.timer {state, endsAt, remainingMs, durationMs, alarm, music}` |
-| `retro.timer.pause` / `.resume` / `.reset` / `.setFlags` | `{from}` / `{from}` / `{from}` / `{alarm?, music?}` | Signed-in; compare-and-set on `from`. | `retro.timer` |
+| `retro.timer.start` | `{durationMs, alarm, music, from}` | Member. `from == timer_state` (compare-and-set, R5). `ends_at = now + duration`. | `retro.timer {state, endsAt, remainingMs, durationMs, alarm, music}` |
+| `retro.timer.pause` / `.resume` / `.reset` / `.setFlags` | `{from}` / `{from}` / `{from}` / `{alarm?, music?}` | Member; compare-and-set on `from`. | `retro.timer` |
 | internal `TimerDue{gen}` | | `state == running && now >= ends_at`. | `retro.timer {state:'idle', expired:true, endsAt}` |
-| `retro.endorse.give` | `{endorsementId, toUserId, typeId}` | Team board; giver and target are members; not self; per-board limit (live from `team.settings`); unique. | `retro.endorsement.added` (recipient projection adds `celebrate:true`; members only) |
+| `retro.endorse.give` | `{endorsementId, toUserId, typeId}` | Giver and target are members; not self; per-board limit (live from `team.settings`); unique. | `retro.endorsement.added` (recipient projection adds `celebrate:true`; members only) |
 | `retro.endorse.revoke` | `{endorsementId}` | Giver. | `retro.endorsement.removed` |
 | internal `TeamSettingsChanged` | | `max_endorsements_per_board` changed. | `team.settings {maxEndorsements}` |
-| HTTP-originated (via Ask) | unlock grant, archive, unarchive, visibility/password, delete, action-item comment add | §d | `retro.board.meta`, `retro.comment.added`; `kick` on delete or lost access |
+| HTTP-originated (via Ask) | archive, unarchive, delete, action-item comment add (UX18 removed unlock and visibility/password) | §d | `retro.board.meta {title, archived}`, `retro.comment.added`; `kick` on delete or lost access |
 
 **Card projection**: `{id, columnId, body, author:{pid,name,avatar,guest}|null, anonymous, mine, version, createdAt}`. `author` is null when anonymous or when `show_author_names` is off; `mine` is computed per viewer (author id or anon-tag match) and travels in the per-viewer overlay. Comments project the same way. Vote voter lists are included only when the stage rule shows identities.
 
@@ -1011,12 +998,12 @@ Team room snapshot: members (id, name, avatar, role), open action items plus tho
 - First connection of a principal → `join`, unless a pending leave timer exists, which is cancelled silently (no flicker).
 - Last connection gone → `PresenceGraceDue(pid, gen)` 10 s later → `leave`.
 - Dead sockets are detected by the server's protocol-level PING/PONG (`KeepAliveInterval` 15 s, `KeepAliveTimeout` 30 s), which browsers answer even in throttled background tabs, so a dead socket becomes a leave within ~55 s and a merely hidden tab never does (R6). iOS Safari suspending a page closes its socket; that user leaves after the grace, and the spotlight survives 3 minutes (above).
-- Profile or guest rename → `presence.update` to every room the principal is in (via `ConnectionRegistry`).
+- Profile rename → `presence.update` to every room the principal is in (via `ConnectionRegistry`).
 - Readiness counts only present principals: `all_ready = (present − observers) ⊆ ready`.
 
 ### c.5 Recent activity
 
-On the first `sub` of a signed-in user to a board, session or team, the server upserts `recent_activity`, debounced in memory to once per 5 minutes per (user, entity). The client never writes it.
+Only teams are tracked (UX18): the cross-team recent boards and sessions went with the Dashboard. The server touches a team (upserts its `recent_activity` row, kind `team`) when a member loads the team page (`GET /api/teams/{id}`) and when a member subscribes to any room of that team, debounced in memory to once per 5 minutes per (user, team). `GET /api/me` reads it as `lastTeamId`: the team of the most recent row among the user's current memberships, else null. `/` uses it to open the user's last team (§d, §g.2). The client never writes it.
 
 ### c.6 Nack codes (stable)
 
@@ -1050,7 +1037,7 @@ public sealed class RoomActor<TState, TCmd, TEvt> where TState : class {
 
 **Command pipeline** (strict order):
 1. **Dedupe.** If `q <= cursor[clientId]` (loaded lazily from `client_cursors`; a row bound to another principal → nack `forbidden`), compare the payload hash with `_recentHashes`; equal or unknown → enqueue `ack{dup:true, s:_seq}`; different → nack `cid_reuse`. Stop.
-2. **Decide** against `_state` with `CommandContext` (authorization is the decider's first step, resolving role/grant through `IAccessView`). `Reject` → nack; the cursor does not move. `NoOp` → ack at current seq.
+2. **Decide** against `_state` with `CommandContext` (authorization is the decider's first step, resolving the role through `IAccessView`). `Reject` → nack; the cursor does not move. `NoOp` → ack at current seq.
 3. **Persist** in **one explicit transaction**: Npgsql pipelines `BEGIN` with one `NpgsqlBatch` containing `select rs_fence($epoch)` → event SQL from `IRoomStore.Plan(events)` (plus any dirty spotlight position) → the `client_cursors` upsert (`greatest(...)`) → `last_activity_at` bump if ≥ 60 s since the last one; then `COMMIT`. Two round trips on a local socket (~1–3 ms). A fence mismatch raises SQLSTATE `RS001` inside SQL, so nothing in the batch commits (R1).
 4. **Apply** events to `_state`, `_seq++`, append to the ring.
 5. **Fan out** the tx frame, projected per viewer; then enqueue the ack to the originator on the same outbound queue.
@@ -1066,7 +1053,7 @@ public sealed class RoomActor<TState, TCmd, TEvt> where TState : class {
 
 **Registry and eviction (R17).** `ActorRegistry` is a `ConcurrentDictionary<RoomKey, ActorHandle>`. `GetOrStart` creates the actor, which loads its state with one `NpgsqlBatch` round trip while messages queue. An actor with no subscribers and no armed timers for 5 minutes posts itself `Evict`, re-checks, calls `Writer.TryComplete()` on both queues (the close *is* the completion, so a racing `TryWrite` fails instead of being lost), removes itself with `TryRemove(KeyValuePair)`, and hands any items still buffered to the next incarnation via `GetOrStart(...).Requeue(items)`. A caller whose write fails calls `GetOrStart` again. `TryPurge(key, fn)` (retention) holds the key in a "closing" state that `GetOrStart` waits on.
 
-**Limits.** Per connection: 20 commands/s token bucket, burst 40, then nack `rate_limited` (retryable); sustained abuse for 10 s → 4429. At most 10 room subscriptions per connection, 6 connections per principal per room, and **20 sockets per client IP** (IPv6 by /64, S32). Per room: external queue full → immediate retryable `server_busy` (never blocks the connection's receive loop, R26).
+**Limits.** Per connection: 20 commands/s token bucket, burst 40, then nack `rate_limited` (retryable); sustained abuse for 10 s → 4429. At most 10 room subscriptions per connection (kick `too_many_rooms`), 6 connections per principal per room (kick `too_many_connections`, UX18), and **20 sockets per client IP** (IPv6 by /64, S32). Per room: external queue full → immediate retryable `server_busy` (never blocks the connection's receive loop, R26).
 
 ### c.8 Persistence strategy: write-through, one transaction per command
 
@@ -1075,7 +1062,7 @@ public sealed class RoomActor<TState, TCmd, TEvt> where TState : class {
 - **No lost updates between users** is a separate property, provided by **preconditions** (R5): every overwrite command carries `baseVersion` (rounds, cards, columns) or `expected`/`from` values (settings, config, title, stage, focus, timer); a mismatch nacks `stale {current}`. Set-semantics commands (votes, lock, abstain, observer, ready, assign/done) need none. Ephemeral kinds (`spotlight.move`, `focus.set`, `timer.*`) queued longer than 10 s are dropped by the client on reconnect instead of resent.
 - **Spotlight moves are ephemeral-durable** (F4, R20): `poker.spotlight.move` is decided, applied, sequenced and fanned out immediately **without** a transaction or cursor write (it is idempotent and set-semantic). The position is persisted when it settles (500 ms without a move, one small `update poker_sessions`), or inside the next command's transaction if one comes first. A crash can lose at most the last 500 ms of spotlight movement, which is harmless because the reloaded actor gets a new epoch and every client re-snapshots. Consecutive moves coalesce in the ring (a new move replaces an unacknowledged previous move entry), so the replay window is not consumed by spotlight traffic. Take, give and release remain normal durable commands.
 - **Not written:** presence, Jira metadata, per-viewer UI state (viewed round, sort order, panel layout).
-- **Coalesced:** `last_activity_at` at most once a minute per room (inside the next command's transaction); `recent_activity` at most once per 5 minutes per (user, entity); `sessions.last_seen_at` at most every 5 minutes; `client_cursors.updated_on` changes at most daily (HOT-friendly, F23).
+- **Coalesced:** `last_activity_at` at most once a minute per room (inside the next command's transaction); `recent_activity` at most once per 5 minutes per (user, team); `sessions.last_seen_at` at most every 5 minutes; `client_cursors.updated_on` changes at most daily (HOT-friendly, F23).
 - **Representative SQL.** Vote = `insert … on conflict (round_id, principal_id) do update` or `delete`. Reveal = one `update poker_votes set abstained=true, locked=true, points=null, high_points=null where round_id=$1 and not locked` plus the round update. Reorder = one `update … from unnest($ids::uuid[], $keys::int[])` under the deferred unique constraint (arrays enabled on the slim builder).
 - `NpgsqlDataSource` with `Max Auto Prepare=50` keeps hot statements prepared.
 
@@ -1108,14 +1095,12 @@ Coolify compose deployments **stop and recreate** (no rolling updates; verified,
 
 ### c.11 Subscription authorization (`Policy.Can(viewer, Subscribe, room)`)
 
+Every room belongs to a team, and only a signed-in user who is a member of that team may subscribe or act (UX18). Guest and external principals are history, never callers; there are no quick rooms, no `link` or `password` boards and no grants; being an app admin opens nothing.
+
 | Room | Who may subscribe | Elevated capabilities (resolved at decide time) |
 |---|---|---|
-| poker, team session | team members (users) | `admin` = team owner/admin: delete round, clear all, delete session |
-| poker, quick session | any principal with the code | signed-in: delete round, clear all; creator: delete session |
-| board, quick, `link` | any principal | facilitator = signed-in |
-| board, quick, `password` | the creator, or principals holding a current grant | facilitator = signed-in principals with access |
-| board, team, `team` | team members | facilitator = members |
-| board, team, `link` / `password` | members; others with the code (`link`) or a current grant (`password`) | facilitator = **members only**; roster, mentions, endorsements projected to members only (S12) |
+| poker | members of the session's team | `admin` = team owner/admin: delete round, clear all, delete session |
+| board | members of the board's team | every member facilitates; roster, mentions and endorsements are the members' own (S12); admin = owner/admin: archive, unarchive, delete (HTTP) |
 | team | team members | admin = owner/admin |
 
 Disabled users and revoked sessions are closed through `ConnectionRegistry` (4401). Deleted rooms and rooms of soft-deleted teams reject `sub` with `not_found`.
@@ -1127,26 +1112,29 @@ Disabled users and revoked sessions are closed through `ConnectionRegistry` (440
 Rules:
 - JSON only, STJ source generation, `JsonUnmappedMemberHandling.Disallow` on every request DTO.
 - Errors are `application/problem+json` with a stable `code` (and `fields` for validation).
-- Every endpoint declares a `RoutePolicy` (`Public`, `Guest`, `User`, `VerifiedUser`, `TeamMember`, `TeamAdmin`, `TeamOwner`, `AppAdmin`, `BoardAccess`, `BoardManage`, `SessionManage`) **and** a `RateLimit` policy; a route-inventory test fails the build if any route lacks either.
+- Every endpoint declares a `RoutePolicy` (`Public`, `User`, `VerifiedUser`, `TeamMember`, `TeamAdmin`, `TeamOwner`, `AppAdmin`, `BoardAccess`, `BoardManage`, `SessionManage`) **and** a `RateLimit` policy; a route-inventory test fails the build if any route lacks either. UX18 removed `Guest`; `BoardManage` and `SessionManage` require a signed-in user at the route filter and leave the team-admin check to the handler.
+- **Who may call what (UX18).** Every team resource (team room, poker sessions, retro boards, action items, kudos, members, settings, Jira, images on boards) needs a signed-in user who is a member of the team. App admins keep the audited admin Teams tool (names, member counts, membership repair) and nothing else; there is no admin bypass to team or room content.
 - **CSRF**: every non-GET request needs the header `X-RS: 1` **and** `Origin == PUBLIC_ORIGIN` (or no Origin with `Sec-Fetch-Site: same-origin`). There is no CORS at all, so a cross-site page can neither send the custom header without a preflight nor pass the Origin check. Cookies are also `SameSite=Lax`.
 - Lists are cursor-paginated (`?cursor=&limit=`, limit ≤ 100).
 - **Client IP (S13).** `ForwardedHeaders` with `ForwardLimit=1` (rightmost hop only) and `KnownNetworks` from `TRUSTED_PROXY_CIDRS`, which the RUNBOOK sets to the Coolify proxy network's subnet only (the app container joins only its compose network and that proxy network). Optional `CLIENT_IP_HEADER=CF-Connecting-IP` mode when Cloudflare fronts Traefik. IPv6 addresses are keyed by /64.
-- **Rate limits** are in-process token buckets in one bounded LRU (100k keys, oldest evicted). Every `G` (guest-reachable) route is limited **per IP and per principal** (S7).
+- **Rate limits** are in-process token buckets in one bounded LRU (100k keys, oldest evicted). Every room route a signed-in user reaches before the handler's membership check (`BoardAccess`, `BoardManage`, `SessionManage`) is limited **per IP and per principal** (S7).
 - **Email budget (S8).** One `EmailBudget` gates every outbound mail (signup, "you already have an account", magic link, reset, verify, invite): per recipient 3/h, per IP 20/h, per sender user 20/day, global 200/h. Over budget, the endpoint still answers 202 (no oracle) and the mail is dropped and counted.
-- **Room codes (S9).** Every code lookup (shell routes, `/api/boot`, `by-code`, WS `sub` by code) goes through one `RoomResolver` with a 30/min/IP limit and an identical response for missing and forbidden.
+- **Room codes (S9).** Every code lookup (shell routes, `/api/boot`, `by-code`, WS `sub` by code) goes through one `RoomResolver` with a 30/min/IP limit and an identical response for missing and forbidden. A signed-out caller is refused before any lookup (UX18): the shell redirects to sign-in and `by-code` answers 401.
 - HTTP retry rule for the client: `http.js` retries idempotent requests (GET, PUT, DELETE) on 502/503 honouring `Retry-After` (≤ 3 tries); POSTs are not retried automatically (S25 residual).
 
-Notation: **P** public, **G** guest or user, **U** user, **V** user with a verified email, **M** team member, **A** team admin/owner, **O** owner, **X** app admin.
+Notation: **P** public, **U** signed-in user, **V** user with a verified email, **M** team member, **A** team admin/owner, **O** owner, **X** app admin. (UX18 removed **G**, guest or user.)
 
 | Method | Route | Authz | Notes |
 |---|---|---|---|
 | GET | `/healthz` | P | 200 when the process is leader and the DB answers (there is no standby, so one probe suffices) |
-| GET | `/`, `/login`, `/auth/*`, `/dashboard`, `/account`, `/mentions`, `/teams`, `/teams/{id}`, `/teams/{id}/settings`, `/teams/{tid}/poker/{code}`, `/poker/{code}`, `/retro/{code}`, `/invite`, `/admin/*` | P | Shell HTML (~3 KB, `no-store`) with boot JSON (me, theme, build id) and route `modulepreload`s; room routes embed the viewer snapshot (§c.3) via `RoomResolver` |
+| GET | `/`, `/login`, `/auth/*`, `/invite` | P | Shell HTML (~3 KB, `no-store`) with boot JSON (me, theme, build id) and route `modulepreload`s. Signed out, `/` is the welcome page. Signed in, `/` answers a no-store `302` to `/teams/<me.lastTeamId>`, else the first team in `me.teams`, else `/teams` (UX18) |
+| GET | `/account`, `/mentions`, `/teams`, `/teams/{id}`, `/teams/{id}/settings`, `/teams/{tid}/poker/{code}`, `/poker/{code}`, `/retro/{code}`, `/admin/*` | U | The same shell; room routes embed the viewer snapshot (§c.3) via `RoomResolver`. A signed-out request answers a no-store `302` to `/login?return=<path and query>`, decided in `Shell` before the boot contributors run, so no room lookup is spent on a caller who can never be admitted (UX18) |
+| GET | `/dashboard` | P | Permanent no-store `302` to `/` (UX18). It left the route table; it stays because it was the installed app's start URL and sits in bookmarks |
 | GET | `/api/boot?path=` | P | Same boot JSON for in-app navigation; room paths go through `RoomResolver` |
 | GET | `/assets/*` | P | Hashed, precompressed, `public, max-age=31536000, immutable` |
-| GET | `/media/timer-music` | G | The deploy-time timer track from `MUSIC_FILE` (UX13): streamed from disk with range requests, strong ETag and `Last-Modified`, `private, max-age=86400`, `nosniff`; 401 without a session; 404 when not configured or refused at startup; 120/min/IP and 60/min per principal. The `/retro/{code}` boot JSON carries `timerMusic: true` when it exists |
-| GET | `/blob/{id}` | avatar: P; board_image: board access | `nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, `Cross-Origin-Resource-Policy: same-origin`; avatars `public, immutable`, board images `private, max-age=31536000, immutable` |
-| GET | `/ws` | G | WebSocket; exact Origin; ≤ 20 sockets per IP |
+| GET | `/media/timer-music` | U | The deploy-time timer track from `MUSIC_FILE` (UX13): streamed from disk with range requests, strong ETag and `Last-Modified`, `private, max-age=86400`, `nosniff`; 401 without a session; 404 when not configured or refused at startup; 120/min/IP and 60/min per principal. The `/retro/{code}` boot JSON carries `timerMusic: true` when it exists |
+| GET | `/blob/{id}` | avatar: P; board_image: a member of the board's team | `nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, `Cross-Origin-Resource-Policy: same-origin`; avatars `public, immutable`, board images `private, max-age=31536000, immutable` |
+| GET | `/ws` | U | WebSocket; exact Origin; ≤ 20 sockets per IP. A signed-in user, verified or not (`aot-smoke` probes it as an unverified user) |
 | POST | `/api/auth/signup` | P | `{email, password, fullName}`; password 10–72 bytes, not in the embedded top-10k list (signup and password change only, **never** login, S30); always 202; an existing email gets an "you already have an account" email; 5/h/IP + email budget. Verification mail says "If you didn't create this account, ignore this email" |
 | POST | `/api/auth/login` | P | `{email, password}`; password checked as raw UTF-8 bytes, no policy, no normalization (imported 6-char passwords work, S30); 10/min/IP; backoff keyed on (account, IP /24 or /64) after 5 failures up to 15 min, plus a slower global per-account cap (50/h) that, when hit, emails an unlock link instead of hard-locking (S13); dummy bcrypt on unknown email |
 | POST | `/api/auth/logout`, `/api/auth/logout-all` | U | Deletes sessions, evicts cache, closes sockets |
@@ -1154,23 +1142,21 @@ Notation: **P** public, **G** guest or user, **U** user, **V** user with a verif
 | POST | `/api/auth/magic/consume` | P | `{token}`; posted only after the user clicks "Sign in as j•••@x.com" on `/auth/magic` (no auto-POST, S18) |
 | POST | `/api/auth/reset/request`, `/api/auth/reset/consume` | P | `{email}` / `{token, password}`; request 3/h/email, 20/h/IP + email budget; consume revokes all sessions, marks email verified |
 | POST | `/api/auth/verify/consume` | U | `{token}`; verifies only when the request carries a session of the token's user; otherwise the page shows "Sign in to finish verifying" (S4) |
+| POST | `/api/auth/verify/request` | U | A signed-in user whose email is not verified asks for the verification email again (UX18); under `EmailBudget` and a per-user limit; answers the same way whether or not a mail was sent |
 | GET | `/auth/oidc/{google\|entra}/start?return=` | P | 302; sets `__Host-rs_oidc` (AES-GCM: state, nonce, PKCE verifier, return, link flag; 10 min; `SameSite=Lax`; single use) |
 | GET | `/auth/oidc/{provider}/callback` | P | §e; `response_mode=query` for both providers (S20) |
 | POST | `/api/me/identities/{provider}/link` | U | Starts OIDC with the link flag; a `(provider, subject)` already linked to another user is refused |
-| POST / PATCH | `/api/guest` | P / guest | `{displayName}` 1–40 chars plain text, email-shaped names rejected (S21); create 20/h/IP; issues or renames `__Host-rs_guest` |
-| GET | `/api/me` | G | `{principal, user?, teams:[{id,name,role}], unreadMentions}` |
+| GET | `/api/me` | U | `{principal, user, teams:[{id,name,role,openActions}], lastTeamId, unreadMentions}`. `openActions` is one grouped count over the open action-items index, joined to the user's memberships; `lastTeamId` is §c.5 (UX18). UX18 removed `/api/guest` |
 | PATCH | `/api/me` | U | `{fullName?, nickname?, theme?}` only |
 | PUT | `/api/me/password` | U | `{current?, new}`. `current` required if a password exists. Adding a **first** password requires a session younger than 10 minutes from an OIDC or magic-link sign-in (re-auth), S17. Revokes other sessions |
 | PUT / DELETE | `/api/me/avatar` | U | Body: image ≤ 256 KiB (client crops/resizes to 128 px WebP); magic-byte sniffing |
 | GET | `/api/me/sessions`, DELETE `/api/me/sessions/{id}` | U | |
-| GET / POST | `/api/me/mentions?cursor=`, `/api/me/mentions/seen` | U | Only boards the user can still read; anonymous sources show "Anonymous" |
-| GET | `/api/me/endorsements` | U | Received |
-| GET | `/api/dashboard` | U | One batched query: recent teams/boards/sessions (5 each, access re-checked) + favorites |
-| GET / POST | `/api/teams` | U / **V** | Create requires a verified email (S7/S8); creator → owner; seeds default template (Good/Bad/Kudos/Action Items) and 3 endorsement types in one transaction; 10/day/user |
-| GET | `/api/teams/{id}` | M | `{name, description, role, pointDescriptions, maxEndorsements, jira:{configured, siteHost, projectKey, boardId, ticketPrefix, status, membersCanEdit}, counts}` |
+| GET / POST | `/api/me/mentions?cursor=`, `/api/me/mentions/seen` | U | Only boards of teams the user is still a member of (UX18; the unread count uses the same rule); anonymous sources show "Anonymous" |
+| GET | `/api/me/endorsements` | U | Received, from the user's current teams only (UX18): no kudos, type names or endorser names from a team the user has left |
+| POST | `/api/teams` | **V** | Create requires a verified email (S7/S8); creator → owner; seeds default template (Good/Bad/Kudos/Action Items) and 3 endorsement types in one transaction; 10/day/user |
+| GET | `/api/teams/{id}` | M | `{name, description, role, pointDescriptions, maxEndorsements, jira:{configured, siteHost, projectKey, boardId, ticketPrefix, status, membersCanEdit}, counts}`; touches the team (§c.5). UX18 removed `GET /api/teams` (the list) |
 | PATCH | `/api/teams/{id}` | A | name, description, pointDescriptions (deck keys only, ≤ 100 chars), maxEndorsementsPerBoard; posts `TeamSettingsChanged` |
-| DELETE | `/api/teams/{id}` | O | `{confirmName}`; soft delete; kicks all rooms of the team |
-| PUT / DELETE | `/api/teams/{id}/favorite` | M | |
+| DELETE | `/api/teams/{id}` | O | `{confirmName}`; soft delete; kicks all rooms of the team. UX18 removed the `favorite` routes |
 | GET | `/api/teams/{id}/members` | M | name, avatar, role; **no emails** |
 | PATCH | `/api/teams/{id}/members/{userId}` | O | `{role: admin\|member}` via TeamActor |
 | DELETE | `/api/teams/{id}/members/{userId}` | A for members, **O for admins**, or self to leave | Owner cannot be removed; via TeamActor, then `AccessChanged` (S19) |
@@ -1179,8 +1165,8 @@ Notation: **P** public, **G** guest or user, **U** user, **V** user with a verif
 | DELETE | `/api/teams/{id}/invites/{inviteId}` | A | Revoke |
 | POST | `/api/invites/preview` | P | `{token}` → `{teamName, kind, expired}`; 30/min/IP |
 | POST | `/api/invites/accept` | U | `{token}`; email invites need a verified email equal to the invite email; single use. Link invites are reusable until expiry or revoke. Membership is inserted **by TeamActor** (R24) |
-| GET / POST | `/api/teams/{id}/boards?archived=&cursor=` | M | Create `{title, visibility='team', password?, templateId?}`; columns and config from the chosen or default template; 10-char Crockford code |
-| GET / POST | `/api/teams/{id}/poker-sessions?cursor=` | M | List with `{pointed, total, parentKeys:[{key,count}]}` computed in SQL; create clones settings from the team's latest session |
+| GET / POST | `/api/teams/{id}/boards?archived=&cursor=` | M | Create `{title, templateId?}`; columns and config from the chosen or default template; 10-char Crockford code. List items carry `lastActivityAt`, `stage`, `stagesEnabled` and `cardCount`, and no `visibility` (UX18) |
+| GET / POST | `/api/teams/{id}/poker-sessions?cursor=` | M | List with `{pointed, total, parentKeys:[{key,count}], lastActivityAt}` computed in SQL; create (empty body) clones settings from the team's latest session |
 | GET | `/api/teams/{id}/action-items?status=&assignee=&sort=&cursor=` | M | Live updates via `team:` |
 | GET | `/api/teams/{id}/action-items/{itemId}/comments` | M | Comments of the source card (lives on another board), projected with the board's anonymity rules (R22) |
 | POST | `/api/teams/{id}/action-items/{itemId}/comments` | M | `{commentId, body}`; routed to the source board's actor (Ask) |
@@ -1192,19 +1178,15 @@ Notation: **P** public, **G** guest or user, **U** user, **V** user with a verif
 | POST | `/api/teams/{id}/jira/test` | A | `{ok, accountName, discovered:{pointsFieldId, sprintFieldId, boardId}}`, where `pointsFieldId` is the field a save without a chosen one would store (the board's estimation field, else discovery); a 401 gives the specific hint "use a classic (unscoped) API token" (F24) |
 | DELETE | `/api/teams/{id}/jira` | A | |
 | * | `/api/teams/{id}/jira/...` | M (writes: M if `members_can_edit`, else A) | §f |
-| POST | `/api/poker` | G | Quick session; server generates a 10-char code → `{id, code}`; 10/h/principal and 30/h/IP |
-| GET | `/api/poker/by-code/{code}` | P | `{id, access}`; exact match, then upper-case; via `RoomResolver`; identical shape for missing and forbidden; **no `teamId`** (S9) |
-| DELETE | `/api/poker/{id}` | A (team) / creator (quick) | Ask → `poker.session.deleted` → kick → delete |
-| POST | `/api/retro` | G | Quick board `{title?}`; 10-char Crockford code; default columns; config `max_votes_per_user=3` (parity); 10/h/principal and 30/h/IP |
-| GET | `/api/retro/by-code/{code}` | P | `{id, access:'granted'\|'password'\|'signin'\|'denied'}`; via `RoomResolver`; same shape for 404/403 |
-| POST | `/api/retro/{id}/unlock` | G | `{password}`; 5/min per principal per board, 20/h/IP; grant via Ask |
-| PATCH | `/api/retro/{id}` | BoardManage (team admin, or quick creator) | `{visibility?, password?}`; password change bumps `password_set_at` (invalidates grants; affected subscribers kicked) |
-| POST | `/api/retro/{id}/archive`, `/unarchive` | BoardManage | |
-| DELETE | `/api/retro/{id}` | BoardManage | `{confirmTitle}`; soft delete; kick |
-| POST | `/api/retro/{id}/images` | board access + stage allows adding | Image ≤ 2 MiB; magic bytes; → `{blobId}`; 30/h/principal **and** 60/h/IP; per-board quota 50 MiB; global board-image ceiling (`BLOB_BYTES_MAX`, default 2 GiB) → 507 + log alert; unattached images GC'd after 24 h (S7) |
+| GET | `/api/poker/by-code/{code}` | U | `{id, access:'granted'}`; exact match, then upper-case; via `RoomResolver`; a missing session and one of a team the caller is not in answer alike; **no `teamId`** (S9). UX18 removed `POST /api/poker` (quick sessions) |
+| DELETE | `/api/poker/{id}` | SessionManage (team admin/owner) | Ask → `poker.session.deleted` → kick → delete |
+| GET | `/api/retro/by-code/{code}` | U | `{id, access:'granted'}`; via `RoomResolver`; same answer for missing and forbidden. UX18 removed `POST /api/retro` (quick boards), `POST /api/retro/{id}/unlock` and `PATCH /api/retro/{id}` (visibility and password) |
+| POST | `/api/retro/{id}/archive`, `/unarchive` | BoardManage (team admin/owner) | |
+| DELETE | `/api/retro/{id}` | BoardManage (team admin/owner) | `{confirmTitle}`; soft delete; kick |
+| POST | `/api/retro/{id}/images` | a member of the board's team + stage allows adding | Image ≤ 2 MiB; magic bytes; → `{blobId}`; 30/h/principal **and** 60/h/IP; per-board quota 50 MiB; global board-image ceiling (`BLOB_BYTES_MAX`, default 2 GiB) → 507 + log alert; unattached images GC'd after 24 h (S7) |
 | GET | `/api/admin/users?q=` | X | Email prefix or name; results show masked email |
 | PATCH | `/api/admin/users/{id}` | X | `{disabled?, isAdmin?}`; cannot demote the last admin; disable revokes sessions and kicks sockets; audited |
-| GET | `/api/admin/teams?q=` | X | |
+| GET | `/api/admin/teams?q=` | X | Names and member counts only, never team content (UX18) |
 | POST / DELETE | `/api/admin/teams/{id}/members[/{userId}]` | X | Membership repair via TeamActor; audited |
 | GET | `/api/admin/stats` | X | RSS, live rooms, sockets, pool usage, ring bytes, blob bytes, email budget drops |
 
@@ -1221,7 +1203,9 @@ Notation: **P** public, **G** guest or user, **U** user, **V** user with a verif
 - Login, password change and privilege change rotate the token.
 - WebSockets authenticate from the cookie on upgrade and re-validate every 5 minutes; revocation is also pushed.
 
-**Guests.** `__Host-rs_guest` holds a 32-byte token whose hash is in `guest_tokens` (180 days, slid daily). A user cookie takes precedence. Signing in does not merge the guest principal (its votes keep their identity); the guest cookie is kept so the browser's old seats stay the same guest when signed out. Guest names may not be email-shaped; guest seats and authors carry a visible "guest" badge (S21). Guest creation is limited to 20/h/IP.
+**Guests (removed, UX18).** Nobody signs in as a guest. The server no longer reads the `__Host-rs_guest` cookie, and sign-in and sign-out expire any that remains; migration 0003 dropped `guest_tokens`. Guest and Slack (`external`) principals, imported or created before UX18, stay as history: their retro cards and comments keep a visible "guest" badge (S21), their poker votes stay but seat as "Unknown" (`docs/followups/UX18.md`), and they are never merged into user accounts. A former guest's open tab gets a 401 on its next socket upgrade; there is no shim that tells it why.
+
+**Sign-in gate (UX18).** A signed-out visitor reaches only `/`, `/login`, `/auth/*` and `/invite`; every other page sends them to `/login?return=<path and query>` (§d, §g.2). Every post-auth landing goes to `/`, which resolves the user's team, unless an invite is pending (§g.2). The magic-link consume and the verify page's "Continue" go to `/` in-app, where the client puts the invite first. The sign-in card (the welcome page, `/login`) returns to `/invite` instead of `/` while an invite waits and no `return` was given: OIDC comes back by a full page load, which the server resolves to the team without seeing the invite.
 
 **Passwords.**
 - bcrypt for everything: imported Supabase `$2a$`/`$2b$` cost-10 hashes are stored unchanged; new hashes use **cost 10** (matching the imported hashes; no rehash-on-login). One algorithm, no migration path. U16 measures hashes/s on the target VPS and records it.
@@ -1255,7 +1239,8 @@ Notation: **P** public, **G** guest or user, **U** user, **V** user with a verif
 - A magic link for an unknown email creates a verified account on consume; for an unverified existing account it applies the takeover rule.
 - `verify/consume` verifies only for a signed-in session of the same user (S4).
 - The token row and the `email_outbox` row are written in one transaction, subject to `EmailBudget`. `EmailWorker` sends via SMTP submission (587 STARTTLS or 465 TLS) using `System.Net.Mail.SmtpClient` **(AOT behaviour unverified; U17 falls back to a ~250-line in-house client if it warns or fails)**. Retries back off to 6 attempts; the row is deleted on success; after the final failure `body_text` is nulled (S23). Bodies are plain text from fixed templates; no HTML mail; any value reaching a header is rejected if it contains CR/LF.
-- Signup sends a verification email but does not block login (parity). Unverified accounts cannot accept email invites, cannot create teams or send email invites, and are never auto-linked.
+- Signup sends a verification email but does not block login (parity). Unverified accounts cannot accept email invites, cannot create teams or send email invites, and are never auto-linked. They can ask for the email again (`POST /api/auth/verify/request`, UX18); the create-or-join screen offers it next to the disabled "Create a team".
+- An invite is the way in for a new member (UX18): `/invite` leads a signed-out visitor with "Email me a sign-in link", because consuming a magic link signs in, creates the account if needed and verifies the address, which an email invite requires.
 
 **Security headers (all HTML responses).**
 ```
@@ -1313,7 +1298,7 @@ The only inline script is the pre-paint theme snippet; `build.mjs` emits its has
 
 **JQL** (`Jql.cs`): values escaped (`"` and `\`), keys regex-validated, points filters use `cf[NNNNN]` from the effective points field (never `"Story Points"`), status filters use `statusCategory`. Ranked browse fetches sprints with bounded parallelism 3 and surfaces errors (`partial:true` + code) instead of a silent `break`. Bucket order: sprints by startDate then name using `Core/Text/NaturalCompare` (ordinal, digit runs compared numerically; no ICU dependency under InvariantGlobalization, F22; validated against the golden vectors from `jiraBrowseSprintBuckets.ts`), Backlog last; within a bucket, Jira rank. `includeKeys` (keys already on session rounds) are merged in; browse rows carry `roundState: 'pointing'|'pointed'|null` and the add buttons are disabled with those reasons; the `hidePointedOrPointing` filter is ignored while a search text is present (parity, `jira.md` §5.2).
 
-**Proxy routes** (`/api/teams/{id}/jira/...`, TeamMember; never available in quick sessions). All caches are in process memory in one size-aware LRU capped at **8 MB**; nothing from Jira is persisted except issue keys, parent keys and submitted points.
+**Proxy routes** (`/api/teams/{id}/jira/...`, TeamMember). All caches are in process memory in one size-aware LRU capped at **8 MB**; nothing from Jira is persisted except issue keys, parent keys and submitted points.
 
 | Route | Cache |
 |---|---|
@@ -1364,7 +1349,7 @@ Every Jira write is recorded in `audit_log` (team, user, action, issue key; no c
 - **The editor (UX12).** "Edit description" in the drawer and the centre issue view loads the edit view and the `rich-editor` chunk together and opens ProseMirror on it (`web/src/rich/`). Everything the allow-list holds is edited in place: text in tables, panels, lists, layouts, expands, task and decision items. Tokens draw as read-only chips and blocks named by the view's labels; media come through the attachment proxy; nodes use the read view's `jira.css` classes and colours its theme tokens. The toolbar follows Jira's (text style, bold, italic, more formatting, text colour and highlight from Jira's palettes, lists with indent and outdent, link, insert quote, code block and divider, undo and redo), and so do the shortcuts and Jira's markdown autoformat. A save sends `descriptionAdf` with the view's `updated` as `descriptionBase`, and none at all when the document is canonical-equal to the view. On `stale` the client re-reads the edit view: if the description is unchanged (another field moved `updated`), the draft moves onto the new `updated` and is sent again; otherwise it keeps the draft and offers "Reload" (after a confirmation); `invalid` shows the code and path; Cancel with changes asks first. A dirty draft is kept in memory when the view moves to another issue or closes, by the user or by someone else's navigation, and "Edit description" brings it back. The chunk is prefetched on an idle callback when the drawer or centre view opens for a user who can edit.
 - The markup path with islands (F5, above) stays only as the fallback for an edit view with `editable: false`, then goes (UX10 phase 12).
 
-**Retro "Create in Jira".** Action-item cards on team boards with Jira configured get a "Create in Jira" action (U36) that calls `POST issues` (U26) with the card's text converted via `MarkupToAdf` and shows the created key.
+**Retro "Create in Jira".** Action-item cards on boards whose team has Jira configured get a "Create in Jira" action (U36) that calls `POST issues` (U26) with the card's text converted via `MarkupToAdf` and shows the created key.
 
 ---
 
@@ -1374,7 +1359,8 @@ Every Jira write is recorded in `audit_log` (team, user, action, issue key; no c
 
 ```
 web/src/
-  entry.js                 # ≤ 12 KB br: reads #boot, router start, opens the socket EARLY for room routes
+  entry.js                 # ≤ 12 KB br: reads #boot, sign-in gate and '/' (UX18), router start, the team header,
+                           #   opens the socket EARLY for room routes (signed-in users only)
   core/  h.js              # h(tag, props, ...children); text only via textContent; attribute allow-list
          list.js           # reconcile(container, items, keyFn, create, update) + FLIP hooks
          store.js          # select(fn, eq) subscriptions; notifications batched per rAF
@@ -1391,7 +1377,9 @@ web/src/
          editor.js caret.js undo.js            # the shared editor (U34a spike → production); islands for Jira
   ui/    button.js dialog.js menu.js popover.js tooltip.js toast.js tabs.js switch.js choice.js
          avatar.js resizable.js confirm.js icons.js glyphs.js side-sheet.js
-  screens/ landing.js auth.js dashboard.js account.js mentions.js invite.js admin.js teams.js
+  screens/ landing.js (signed-out welcome) auth.js sign-in.js account.js mentions.js invite.js pending-invite.js
+         admin.js teams.js (create or join) header.js (the team header) sheet.js (phone) no-access.js
+         (UX18 removed dashboard.js)
   team/  index.js boards.js poker-list.js members.js action-items.js kudos.js settings.js jira-settings.js templates.js
   poker/ index.js model.js table.js seats.js hand.js drag.js reveal.js strip.js spotlight.js settings.js
          observers.js history.js mobile.js keyboard.js
@@ -1405,7 +1393,22 @@ web/assets/ cards.png (9-frame sprite) m6x11plus.woff2 (Latin subset) icons.svg 
 
 ### g.2 Routing
 
-`router.js` maps `/`, `/login`, `/auth/*`, `/dashboard`, `/account`, `/mentions`, `/teams`, `/teams/:id` (`?tab=boards|poker|members|actions|kudos`), `/teams/:id/settings`, `/teams/:tid/poker/:code`, `/poker/:code`, `/retro/:code`, `/invite` (token in the fragment) and `/admin/*` to lazily imported modules exposing `mount(root, boot) → {update(params), unmount()}`. The first page uses the boot JSON from the HTML; in-app navigation fetches `/api/boot?path=` once. `?round=N` deep links keep working.
+`router.js` maps `/`, `/login`, `/auth/*`, `/account`, `/mentions`, `/teams` (create or join), `/teams/:id` (`?tab=poker|retros|actions|kudos|members`), `/teams/:id/settings`, `/teams/:tid/poker/:code`, `/poker/:code`, `/retro/:code`, `/invite` (token in the fragment) and `/admin/*` to lazily imported modules exposing `mount(root, boot) → {update(params), unmount()}`. The first page uses the boot JSON from the HTML; in-app navigation fetches `/api/boot?path=` once. `?round=N` deep links keep working. `/dashboard` left the route table and `ShellRoute.All` together (UX18); the server redirects it to `/`, and the web manifest starts at `/` with `id: "/dashboard"`, so installed apps keep their identity.
+
+**Access (UX18).** Signed out, only `/` (the welcome page), `/login`, `/auth/*` and `/invite` mount. Any other route is replaced by `/login?return=<path and query>` before anything mounts or is looked up, on the first page and on in-app navigation alike (the server answers full page loads the same way, §d). Signed in, `/` goes to `/teams/<me.lastTeamId>`, else the first team in `me.teams`, else `/teams`. The server applies the rule to full page loads (§d), and the fake server does the same; the client applies it to in-app navigation, which never sees a redirect, and there a pending invite the client holds wins over the team. The server cannot see that invite, which waits in `localStorage`, and no cookie tells it: a member's full page load of `/` (a reload, the installed app, the typed address) goes to their team, and the invite waits for the next landing that resumes it (`/invite` below). The create-or-join screen resumes it, so someone in no team still reaches it. A missing page and a team or room the user cannot open look the same: one "You can't open this page" screen with "Back to <last team>" and "Use a different account". A member removed while a room is open sees "You no longer have access". A room kicked for a limit (`too_many_rooms`, `too_many_connections`, §c.7) is not lost access: the page says so and offers "Try again". No screen names the team or room a non-member asked for.
+
+**The header is the team (UX18).** Left to right: the logo (team home); the team switcher (the user's teams from `me.teams`, sorted by name case-insensitively, a check on the current one, the role under each name, then "Create a team" to `/teams`); the team's sections as links, `Poker` (the default), `Retros`, `Action items` (with the open count), `Kudos` and `Members`, addressed as `/teams/:id?tab=poker|retros|actions|kudos|members` (`tab=boards` stays an alias of `retros`); then, on the right, the settings gear (team admins and owners only), the mentions bell and the account menu (Account, Admin for app admins, a Light/Dark/System theme choice, Sign out; there is no separate theme button).
+- The nav is labelled "<team name> sections" and marks the active section with `aria-current="page"`. Section clicks push history; filters inside a section replace it.
+- The team comes from the route (`:id`, `:tid`), from a room's snapshot (`teamId`) on `/retro/:code` and `/poker/:code`, and from `me.lastTeamId` on pages without a team (account, mentions, admin), where the sections show with none active and no gear. On `/teams` the header shows only the logo, the product name and the account menu.
+- Header data comes from `me`: `teams[].openActions` gives the counts. Pages that hold the team room patch the count, name and role live through a small header context API; the header never subscribes to a room. The client refreshes `me` after creating, joining, leaving, deleting or renaming a team and after role changes, because a same-module navigation does not refetch boot. Header styles live in `kit.css`, and the header stays lean because the entry chunk is near its budget.
+- On a phone the header shows the team switcher and a horizontally scrolling row of the sections. The sheet keeps team switching, "Create a team", settings, theme and the account items.
+
+**Screens (UX18).**
+- **Team page.** The header owns the sections, so the page has no tab bar and no team header block. Each section has one `h1` inside a `main`; the admin Jira banner stays at the top. Poker: "Start poker session", the latest session highlighted ("Latest session", pointed/total, "last activity N min ago", topics, Join), then earlier sessions. Nothing claims a session is live or in progress: sessions never close and no data says so. Retros: Active and Archived, "New board" (title and template only), and a card per board with its title and date, plus its stage when stages are on.
+- **Rooms.** The retro board keeps the app header (Retros active, from the snapshot's `teamId`); the board's own header shows "<team> / Retros /" above its title, and the app header no longer mirrors the board title. The poker screen keeps its own toolbar: its Back link becomes the trail "<team> / Poker / <created date>", built from the snapshot's `teamId`; a session opened at `/poker/:code` or under another team's URL is `replaceState`d to `/teams/<teamId>/poker/<code>`; "Copy link" shows for every session; the toolbar docks the mentions bell and the account menu. The retro Share dialog is "Copy link".
+- **`/teams`, create or join.** A pending invite is opened first (`/invite`, replacing the entry). "Create a team" is disabled with the reason and a resend link until the email is verified. "Join a team" takes a pasted invite (`…/invite#t=…`, `/invite/<token>` or a bare token), previews it and opens it. Teams are invite-only: there is no team discovery and no request to join.
+- **`/invite`.** A signed-out visitor is offered "Email me a sign-in link" first, then Google, Microsoft and password sign-in (§e). The pending invite is kept in `localStorage` (`rs.invite`, with an expiry) and cleared on accept, on sign-out and when it expires. It is resumed by the in-app `/` after the magic-link consume and the verify page's "Continue", by the sign-in card's password and OIDC sign-in, which return to `/invite` while it waits (§e), and by the create-or-join screen. A member's full page load of `/` goes to their team.
+- **`/` signed out** is a short welcome page with sign-in and sign-up (Google, Microsoft, email and password, the emailed sign-in link). It has no quick-start buttons, guest name dialog or join-by-code forms.
 
 ### g.3 Rendering and component pattern
 
@@ -1516,7 +1519,7 @@ Cold poker visit from a far region: TLS (1–2 RTT, HTTP/3 if Traefik enables it
 
 **Global mapping rules** (`Map/Common.cs`):
 - **Actor references (S3).** Every column that references a principal and has no FK in the source (`teams.creator_id`, `team_action_items.created_by`/`done_by`/`assigned_to`, `team_invitations.invited_by`, `endorsements.*`, `user_recent_activity.user_id`, …) maps to the principal only if that id was imported (after duplicate merging); otherwise NULL (or the row is skipped when the column is NOT NULL in the target), and every such case is counted in the report.
-- **Duplicate emails are merged, not dropped (S3).** For each lower-cased email with several `auth.users` rows, keep the account with the latest `last_sign_in_at`; remap the losers' ids to the kept id in every table; resolve PK collisions (votes: keep the newest; memberships: keep the highest role; favorites/activity: union; endorsements: dedupe on the unique key). The losers' `auth.users` rows go to archive with their `encrypted_password` sealed.
+- **Duplicate emails are merged, not dropped (S3).** For each lower-cased email with several `auth.users` rows, keep the account with the latest `last_sign_in_at`; remap the losers' ids to the kept id in every table; resolve PK collisions (votes: keep the newest; memberships: keep the highest role; activity: union; endorsements: dedupe on the unique key). The losers' `auth.users` rows go to archive with their `encrypted_password` sealed.
 - **Display-name scrub (S27).** One function scrubs every imported free-text name (poker guests, retro guests, `legacy_author`): email-shaped → `Guest-xxxx`. Emails found in `users.full_name` are reported (not changed; users see their own name).
 - **Anonymity (S6).** Any blob extracted from an anonymous card/comment, and any action item created from one, gets `created_by = NULL`.
 
@@ -1532,9 +1535,10 @@ Cold poker visit from a far region: TLS (1–2 RTT, HTTP/3 if Traefik enables it
 | `teams` | `teams`, `team_jira_config` | `name` truncated to 100 (reported). `poker_point_value_descriptions` → `point_descriptions` filtered to deck keys, values trimmed to 100 chars plain text. Jira: domain normalized and validated by `JiraHostPolicy`; if valid and the token exists, `credentials_box` = AES-GCM({`jira_email`,`jira_api_key`}), `status='rotate_required'` (the token is treated as exposed, S10), `board_id` if numeric else `project_key`, prefix copied, field ids discovered on first test; invalid → no config, reported. Slack, advisor, org and tenant columns → archive with `jira_api_key`, `slack_bot_token`, `slack_webhook_url` sealed. Every team gets endorsement types seeded if missing. |
 | `team_members` | `team_members` | Exactly one owner: none → the creator if a member, else the oldest admin, else the oldest member; several → keep the earliest, demote the rest to admin. Reported. Members whose user is gone skipped. |
 | `team_invitations` | `team_invites` | Only `status='pending' AND is_active AND expires_at > now()`; `token_hash = sha256(token)`; email lower-cased. Imported invite tokens are treated as exposed (S10), so link invites import with `expires_at = least(source, cutover + 7 days)` and role forced to `member`; email invites keep their role. Others → archive with tokens sealed. |
-| `user_favorite_teams`, `user_recent_activity` | `team_favorites`, `recent_activity` | `board` → `board`, `poker_session` → `poker`; missing entities skipped. |
+| `user_favorite_teams` | not imported | UX18 dropped `team_favorites`. |
+| `user_recent_activity` | `recent_activity` | Team entries only (UX18: board and poker recency went with the Dashboard); entries of teams that were not imported are skipped. |
 | `board_templates`, `template_columns` | same | Tailwind colour string → palette (`bg-green-100 …` → `green`; unknown → `gray`). More than one default per team → newest wins. `team_id` null → archive. |
-| `retro_boards` (+ `retro_board_config`) | `retro_boards` | `code = room_id`. Stage null → `thinking`. `deleted=true` → `deleted_at = updated_at`; `archived` → `archived_at` (fallback `updated_at`). Config inlined (missing → defaults; emoji trimmed to 8); timer → `idle`, `timer_duration_ms = duration_seconds·1000` (min 1 s). **Visibility (C):** not private → `link`; private **with** a team → `team` (members keep access; the old password is not honoured); private quick with a stored password → `password` with a **new random password** (the old one is treated as exposed, S10): the importer bcrypts a fresh 12-character value, `password_set_at = import time`, and records the plaintext **sealed** in the run report so the operator can hand it to the board's creator; the board page shows the creator a "password was rotated, set a new one" banner (creator ≡ BoardManage); private quick from an orphaned team board → `password` with a random unknowable password, listed. No legacy password value is honoured. Team null and creator null → quick board. |
+| `retro_boards` (+ `retro_board_config`) | `retro_boards` | `code = room_id`. Stage null → `thinking`. `deleted=true` → `deleted_at = updated_at`; `archived` → `archived_at` (fallback `updated_at`). Config inlined (missing → defaults; emoji trimmed to 8); timer → `idle`, `timer_duration_ms = duration_seconds·1000` (min 1 s). **Team boards only (UX18):** a board whose team is null, or whose team was not imported, is skipped and counted in the report. Every imported board is open to its team's members only: the original's `private` flag and any stored password are ignored, and no visibility or password column is written. (The first import mapped public boards to `link`, private quick boards to `password` with a rotated password and team-less boards to quick boards; 0003 deleted or converted what was left.) |
 | `retro_columns` | `retro_columns` | `board_id` null → skipped (`orphan`). `sort_key` = dense rank over `(position, sort_order, created_at)`. More than one action-items flag → keep the lowest sort key. |
 | `retro_items` | `retro_cards`, `mentions`, `blobs` | `board_id` null → taken from the column; still null → skipped. Body HTML → markup (§h.4); base64 images → board blobs. **Authorship:** `author='Anonymous'` with `author_id` set (signed-in anonymous) → `author_id=null`, `anon_tag = HMAC(ANON_TAG_KEY, board‖author_id)`; only `session_id` → guest principal `v5(guest:session_id)` named by the latest `author` text (scrubbed, S27); base64 images in anonymous items get `blobs.created_by = NULL`; `author_id` set otherwise → user; neither → `legacy_author = author`. `version = 1`. The `votes` counter is dropped (recomputed, drift reported). |
 | `retro_votes` | `retro_votes` | `board_id` backfilled from the card; missing card skipped; voter = `user_id` or `v5(guest:session_id)`; duplicates collapse on the PK. |
@@ -1542,7 +1546,7 @@ Cold poker visit from a far region: TLS (1–2 RTT, HTTP/3 if Traefik enables it
 | `retro_user_readiness` | `retro_readiness` | Only `is_ready` rows whose stage equals the board's current stage; others archive. |
 | `team_action_items` | `team_action_items` | Text HTML → markup. `source_item_id` → `source_card_id` if imported (`source_version = 1`), else null. `done` → `done_at = coalesce(done_at, created_at)`. `assigned_to` must be a user. `created_by`/`done_by` via the actor-reference rule; `created_by = NULL` when the source card is anonymous. Source `team_action_item_comments` does not exist in production (U46 rehearsal); if it ever appears the operator allow-lists it in `expected-columns.json`, and it is archived. |
 | `endorsement_types`, `endorsement_settings`, `endorsements` | `endorsement_types`, `teams.max_endorsements_per_board`, `endorsements` | `icon_url` (emoji) → `emoji` (≤ 8 chars, else ⭐, reported). Self-endorsements and non-user endpoints skipped. |
-| `poker_sessions` | `poker_sessions`, `poker_observers` | `code = coalesce(room_id, id::text)`; case-insensitive collisions kept (exact lookup wins) and reported. `observer_ids[]` → principals (non-users → `v5(guest:id)`). Spotlight reset (ephemeral). `current_round_id` from `current_round_number` after dedupe; `next_round_number = max(number)+1`. `send_to_slack` → archive. Slack sessions (`room_id = team_id`) import as normal team sessions. |
+| `poker_sessions` | `poker_sessions`, `poker_observers` | A session with no team (a quick session in the original) is skipped and counted (UX18), like one whose team was not imported. `code = coalesce(room_id, id::text)`; case-insensitive collisions kept (exact lookup wins) and reported. `observer_ids[]` → principals (non-users → `v5(guest:id)`). Spotlight reset (ephemeral). `current_round_id` from `current_round_number` after dedupe; `next_round_number = max(number)+1`. `send_to_slack` → archive. Slack sessions (`room_id = team_id`) import as normal team sessions. |
 | `poker_session_rounds` | `poker_rounds`, `poker_votes` | 1. `is_pending_round=true` → skipped. 2. Duplicate `(session, round_number)`: keep the latest `created_at`, renumber the others above the max (reported). 3. `sort_key` = dense rank of `(sort_order, round_number)`. 4. `ticket_number`: `round:N`, empty or invalid → null; else upper-cased and validated. 5. **`ticket_title` and `ticket_parent_summary` are dropped — not imported, not archived** (locked). `ticket_parent_key` kept if valid. 6. `game_state='Playing'` → `revealed` (`revealed_at = completed_at`); `Selection` + inactive + (`average_points > 0` or everyone abstained) → `revealed` (legacy display rule). 7. **Selections:** both shapes parsed (`{points, betweenHighPoints, locked, name}` and Slack `{points, display_name}`); keys: user uuid → user, other uuid → `v5(guest:key)` with display name scrubbed to `Guest-xxxx` if it looks like an email, `slack_*` → external principal "Slack user". Revealed rounds: every entry (`-1` → abstained; unlocked → abstained; Slack shape → locked; `high` kept only if adjacent). Unrevealed rounds: only **locked** deck-valid entries (default `{1, unlocked}` and placeholder `0` rows are synthetic). 8. `winner_points` recomputed with `Scoring.Winner`; mismatches with `average_points` reported (ours kept). |
 | `poker_session_chat`, `poker_session_chat_message_reactions` | archive | Chat dropped (locked). Rows stored as jsonb; chat images not downloaded (manifest only). |
 | `poker_ticket_queue` | archive | `ticket_summary` dropped (Jira title). |
@@ -1572,13 +1576,13 @@ Cold poker visit from a far region: TLS (1–2 RTT, HTTP/3 if Traefik enables it
 
 - **Counts** per source table: `source = imported + skipped{reason} + archived`, compared with the `plan` dry run. Any mismatch fails.
 - **Hard invariants** (fail and roll back): one owner per team; every card's column belongs to its board; `(session, number)` unique and sort keys dense; every `retro_votes.board_id` equals its card's board; no unlocked vote on a revealed round; every imported body parses with `MarkupParser` and its **DocNode** contains only allow-listed node kinds (the check runs on the parsed tree, not a string regex, so pasted `&lt;div&gt;` text is fine, S28); every `team_jira_config` decrypts with the active key; imported bcrypt hashes equal the source hashes (by sha256); no `principals.display_name` matches an email regex; no FK target missing (explicit queries); no anonymous card/comment has a non-null `blobs.created_by` or `team_action_items.created_by` reachable from it (S6); no archive row holds an unsealed value in the explicit sealed list; foreign tables never read (SQL log assertion in tests).
-- **Soft checks** (reported): card vote recount vs source `votes`; poker winner vs `average_points`; orphans; nulled actor references; merged duplicate accounts; nulled password hashes; skipped phone-only users; skipped avatars; demoted admins; rotated board passwords; Jira configs requiring rotation; emails in `full_name`.
+- **Soft checks** (reported): card vote recount vs source `votes`; poker winner vs `average_points`; orphans; nulled actor references; merged duplicate accounts; nulled password hashes; skipped phone-only users; skipped avatars; demoted admins; skipped team-less boards and sessions (UX18; before it, rotated board passwords); Jira configs requiring rotation; emails in `full_name`.
 - **Spot checks:** the app binary has a subcommand `retroscope spot-load --sample 20` that loads 20 random entities per kind through the real `PokerStore`/`RetroStore`/`TeamStore` `Load` and projects them for an anonymous viewer, proving every imported room opens. The operator runs it after restore (before `cutover`); U42's test runs it in-proc against the importer's output database. The importer itself never references `Retroscope.Server`.
 - **Report:** JSON in `archive.import_runs.report` plus a human summary on stdout.
 
 ### h.6 Cutover
 
-1. Put the old app into maintenance. 2. Take a final Supabase `pg_dump` backup. 3. Off-box: `plan`, `fetch-storage`, `run` + `verify` into a local Postgres. 4. Review the report (admin list, Jira configs requiring rotation, rotated board passwords, merged duplicate emails, nulled hashes). 5. Stop the app on the VPS, `pg_restore` the data dump, start the app. 6. `cutover`. 7. Switch the Coolify domain/DNS. 8. Tell team owners to rotate Jira tokens in Atlassian; rotate the Supabase DB password and keys. Old links keep working: `/retro/:code`, `/poker/:code`, `/teams/:teamId/poker/:code` (UUID codes accepted), and invite links (`/invite/:token` redirects to `/invite#t=:token`; the path is redacted in request logs, S23).
+1. Put the old app into maintenance. 2. Take a final Supabase `pg_dump` backup. 3. Off-box: `plan`, `fetch-storage`, `run` + `verify` into a local Postgres. 4. Review the report (admin list, Jira configs requiring rotation, the team-less boards and sessions skipped since UX18 (the first import listed rotated board passwords instead), merged duplicate emails, nulled hashes). 5. Stop the app on the VPS, `pg_restore` the data dump, start the app. 6. `cutover`. 7. Switch the Coolify domain/DNS. 8. Tell team owners to rotate Jira tokens in Atlassian; rotate the Supabase DB password and keys. Old links keep working for members: `/retro/:code`, `/poker/:code` and `/teams/:teamId/poker/:code` (UUID codes accepted) open for a signed-in member of the room's team, after sign-in if needed (UX18; before it, `link` boards and quick rooms opened for anyone), and invite links work for everyone (`/invite/:token` redirects to `/invite#t=:token`; the path is redacted in request logs, S23).
 
 ---
 
@@ -1738,14 +1742,14 @@ Kestrel: `MaxConcurrentConnections=2000`, `MaxRequestBodySize=2 MiB` (largest up
 | Golden vectors from the original | `orig` has no `node_modules` and its hooks import React/Supabase, so the pure functions are **copied verbatim** into `tests/golden/src/*.ts` (`getWinningVoteFromSelections` = `usePokerSession.ts:52-85`, `buildJiraBrowseIssuesBySprint`, the 75 % topic summary, `RetroColumn.tsx` `sortItems`), each with a header naming the source path, commit `7f48a79` and the sha256 of the original span; a test recomputes the span hash from `orig` when it is present. `make-golden.mjs` bundles only those copies with esbuild and emits 10k random cases (F17) | `Scoring.Winner`, bucket order (`NaturalCompare`), retro sort and topic badges match the original exactly. |
 | Property / fuzz | FsCheck | Random command sequences from 1–8 principals keep invariants (unique round numbers, dense sort keys, ≤ 1 action column); **secrecy**: no projection for A holds B's points while B's round is voting; **idempotence**: redelivering acked prefixes changes nothing; markup parser never throws and `render(parse(x))` contains only allow-listed nodes. |
 | Golden transcripts | C# emits `tests/golden/transcripts/*.json`; `node --test tests/web-unit` replays them through `web/src/*/model.js` | JS reducers equal the C# projection. |
-| Authz matrix | xunit | `Policy.Can` for every capability × {anonymous, guest, non-member, member, admin, owner, app admin, observer, grant holder} × {quick, team, link, password, archived, deleted team} vs `tests/authz-matrix.csv`; every capability has an allow and a deny row. **Route inventory:** every endpoint has a `RoutePolicy`, unsafe methods carry CSRF metadata, DTOs disallow unmapped members. |
+| Authz matrix | xunit | `Policy.Can` for every capability × {anonymous, external, guest, signed-in non-member, app admin, member, admin, owner, observer, demoted member} × {poker session, board, archived board, team room, each with and without Jira where it matters, deleted room, deleted team} vs `tests/authz-matrix.csv`; every capability has an allow and a deny row. Since UX18 there are no quick, `link` or `password` resources and no creator or grant viewers; the guest row stays, all deny, because legacy guest principals exist. **Route inventory:** every endpoint has a `RoutePolicy`, unsafe methods carry CSRF metadata, DTOs disallow unmapped members. |
 | Deterministic simulation | `Retroscope.Sim`: real `RoomActor` + domains, `FakeTimeProvider`, in-memory `IRoomStore` with injectable commit failure, **commit-succeeded-but-client-saw-error (outcome unknown)**, crash-after-commit-before-ack, fencing loss and spotlight-settle loss; virtual network with drops and reconnects; client storage faults (regressed `cseq`, duplicated cid, lost outbox); two actors with full external queues cross-posting; seeded RNG | 2k seeds per PR, 50k nightly; failing seeds are replayable. No lost acked command, no double application, no unacked intent lost to a transient failure, no stale overwrite accepted (preconditions), every client's final view equals a fresh snapshot, seq gapless per epoch per viewer, presence never leave-then-join within the grace window, auto-reveal at most once per generation, no deadlock. A deliberately broken cursor check must be caught (proves the harness has teeth). |
-| Integration | Testcontainers `postgres:18-alpine` (same image as compose), in-proc server via `WebApplicationFactory`, real `ClientWebSocket`, in-proc Kestrel fakes for Jira, OIDC (Google and Entra) and SMTP | Migrations (apply twice; `pg_dump -s` snapshot), every store's Plan/Load round trip, every HTTP route happy path and denial, WS end to end (subscribe, command, ack, resume/replay with `lastQ`, epoch change, kick on access change, 4409 cid in use, protocol PING/PONG keeps a JS-silent client alive), leader lease and fencing (the **real batch** with a stale epoch raises `RS001` and commits nothing; a second host cannot acquire and exits; killed lease connection → the other acquires; the new leader's epoch bump waits for an in-flight fenced tx), spotlight FK repair on clearAll/delete/principal deletion, per-role timeouts, CSRF/Origin matrix, cookie flags, session revocation closes sockets, OIDC state/nonce/iss (both Google forms)/aud/tenant/empty-allow-list/untrusted Entra email/pre-hijack and claim cases, magic-link single use, click-to-consume and claim-clears-password, verify requires same-user session, email budget, guest/IP limits, blob quota and GC, `return` bypass corpus (`/%09/evil.com`, `/\evil`), Jira throttling/Retry-After/breaker/single-flight/SSRF (private IPs via a fake resolver, redirects refused)/error mapping/points field never `customfield_10020`, and a grep of every serialized `/api` body in the suite proving no token or email leaks. |
+| Integration | Testcontainers `postgres:18-alpine` (same image as compose), in-proc server via `WebApplicationFactory`, real `ClientWebSocket`, in-proc Kestrel fakes for Jira, OIDC (Google and Entra) and SMTP | Migrations (apply twice; `pg_dump -s` snapshot), every store's Plan/Load round trip, every HTTP route happy path and denial, WS end to end (subscribe, command, ack, resume/replay with `lastQ`, epoch change, kick on access change, 4409 cid in use, protocol PING/PONG keeps a JS-silent client alive), leader lease and fencing (the **real batch** with a stale epoch raises `RS001` and commits nothing; a second host cannot acquire and exits; killed lease connection → the other acquires; the new leader's epoch bump waits for an in-flight fenced tx), spotlight FK repair on clearAll/delete/principal deletion, per-role timeouts, CSRF/Origin matrix, cookie flags, session revocation closes sockets, OIDC state/nonce/iss (both Google forms)/aud/tenant/empty-allow-list/untrusted Entra email/pre-hijack and claim cases, magic-link single use, click-to-consume and claim-clears-password, verify requires same-user session, email budget, per-IP and per-principal limits, blob quota and GC, `return` bypass corpus (`/%09/evil.com`, `/\evil`), Jira throttling/Retry-After/breaker/single-flight/SSRF (private IPs via a fake resolver, redirects refused)/error mapping/points field never `customfield_10020`, and a grep of every serialized `/api` body in the suite proving no token or email leaks. |
 | Importer | Testcontainers with two databases: a fake Supabase source from `_schema_dump_99b8c3a.sql` + `supabase/migrations/*.sql` + `auth`/`storage` stubs, seeded with one quirk fixture per row of §h.2 plus: dangling actor ids, duplicate emails with overlapping memberships/votes, phone-only users, unverified account + later Google identity, anonymous card with base64 image in the action column, pasted `&lt;div&gt;` text, email-shaped retro guest name, an unlisted `auth.users` column, and a fixture large enough to exceed 15 s | Golden target rows per fixture; `run` twice gives identical results; injected corruption is caught by `verify`; foreign tables never read; secrets sealed (test RSA key) or stripped; imported `$2a$10$` 6-character password logs in through the real login endpoint; imported accounts are unverified and a later Google login claims (clears the squatter's password); storage resumes after a kill. |
 | AOT smoke | `dotnet publish -p:PublishAot=true` with warnings as errors, then the binary against compose Postgres (in CI) | Health, signup, WS hello, a poker vote round trip, an `unnest(uuid[], int[])` update and a jsonb round trip (slim builder opt-ins, F11). |
-| Soak and chaos | `Retroscope.Soak` against `compose.test.yml` with Toxiproxy (150 ± 100 ms latency, 0.5% resets, 30 s partitions). **Load model from real usage (F4):** 20 rooms × 8 clients × 0.3 commands/s/client for 30 min, plus a 5 s burst every 2 min (all clients vote+lock within 1 s, then reveal and next round), plus 2 spotlight-driven rooms; `docker kill -s KILL app` every 5 min; one DB restart; one redeploy (stop-and-recreate) mid-vote; one kill-restart with 50 boards × 200 cards loaded | Zero lost acked commands (acked q log vs DB), zero duplicate entities, zero stale overwrites, convergence to byte-identical projections within 5 s of healing, wire tap shows no pre-reveal vote values to other principals, one reveal and one `timer.expired` per transition, app RSS < 160 MB including during the 50-board kill-restart storm, reconnect after redeploy < 15 s. Throughput and p99 latency are **measured and recorded** (not gates) on the target VPS in U43. Nightly and before releases. |
-| E2E | Playwright (Chromium, WebKit incl. mobile WebKit project, Firefox), multiple contexts per test, against `compose.test.yml` (Mailpit, fake Jira, fake OIDC) | Poker: 4 players vote, between via Shift-click and drag-hold, abstain, lock, auto-reveal once, replay, next/end/continue (everyone navigates on Next, including followers of someone else's spotlight), parallel rounds, reorder (pointer drag incl. touch long-press, and keyboard), spotlight take/give/follow/joiner lands on it/holder hidden for 6 min keeps it (`page.clock` + hidden page)/release 3 min after holder leaves, pending preview discarded when the holder disconnects, observers, quick session as guest, Jira browse filters/buckets/Pointing-Pointed reasons/add single and batch/pending preview commit or discard/drawer edits incl. a description with a table and screenshot (islands preserved)/hover prefetch/submit points visible to others/retro action item "Create in Jira". Retro: cards with mentions and image paste, anonymous (no author in DOM, WS frames via CDP, or DB), votes and limits, stages and readiness with two facilitators, timer across contexts with ±30 s skew (`page.clock`), focus for late joiners, action items into the team tab, previous action items, endorsements and celebration, templates, password board. Auth: signup, verify, login, magic link, reset, Google/Entra, invites (email mismatch refused). Reconnect: `context.setOffline` mid-vote → converged and outbox flushed; server restart mid-session. **Security:** a `securitypolicyviolation` listener fails any test; XSS corpus (`<img onerror>`, `javascript:` links, mention-name injection, hostile ADF) produces no dialog and no `on*` attributes. Visual baselines of the Neotro table, hand, strip, reveal and retro board in light and dark, desktop and 390×844. Axe scan of core screens. |
-| Budgets | CI | esbuild size budgets (warn at target, fail at > 10 % over the committed baseline), innerHTML ban, zero AOT warnings, Lighthouse CI (landing, quick poker room: LCP ≤ 1.5 s on simulated 4G at 300 ms RTT), 20-player poker snapshot ≤ 8 KB gzip. |
+| Soak and chaos | `Retroscope.Soak` against `compose.test.yml` with Toxiproxy (150 ± 100 ms latency, 0.5% resets, 30 s partitions). **Load model from real usage (F4):** 20 rooms × 8 clients × 0.3 commands/s/client for 30 min, plus a 5 s burst every 2 min (all clients vote+lock within 1 s, then reveal and next round), plus 2 spotlight-driven rooms. Every room is a team session or board: its owner is a verified account seeded through the database, and the other clients sign up and join through a link invite (UX18). `docker kill -s KILL app` every 5 min; one DB restart; one redeploy (stop-and-recreate) mid-vote; one kill-restart with 50 boards × 200 cards loaded | Zero lost acked commands (acked q log vs DB), zero duplicate entities, zero stale overwrites, convergence to byte-identical projections within 5 s of healing, wire tap shows no pre-reveal vote values to other principals, one reveal and one `timer.expired` per transition, app RSS < 160 MB including during the 50-board kill-restart storm, reconnect after redeploy < 15 s. Throughput and p99 latency are **measured and recorded** (not gates) on the target VPS in U43. Nightly and before releases. |
+| E2E | Playwright (Chromium, WebKit incl. mobile WebKit project, Firefox), multiple contexts per test, against `compose.test.yml` (Mailpit, fake Jira, fake OIDC) | Poker: 4 players vote, between via Shift-click and drag-hold, abstain, lock, auto-reveal once, replay, next/end/continue (everyone navigates on Next, including followers of someone else's spotlight), parallel rounds, reorder (pointer drag incl. touch long-press, and keyboard), spotlight take/give/follow/joiner lands on it/holder hidden for 6 min keeps it (`page.clock` + hidden page)/release 3 min after holder leaves, pending preview discarded when the holder disconnects, observers, Jira browse filters/buckets/Pointing-Pointed reasons/add single and batch/pending preview commit or discard/drawer edits incl. a description with a table and screenshot (islands preserved)/hover prefetch/submit points visible to others/retro action item "Create in Jira". Retro: cards with mentions and image paste, anonymous (no author in DOM, WS frames via CDP, or DB), votes and limits, stages and readiness with two facilitators, timer across contexts with ±30 s skew (`page.clock`), focus for late joiners, action items into the team tab, previous action items, endorsements and celebration, templates. Auth: signup, verify, login, magic link, reset, Google/Entra, invites (email mismatch refused, a link invite accepted while signed out). Access (UX18): a signed-out visit goes to sign-in and back, a non-member sees the same screen as for a missing page, sign-in lands on the user's team or the create-or-join screen, `/dashboard` redirects to `/`. Reconnect: `context.setOffline` mid-vote → converged and outbox flushed; server restart mid-session. **Security:** a `securitypolicyviolation` listener fails any test; XSS corpus (`<img onerror>`, `javascript:` links, mention-name injection, hostile ADF) produces no dialog and no `on*` attributes. Visual baselines of the Neotro table, hand, strip, reveal and retro board in light and dark, desktop and 390×844. Axe scan of core screens. |
+| Budgets | CI | esbuild size budgets (warn at target, fail at > 10 % over the committed baseline), innerHTML ban, zero AOT warnings, Lighthouse CI (the welcome page and a team poker room: LCP ≤ 1.5 s on simulated 4G at 300 ms RTT), 20-player poker snapshot ≤ 8 KB gzip. |
 
 `./build.sh test` runs unit, sim (PR seeds), integration, importer and web-unit; e2e runs on PRs touching `web/` or `Server/`; soak runs nightly.
 
@@ -1753,10 +1757,12 @@ Kestrel: `MaxConcurrentConnections=2000`, `MaxRequestBodySize=2 MiB` (largest up
 
 ## (k) Implementation plan
 
+This plan records how the first build was organised. Later units changed some of what these units built, and their decision records say how. UX18 in particular removed guests, quick rooms, board visibility and passwords, the Dashboard, the Teams list and favorites, so the unit entries and checks below that name them (U9, U16, U24, U25, U31, U35, U36, U41 and others) describe the first build, not the current product; §0.1 to §j describe the current product.
+
 ### k.1 Rules for parallel subagents
 
 - Each unit **owns** its listed paths exclusively; it may read anything. Nobody else edits an owned path. A needed change in someone else's path is a change request to the owner (by PR comment); the owner of the shared contract (U2 for `Core/{Ids,Protocol,Room,Authz contract}`, U1 for `0001_init.sql` until U43 freezes it) applies it.
-- **Stubs transfer.** U0 creates every module class (with `AddServices`/`Map` hooks), every JSON context partial and every front-end screen module as a stub; a stub belongs to the unit that lists its path. U2 creates `Core/Authz/PolicyRules.cs` as a deny-all stub that transfers to U9. `Program.cs` and the front-end route table stay with U0 and are frozen after U0.
+- **Stubs transfer.** U0 creates every module class (with `AddServices`/`Map` hooks), every JSON context partial and every front-end screen module as a stub; a stub belongs to the unit that lists its path. U2 creates `Core/Authz/PolicyRules.cs` as a deny-all stub that transfers to U9. `Program.cs` and the front-end route table stay with U0 and are frozen after U0. (With the owner's agreement, UX18 removed the `GuestEndpoints` and `DashboardEndpoints` modules from `Program.cs` and `CompositionRootTests` together, and `/dashboard` from `routes.js` and `ShellRoute.All` together.)
 - **Ports decouple waves.** `Core/Room/Ports.cs` (U2) defines `IPokerJiraPort`, `ITeamNotices`, `IMembershipLookup`, `IConnectionRevoker`, `ILeaderEpoch`. A unit that needs another unit's behaviour codes against the port and tests with a fake; the real implementation is wired by the implementing unit's `AddServices`.
 - **Front-end units never need a running C# server.** They check against `tests/web-fake-server` (U48), which replays golden transcripts and scripted frames and serves HTTP fixtures (including fake Jira proxy responses). Real-server end to end is U45.
 - A unit is done when its **check command** passes **and** `./build.sh test` is green (user rule: full suite after every change). Every check command below is runnable from the repo root.
@@ -1966,7 +1972,7 @@ Legend: **F** = `critique-feasibility.md`, **R** = `critique-realtime-correctnes
 | R24 | Overlapping writes to team-owned rows | Accepted | Column-scoped TeamStore updates; idempotent `ActionItemCreated`; invites accept via TeamActor |
 | R25 | Deploy overlap UX (4503, 503 retries) | Mostly superseded by F9 (no standby) | Kept: `http.js` retries idempotent 502/503 with `Retry-After`; `bye.retryMs` honoured. 4503 and standby boot-snapshot skip no longer exist |
 | R26 | Full mailbox blocks the connection | Accepted | Non-blocking `TryWrite` → immediate retryable `server_busy` |
-| R27 | Unbounded per-actor dictionaries | Accepted | Quick roster trimmed to `present ∪ voted`; `_cursors` LRU 15 min |
+| R27 | Unbounded per-actor dictionaries | Accepted | Quick roster trimmed to `present ∪ voted` (moot since UX18: every roster is a team's members); `_cursors` LRU 15 min |
 | R28 | Command-guard gaps | Accepted | Observer guards on lock/abstain; `AutoRevealGen` bump on observer change; `greatest()` cursor upsert |
 | R-gap | Timer music offset | Accepted | §0.1, §c.4 retro, §g.5 |
 | S1 | Imported "verified" emails are not trusted | Accepted | §h.2 all imported accounts unverified (except matching Google identity); claim rule §e |
@@ -1975,12 +1981,12 @@ Legend: **F** = `critique-feasibility.md`, **R** = `critique-realtime-correctnes
 | S4 | Magic/verify links allow pre-hijack | Accepted | §e claim rule on magic consume; verify needs same-user session; signup mail wording |
 | S5 | Entra email trust; new OIDC users always verified | Accepted | §e trusted-email rules, empty allow-list disables, verified only when asserted, link flow refuses foreign subject |
 | S6 | Anonymous authors leak via `blobs.created_by`/action items | Accepted | §b comments; §c.4 retro add; §h.1 anonymity rule; verify invariant; U22 check |
-| S7 | Free guests bypass per-principal limits; disk fill | Accepted | §d per-IP limits on all G routes, guest create 20/h/IP, board quota, global ceiling, blob GC, verified email for team create |
+| S7 | Free guests bypass per-principal limits; disk fill | Accepted | §d per-IP and per-principal limits on the room routes a signed-in user reaches before the membership check, board quota, global ceiling, blob GC, verified email for team create. UX18 removed guests, so free principals now cost a signup (5/h/IP); the guest-create limit went with them |
 | S8 | Email relay abuse | Accepted | §d `EmailBudget`, limits on signup/reset, verified sender for invites, team-name sanitising, CR/LF rejection |
-| S9 | Room-code enumeration via shell/boot | Accepted | `RoomResolver` everywhere; 10-char codes for new boards; `teamId` dropped from `by-code`. Optional re-share prompt for old 6-char boards **rejected** as unneeded churn: the resolver's IP limit (30/min) makes a 6-char Crockford-or-alnum space impractical to sweep |
-| S10 | Imported credentials already exposed | Accepted | `rotate_required`; link invites capped to 7 days; old board passwords not honoured; quick-board passwords rotated (sealed new value for the operator) |
+| S9 | Room-code enumeration via shell/boot | Accepted | `RoomResolver` everywhere; 10-char codes for new boards; `teamId` dropped from `by-code`; since UX18 a lookup needs a signed-in user and finds only rooms of the caller's teams. Optional re-share prompt for old 6-char boards **rejected** as unneeded churn: the resolver's IP limit (30/min) makes a 6-char Crockford-or-alnum space impractical to sweep |
+| S10 | Imported credentials already exposed | Accepted | `rotate_required`; link invites capped to 7 days; old board passwords not honoured; quick-board passwords rotated (sealed new value for the operator). UX18 removed board passwords and quick boards, so nothing is rotated any more |
 | S11 | Attachment proxy redirects; SVG | Accepted (merged with F20) | §f `redirect=false`, one header-less hop to allow-listed host, raster types only |
-| S12 | Strangers facilitate link team boards; roster leak | Accepted | §c.4 facilitator = members on team boards; roster/mentions/endorsements to members only; §c.11 |
+| S12 | Strangers facilitate link team boards; roster leak | Accepted | §c.4 facilitator = members on team boards; roster/mentions/endorsements to members only; §c.11. UX18 closed it at the root: only members open a board at all |
 | S13 | IP trust and lockout weapon; unbounded limiter state | Accepted | §d `ForwardLimit=1`, proxy-subnet-only trust, CF mode; backoff keyed (account, IP) + email unlock; bounded LRU |
 | S14 | Open-redirect bypass | Accepted | §e `Uri`-based same-origin check, control-char rejection; U3 corpus |
 | S15 | Outbox replays as another user | Accepted | §g.4 outbox bound to principal, cleared on change |
@@ -1989,7 +1995,7 @@ Legend: **F** = `critique-feasibility.md`, **R** = `critique-realtime-correctnes
 | S18 | Magic-link login CSRF | Accepted | §e/§d click-to-confirm page |
 | S19 | Link invites as admin; admins removing admins | Accepted | §b CHECK; §d owner-only admin removal |
 | S20 | OIDC cookie/response mode | Accepted | `response_mode=query`, Lax single-use cookie; standby part moot (F9) |
-| S21 | Guest impersonation by name | Accepted | Guest badge; email-shaped names rejected at runtime |
+| S21 | Guest impersonation by name | Accepted | Guest badge; email-shaped names rejected at runtime. UX18 removed guest creation; the badge stays on imported and earlier guest principals |
 | S22 | Unsalted email hash in audit | Accepted | HMAC with `audit-email` subkey |
 | S23 | Live tokens linger in outbox/logs | Accepted | `body_text` nulled after final failure; `/invite/:token` redacted in logs |
 | S24 | Importer doesn't fence the app; force-reimport | Accepted | §h.1 phase 4 epoch bump; typed confirmation + dump path |

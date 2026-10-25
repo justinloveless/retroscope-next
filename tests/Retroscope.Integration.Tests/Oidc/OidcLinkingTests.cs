@@ -62,7 +62,7 @@ public sealed class OidcLinkingTests(PostgresFixture postgres) {
 
         var response = await host.Browser().SignInAsync("google", claims);
 
-        OidcAssert.RedirectsTo(response, "/dashboard");
+        OidcAssert.RedirectsTo(response, "/");
         Assert.Equal(0L, await host.ScalarAsync<long>("select count(*) from blobs"));
     }
 
@@ -75,7 +75,7 @@ public sealed class OidcLinkingTests(PostgresFixture postgres) {
 
         var response = await browser.SignInAsync("google", OidcHost.Google("g-1", "renamed@example.com", emailVerified: false));
 
-        OidcAssert.RedirectsTo(response, "/dashboard");
+        OidcAssert.RedirectsTo(response, "/");
         var me = await (await browser.GetAsync("/api/me")).JsonAsync();
         Assert.Equal(owner.Value, new Guid(me.GetProperty("principal").GetProperty("id").GetString()!));
         Assert.Equal(1L, await host.ScalarAsync<long>("select count(*) from users"));
@@ -89,7 +89,7 @@ public sealed class OidcLinkingTests(PostgresFixture postgres) {
 
         var response = await host.Browser().SignInAsync("google", OidcHost.Google("g-1", "grace@example.com"));
 
-        OidcAssert.RedirectsTo(response, "/dashboard");
+        OidcAssert.RedirectsTo(response, "/");
         Assert.Equal(owner.Value, await host.LinkedUserAsync("google", "g-1"));
         Assert.Equal(AuthHost.ImportedHash, await host.ScalarAsync<string>("select password_hash from users where id = $1", owner.Value));
         Assert.Equal(2L, await host.ScalarAsync<long>("select count(*) from sessions where user_id = $1", owner.Value));
@@ -104,7 +104,7 @@ public sealed class OidcLinkingTests(PostgresFixture postgres) {
 
         var response = await browser.SignInAsync("google", OidcHost.Google("g-1", "grace@example.com"));
 
-        OidcAssert.RedirectsTo(response, "/dashboard");
+        OidcAssert.RedirectsTo(response, "/");
         Assert.Equal(squatter.Value, await host.LinkedUserAsync("google", "g-1"));
         Assert.Null(await host.ScalarAsync<string>("select password_hash from users where id = $1", squatter.Value));
         Assert.True(await host.ScalarAsync<bool>("select email_verified_at is not null from users where id = $1", squatter.Value));
@@ -127,7 +127,7 @@ public sealed class OidcLinkingTests(PostgresFixture postgres) {
         Assert.NotNull(squatted);
 
         var owner = host.Browser();
-        OidcAssert.RedirectsTo(await owner.SignInAsync("google", OidcHost.Google("g-1", "victim@example.com")), "/dashboard");
+        OidcAssert.RedirectsTo(await owner.SignInAsync("google", OidcHost.Google("g-1", "victim@example.com")), "/");
 
         Assert.Equal(squatted, await host.LinkedUserAsync("google", "g-1"));
         Assert.Null(await host.LinkedUserAsync("entra", $"{OidcHost.TenantB}:oid-x"));
@@ -153,13 +153,13 @@ public sealed class OidcLinkingTests(PostgresFixture postgres) {
 
         var owner = host.Browser();
         OidcAssert.RedirectsTo(
-            await owner.SignInAsync("entra", OidcHost.Entra(OidcHost.TenantB, "oid-1", "victim@example.com", edov: true)), "/dashboard");
+            await owner.SignInAsync("entra", OidcHost.Entra(OidcHost.TenantB, "oid-1", "victim@example.com", edov: true)), "/");
 
         Assert.Equal(squatter.Value, await host.LinkedUserAsync("entra", $"{OidcHost.TenantB}:oid-1"));
         Assert.Null(await host.LinkedUserAsync("google", "g-attacker"));
         var again = host.Browser();
         var response = await again.SignInAsync("google", OidcHost.Google("g-attacker", "attacker@gmail.com"));
-        OidcAssert.RedirectsTo(response, "/dashboard");
+        OidcAssert.RedirectsTo(response, "/");
         var me = await (await again.GetAsync("/api/me")).JsonAsync();
         Assert.NotEqual(squatter.Value, new Guid(me.GetProperty("principal").GetProperty("id").GetString()!));
         Assert.Equal("attacker@gmail.com", me.GetProperty("user").GetProperty("email").GetString());
@@ -209,7 +209,7 @@ public sealed class OidcLinkingTests(PostgresFixture postgres) {
 
         var response = await browser.SignInAsync("google", OidcHost.Google("g-1", "grace@example.com", emailVerified: false));
 
-        OidcAssert.RedirectsTo(response, "/dashboard");
+        OidcAssert.RedirectsTo(response, "/");
         var me = await (await browser.GetAsync("/api/me")).JsonAsync();
         Assert.False(me.GetProperty("user").GetProperty("emailVerified").GetBoolean());
         Assert.NotNull(await host.LinkedUserAsync("google", "g-1"));
@@ -252,7 +252,7 @@ public sealed class OidcLinkingTests(PostgresFixture postgres) {
 
         var response = await browser.SignInAsync("entra", OidcHost.Entra(OidcHost.TenantB, "oid-1", "alan@acme.com"));
 
-        OidcAssert.RedirectsTo(response, "/dashboard");
+        OidcAssert.RedirectsTo(response, "/");
         var me = await (await browser.GetAsync("/api/me")).JsonAsync();
         Assert.False(me.GetProperty("user").GetProperty("emailVerified").GetBoolean());
         Assert.NotNull(await host.LinkedUserAsync("entra", $"{OidcHost.TenantB}:oid-1"));
@@ -266,7 +266,7 @@ public sealed class OidcLinkingTests(PostgresFixture postgres) {
 
         var response = await host.Browser().SignInAsync("entra", OidcHost.Entra(OidcHost.TenantB, "OID-1", "alan@contoso.com", edov: true));
 
-        OidcAssert.RedirectsTo(response, "/dashboard");
+        OidcAssert.RedirectsTo(response, "/");
         Assert.Equal(squatter.Value, await host.LinkedUserAsync("entra", $"{OidcHost.TenantB}:oid-1"));
         Assert.Null(await host.ScalarAsync<string>("select password_hash from users where id = $1", squatter.Value));
         Assert.Equal(1L, await host.ScalarAsync<long>("select count(*) from audit_log where action = 'auth.claim' and meta->>'proof' = 'entra'"));
@@ -281,7 +281,7 @@ public sealed class OidcLinkingTests(PostgresFixture postgres) {
 
         var response = await host.Browser().SignInAsync("entra", OidcHost.Entra(OidcHost.TenantA, "oid-1", email));
 
-        OidcAssert.RedirectsTo(response, "/dashboard");
+        OidcAssert.RedirectsTo(response, "/");
         Assert.Equal(owner.Value, await host.LinkedUserAsync("entra", $"{OidcHost.TenantA}:oid-1"));
     }
 

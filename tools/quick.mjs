@@ -46,7 +46,11 @@ const SIM = true;
 const RULES = [
   [/^src\/Retroscope\.Core\/Poker\//, { core: ['Poker'], node: ['tests/web-unit/reducers.test.js'] }],
   [/^src\/Retroscope\.Core\/Retro\//, { core: ['Retro'] }],
-  [/^src\/Retroscope\.Core\/(Team|Authz)\//, { core: ['Team', 'Authz'] }],
+  [/^src\/Retroscope\.Core\/Team\//, { core: ['Team', 'Authz'] }],
+  // Every room, HTTP route, blob and admin check asks the policy, and the simulator subscribes through it.
+  [/^src\/Retroscope\.Core\/Authz\//, {
+    core: ['Authz', 'Team'], sim: SIM,
+    integration: ['PokerRoom', 'RetroRoom', 'TeamRoom', 'RoomHttp', 'TeamHttp', 'JiraHttp', 'Blobs', 'Admin', 'Hosting'] }],
   [/^src\/Retroscope\.Core\/Room\//, { core: ['Poker', 'Retro', 'Team'], sim: SIM }],
   [/^src\/Retroscope\.Core\/(Protocol|Ids)\//, { core: ['Protocol'], node: ['tests/web-unit/net/supersede.test.js', ...FAKE_SERVER] }],
   [/^src\/Retroscope\.Core\/Markup\//, { core: ['Markup', 'Adf'], node: ['tests/web-unit/markup.test.js'] }],
@@ -59,13 +63,20 @@ const RULES = [
 
   [/^src\/Retroscope\.Server\/Realtime\/Transport\//, { integration: ['Transport'] }],
   [/^src\/Retroscope\.Server\/Realtime\/Actors\//, { integration: ['Actors'], sim: SIM }],
+  // An admitted subscription counts as a visit to the room's team (me.lastTeamId); MeTeamsTests (TeamHttp) holds it.
+  [/^src\/Retroscope\.Server\/Realtime\/Actors\/(RoomActor|ActorRuntime|ActorsModule|IRoomBinding)\.cs$/, { integration: ['TeamHttp'] }],
   [/^src\/Retroscope\.Server\/Realtime\/(Rooms|Stores)\/Poker/, { integration: ['PokerRoom'], sim: SIM }],
   [/^src\/Retroscope\.Server\/Realtime\/(Rooms|Stores)\/Retro/, { integration: ['RetroRoom'], sim: SIM }],
   [/^src\/Retroscope\.Server\/Realtime\/(Rooms|Stores)\/Team/, { integration: ['TeamRoom'], sim: SIM }],
   [/^src\/Retroscope\.Server\/Realtime\//, { integration: ['Actors', 'PokerRoom', 'RetroRoom', 'TeamRoom'], sim: SIM, fallback: true }],
   [/^src\/Retroscope\.Server\/Data\/(Leader|Db)\.cs$/, { integration: ['Leader'], sim: SIM }],
-  [/^src\/Retroscope\.Server\/Data\/(Db|Migrator)\.cs$|^db\/migrations\//, { integration: ['Schema', 'Deploy'] }],
-  [/^src\/Retroscope\.Server\/Data\/Repos\/(Users|Guests|Sessions)Repo/, { integration: ['AuthCore'] }],
+  [/^src\/Retroscope\.Server\/Data\/(Db|Migrator)\.cs$/, { integration: ['Schema', 'Deploy'] }],
+  // The importer's target is migrated from db/migrations and its COPYs name the columns.
+  [/^db\/migrations\//, { integration: ['Schema', 'Deploy'], importer: 'all',
+    note: 'a migration can break any test that seeds rows by SQL; grep tests/ for the tables and columns it changes.' }],
+  [/^src\/Retroscope\.Server\/Data\/Repos\/(Users|Sessions)Repo/, { integration: ['AuthCore'] }],
+  // me.teams, me.lastTeamId and the home redirect (UsersRepo), team visits (ActivityRepo) and kudos received.
+  [/^src\/Retroscope\.Server\/Data\/Repos\/(Users|Activity|Endorsements)Repo/, { integration: ['TeamHttp'] }],
   [/^src\/Retroscope\.Server\/Data\/Repos\/(Teams|Invites)Repo/, { integration: ['TeamHttp'] }],
   [/^src\/Retroscope\.Server\/Data\/Repos\/MembershipCache/, { integration: ['TeamRoom'] }],
   [/^src\/Retroscope\.Server\/Data\/Repos\/CursorRepo/, { integration: ['Leader'] }],
@@ -74,11 +85,13 @@ const RULES = [
   [/^src\/Retroscope\.Server\/Hosting\//, { integration: ['Hosting'] }],
   [/^src\/Retroscope\.Server\/(Auth\/Oidc|Endpoints\/OidcEndpoints)/, { integration: ['Oidc'] }],
   [/^src\/Retroscope\.Server\/(Auth\/Email\/|Jobs\/EmailWorker)/, { integration: ['Email'] }],
-  [/^src\/Retroscope\.Server\/(Auth\/|Endpoints\/(Auth|Guest|Me)Endpoints)/, { integration: ['AuthCore'], fallback: true }],
-  [/^src\/Retroscope\.Server\/Endpoints\/(Poker|Retro|Dashboard|Mentions|Templates|Endorsements)Endpoints/, { integration: ['RoomHttp'] }],
+  [/^src\/Retroscope\.Server\/(Auth\/|Endpoints\/(Auth|Me)Endpoints)/, { integration: ['AuthCore'], fallback: true }],
+  [/^src\/Retroscope\.Server\/Endpoints\/MeEndpoints/, { integration: ['AuthCore', 'TeamHttp'] }],
+  [/^src\/Retroscope\.Server\/Endpoints\/(Poker|Retro|Mentions|Templates|Endorsements)Endpoints/, { integration: ['RoomHttp'] }],
   [/^src\/Retroscope\.Server\/Endpoints\/(Teams|Invites)Endpoints/, { integration: ['TeamHttp'] }],
   // RouteInventoryTests (Hosting) holds every route to a policy and a rate limit.
-  [/^src\/Retroscope\.Server\/Endpoints\/JiraEndpoints/, { integration: ['JiraHttp', 'Hosting'] }],
+  [/^src\/Retroscope\.Server\/Endpoints\//, { integration: ['Hosting'] }],
+  [/^src\/Retroscope\.Server\/Endpoints\/JiraEndpoints/, { integration: ['JiraHttp'] }],
   [/^src\/Retroscope\.Server\/Json\/JiraHttpJsonContext\.cs$/, { integration: ['JiraHttp'] }],
   [/^src\/Retroscope\.Server\/(Endpoints\/AdminEndpoints|Jobs\/(Retention|TeamPurge|TokenSweep)Job)/, { integration: ['Admin'] }],
   [/^src\/Retroscope\.Server\/Endpoints\/BlobEndpoints/, { integration: ['Blobs'] }],
@@ -90,6 +103,8 @@ const RULES = [
 
   [/^src\/Retroscope\.Importer\/Map\/Poker/, { importer: ['PokerMap'] }],
   [/^src\/Retroscope\.Importer\/(Map\/Retro|Html\/)/, { importer: ['RetroMap'] }],
+  // The expected source schema drives preflight and every stage's table disposition.
+  [/^src\/Retroscope\.Importer\/Map\/expected-columns\.json$/, { importer: ['Source', 'Identity', 'EndToEnd'] }],
   [/^src\/Retroscope\.Importer\/Map\//, { importer: ['Identity'], fallback: true }],
   [/^src\/Retroscope\.Importer\/(Source|Storage)\//, { importer: ['Source'] }],
   [/^src\/Retroscope\.Importer\/(Archive\/|Verify\/|Program\.cs)/, { importer: ['EndToEnd'] }],
@@ -115,6 +130,7 @@ const RULES = [
   [/^tests\/web-unit\/core\/_dom\.js$/, { node: WEB_CORE_DOM.concat('tests/web-unit/editor.test.js', ...SHORTCUTS) }],
   [/^tests\/web-unit\/net\/_fakes\.js$/, { node: WEB_NET }],
   [/^tests\/web-unit\/rich\/_project\.js$/, { node: RICH }],
+  [/^tests\/web-unit\/team\/_ctx\.js$/, { node: ['tests/web-unit/team/boards.test.js', 'tests/web-unit/team/poker-list.test.js'] }],
   [/^tests\/web-fake-server\//, { node: FAKE_SERVER }],
   // commands.test.js opens every edit view the fake serves.
   [/^tests\/web-fake-server\/edit-views\.gen\.json$/, { node: ['tests/web-unit/rich/commands.test.js'] }],
@@ -122,7 +138,10 @@ const RULES = [
   [/^tests\/web-fake-server\/((fixtures|demo)\/jira|edit-views\.gen)\.json$/, { core: ['Adf'] }],
   // SprintReportTests holds the fixtures' sprintReport blocks to the server's property names.
   [/^tests\/web-fake-server\/(fixtures|demo)\/jira\.json$/, { integration: ['JiraHttp'] }],
-  [/^tests\/e2e\//, { note: 'Run the changed spec alone: ./build.sh fake-e2e "<area>/<file>.spec.js".' }],
+  [/^tests\/e2e\/fake\//, { note: 'Run the changed spec alone: ./build.sh fake-e2e "<area>/<file>.spec.js".' }],
+  [/^tests\/e2e\/(real|smoke)\//, { note: 'Run the changed spec alone against the test stack: ./build.sh e2e "<dir>/<file>.spec.js".' }],
+  [/^tests\/e2e\/(screenshots\/|[^/]+$)/, { note: 'Run the specs that use it: ./build.sh fake-e2e or ./build.sh screenshots.' }],
+  [/^(tests\/Retroscope\.Soak|deploy\/drills)\//, { note: 'The soak and the drills run by hand against compose.test.yml (deploy/RUNBOOK.md).' }],
 
   [/^web\//, { web: true }],
   [/^web\/src\/core\/router\.js$/, { node: ['tests/web-fake-server/self.test.js'] }],
@@ -148,7 +167,10 @@ const RULES = [
   [/^web\/src\/poker\/(geometry|seats)\.js$/, { node: POKER_LAYOUT }],
   [/^web\/src\/poker\/drag\.js$/, { node: ['tests/web-unit/poker/drag-zones.test.js'] }],
   [/^web\/src\/poker\/issue-drawer\.js$/, { node: ['tests/web-unit/core/build.test.js'] }],
-  [/^web\/src\/routes\.js$/, { node: ['tests/web-unit/scaffold/routes.test.js', 'tests/web-unit/core/router.test.js', 'tests/web-fake-server/self.test.js', 'tests/web-unit/core/build.test.js'] }],
+  // RouteInventoryTests (Hosting) holds routes.js to Server/Hosting ShellRoute.All.
+  [/^web\/src\/routes\.js$/, {
+    node: ['tests/web-unit/scaffold/routes.test.js', 'tests/web-unit/core/router.test.js', 'tests/web-fake-server/self.test.js', 'tests/web-unit/core/build.test.js'],
+    integration: ['Hosting'] }],
   [/^web\/styles\/jira\.css$/, { node: ['tests/web-unit/markup.test.js'] }],
   [/^(web\/styles\/|web\/(build\.mjs|budgets\.json|package\.json)$|package-lock\.json$)/, { node: ['tests/web-unit/core/build.test.js', 'tests/web-unit/core/theme.test.js'] }],
   [/^(package\.json|package-lock\.json|web\/package\.json|THIRD_PARTY\.md)$/, { node: ['tests/web-unit/core/deps.test.js'] }],

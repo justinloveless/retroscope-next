@@ -13,7 +13,7 @@ public sealed class PersistenceTests(PostgresFixture postgres) {
     public async Task Reveal_turns_unlocked_votes_into_abstains_in_sql_and_stores_the_winner() {
         await using var scope = await PokerScope.CreateAsync(postgres);
         var (alice, bob, carol) = (await scope.Seed.UserAsync("Alice"), await scope.Seed.UserAsync("Bob"), await scope.Seed.UserAsync("Carol"));
-        var room = await scope.Seed.SessionAsync(alice);
+        var room = await scope.Seed.SessionAsync(alice, await scope.Seed.TeamOfAsync(alice, bob, carol));
         var r1 = (await scope.Seed.RoundsAsync(room))[0];
         var host = await scope.StartAsync();
         await using var a = await host.JoinAsync(alice, room);
@@ -43,7 +43,7 @@ public sealed class PersistenceTests(PostgresFixture postgres) {
     public async Task Reorder_rewrites_dense_sort_keys_under_the_deferred_unique_constraint() {
         await using var scope = await PokerScope.CreateAsync(postgres);
         var alice = await scope.Seed.UserAsync("Alice");
-        var room = await scope.Seed.SessionAsync(alice, null, "RS-1", "RS-2", "RS-3", "RS-4");
+        var room = await scope.Seed.SessionAsync(alice, await scope.Seed.TeamOfAsync(alice), "RS-1", "RS-2", "RS-3", "RS-4");
         var rounds = await scope.Seed.RoundsAsync(room);
         var host = await scope.StartAsync();
         await using var a = await host.JoinAsync(alice, room);
@@ -89,7 +89,7 @@ public sealed class PersistenceTests(PostgresFixture postgres) {
         await using var scope = await PokerScope.CreateAsync(postgres);
         var alice = await scope.Seed.UserAsync("Alice");
         var bob = await scope.Seed.UserAsync("Bob");
-        var room = await scope.Seed.SessionAsync(alice, null, "RS-1", "RS-2", "RS-3");
+        var room = await scope.Seed.SessionAsync(alice, await scope.Seed.TeamOfAsync(alice, bob), "RS-1", "RS-2", "RS-3");
         var rounds = await scope.Seed.RoundsAsync(room);
         var host = await scope.StartAsync();
         await using var a = await host.JoinAsync(alice, room);
@@ -115,7 +115,7 @@ public sealed class PersistenceTests(PostgresFixture postgres) {
     public async Task A_moved_spotlight_is_persisted_once_it_settles_and_on_shutdown() {
         await using var scope = await PokerScope.CreateAsync(postgres);
         var alice = await scope.Seed.UserAsync("Alice");
-        var room = await scope.Seed.SessionAsync(alice, null, "RS-1", "RS-2", "RS-3");
+        var room = await scope.Seed.SessionAsync(alice, await scope.Seed.TeamOfAsync(alice), "RS-1", "RS-2", "RS-3");
         var rounds = await scope.Seed.RoundsAsync(room);
         var host = await scope.StartAsync();
         await using var a = await host.JoinAsync(alice, room);
@@ -143,7 +143,7 @@ public sealed class PersistenceTests(PostgresFixture postgres) {
         await using var scope = await PokerScope.CreateAsync(postgres);
         var alice = await scope.Seed.UserAsync("Alice");
         var bob = await scope.Seed.UserAsync("Bob");
-        var room = await scope.Seed.SessionAsync(alice);
+        var room = await scope.Seed.SessionAsync(alice, await scope.Seed.TeamOfAsync(alice, bob));
         var r1 = (await scope.Seed.RoundsAsync(room))[0];
         var host = await scope.StartAsync();
         var a = await host.JoinAsync(alice, room);
@@ -169,5 +169,28 @@ public sealed class PersistenceTests(PostgresFixture postgres) {
         var bobSeesAlice = ((PokerSnapshot)bobSnap.D).Votes.Single(x => x.Pid == alice.Id);
         Assert.Equal((VoteStatus.Locked, (short?)null), (bobSeesAlice.Status, bobSeesAlice.Points));
         await host.AssertPersistedAsync(room);
+    }
+
+    [Fact]
+    public async Task The_snapshot_carries_the_sessions_created_at_in_unix_milliseconds_across_a_restart() {
+        await using var scope = await PokerScope.CreateAsync(postgres);
+        var alice = await scope.Seed.UserAsync("Alice");
+        var room = await scope.Seed.SessionAsync(alice, await scope.Seed.TeamOfAsync(alice));
+        // Not the time in the session's id, as for an imported session; Postgres keeps the microseconds.
+        var created = new DateTimeOffset(2024, 3, 5, 14, 30, 15, 123, TimeSpan.Zero).AddTicks(4_560);
+        await scope.Seed.ExecuteAsync("update poker_sessions set created_at = $2 where id = $1", room.Id, created);
+        var host = await scope.StartAsync();
+
+        await using (var a = await host.JoinAsync(alice, room)) {
+            var snapshot = Assert.IsType<PokerSnapshot>(a.Frames().OfType<SnapFrame>().Single().D);
+            Assert.Equal(created.ToUnixTimeMilliseconds(), snapshot.CreatedAt);
+            Assert.Equal(created, await host.QueryAsync(room, x => x.CreatedAt));
+        }
+        await host.AssertPersistedAsync(room);
+
+        host = await scope.RestartAsync();
+        await using var again = await host.JoinAsync(alice, room);
+        var reloaded = Assert.IsType<PokerSnapshot>(again.Frames().OfType<SnapFrame>().Single().D);
+        Assert.Equal(1709649015123L, reloaded.CreatedAt);
     }
 }

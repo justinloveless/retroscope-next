@@ -1,31 +1,31 @@
-// /teams/:id (tabs: boards, poker, members, actions, kudos) and /teams/:id/settings. The team room
-// carries members, action items and the list notices; the lists themselves come over HTTP.
+// /teams/:id (sections: poker, retros, actions, kudos, members, chosen by ?tab=) and /teams/:id/settings.
+// The team room carries members, action items and the list notices; the lists themselves come over HTTP.
+// The app header owns the team's name and its sections (UX18 decisions 9 and 11): this page shows one
+// section in its <main>, with that section's h1, and keeps the header's team name, role and open
+// action-item count live.
 
 import { h, replaceContent } from '../core/h.js';
-import { getSocket, navigate } from '../screens/app.js';
-import { createTabs } from '../ui/tabs.js';
-import { createButton } from '../ui/button.js';
+import { getSocket, navigate, patchTeam } from '../screens/app.js';
+import { SECTIONS, sectionOf } from '../screens/header.js';
+import { isLimitKick, showNoAccess } from '../screens/no-access.js';
 import { icon } from '../ui/icons.js';
-import { plural } from '../core/fmt.js';
-import { model } from './model.js';
+import { model, openActions } from './model.js';
 import { errorMessage, teamApi, toastError, loading } from './util.js';
 
 // Each tab is its own chunk, so the team page stays within its budget (§g.7).
-const TABS = [
-  { id: 'boards', label: 'Boards', load: () => import('./boards.js').then((m) => m.createBoardsTab) },
-  { id: 'poker', label: 'Poker', load: () => import('./poker-list.js').then((m) => m.createPokerTab) },
-  { id: 'members', label: 'Members', load: () => import('./members.js').then((m) => m.createMembersTab) },
-  { id: 'actions', label: 'Actions', load: () => import('./action-items.js').then((m) => m.createActionItemsTab) },
-  { id: 'kudos', label: 'Kudos', load: () => import('./kudos.js').then((m) => m.createKudosTab) },
-];
-// Each tab keeps its filters in the query string; switching tabs drops the others' filters.
-const TAB_PARAMS = ['archived', 'status', 'assignee', 'sort', 'period'];
+const LOADERS = {
+  poker: () => import('./poker-list.js').then((m) => m.createPokerTab),
+  retros: () => import('./boards.js').then((m) => m.createBoardsTab),
+  actions: () => import('./action-items.js').then((m) => m.createActionItemsTab),
+  kudos: () => import('./kudos.js').then((m) => m.createKudosTab),
+  members: () => import('./members.js').then((m) => m.createMembersTab),
+};
+const TABS = SECTIONS.map(([id, label]) => ({ id, label, load: LOADERS[id] }));
 
-function message(title, detail) {
-  return h('div', { class: 'team-message card' },
+function message(title, retry) {
+  return h('main', { class: 'team-screen' }, h('div', { class: 'team-message card' },
     h('h1', { text: title }),
-    detail ? h('p', { text: detail }) : null,
-    h('a', { class: 'btn btn-secondary', href: '/teams', 'data-nav': '' }, 'All teams'));
+    h('button', { type: 'button', class: 'btn btn-secondary', on: { click: retry } }, 'Try again')));
 }
 
 export function mount(root, boot, app = {}) {
@@ -42,6 +42,7 @@ export function mount(root, boot, app = {}) {
   let showing = null;
   let unwatch = [];
   let socket = app.socket ?? null;
+  let shownParams = null;
 
   async function teamSocket() {
     socket ??= await getSocket();
@@ -76,9 +77,25 @@ export function mount(root, boot, app = {}) {
     ctx = null;
   }
 
-  function fail(title, detail) {
+  // A missing team and one the user is not in look the same (S9, UX18 decision 2).
+  function fail(error) {
     teardown();
-    replaceContent(page, message(title, detail));
+    if (error === 'removed' || error?.status === 404 || error?.status === 403) {
+      showNoAccess(page, { removed: error === 'removed' });
+    } else {
+      replaceContent(page, message(errorMessage(error), () => route(shownParams)));
+    }
+  }
+
+  // The header's values for this team, live: the role from the roster, the name from the team's details
+  // (the room's name is set only when its actor loads, so it can be older) and the open action items.
+  function patchHeader(context) {
+    const state = context.room?.view;
+    patchTeam(context.teamId, {
+      name: context.team()?.name,
+      role: context.role() ?? undefined,
+      openActions: state ? openActions(state) : undefined,
+    });
   }
 
   async function open(id) {
@@ -104,6 +121,7 @@ export function mount(root, boot, app = {}) {
       async reloadTeam() {
         try {
           team = await context.api.get('');
+          patchHeader(context);
           screen?.teamChanged?.();
         } catch (error) {
           toastError(error, 'The team could not be reloaded.');
@@ -118,8 +136,7 @@ export function mount(root, boot, app = {}) {
       [team, connected] = await Promise.all([context.api.get(''), teamSocket()]);
     } catch (error) {
       if (run === generation) {
-        const missing = error?.status === 404 || error?.status === 403;
-        fail(missing ? 'Team not found or you do not have access.' : errorMessage(error));
+        fail(error);
       }
       return false;
     }
@@ -131,9 +148,12 @@ export function mount(root, boot, app = {}) {
     });
     unwatch.push(context.room.select(() => context.room.kicked, Object.is, (code) => {
       if (code) {
-        fail('You no longer have access to this team.', code === 'deleted' ? 'This team was deleted.' : null);
+        // A tab over a limit can come back; every other kick ends this user's access.
+        fail(isLimitKick(code) ? { code } : 'removed');
       }
     }));
+    unwatch.push(context.room.select((s) => s, Object.is, () => patchHeader(context)));
+    patchHeader(context);
     return true;
   }
 
@@ -156,15 +176,12 @@ export function mount(root, boot, app = {}) {
   }
 
   async function route(params) {
+    shownParams = params;
     const pathname = location.pathname;
     const settings = (params.route ?? pathname).endsWith('/settings');
     if (!user) {
-      teardown();
-      teamId = null;
-      const back = encodeURIComponent(pathname + location.search);
-      replaceContent(page, h('div', { class: 'team-message card' },
-        h('h1', { text: 'Sign in to see this team' }),
-        h('a', { class: 'btn btn-primary', href: `/login?return=${back}`, 'data-nav': '' }, 'Sign in')));
+      // The router sends signed-out visitors to sign in first; this covers a stale boot JSON.
+      navigate(`/login?return=${encodeURIComponent(pathname + location.search)}`, { replace: true });
       return;
     }
     if (params.id !== teamId || ctx === null) {
@@ -190,77 +207,67 @@ export function mount(root, boot, app = {}) {
   };
 }
 
+// One section at a time inside the page's <main>; the header's links choose it (UX18 decision 11). A section
+// loaded once stays alive while the page shows the team, so switching back to it is instant.
 function createTeamScreen(ctx) {
-  const name = h('h1', { class: 'team-title' });
-  const description = h('p', { class: 'team-description' });
-  const meta = h('p', { class: 'team-meta' });
   const banner = h('div', { class: 'team-banner', role: 'alert', hidden: true });
-  const settingsLink = h('a', { class: 'btn btn-secondary', href: `/teams/${ctx.teamId}/settings`, 'data-nav': '' },
-    icon('settings'), h('span', { class: 'btn-label', text: 'Settings' }));
-  const actions = h('div', { class: 'team-actions' },
-    createButton({
-      label: 'New board',
-      icon: 'plus',
-      variant: 'primary',
-      onClick: () => import('./boards.js').then((m) => m.openCreateBoard(ctx)),
-    }).el,
-    createButton({
-      label: 'New poker session',
-      icon: 'spade',
-      variant: 'emerald',
-      onClick: () => import('./poker-list.js').then((m) => m.createPokerSession(ctx)),
-    }).el,
-    settingsLink);
+  const host = h('div', { class: 'team-section-host' });
+  const el = h('main', { class: 'team-screen' }, banner, host);
 
   const created = new Map();
+  let selected = null;
   let destroyed = false;
-  const tabs = createTabs({
-    tabs: TABS.map(({ id, label }) => ({ id, label })),
-    selected: selectedTab(),
-    label: 'Team sections',
-    onChange(id) {
-      ctx.setQuery(Object.fromEntries([['tab', id === 'boards' ? null : id], ...TAB_PARAMS.map((p) => [p, null])]));
-      select(id);
-    },
-  });
-  const tabsHost = h('div', { class: 'team-tabs' }, tabs.el, ...tabs.panels.values());
 
   function selectedTab() {
-    const tab = ctx.query().get('tab');
-    return TABS.some((t) => t.id === tab) ? tab : 'boards';
+    return sectionOf(ctx.query());
   }
 
-  function select(id) {
-    tabs.select(id);
-    if (created.has(id)) {
+  function retitle() {
+    const label = TABS.find((t) => t.id === selected)?.label;
+    const team = ctx.team()?.name ?? ctx.room.view?.name;
+    document.title = [label, team, 'Retroscope'].filter(Boolean).join(' · ');
+  }
+
+  function failed(id, error) {
+    created.delete(id);
+    toastError(error, 'This section could not be loaded.');
+    if (selected === id && !destroyed) {
+      host.replaceChildren(h('div', { class: 'team-message card' },
+        h('h1', { text: 'This section could not be loaded.' }),
+        h('button', { type: 'button', class: 'btn btn-secondary', on: { click: () => select(id, true) } }, 'Try again')));
+    }
+  }
+
+  function select(id, force = false) {
+    if (id === selected && !force) {
       created.get(id)?.queryChanged?.();
       return;
     }
+    selected = id;
+    retitle();
+    if (created.has(id)) {
+      const component = created.get(id);
+      host.replaceChildren(component ? component.el : loading('Loading…'));
+      component?.queryChanged?.();
+      return;
+    }
     created.set(id, null);
-    const panel = tabs.panels.get(id);
-    panel.replaceChildren(loading('Loading…'));
+    host.replaceChildren(loading('Loading…'));
     TABS.find((t) => t.id === id).load().then((create) => {
-      if (!destroyed) {
-        const component = create(ctx);
-        created.set(id, component);
-        panel.replaceChildren(component.el);
+      if (destroyed) {
+        return;
       }
-    }, (error) => {
-      created.delete(id);
-      toastError(error, 'This section could not be loaded.');
-    });
+      const component = create(ctx);
+      created.set(id, component);
+      if (selected === id) {
+        host.replaceChildren(component.el);
+      }
+    }, (error) => failed(id, error));
   }
 
-  function renderHeader() {
-    const team = ctx.team();
-    const state = ctx.room.view;
-    name.textContent = team?.name ?? state?.name ?? '';
-    description.textContent = team?.description ?? '';
-    description.hidden = !team?.description;
-    const members = state?.members.length ?? team?.counts?.members;
-    meta.textContent = members == null ? '' : plural(members, 'member');
-    settingsLink.hidden = !ctx.isAdmin();
-    const status = team?.jira?.status;
+  // The Jira banner is for the team's admins: a saved token that Jira refuses or that must be replaced.
+  function renderBanner() {
+    const status = ctx.team()?.jira?.status;
     const warn = ctx.isAdmin() && (status === 'rotate_required' || status === 'auth_failed');
     banner.hidden = !warn;
     if (warn) {
@@ -270,23 +277,22 @@ function createTeamScreen(ctx) {
             ? 'The Jira API token must be replaced before Jira can be trusted again.'
             : 'Jira rejected the saved credentials.',
         }),
-        h('a', { href: `/teams/${ctx.teamId}/settings#jira`, 'data-nav': '' }, 'Update Jira settings'));
+        h('a', { href: `/teams/${encodeURIComponent(ctx.teamId)}/settings#jira`, 'data-nav': '' }, 'Update Jira settings'));
     }
   }
 
-  const stop = ctx.room.select((s) => s && [s.name, s.members], (a, b) => a?.[0] === b?.[0] && a?.[1] === b?.[1], renderHeader);
-  renderHeader();
+  const stop = ctx.room.select((s) => s && [s.name, s.members], (a, b) => a?.[0] === b?.[0] && a?.[1] === b?.[1], () => {
+    renderBanner();
+    retitle();
+  });
+  renderBanner();
   select(selectedTab());
-
-  const el = h('div', { class: 'team-screen' },
-    h('header', { class: 'team-header' }, h('div', { class: 'team-heading' }, name, description, meta), actions),
-    banner,
-    tabsHost);
 
   return {
     el,
     teamChanged() {
-      renderHeader();
+      renderBanner();
+      retitle();
       for (const component of created.values()) {
         component?.teamChanged?.();
       }
@@ -300,7 +306,6 @@ function createTeamScreen(ctx) {
       for (const component of created.values()) {
         component?.destroy();
       }
-      tabs.destroy();
       el.remove();
     },
   };

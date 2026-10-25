@@ -82,19 +82,14 @@ test('a member of a team whose Jira has a board gets the button, and nothing is 
   assert.equal(document.querySelector('.retro-sprint-sheet'), null);
 });
 
-test('quick boards, guests and non-members never see the button and send no request', async () => {
-  const cases = [
-    ['a quick board', boardView({ teamId: null, members: undefined }), ME],
-    ['a non-member', boardView({ members: [{ pid: 'someone-else', name: 'Bob', role: 'owner' }] }), ME],
-    ['a guest', boardView(), { pid: 'g0000000-0000-4000-8000-000000000009', kind: 'guest', name: 'Guest' }],
-  ];
-  for (const [name, view, me] of cases) {
-    const { feature, rooms, button } = mount(view, me);
-    await settle();
-    assert.equal(button.hidden, true, name);
-    assert.deepEqual(rooms, [], name);
-    feature.destroy();
-  }
+test('someone no longer on the board’s roster never sees the button and sends no request', async () => {
+  // Every board is a team's and only members open it (UX18); a member removed while it is open drops off the
+  // roster before the room lets them go.
+  const { feature, rooms, button } = mount(boardView({ members: [{ pid: 'someone-else', name: 'Bob', role: 'owner' }] }), ME);
+  await settle();
+  assert.equal(button.hidden, true);
+  assert.deepEqual(rooms, []);
+  feature.destroy();
   assert.deepEqual(requests, []);
 });
 

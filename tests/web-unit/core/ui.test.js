@@ -137,6 +137,48 @@ test('menu opens from its trigger, moves with arrows and reports the chosen acti
   assert.equal(doc.activeElement, trigger);
 });
 
+test('menu groups radio items under a visible label, with a detail line and a check on the chosen one', () => {
+  const chosen = [];
+  const badge = doc.createElement('span');
+  const menu = createMenu({
+    label: 'Teams',
+    items: [
+      { group: 'Your teams', items: [{ action: 'a', label: 'Apps', detail: 'Owner', icon: badge, checked: true }, { action: 'b', label: 'Billing', checked: false }] },
+      'separator',
+      { action: 'create', label: 'Create a team', icon: 'plus' },
+      null,
+    ],
+    onSelect: (a) => chosen.push(a),
+  });
+  const trigger = doc.createElement('button');
+  doc.body.appendChild(trigger);
+  menu.open(trigger);
+  assert.equal(menu.isOpen, true);
+  assert.equal(trigger.getAttribute('aria-expanded'), 'true');
+
+  const group = menu.el.querySelector('[role=group]');
+  const heading = group.querySelector('.menu-heading');
+  assert.equal(heading.textContent, 'Your teams');
+  assert.equal(group.getAttribute('aria-labelledby'), heading.id);
+  const [apps, billing] = group.querySelectorAll('[role=menuitemradio]');
+  assert.equal(apps.getAttribute('aria-checked'), 'true');
+  assert.equal(billing.getAttribute('aria-checked'), 'false');
+  assert.equal(apps.firstChild, badge, 'an element icon is used as given');
+  assert.equal(apps.querySelector('.menu-item-detail').textContent, 'Owner');
+  assert.ok(apps.querySelector('.menu-item-check'));
+  assert.equal(billing.querySelector('.menu-item-check'), null);
+  assert.equal(doc.activeElement, apps, 'the first item takes focus');
+
+  apps.dispatchEvent(key('ArrowDown'));
+  assert.equal(doc.activeElement, billing);
+  billing.dispatchEvent(key('ArrowDown'));
+  assert.equal(doc.activeElement.dataset.action, 'create', 'arrows cross from the group to the items after it');
+  billing.click();
+  assert.deepEqual(chosen, ['b']);
+  assert.equal(menu.isOpen, false);
+  assert.equal(doc.activeElement, trigger);
+});
+
 test('menu closes on Escape and returns focus to the anchor', () => {
   const menu = createMenu({ items: [{ action: 'a', label: 'A' }], onSelect() {} });
   const trigger = doc.createElement('button');

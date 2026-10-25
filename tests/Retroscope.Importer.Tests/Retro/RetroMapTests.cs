@@ -1,9 +1,7 @@
 using System.Security.Cryptography;
-using System.Text;
 using Npgsql;
 using Retroscope.Core.Ids;
 using Retroscope.Core.Markup;
-using Retroscope.Core.Security;
 using Retroscope.Importer.Html;
 using Retroscope.Importer.Map;
 using Retroscope.Importer.Source;
@@ -18,41 +16,48 @@ public sealed class RetroMapTests(ImporterDatabases databases) {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
-    public async Task Visibility_is_mapped_per_case_and_no_old_password_is_honoured() {
+    public async Task Boards_without_an_imported_team_are_skipped_with_everything_on_them() {
+        var fixture = await RetroFixture.CreateAsync(databases);
+
+        var report = await fixture.Runner().RunAsync(new RunOptions(), Ct);
+
+        Assert.Equal(
+            new[] { PublicBoard, TeamBoard, OldBoard }.Order(StringComparer.Ordinal),
+            (await fixture.ScalarAsync<string>("select string_agg(id::text, ',') from retro_boards")).Split(',').Order(StringComparer.Ordinal));
+        Assert.Equal(0L, await fixture.ScalarAsync<long>("select count(*) from retro_boards where team_id is null"));
+        var boards = report.Table("public.retro_boards");
+        Assert.Equal((2L, 1L), (boards.Skipped[RetroMap.NoTeam], boards.Skipped[RetroMap.TeamMissing]));
+        foreach (var table in new[] {
+            "public.retro_board_config", "public.retro_columns", "public.retro_items", "public.retro_comments", "public.retro_votes",
+            "public.retro_user_readiness",
+        }) {
+            Assert.Equal(1L, report.Table(table).Skipped[RetroMap.NoTeam]);
+        }
+        Assert.Equal(0L, await fixture.ScalarAsync<long>(
+            $"select count(*) from principals where id = '{SyntheticIds.Guest(QuickSession)}'"));
+        Assert.Equal(0L, await fixture.ScalarAsync<long>($"select count(*) from retro_cards where id = '{QuickCard}'"));
+        Assert.Equal(0L, await fixture.ScalarAsync<long>("select count(*) from blobs where board_id <> '" + TeamBoard + "'"));
+    }
+
+    [Fact]
+    public async Task No_board_password_reaches_the_target_the_report_or_the_archive_in_plain_text() {
         var fixture = await RetroFixture.CreateAsync(databases);
 
         var report = await fixture.Runner(ImportHarness.SealPublicKeyPem).RunAsync(new RunOptions(), Ct);
 
-        Assert.Equal("link", await Visibility(fixture, PublicBoard));
-        Assert.Null(await fixture.ScalarAsync<object>($"select password_hash from retro_boards where id = '{PublicBoard}'") as string);
-        Assert.Equal("team", await Visibility(fixture, TeamBoard));
-        Assert.Null(await fixture.ScalarAsync<object>($"select password_hash from retro_boards where id = '{TeamBoard}'") as string);
-
-        var wrappedKey = Convert.FromBase64String(report.Fact("seal")!["wrappedKey"]!.GetValue<string>());
-        var rotated = report.Findings("rotatedBoardPasswords").ToDictionary(x => x!["board"]!.GetValue<string>());
-        Assert.Equal([PlainBoard, DemoBoard], rotated.Keys.Order(StringComparer.Ordinal));
-        foreach (var (board, old) in new[] { (PlainBoard, "hunter2"), (DemoBoard, "demo123") }) {
-            Assert.Equal("password", await Visibility(fixture, board));
-            var hash = await fixture.ScalarAsync<string>($"select password_hash from retro_boards where id = '{board}'");
-            Assert.True(Sealer.TryOpen(ImportHarness.SealKey, wrappedKey, "public.retro_boards", board, "rotated_password",
-                rotated[board]!["password"]!["sealed"]!.GetValue<string>(), out var plain));
-            var password = Encoding.UTF8.GetString(plain);
-            Assert.Equal(12, password.Length);
-            Assert.True(Bcrypt.Verify(password, hash));
-            Assert.False(Bcrypt.Verify(old, hash));
-            Assert.True(await fixture.ScalarAsync<bool>($"select password_set_at is not null from retro_boards where id = '{board}'"));
-        }
-        Assert.Equal(Bob, rotated[PlainBoard]!["createdBy"]!.GetValue<string>());
-
-        Assert.Equal("password", await Visibility(fixture, ShaBoard));
-        Assert.False(Bcrypt.Verify(new string('b', 64), await fixture.ScalarAsync<string>($"select password_hash from retro_boards where id = '{ShaBoard}'")));
-        Assert.Contains(report.Findings("unknowableBoardPasswords"), x => x!["board"]!.GetValue<string>() == ShaBoard);
-
         var archived = await fixture.ScalarAsync<string>(
-            $"select row::text from archive.rows where source_table = 'public.retro_boards#dropped' and source_pk = '{PlainBoard}'");
+            $"select row::text from archive.rows where source_table = 'public.retro_boards#dropped' and source_pk = '{TeamBoard}'");
         Assert.Contains("sealed", archived, StringComparison.Ordinal);
-        Assert.DoesNotContain("hunter2", archived, StringComparison.Ordinal);
-        Assert.DoesNotContain("hunter2", report.ToJsonString(), StringComparison.Ordinal);
+        Assert.Contains("is_private", archived, StringComparison.Ordinal);
+        var everything = await fixture.ScalarAsync<string>("""
+            select string_agg(t, ' ') from (
+              select row_to_json(b)::text as t from retro_boards b
+              union all select row::text from archive.rows) x
+            """);
+        foreach (var password in new[] { "hunter2", "demo123", new string('a', 64), new string('b', 64) }) {
+            Assert.DoesNotContain(password, everything, StringComparison.Ordinal);
+            Assert.DoesNotContain(password, report.ToJsonString(), StringComparison.Ordinal);
+        }
     }
 
     [Fact]
@@ -71,10 +76,10 @@ public sealed class RetroMapTests(ImporterDatabases databases) {
                              archived_at::date, deleted_at::date, last_activity_at::date)
             from retro_boards where id = '{OldBoard}'
             """));
-        Assert.Equal("thinking|t|t|900000", await fixture.ScalarAsync<string>(
-            $"select concat_ws('|', stage, allow_anonymous, voting_enabled, timer_duration_ms) from retro_boards where id = '{PlainBoard}'"));
-        Assert.Null(await fixture.ScalarAsync<object>($"select team_id from retro_boards where id = '{DemoBoard}'") as Guid?);
+        Assert.Equal("voting|t|t|900000", await fixture.ScalarAsync<string>(
+            $"select concat_ws('|', stage, allow_anonymous, voting_enabled, timer_duration_ms) from retro_boards where id = '{TeamBoard}'"));
         Assert.Equal(Guid.Parse(Alice), await fixture.ScalarAsync<Guid>($"select created_by from retro_boards where id = '{PublicBoard}'"));
+        Assert.Equal(Guid.Parse(Team), await fixture.ScalarAsync<Guid>($"select team_id from retro_boards where id = '{PublicBoard}'"));
     }
 
     [Fact]
@@ -265,12 +270,9 @@ public sealed class RetroMapTests(ImporterDatabases databases) {
             Assert.True(tally.Source > 0, table);
             Assert.Equal(tally.Source, tally.Imported + tally.Skipped.Values.Sum() + tally.Archived);
         }
-        Assert.Equal(6, report.Table("public.retro_boards").Imported);
+        Assert.Equal(3, report.Table("public.retro_boards").Imported);
         Assert.Equal(7, report.Table("public.retro_items").Imported);
     }
-
-    private static Task<string> Visibility(RetroFixture fixture, string board) =>
-        fixture.ScalarAsync<string>($"select visibility from retro_boards where id = '{board}'");
 
     private static Task<byte[]> AnonTag(RetroFixture fixture, string table, string id) =>
         fixture.ScalarAsync<byte[]>($"select anon_tag from {table} where id = '{id}'");

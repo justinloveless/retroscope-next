@@ -15,10 +15,8 @@ using Retroscope.Server.Hosting;
 namespace Retroscope.Integration.Tests.Blobs;
 
 // The blob endpoints on the hosting pipeline, against a migrated database. Rows the endpoints only read (boards,
-// teams, grants) are written as the owner, the way the actors and the importer would have written them.
+// teams, members) are written as the owner, the way the actors and the importer would have written them.
 internal sealed class BlobApp : IAsyncDisposable {
-    private static readonly string PasswordHash = "$2a$10$" + new string('a', 53);
-
     private readonly TestApp _app;
 
     private BlobApp(TestApp app, TestDatabase database, CapturingLoggerProvider logs) {
@@ -105,34 +103,37 @@ internal sealed class BlobApp : IAsyncDisposable {
         var id = Guid.CreateVersion7();
         await ExecuteAsync("insert into teams (id, name) values ($1, 'Team')", id);
         if (member is not null) {
-            await ExecuteAsync("insert into team_members (team_id, user_id, role) values ($1, $2, $3)", id, member, role);
+            await AddMemberAsync(id, member.Value, role);
         }
         return id;
     }
 
+    public Task AddMemberAsync(Guid team, Guid user, string role = "member") {
+        return ExecuteAsync("insert into team_members (team_id, user_id, role) values ($1, $2, $3)", team, user, role);
+    }
+
+    /// <summary>A user and a team they are a member of: who may upload to the team's boards.</summary>
+    public async Task<(string Caller, Guid User, Guid Team)> InsertMemberAsync() {
+        var user = await InsertUserAsync();
+        return ($"user:{user}", user, await InsertTeamAsync(user));
+    }
+
+    /// <summary>A board of <paramref name="team"/>; every board has one (UX18).</summary>
     public async Task<Guid> InsertBoardAsync(
-        string visibility = "link",
-        Guid? team = null,
-        Guid? createdBy = null,
+        Guid team,
         bool archived = false,
         bool deleted = false,
         string stage = "thinking",
         bool stagesEnabled = false) {
         var id = Guid.CreateVersion7();
-        var password = visibility == "password";
         await ExecuteAsync(
             """
-            insert into retro_boards (id, code, team_id, title, created_by, visibility, password_hash, password_set_at,
-                                      stage, stages_enabled, archived_at, deleted_at)
-            values ($1, $2, $3, 'Board', $4, $5, $6, $7, $8, $9, $10, $11)
+            insert into retro_boards (id, code, team_id, title, stage, stages_enabled, archived_at, deleted_at)
+            values ($1, $2, $3, 'Board', $4, $5, $6, $7)
             """,
             id,
             Guid.NewGuid().ToString("N")[..10],
             team,
-            createdBy,
-            visibility,
-            password ? PasswordHash : null,
-            password ? DateTimeOffset.UtcNow.AddMinutes(-5) : null,
             stage,
             stagesEnabled,
             archived ? DateTimeOffset.UtcNow : null,
@@ -144,17 +145,6 @@ internal sealed class BlobApp : IAsyncDisposable {
         "insert into retro_columns (id, board_id, title, color, sort_key, is_action_items) values ($1, $2, 'Actions', 'blue', 0, true)",
         Guid.CreateVersion7(),
         board);
-
-    /// <param name="current">A grant for the board's current password, or for an earlier one.</param>
-    public Task InsertGrantAsync(Guid board, Guid principal, bool current) => ExecuteAsync(
-        """
-        insert into board_access_grants (board_id, principal_id, password_epoch)
-        select id, $2, case when $3 then password_set_at else password_set_at - interval '1 day' end
-        from retro_boards where id = $1
-        """,
-        board,
-        principal,
-        current);
 
     /// <summary>A board image row whose recorded size is <paramref name="byteSize"/>; quotas only add up sizes.</summary>
     public async Task<Guid> InsertBoardImageRowAsync(

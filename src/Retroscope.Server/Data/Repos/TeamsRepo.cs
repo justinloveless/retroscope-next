@@ -12,8 +12,6 @@ namespace Retroscope.Server.Data.Repos;
 /// <summary>A team as the HTTP routes see it; <see cref="Deleted"/> teams answer like missing ones.</summary>
 public sealed record TeamRow(TeamId Id, string Name, string? Description, bool Deleted);
 
-public sealed record TeamListRow(TeamId Id, string Name, string? Description, TeamRole Role, bool Favorite);
-
 public sealed record TeamJiraRow(
     string SiteHost,
     string? ProjectKey,
@@ -64,28 +62,6 @@ public sealed class TeamsRepo(NpgsqlDataSource dataSource) {
             return null;
         }
         return new TeamRow(team, reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetString(1), reader.GetBoolean(2));
-    }
-
-    public async Task<IReadOnlyList<TeamListRow>> ListAsync(PrincipalId user, CancellationToken cancellationToken) {
-        await using var command = dataSource.CreateCommand("""
-            select t.id, t.name, t.description, m.role,
-                   exists (select 1 from team_favorites f where f.user_id = m.user_id and f.team_id = t.id)
-            from team_members m join teams t on t.id = m.team_id
-            where m.user_id = $1 and t.deleted_at is null
-            order by lower(t.name), t.id
-            """);
-        command.Parameters.Add(new() { Value = user.Value });
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        var teams = new List<TeamListRow>();
-        while (await reader.ReadAsync(cancellationToken)) {
-            teams.Add(new TeamListRow(
-                new TeamId(reader.GetGuid(0)),
-                reader.GetString(1),
-                reader.IsDBNull(2) ? null : reader.GetString(2),
-                MembershipCache.ParseRole(reader.GetString(3)),
-                reader.GetBoolean(4)));
-        }
-        return teams;
     }
 
     public async Task<TeamDetails?> DetailsAsync(TeamId team, CancellationToken cancellationToken) {
@@ -189,18 +165,6 @@ public sealed class TeamsRepo(NpgsqlDataSource dataSource) {
             Command("update teams set deleted_at = $2, updated_at = $2 where id = $1 and deleted_at is null", team.Value, now),
             Audit("team.delete", by, team, team.Value.ToString(), new Dictionary<string, string>(), now),
             cancellationToken);
-    }
-
-    public async Task SetFavoriteAsync(PrincipalId user, TeamId team, bool favorite, DateTimeOffset now, CancellationToken cancellationToken) {
-        await using var command = favorite
-            ? dataSource.CreateCommand("insert into team_favorites (user_id, team_id, created_at) values ($1, $2, $3) on conflict do nothing")
-            : dataSource.CreateCommand("delete from team_favorites where user_id = $1 and team_id = $2");
-        command.Parameters.Add(new() { Value = user.Value });
-        command.Parameters.Add(new() { Value = team.Value });
-        if (favorite) {
-            command.Parameters.Add(new() { Value = now });
-        }
-        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     /// <summary>The team's members with names and avatars; never their email addresses.</summary>

@@ -50,7 +50,7 @@ public sealed class PokerMapTests(ImporterDatabases databases) {
                 Round(R(1), Session, 1, createdHours: 0, sortOrder: 0),
                 Round(R(2), Session, 2, createdHours: 1, sortOrder: 1, pending: true));
         await fixture.SourceSqlAsync($"""
-            insert into public.poker_sessions (id, room_id, current_round_number, created_at) values ('{Session}', 'quick1', 2, '{At(0)}');
+            insert into public.poker_sessions (id, team_id, room_id, current_round_number, created_at) values ('{Session}', '{TeamId}', 'TEAM01', 2, '{At(0)}');
             {seed}
             """);
 
@@ -58,11 +58,41 @@ public sealed class PokerMapTests(ImporterDatabases databases) {
 
         Assert.Equal(R(1), Assert.Single(await fixture.RowsAsync("select id from poker_rounds"))["id"]);
         var session = await fixture.RowAsync("select team_id, current_round_id, next_round_number from poker_sessions");
-        Assert.Null(session["team_id"]);
+        Assert.Equal(TeamId, session["team_id"]);
         Assert.Equal(R(1), session["current_round_id"]);
         Assert.Equal(2, session["next_round_number"]);
         Assert.Equal(1, report.Counter("poker.pointerRepaired"));
         Assert.Equal(1, report.Table(PokerMap.RoundsTable).Skipped["pending"]);
+    }
+
+    [Fact]
+    public async Task Sessions_without_an_imported_team_are_skipped_with_their_rounds() {
+        var fixture = await CreateAsync(databases);
+        Guid quick = S(1), gone = S(2);
+        var guest = Guid.Parse("9a000000-0000-0000-0000-0000000000cc");
+        var seed = Rounds(
+                Round(R(1), quick, 1, createdHours: 0, sortOrder: 0, selections: $$$"""
+                    {"{{{guest}}}": {"points": 5, "locked": true, "name": "Quick Guest"}}
+                    """),
+                Round(R(2), quick, 2, createdHours: 1, sortOrder: 1),
+                Round(R(3), gone, 1, createdHours: 0, sortOrder: 0),
+                Round(R(4), S(3), 1, createdHours: 0, sortOrder: 0));
+        await fixture.SourceSqlAsync($"""
+            insert into public.poker_sessions (id, team_id, room_id, current_round_number, created_at) values
+              ('{quick}', null, 'QUICK1', 1, '{At(0)}'),
+              ('{gone}', '7e000000-0000-0000-0000-0000000000ff', 'GONE01', 1, '{At(0)}');
+            {seed}
+            """);
+
+        var report = await fixture.RunAsync();
+
+        Assert.Empty(await fixture.RowsAsync("select id from poker_sessions"));
+        Assert.Empty(await fixture.RowsAsync("select id from poker_rounds"));
+        Assert.Empty(await fixture.RowsAsync($"select id from principals where id = '{SyntheticIds.Guest(guest)}'"));
+        var sessions = report.Table(PokerMap.SessionsTable);
+        Assert.Equal((0L, 1L, 1L), (sessions.Imported, sessions.Skipped["no_team"], sessions.Skipped["team_missing"]));
+        var rounds = report.Table(PokerMap.RoundsTable);
+        Assert.Equal((2L, 1L, 1L), (rounds.Skipped["no_team"], rounds.Skipped["team_missing"], rounds.Skipped["orphan"]));
     }
 
     [Fact]
@@ -118,8 +148,8 @@ public sealed class PokerMapTests(ImporterDatabases databases) {
                  "broken": 7}
                 """));
         await fixture.SourceSqlAsync($"""
-            insert into public.poker_sessions (id, room_id, current_round_number, created_at, observer_ids) values
-              ('{Session}', 'quick1', 1, '{At(0)}', '{"{" + Observer + "}"}');
+            insert into public.poker_sessions (id, team_id, room_id, current_round_number, created_at, observer_ids) values
+              ('{Session}', '{TeamId}', 'TEAM01', 1, '{At(0)}', '{"{" + Observer + "}"}');
             {seed}
             """);
 
@@ -165,7 +195,7 @@ public sealed class PokerMapTests(ImporterDatabases databases) {
                     {"{{{UserA}}}": {"points": 5, "locked": false, "name": "A"}}
                     """));
         await fixture.SourceSqlAsync($"""
-            insert into public.poker_sessions (id, room_id, current_round_number, created_at) values ('{Session}', 'quick1', 1, '{At(0)}');
+            insert into public.poker_sessions (id, team_id, room_id, current_round_number, created_at) values ('{Session}', '{TeamId}', 'TEAM01', 1, '{At(0)}');
             {seed}
             """);
 
@@ -209,7 +239,7 @@ public sealed class PokerMapTests(ImporterDatabases databases) {
                      "{{{MergedKept}}}": {"points": 2, "locked": true, "name": "Kept"}}
                     """));
         await fixture.SourceSqlAsync($"""
-            insert into public.poker_sessions (id, room_id, current_round_number, created_at) values ('{Session}', 'quick1', 1, '{At(0)}');
+            insert into public.poker_sessions (id, team_id, room_id, current_round_number, created_at) values ('{Session}', '{TeamId}', 'TEAM01', 1, '{At(0)}');
             {seed}
             """);
 
@@ -236,7 +266,7 @@ public sealed class PokerMapTests(ImporterDatabases databases) {
                 Round(R(3), Session, 3, createdHours: 2, sortOrder: 2, ticket: "not a key", parent: "nope"),
                 Round(R(4), Session, 4, createdHours: 3, sortOrder: 3, ticket: "42"));
         await fixture.SourceSqlAsync($"""
-            insert into public.poker_sessions (id, room_id, current_round_number, created_at) values ('{Session}', 'quick1', 1, '{At(0)}');
+            insert into public.poker_sessions (id, team_id, room_id, current_round_number, created_at) values ('{Session}', '{TeamId}', 'TEAM01', 1, '{At(0)}');
             {seed}
             """);
         var runner = fixture.Runner();
@@ -269,13 +299,13 @@ public sealed class PokerMapTests(ImporterDatabases databases) {
         await fixture.SourceSqlAsync($"""
             -- The live database's constraints are unverified (schema.md §0); the importer must not rely on this one.
             alter table public.poker_sessions drop constraint poker_sessions_room_id_key;
-            insert into public.poker_sessions (id, room_id, created_at) values
-              ('{nullRoom}', null, '{At(0)}'),
-              ('{upper}', 'ROOM42', '{At(1)}'),
-              ('{lower}', 'room42', '{At(2)}'),
-              ('{first}', 'dup-1', '{At(3)}'),
-              ('{duplicate}', 'dup-1', '{At(4)}'),
-              ('{invalid}', 'has space', '{At(5)}');
+            insert into public.poker_sessions (id, team_id, room_id, created_at) values
+              ('{nullRoom}', '{TeamId}', null, '{At(0)}'),
+              ('{upper}', '{TeamId}', 'ROOM42', '{At(1)}'),
+              ('{lower}', '{TeamId}', 'room42', '{At(2)}'),
+              ('{first}', '{TeamId}', 'dup-1', '{At(3)}'),
+              ('{duplicate}', '{TeamId}', 'dup-1', '{At(4)}'),
+              ('{invalid}', '{TeamId}', 'has space', '{At(5)}');
             """);
 
         var report = await fixture.RunAsync();
@@ -302,9 +332,9 @@ public sealed class PokerMapTests(ImporterDatabases databases) {
         Guid squatter = S(1), owner = S(2);
         await fixture.SourceSqlAsync($"""
             alter table public.poker_sessions drop constraint poker_sessions_room_id_key;
-            insert into public.poker_sessions (id, room_id, created_at) values
-              ('{squatter}', '{owner}', '{At(0)}'),
-              ('{owner}', null, '{At(1)}');
+            insert into public.poker_sessions (id, team_id, room_id, created_at) values
+              ('{squatter}', '{TeamId}', '{owner}', '{At(0)}'),
+              ('{owner}', '{TeamId}', null, '{At(1)}');
             """);
 
         var report = await fixture.RunAsync();
@@ -326,7 +356,7 @@ public sealed class PokerMapTests(ImporterDatabases databases) {
         await fixture.SourceSqlAsync($"""
             -- The live database's constraints are unverified (schema.md §0).
             alter table public.poker_session_rounds alter column average_points drop not null;
-            insert into public.poker_sessions (id, room_id, current_round_number, created_at) values ('{Session}', 'quick1', 1, '{At(0)}');
+            insert into public.poker_sessions (id, team_id, room_id, current_round_number, created_at) values ('{Session}', '{TeamId}', 'TEAM01', 1, '{At(0)}');
             {seed}
             """);
 
@@ -347,9 +377,9 @@ public sealed class PokerMapTests(ImporterDatabases databases) {
             {"{{{browser}}}": {"points": 5, "locked": true, "name": "Gwen"}}
             """));
         await fixture.SourceSqlAsync($"""
-            insert into public.poker_sessions (id, room_id, current_round_number, created_at) values ('{Session}', 'quick1', 1, '{At(0)}');
+            insert into public.poker_sessions (id, team_id, room_id, current_round_number, created_at) values ('{Session}', '{TeamId}', 'TEAM01', 1, '{At(0)}');
             {seed}
-            insert into public.retro_boards (id, room_id, title, created_at, updated_at) values ('{S(9)}', 'RETRO1', 'Retro', '{At(0)}', '{At(0)}');
+            insert into public.retro_boards (id, room_id, title, team_id, created_at, updated_at) values ('{S(9)}', 'RETRO1', 'Retro', '{TeamId}', '{At(0)}', '{At(0)}');
             insert into public.retro_columns (id, board_id, title, color, position) values ('{S(10)}', '{S(9)}', 'Good', 'bg-green-100', 0);
             insert into public.retro_items (id, board_id, column_id, text, author, session_id, created_at, updated_at) values
               ('{S(11)}', '{S(9)}', '{S(10)}', '<p>hi</p>', 'Gwen', '{browser.ToString().ToUpperInvariant()}', '{At(1)}', '{At(1)}');

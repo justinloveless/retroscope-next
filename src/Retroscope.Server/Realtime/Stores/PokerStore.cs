@@ -18,13 +18,14 @@ namespace Retroscope.Server.Realtime.Stores;
 /// </summary>
 public sealed class PokerStore(NpgsqlDataSource dataSource, Leader leader, CursorRepo cursors)
     : SqlRoomStore<PokerState, PokerEvent>(dataSource, leader, cursors) {
+    // Every session belongs to a team (UX18, migration 0003); a session of a deleted team loads as missing.
     private const string SessionSql = """
-        select s.code, s.team_id, s.created_by, s.presence_enabled, s.follow_spotlight,
+        select s.code, s.team_id, s.presence_enabled, s.follow_spotlight,
                s.spotlight_holder_id, s.spotlight_client_id, s.spotlight_round_id, s.current_round_id,
                s.next_round_number, t.deleted_at is not null, t.point_descriptions::text,
-               j.team_id is not null, j.ticket_prefix, coalesce(j.members_can_edit, true)
+               j.team_id is not null, j.ticket_prefix, coalesce(j.members_can_edit, true), s.created_at
         from poker_sessions s
-        left join teams t on t.id = s.team_id
+        join teams t on t.id = s.team_id
         left join team_jira_config j on j.team_id = s.team_id
         where s.id = $1
         """;
@@ -41,19 +42,13 @@ public sealed class PokerStore(NpgsqlDataSource dataSource, Leader leader, Curso
         where r.session_id = $1
         """;
 
-    // Team sessions seat the team's members; quick sessions seat whoever has a vote (R27).
+    // A session seats the team's members (R27).
     private const string RosterSql = $"""
         select p.id, p.kind,
                case when u.id is null then coalesce(p.display_name, 'Player') else {UsersRepo.DisplayNameSql} end,
                u.avatar_blob_id
         from principals p left join users u on u.id = p.id
-        where p.id in (
-            select m.user_id from team_members m join poker_sessions s on s.team_id = m.team_id where s.id = $1
-            union
-            select v.principal_id from poker_votes v
-            join poker_rounds r on r.id = v.round_id
-            join poker_sessions s on s.id = r.session_id
-            where r.session_id = $1 and s.team_id is null)
+        where p.id in (select m.user_id from team_members m join poker_sessions s on s.team_id = m.team_id where s.id = $1)
         """;
 
     public override async Task<PokerState?> LoadAsync(RoomKey room, DateTimeOffset now, CancellationToken cancellationToken) {
@@ -68,7 +63,7 @@ public sealed class PokerStore(NpgsqlDataSource dataSource, Leader leader, Curso
             },
         };
         await using var reader = await batch.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken) || reader.GetBoolean(10)) {
+        if (!await reader.ReadAsync(cancellationToken) || reader.GetBoolean(9)) {
             return null;
         }
         var state = ReadSession(reader, room, now);
@@ -285,27 +280,27 @@ public sealed class PokerStore(NpgsqlDataSource dataSource, Leader leader, Curso
     }
 
     private static PokerState ReadSession(NpgsqlDataReader reader, RoomKey room, DateTimeOffset now) {
-        var holder = NullableGuid(reader, 5);
-        var spotlightRound = NullableGuid(reader, 7);
+        var holder = NullableGuid(reader, 4);
+        var spotlightRound = NullableGuid(reader, 6);
         return new PokerState {
             SessionId = new SessionId(room.Id),
             Code = reader.GetString(0),
-            TeamId = NullableGuid(reader, 1) is { } team ? new TeamId(team) : null,
-            CreatedBy = NullableGuid(reader, 2) is { } creator ? new PrincipalId(creator) : null,
-            PresenceEnabled = reader.GetBoolean(3),
-            FollowSpotlight = reader.GetBoolean(4),
+            TeamId = new TeamId(reader.GetGuid(1)),
+            CreatedAt = reader.GetFieldValue<DateTimeOffset>(14),
+            PresenceEnabled = reader.GetBoolean(2),
+            FollowSpotlight = reader.GetBoolean(3),
             Spotlight = holder is { } h && spotlightRound is { } r
                 ? new Spotlight {
                     Holder = new PrincipalId(h),
-                    HolderClient = NullableGuid(reader, 6) is { } client ? new ClientId(client) : null,
+                    HolderClient = NullableGuid(reader, 5) is { } client ? new ClientId(client) : null,
                     RoundId = new RoundId(r),
                 }
                 : null,
-            CurrentRoundId = NullableGuid(reader, 8) is { } current ? new RoundId(current) : null,
-            NextRoundNumber = reader.GetInt32(9),
-            PointDescriptions = reader.IsDBNull(11) ? new Dictionary<string, string>() : ParseDescriptions(reader.GetString(11)),
-            Jira = reader.GetBoolean(12)
-                ? new TeamJiraSettings(true, reader.IsDBNull(13) ? null : reader.GetString(13), reader.GetBoolean(14))
+            CurrentRoundId = NullableGuid(reader, 7) is { } current ? new RoundId(current) : null,
+            NextRoundNumber = reader.GetInt32(8),
+            PointDescriptions = reader.IsDBNull(10) ? new Dictionary<string, string>() : ParseDescriptions(reader.GetString(10)),
+            Jira = reader.GetBoolean(11)
+                ? new TeamJiraSettings(true, reader.IsDBNull(12) ? null : reader.GetString(12), reader.GetBoolean(13))
                 : TeamJiraSettings.None,
             WarmUntil = now + PokerTiming.WarmUp,
         };

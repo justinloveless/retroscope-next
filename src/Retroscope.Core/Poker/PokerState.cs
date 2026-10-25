@@ -11,10 +11,11 @@ public sealed class PokerState {
 
     public string Code { get; set; } = "";
 
-    /// <summary>Null for a quick session.</summary>
-    public TeamId? TeamId { get; set; }
+    /// <summary>The team the session belongs to; every session has one (UX18).</summary>
+    public TeamId TeamId { get; set; }
 
-    public PrincipalId? CreatedBy { get; set; }
+    /// <summary>When the session was created (<c>poker_sessions.created_at</c>); the toolbar names its day (UX18).</summary>
+    public DateTimeOffset CreatedAt { get; init; }
 
     public bool PresenceEnabled { get; set; } = true;
 
@@ -34,7 +35,7 @@ public sealed class PokerState {
 
     public int NextRoundNumber { get; set; } = 1;
 
-    /// <summary>Team sessions: the team's members. Quick sessions: principals who voted (R27).</summary>
+    /// <summary>The team's members (R27).</summary>
     public Dictionary<PrincipalId, PrincipalInfo> Roster { get; } = [];
 
     /// <summary>Load time plus <see cref="PokerTiming.WarmUp"/>: no auto-reveal while clients reconnect.</summary>
@@ -49,8 +50,6 @@ public sealed class PokerState {
 
     public bool Deleted { get; set; }
 
-    public bool IsTeamSession => TeamId is not null;
-
     public Round? CurrentRound => CurrentRoundId is { } id ? Rounds.GetValueOrDefault(id) : null;
 
     public PokerState Clone() {
@@ -58,7 +57,7 @@ public sealed class PokerState {
             SessionId = SessionId,
             Code = Code,
             TeamId = TeamId,
-            CreatedBy = CreatedBy,
+            CreatedAt = CreatedAt,
             PresenceEnabled = PresenceEnabled,
             FollowSpotlight = FollowSpotlight,
             Spotlight = Spotlight?.Clone(),

@@ -141,6 +141,23 @@ public sealed class IdentityRulesTests(ImporterDatabases databases) {
         Assert.Single(report.Findings("demotedOwners"));
     }
 
+    /// <summary>Favorites were removed and only team visits steer where '/' lands (UX18).</summary>
+    [Fact]
+    public async Task Favorites_are_only_counted_and_only_team_activity_is_kept() {
+        var import = await IdentityImport.CreateAsync(databases, "teams");
+
+        var report = await import.RunAsync(Ct);
+
+        var favorites = report.Table("public.user_favorite_teams");
+        Assert.Equal((4L, 0L, 4L), (favorites.Source, favorites.Imported, favorites.Excluded));
+        Assert.Contains("team favorites were removed (UX18)", await ColumnAsync(import,
+            "select reason from archive.excluded_tables where source_table = 'public.user_favorite_teams'"));
+        var activity = report.Table("public.user_recent_activity");
+        Assert.Equal(2L, activity.Skipped["not_team"]);
+        Assert.Equal(1L, activity.Skipped["no_entity"]);
+        Assert.Equal(["team"], await ColumnAsync(import, "select distinct entity_kind from recent_activity"));
+    }
+
     [Fact]
     public async Task Merged_accounts_resolve_every_primary_key_collision_by_its_rule() {
         var import = await IdentityImport.CreateAsync(databases, "teams");
@@ -153,12 +170,8 @@ public sealed class IdentityRulesTests(ImporterDatabases databases) {
         Assert.Equal(0L, await import.Harness.TargetScalarAsync<long>($"select count(*) from team_members where user_id = '{DupLoser}'"));
         Assert.Equal(1, report.Table("public.team_members").Skipped["merged_duplicate"]);
 
-        Assert.Equal("2025-01-02", await import.Harness.TargetScalarAsync<string>(
-            $"select to_char(created_at at time zone 'UTC', 'YYYY-MM-DD') from team_favorites where user_id = '{DupKept}' and team_id = '00000000-0000-0000-0000-0000000000c1'"));
-        Assert.Equal(1, report.Table("public.user_favorite_teams").Skipped["merged_duplicate"]);
-
         Assert.Equal("2025-03-05", await import.Harness.TargetScalarAsync<string>(
-            $"select to_char(last_at at time zone 'UTC', 'YYYY-MM-DD') from recent_activity where user_id = '{DupKept}' and entity_id = '00000000-0000-0000-0000-000000000901'"));
+            $"select to_char(last_at at time zone 'UTC', 'YYYY-MM-DD') from recent_activity where user_id = '{DupKept}' and entity_id = '00000000-0000-0000-0000-0000000000c3'"));
         Assert.Equal(1, report.Table("public.user_recent_activity").Skipped["merged_duplicate"]);
 
         // 702 (loser) and 703 (kept) endorse the same person with the same type on the same board; the older stays.

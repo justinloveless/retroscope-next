@@ -27,6 +27,16 @@ test('hashed assets are served precompressed and immutable', async ({ page }) =>
   expect(assets.some((response) => ['br', 'gzip'].includes(response.headers()['content-encoding']))).toBe(true);
 });
 
+test('the old Dashboard address, the former start URL of installed apps, redirects to /', async ({ page }) => {
+  const redirect = await page.request.get('/dashboard', { maxRedirects: 0 });
+  expect(redirect.status()).toBe(302);
+  expect(redirect.headers().location).toBe('/');
+  expect(redirect.headers()['cache-control']).toBe('no-store');
+  // Installed apps keep their identity: the manifest's id is still the old start URL.
+  const manifest = await (await page.request.get('/manifest.webmanifest')).json();
+  expect(manifest).toMatchObject({ id: '/dashboard', start_url: '/' });
+});
+
 test('an old invite link redirects to /invite with the token only in the fragment', async ({ page }) => {
   const redirect = await page.request.get('/invite/legacy-token-0123456789', { maxRedirects: 0 });
   expect(redirect.status()).toBe(302);

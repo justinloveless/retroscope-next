@@ -1,6 +1,7 @@
 // Shared fixtures for the team screen specs: a team room snapshot, the boot JSON of a signed-in
-// member, and HTTP routes for the lists. Response shapes follow docs/decisions/U30.md.
+// member, and HTTP routes for the lists. Response shapes follow docs/decisions/U30.md and UX18.md.
 import { json } from '../../../web-fake-server/http.js';
+import { memberMe } from '../_harness/me.js';
 
 export { expect, test } from '../_harness/fixtures.js';
 
@@ -70,7 +71,18 @@ export function team(role, extra = {}) {
 }
 
 export function board(id, title, extra = {}) {
-  return { id, code: `CODE${id.slice(-2).toUpperCase()}AAAA`, title, visibility: 'team', archived: false, createdAt: T0, ...extra };
+  return {
+    id,
+    code: `CODE${id.slice(-2).toUpperCase()}AAAA`,
+    title,
+    archived: false,
+    createdAt: T0,
+    stage: 'thinking',
+    stagesEnabled: false,
+    cardCount: 0,
+    lastActivityAt: T0,
+    ...extra,
+  };
 }
 
 export const listItems = () => [
@@ -80,21 +92,15 @@ export const listItems = () => [
 
 /**
  * Signs in as `me` (OWNER, ADMIN or MEMBER), creates the team room and routes the team's HTTP API.
- * Returns the routes' call log by name, e.g. calls.boards.
+ * Returns the routes' call log by name, e.g. calls.boards, and `leave()`, which takes the team out of `me`.
  */
 export function setupTeam(fake, { me = OWNER, emailVerified = true, roomSnapshot = snapshot(), teamInfo } = {}) {
   const role = members().find((m) => m.pid === me).role;
-  fake.boot = (path) => ({
-    build: 'fake',
-    theme: 'light',
-    path,
-    me: {
-      principal: { id: me, kind: 'user', name: NAMES[me] },
-      user: { email: 'me@example.com', emailVerified, fullName: NAMES[me], theme: 'light', isAdmin: false, hasPassword: true },
-      teams: [{ id: TEAM_ID, name: 'Platform', role }],
-      unreadMentions: 0,
-    },
-  });
+  const signedIn = memberMe({ pid: me, name: NAMES[me] }, [{ id: TEAM_ID, name: 'Platform', role, openActions: 2 }]);
+  signedIn.user.emailVerified = emailVerified;
+  let current = signedIn;
+  fake.boot = (path) => ({ build: 'fake', theme: 'light', path, me: current });
+  fake.route('GET', '/api/me', () => json(current));
   fake.me = { pid: me, kind: 'user', name: NAMES[me] };
   fake.room(ROOM, { snapshot: roomSnapshot });
 
@@ -106,6 +112,10 @@ export function setupTeam(fake, { me = OWNER, emailVerified = true, roomSnapshot
       calls[name].push(req);
       return typeof response === 'function' ? response(req) : response;
     });
+  };
+  // The user is no longer on the team (left it, or deleted it): `me` drops it.
+  const leave = () => {
+    current = { ...current, teams: [], lastTeamId: null };
   };
   route('team', 'GET', '', json(teamInfo ?? team(role)));
   route('boards', 'GET', '/boards', (req) => json({
@@ -132,7 +142,7 @@ export function setupTeam(fake, { me = OWNER, emailVerified = true, roomSnapshot
     emailMasked: 'j•••@acme.com',
     tokenLast4: 'x9Qa',
   }));
-  return calls;
+  return Object.assign(calls, { leave });
 }
 
 export const teamUrl = (query = '') => `/teams/${TEAM_ID}${query}`;

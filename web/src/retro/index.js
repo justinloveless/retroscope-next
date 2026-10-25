@@ -1,10 +1,12 @@
-// /retro/:code. Resolves the board (boot snapshot, or by-code for in-app navigation), handles the
-// password and sign-in gates, joins the board room on the tab's socket and mounts the board.
+// /retro/:code. Resolves the board (boot snapshot, or by-code for in-app navigation), joins the board room on the
+// tab's socket and mounts the board. Boards are team-only (UX18): a board that does not exist and one of a team
+// the user is not on look the same, and a member removed while the board is open sees that they no longer
+// have access. The header shows the board's team, from its snapshot, with Retros active.
 
 import { h, replaceContent } from '../core/h.js';
 import { ApiError, http } from '../core/http.js';
-import { getSocket } from '../screens/app.js';
-import { createButton } from '../ui/button.js';
+import { getSocket, setHeaderTeam } from '../screens/app.js';
+import { kickScreen, showNoAccess } from '../screens/no-access.js';
 import { toast } from '../ui/toast.js';
 import { createRetroModel } from './model.js';
 import { createBoard } from './board.js';
@@ -53,6 +55,7 @@ export function mount(root, boot, app = {}) {
   let socket = app.socket ?? null;
   let room = null;
   let board = null;
+  let unwatch = [];
 
   // Until the welcome names the viewer, the boot JSON's /api/me body stands in, in welcome.me's shape.
   const principal = boot.me?.principal;
@@ -60,6 +63,10 @@ export function mount(root, boot, app = {}) {
   const me = () => socket?.me ?? bootMe;
 
   function leave() {
+    for (const stop of unwatch) {
+      stop();
+    }
+    unwatch = [];
     board?.destroy();
     board = null;
     if (room) {
@@ -72,10 +79,15 @@ export function mount(root, boot, app = {}) {
     const preset = boot.room;
     const presetCode = preset?.d?.code ?? preset?.code;
     if (preset?.r?.startsWith('board:') && (presetCode === undefined || presetCode.toUpperCase() === target.toUpperCase())) {
-      return { id: preset.r.slice('board:'.length), access: preset.access ?? 'granted', snap: preset.d ? preset : null };
+      return { id: preset.r.slice('board:'.length), snap: preset.d ? preset : null };
     }
     const found = await http.get(`/api/retro/by-code/${encodeURIComponent(target)}`);
-    return { id: found.id, access: found.access, snap: null };
+    return { id: found.id, snap: null };
+  }
+
+  function noAccess(screen) {
+    leave();
+    showNoAccess(el, screen);
   }
 
   async function join(id, snap, mine) {
@@ -89,40 +101,19 @@ export function mount(root, boot, app = {}) {
     if (snap && room.view === null) {
       room.seed(snap);
     }
-    board = createBoard({ room, socket, me, boardId: id, features: FEATURES, timerMusic: boot.timerMusic === true });
+    const joined = room;
+    unwatch = [
+      joined.select((view) => view?.teamId ?? null, Object.is, (teamId) => setHeaderTeam(teamId)),
+      joined.select(() => joined.kicked, Object.is, (code) => {
+        const screen = kickScreen(code);
+        if (screen && joined === room) {
+          noAccess(screen);
+        }
+      }),
+    ];
+    setHeaderTeam(room.view?.teamId ?? snap?.d?.teamId ?? null);
+    board = createBoard({ room, socket, me, boardId: id, features: FEATURES, timerMusic: boot.timerMusic === true, onRetry: () => open(code) });
     replaceContent(el, board.el);
-  }
-
-  function unlockForm(id, mine) {
-    const input = h('input', { class: 'input', type: 'password', autocomplete: 'current-password', required: true, 'aria-label': 'Board password' });
-    const error = h('p', { class: 'retro-composer-error', role: 'alert', hidden: true });
-    const form = h('form', {
-      class: 'retro-unlock',
-      on: {
-        async submit(event) {
-          event.preventDefault();
-          try {
-            await http.post(`/api/retro/${id}/unlock`, { password: input.value });
-          } catch (failure) {
-            if (mine !== generation) {
-              return;
-            }
-            error.hidden = false;
-            error.textContent = failure instanceof ApiError && failure.code === 'rate_limited'
-              ? 'Too many attempts. Wait a minute and try again.'
-              : 'That password is not right.';
-            input.select();
-            return;
-          }
-          if (mine === generation) {
-            join(id, null, mine);
-          }
-        },
-      },
-    }, h('h1', { class: 'retro-gate-title', text: 'This board needs a password' }), input, error,
-    createButton({ label: 'Open board', variant: 'primary', type: 'submit' }));
-    replaceContent(el, form);
-    input.focus();
   }
 
   async function open(target) {
@@ -133,25 +124,21 @@ export function mount(root, boot, app = {}) {
     try {
       found = await resolve(target);
     } catch (failure) {
-      if (mine === generation) {
+      if (mine !== generation) {
+        return;
+      }
+      if (failure instanceof ApiError && (failure.status === 404 || failure.status === 403)) {
+        showNoAccess(el);
+      } else {
         replaceContent(el, message(failure instanceof ApiError && failure.code === 'network'
           ? 'The server could not be reached.'
-          : 'This board does not exist.'));
+          : 'This board could not be loaded.',
+        h('button', { type: 'button', class: 'btn btn-secondary', on: { click: () => open(target) } }, 'Try again')));
       }
       return;
     }
-    if (mine !== generation) {
-      return;
-    }
-    if (found.access === 'granted') {
+    if (mine === generation) {
       join(found.id, found.snap, mine);
-    } else if (found.access === 'password') {
-      unlockForm(found.id, mine);
-    } else if (found.access === 'signin') {
-      const login = `/login?return=${encodeURIComponent(location.pathname)}`;
-      replaceContent(el, message('Sign in to open this board.', h('a', { class: 'btn btn-primary', href: login, dataset: { nav: '' } }, 'Sign in')));
-    } else {
-      replaceContent(el, message('This board does not exist.'));
     }
   }
 

@@ -29,14 +29,16 @@ public sealed class TimerMusicTests : IDisposable {
     }
 
     [Fact]
-    public async Task A_caller_without_a_session_is_refused() {
+    public async Task A_caller_who_is_not_signed_in_is_refused() {
         await using var app = await StartAsync(Write("track.mp3", Mp3));
 
         using var anonymous = await app.Client.GetAsync(TimerMusic.Path, TestContext.Current.CancellationToken);
-        using var guest = await GetAsync(app);
+        using var guest = await app.Client.SendAsync(Request(caller: "guest"), TestContext.Current.CancellationToken);
+        using var unverified = await app.Client.SendAsync(Request(caller: "unverified"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
-        Assert.Equal(HttpStatusCode.OK, guest.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, guest.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, unverified.StatusCode);
     }
 
     [Fact]
@@ -209,8 +211,8 @@ public sealed class TimerMusicTests : IDisposable {
         }
     }
 
-    // The route needs a session; a guest's is enough.
-    private static HttpRequestMessage Request(string? peer = null, string caller = "guest") {
+    // The route needs a signed-in user; an unverified one is enough.
+    private static HttpRequestMessage Request(string? peer = null, string caller = "user") {
         var request = TestApp.Get(TimerMusic.Path, peer);
         request.Headers.Add(TestApp.CallerHeader, caller);
         return request;
@@ -224,7 +226,7 @@ public sealed class TimerMusicTests : IDisposable {
     [Fact]
     public async Task The_route_is_limited_per_principal() {
         await using var app = await StartAsync(Write("track.mp3", Mp3));
-        var caller = $"guest:{Guid.CreateVersion7()}";
+        var caller = $"user:{Guid.CreateVersion7()}";
 
         for (var i = 0; i < 60; i++) {
             using var ok = await app.Client.SendAsync(Request($"198.51.100.{i + 10}", caller), TestContext.Current.CancellationToken);

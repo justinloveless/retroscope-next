@@ -348,8 +348,9 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
             return;
         }
         var existing = _subs.GetValueOrDefault(peer.Id);
+        // Not Forbidden: the principal still has access, and the client must not say it was removed (UX18 decision 2).
         if (existing is null && _presence.ConnectionsOf(viewer.Who.Id) >= _runtime.Options.ConnectionsPerPrincipal) {
-            peer.Kick(Key, KickCode.Forbidden);
+            peer.Kick(Key, KickCode.TooManyConnections);
             return;
         }
         var member = _binding.IsMember(state, viewer, _access);
@@ -363,6 +364,9 @@ public sealed class RoomActor<TState, TInput, TEvent> : IRoomActor<TState, TInpu
         }
         await ResumeAsync(peer, viewer, member, epoch, seq, cursor.LastQ);
         _subs[peer.Id] = new Subscriber(peer, viewer, member);
+        if (_runtime.Visits is { } visits && _binding.TeamOf(state) is { } team) {
+            visits.Visited(viewer.Who, team);
+        }
         var delta = _presence.Add(peer.Id, viewer, member);
         if (existing is null) {
             var info = PresenceTable.Info(viewer.Who);

@@ -12,25 +12,22 @@ public sealed class ReadinessTests {
         var fx = new RetroFixture();
         fx.EnableStages(RetroStage.Thinking);
 
-        fx.Do(Gus, new RetroReadySet(RetroStage.Thinking, true));
-        fx.NoOp(Gus, new RetroReadySet(RetroStage.Thinking, true));
-        Assert.Contains(Gus.Id, fx.State.ReadyThisStage);
-        fx.Do(Gus, new RetroReadySet(RetroStage.Thinking, false));
+        fx.Do(Dave, new RetroReadySet(RetroStage.Thinking, true));
+        fx.NoOp(Dave, new RetroReadySet(RetroStage.Thinking, true));
+        Assert.Contains(Dave.Id, fx.State.ReadyThisStage);
+        fx.Do(Dave, new RetroReadySet(RetroStage.Thinking, false));
         Assert.Empty(fx.State.ReadyThisStage);
     }
 
     [Fact]
-    public void On_team_boards_only_members_mark_themselves_ready() {
-        foreach (var visibility in new[] { BoardVisibility.Link, BoardVisibility.Password }) {
-            var fx = new RetroFixture(team: true);
-            fx.State.Visibility = visibility;
-            fx.EnableStages(RetroStage.Thinking);
+    public void Only_members_mark_themselves_ready() {
+        var fx = new RetroFixture();
+        fx.EnableStages(RetroStage.Thinking);
 
-            fx.Rejects(Carol, new RetroReadySet(RetroStage.Thinking, true), NackCode.Forbidden);
-            fx.Rejects(Gus, new RetroReadySet(RetroStage.Thinking, true), NackCode.Forbidden);
-            fx.Do(Bob, new RetroReadySet(RetroStage.Thinking, true));
-            Assert.Equal([Bob.Id], fx.State.ReadyThisStage);
-        }
+        fx.Rejects(Carol, new RetroReadySet(RetroStage.Thinking, true), NackCode.Forbidden);
+        fx.Rejects(Gus, new RetroReadySet(RetroStage.Thinking, true), NackCode.Forbidden);
+        fx.Do(Bob, new RetroReadySet(RetroStage.Thinking, true));
+        Assert.Equal([Bob.Id], fx.State.ReadyThisStage);
     }
 
     [Fact]
@@ -79,12 +76,12 @@ public sealed class ReadinessTests {
         fx.EnableStages(RetroStage.Thinking, enforceReadiness: true);
         var advance = new RetroStageSet(RetroStage.Thinking, RetroStage.Voting);
 
-        foreach (var who in new[] { Alice, Bob, Carol }) {
+        foreach (var who in new[] { Alice, Bob }) {
             fx.Do(who, new RetroReadySet(RetroStage.Thinking, true));
         }
         fx.Rejects(Alice, advance, NackCode.StageForbids);
 
-        fx.Do(Gus, new RetroReadySet(RetroStage.Thinking, true));
+        fx.Do(Dave, new RetroReadySet(RetroStage.Thinking, true));
         fx.Do(Alice, advance);
     }
 
@@ -92,7 +89,7 @@ public sealed class ReadinessTests {
     public void Absent_principals_do_not_block_and_absent_ready_ones_do_not_count() {
         var fx = new RetroFixture();
         fx.EnableStages(RetroStage.Thinking, enforceReadiness: true);
-        fx.Do(Carol, new RetroReadySet(RetroStage.Thinking, true));
+        fx.Do(Dave, new RetroReadySet(RetroStage.Thinking, true));
         fx.Present = [Alice, Bob];
 
         fx.Rejects(Alice, new RetroStageSet(RetroStage.Thinking, RetroStage.Voting), NackCode.StageForbids);
@@ -130,12 +127,12 @@ public sealed class ReadinessTests {
         fx.Do(Bob, new RetroReadySet(RetroStage.Thinking, true));
         var events = fx.Do(Alice, new RetroReadySet(RetroStage.Thinking, true));
 
-        var wire = Assert.IsType<RetroReadiness>(Assert.Single(fx.Projection.ForViewer(fx.State, events, Carol.Id, false)));
+        var wire = Assert.IsType<RetroReadiness>(Assert.Single(fx.Projection.ForViewer(fx.State, events, Dave.Id)));
         Assert.Equal(RetroStage.Thinking, wire.Stage);
         Assert.Equal(new[] { Alice.Id, Bob.Id }.OrderBy(p => p.Value), wire.Ready);
 
         var stage = fx.Do(Alice, new RetroStageSet(RetroStage.Thinking, RetroStage.Voting));
-        var projected = fx.Projection.ForViewer(fx.State, stage, Carol.Id, false);
+        var projected = fx.Projection.ForViewer(fx.State, stage, Dave.Id);
         Assert.Equal(new RetroStageChanged(RetroStage.Voting), projected[0]);
         var cleared = Assert.IsType<RetroReadiness>(projected[1]);
         Assert.Equal(RetroStage.Voting, cleared.Stage);

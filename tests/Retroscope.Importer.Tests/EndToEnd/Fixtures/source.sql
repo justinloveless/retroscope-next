@@ -65,7 +65,8 @@ insert into public.endorsement_settings (id, team_id, max_endorsements_per_user_
 
 insert into public.retro_boards (id, room_id, title, is_private, password_hash, creator_id, team_id, archived, deleted, retro_stage, created_at, updated_at) values
   ('b0a40000-0000-4000-8000-000000000001', 'TEAMRETRO', 'Sprint retro', false, null, 'a1000000-0000-4000-8000-000000000001', '7ea70000-0000-4000-8000-000000000001', false, false, 'voting', '2026-01-01', '2026-01-02'),
-  ('b0a40000-0000-4000-8000-000000000002', 'QUICKRETRO', 'Quick retro', true, 'hunter2', 'b0b00000-0000-4000-8000-000000000001', null, false, false, 'thinking', '2026-01-01', '2026-01-01');
+  ('b0a40000-0000-4000-8000-000000000002', 'QUICKRETRO', 'Quick retro', true, 'hunter2', 'b0b00000-0000-4000-8000-000000000001', null, false, false, 'thinking', '2026-01-01', '2026-01-01'),
+  ('b0a40000-0000-4000-8000-000000000003', 'OTHERRETRO', 'Other retro', true, null, 'a1000000-0000-4000-8000-000000000001', '7ea70000-0000-4000-8000-000000000001', false, false, 'thinking', '2026-01-04', '2026-01-04');
 
 insert into public.retro_board_config (board_id, allow_anonymous, voting_enabled, max_votes_per_user, show_author_names,
     retro_stages_enabled, enforce_stage_readiness, allow_self_votes, vote_emoji, sort_chronologically, timer_duration_seconds,
@@ -75,7 +76,8 @@ insert into public.retro_board_config (board_id, allow_anonymous, voting_enabled
 insert into public.retro_columns (id, board_id, title, color, position, sort_order, is_action_items, created_at) values
   ('c0100000-0000-4000-8000-000000000001', 'b0a40000-0000-4000-8000-000000000001', 'Good', 'bg-green-100 border-green-300', 0, 0, false, '2026-01-01'),
   ('c0100000-0000-4000-8000-000000000002', 'b0a40000-0000-4000-8000-000000000001', 'Actions', 'bg-yellow-100', 1, 0, true, '2026-01-01'),
-  ('c0100000-0000-4000-8000-000000000003', 'b0a40000-0000-4000-8000-000000000002', 'Notes', 'bg-blue-100', 0, 0, false, '2026-01-01');
+  ('c0100000-0000-4000-8000-000000000003', 'b0a40000-0000-4000-8000-000000000002', 'Notes', 'bg-blue-100', 0, 0, false, '2026-01-01'),
+  ('c0100000-0000-4000-8000-000000000004', 'b0a40000-0000-4000-8000-000000000003', 'Notes', 'bg-blue-100', 0, 0, false, '2026-01-04');
 
 insert into public.retro_items (id, board_id, column_id, text, author, author_id, session_id, votes, created_at, updated_at) values
   ('17e00000-0000-4000-8000-000000000001', 'b0a40000-0000-4000-8000-000000000001', 'c0100000-0000-4000-8000-000000000002',
@@ -130,7 +132,8 @@ insert into public.poker_session_rounds (id, session_id, round_number, created_a
 
 insert into public.user_recent_activity (id, user_id, entity_type, entity_id, last_accessed_at, created_at) values
   ('ad000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000001', 'board', 'b0a40000-0000-4000-8000-000000000001', '2026-01-02', '2026-01-01'),
-  ('ad000000-0000-4000-8000-000000000002', 'b0b00000-0000-4000-8000-000000000001', 'poker_session', '5e000000-0000-4000-8000-000000000001', '2026-01-02', '2026-01-01');
+  ('ad000000-0000-4000-8000-000000000002', 'b0b00000-0000-4000-8000-000000000001', 'poker_session', '5e000000-0000-4000-8000-000000000001', '2026-01-02', '2026-01-01'),
+  ('ad000000-0000-4000-8000-000000000003', 'a1000000-0000-4000-8000-000000000001', 'team', '7ea70000-0000-4000-8000-000000000001', '2026-01-03', '2026-01-01');
 
 insert into public.feature_flags (flag_name, is_enabled) values ('sentiment', true);
 insert into public.app_config (key, value) values ('SLACK_SIGNING_SECRET', 'shh'), ('tier_limit', '5');

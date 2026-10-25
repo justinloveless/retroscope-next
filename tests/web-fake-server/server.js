@@ -14,7 +14,7 @@ import { CLOSE, MAX_FRAME_BYTES, NACK } from '../../web/src/net/protocol.gen.js'
 import { Router, problem, writeResponse } from './http.js';
 import { installJira } from './jira.js';
 import { assertServerFrame, checkClientFrame, roomKind } from './protocol.js';
-import { loadDist, renderShell, securityHeaders, shellRoute } from './shell.js';
+import { homeRedirect, loadDist, renderShell, securityHeaders, shellRoute } from './shell.js';
 import { createReplay, loadTranscript } from './transcripts.js';
 import { acceptUpgrade } from './ws.js';
 
@@ -162,6 +162,9 @@ export class FakeServer extends EventEmitter {
     this.requests = [];
     this.commandHandlers = [];
     this.helloRejections = [];
+    // `(conn, room) => boolean`, asked on every `sub` to a room that exists: false answers `kick forbidden`
+    // with no snapshot, as the real server refuses a principal the room does not admit (UX18 decision 1).
+    this.canSubscribe = null;
     this.http = createServer((req, res) => {
       this.onRequest(req, res).catch((error) => {
         if (!res.headersSent) {
@@ -267,6 +270,12 @@ export class FakeServer extends EventEmitter {
       return;
     }
     if (req.method === 'GET' || req.method === 'HEAD') {
+      if (url.pathname === '/dashboard') {
+        // As the real Shell (UX18 decision 6): the Dashboard is gone, and its old address, the installed app's
+        // former start URL, sends visitors home.
+        await writeResponse(res, { status: 302, headers: { Location: '/', 'Cache-Control': 'no-store' } });
+        return;
+      }
       if (Object.hasOwn(this.dist.manifest.files, url.pathname)) {
         await this.serveFile(res, url.pathname, req.method === 'HEAD');
         return;
@@ -277,8 +286,18 @@ export class FakeServer extends EventEmitter {
       }
       const route = shellRoute(url.pathname);
       if (route) {
-        const html = renderShell(this.dist, route, this.bootFor(url.pathname + url.search, req));
-        const headers = { 'Content-Type': 'text/html; charset=utf-8', ...securityHeaders(this.dist, this.hostOf(req)), ...this.shellHeaders?.(req, url) };
+        const boot = this.bootFor(url.pathname + url.search, req);
+        const extra = this.shellHeaders?.(req, url);
+        // As the real Shell's HomeRedirect: a signed-in '/' goes to the user's team before any page script runs,
+        // so a pending invite in the browser does not count here. The sign-in gate stays the client's
+        // (app.js redirectFor), as for in-app navigation.
+        const home = route === '/' ? homeRedirect(boot?.me) : null;
+        if (home) {
+          await writeResponse(res, { status: 302, headers: { Location: home, 'Cache-Control': 'no-store', ...extra } });
+          return;
+        }
+        const html = renderShell(this.dist, route, boot);
+        const headers = { 'Content-Type': 'text/html; charset=utf-8', ...securityHeaders(this.dist, this.hostOf(req)), ...extra };
         await writeResponse(res, { body: html, headers });
         return;
       }
@@ -593,6 +612,12 @@ export class FakeServer extends EventEmitter {
     }
     conn.cid = frame.cid;
     conn.me = resolve(this.me, conn.req);
+    if (!conn.me) {
+      // /ws admits signed-in users only (UX18); the real server refuses the upgrade itself.
+      conn.close(CLOSE.UNAUTHENTICATED, 'unauthenticated');
+      this.emit('hello', conn);
+      return;
+    }
     conn.send({ t: 'welcome', conn: conn.id, me: conn.me, n: this.now() });
     for (const sub of frame.subs) {
       this.subscribe(conn, sub.r, sub.e, sub.s);
@@ -605,6 +630,11 @@ export class FakeServer extends EventEmitter {
     const room = this.rooms.get(key);
     if (!room) {
       conn.send({ t: 'kick', r: key, code: 'not_found' });
+      return;
+    }
+    if (this.canSubscribe && !this.canSubscribe(conn, room)) {
+      conn.send({ t: 'kick', r: key, code: 'forbidden' });
+      this.unsubscribe(conn, room);
       return;
     }
     const fresh = !room.subscribers.has(conn);

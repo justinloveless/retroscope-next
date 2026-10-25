@@ -12,15 +12,10 @@ public sealed class RetroState {
 
     public string Code { get; set; } = "";
 
-    public TeamId? TeamId { get; set; }
-
-    public PrincipalId? CreatedBy { get; set; }
+    /// <summary>The team the board belongs to; every board has one, and only its members open it (UX18).</summary>
+    public TeamId TeamId { get; set; }
 
     public string Title { get; set; } = "";
-
-    public BoardVisibility Visibility { get; set; } = BoardVisibility.Link;
-
-    public DateTimeOffset? PasswordSetAt { get; set; }
 
     public bool Archived { get; set; }
 
@@ -50,7 +45,7 @@ public sealed class RetroState {
 
     public int MaxEndorsements { get; set; } = RetroDefaults.MaxEndorsements;
 
-    /// <summary>The team's members from the membership cache, for the members-only roster (S12).</summary>
+    /// <summary>The team's members from the membership cache: the roster, mentions and endorsement targets.</summary>
     public List<MemberInfo> Members { get; } = [];
 
     public Column? FindColumn(ColumnId id) => Columns.Find(column => column.Id == id);

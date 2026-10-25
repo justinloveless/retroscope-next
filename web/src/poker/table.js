@@ -74,7 +74,7 @@ export function tableSeats(state, roundId) {
   const seats = seatsOf(state, roundId).filter((s) => !s.me).map((s) => ({ ...s, observer: false }));
   const seen = new Set(seats.map((s) => s.pid));
   const observers = new Set(state.observers);
-  for (const p of [...(state.teamId ? state.roster : []), ...state.presence]) {
+  for (const p of [...state.roster, ...state.presence]) {
     if (observers.has(p.pid) && p.pid !== state.me && !seen.has(p.pid)) {
       seen.add(p.pid);
       seats.push({ pid: p.pid, name: p.name ?? '', kind: p.kind ?? 'user', avatar: p.avatar ?? null, present: isPresent(state, p.pid), vote: null, me: false, observer: true });
@@ -301,7 +301,7 @@ export function createTable(actions) {
     keyText.textContent = round?.ticketKey ?? roundLabel(round);
   }
 
-  // Shown while no feature fills the issue slot: quick sessions and teams without Jira.
+  // Shown while no feature fills the issue slot: teams without Jira.
   function renderFallback(meta) {
     const ticket = round?.ticketKey ?? null;
     const summary = ticket ? meta?.[ticket]?.summary ?? null : null;

@@ -28,7 +28,7 @@ public sealed class VoteTests {
         fx.Do(Bob, new RetroVoteSet(cards[1], true));
         fx.Rejects(Bob, new RetroVoteSet(cards[2], true), NackCode.VoteLimit);
 
-        fx.Do(Carol, new RetroVoteSet(cards[2], true));
+        fx.Do(Dave, new RetroVoteSet(cards[2], true));
         fx.Do(Bob, new RetroVoteSet(cards[0], false));
         fx.Do(Bob, new RetroVoteSet(cards[2], true));
     }
@@ -71,11 +71,13 @@ public sealed class VoteTests {
     }
 
     [Fact]
-    public void Guests_vote_under_their_own_principal() {
+    public void Only_members_vote() {
         var fx = new RetroFixture();
         var card = fx.AddCard(Alice, Good);
-        fx.Do(Gus, new RetroVoteSet(card, true));
-        Assert.Contains(Gus.Id, fx.State.Cards[card].Voters);
+        fx.Rejects(Gus, new RetroVoteSet(card, true), NackCode.Forbidden);
+        fx.Rejects(Carol, new RetroVoteSet(card, true), NackCode.Forbidden);
+        fx.Do(Dave, new RetroVoteSet(card, true));
+        Assert.Equal([Dave.Id], fx.State.Cards[card].Voters);
     }
 
     [Fact]

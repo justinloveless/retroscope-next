@@ -432,6 +432,33 @@
   color: var(--red);
 }
 
+.menu-item[aria-checked="true"] { background: hsl(var(--accent)); font-weight: 600; }
+.menu-item-text { display: grid; flex: 1; }
+/* Quieter than the label, yet readable on a hovered or checked item's accent too. */
+.menu-item-detail { color: hsl(var(--foreground) / 0.7); font-size: 0.75rem; font-weight: 400; }
+.menu-item-check { margin-left: auto; color: var(--indigo); }
+
+.menu-heading {
+  display: block;
+  padding: 0.375rem 0.5rem 0.125rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* A group of radio items drawn as a segmented control (the account menu's theme). */
+.menu-segmented {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.125rem;
+  padding: 0.25rem 0.5rem 0.5rem;
+}
+
+.menu-segmented .menu-heading { grid-column: 1 / -1; padding: 0.125rem 0 0.25rem; }
+.menu-segmented .menu-item { justify-content: center; background: hsl(var(--muted)); }
+.menu-segmented .menu-item[aria-checked="true"] { background: hsl(var(--background)); box-shadow: var(--shadow-sm); }
+.menu-segmented .menu-item-check { display: none; }
+
 .menu-separator {
   height: 1px;
   margin: 0.25rem -0.25rem;
@@ -565,40 +592,37 @@
   to { transform: rotate(360deg); }
 }
 
-/* App header: sticky on wide screens, fixed with a slide-out sheet below 768 px */
+/* App header (UX18): the team's logo, switcher and sections, then settings, mentions and the account menu.
+   Sticky on wide screens; below 768 px it is fixed, the sections scroll in a second row, and the account
+   button opens the slide-out sheet. */
 .app-header {
   position: sticky;
   top: 0;
   z-index: var(--z-header);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
-  gap: 1rem;
-  min-height: var(--header-height);
-  padding: 0.5rem 1rem;
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+  height: var(--header-height);
+  padding: 0 1rem;
   border-bottom: 1px solid hsl(var(--border));
   background: hsl(var(--background) / 0.8);
   -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
 }
 
-.app-header-start,
+.app-brand,
 .app-header-actions,
-.app-header-end,
-.app-nav,
 .app-dock {
   display: flex;
   align-items: center;
+  align-self: center;
   gap: 0.25rem;
   min-width: 0;
 }
 
-.app-header-start { gap: 0.75rem; }
-.app-header-actions { justify-content: flex-end; }
+.app-header-actions { margin-left: auto; }
 
 .app-brand {
-  display: inline-flex;
-  align-items: center;
   gap: 0.5rem;
   font-size: 1.125rem;
   font-weight: 700;
@@ -611,26 +635,75 @@
   height: 1.75rem;
 }
 
-.app-team-switch span {
-  max-width: 12rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.app-header[data-team] .app-brand-name { display: none; }
 
-.app-header-center {
+.app-team-switch {
+  align-self: center;
   min-width: 0;
-  text-align: center;
+  height: 2.5rem;
+  padding: 0 0.625rem 0 0.375rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
 }
 
-.app-header-title {
-  display: block;
+.app-team-name {
   overflow: hidden;
-  font-weight: 600;
+  max-width: 14rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* A team's initials on its tint (header.js teamBadge). */
+.app-team-badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.625rem;
+  height: 1.625rem;
+  border-radius: var(--radius-md);
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.app-team-badge[data-tint="1"] { background: #ccfbf1; color: #115e59; }
+.app-team-badge[data-tint="2"] { background: #e0e7ff; color: #3730a3; }
+.app-team-badge[data-tint="3"] { background: #fce7f3; color: #9d174d; }
+.app-team-badge[data-tint="4"] { background: #fef3c7; color: #92400e; }
+
+.app-tabs {
+  display: flex;
+  gap: 0.125rem;
+  min-width: 0;
+  margin-left: 0.75rem;
+  overflow-x: auto;
+}
+
+.app-tabs a {
+  display: flex;
+  align-items: center;
+  gap: 0.4375rem;
+  padding: 0 0.75rem;
+  border-bottom: 2px solid transparent;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.app-tabs a:hover { color: hsl(var(--foreground)); }
+
+.app-tabs a[aria-current] {
+  border-color: var(--indigo);
+  color: hsl(var(--foreground));
+  font-weight: 600;
+}
+
+.app-gear[aria-current],
+.app-mentions[aria-current] { background: hsl(var(--accent)); }
 .app-mentions { position: relative; }
 
 .app-mentions-badge {
@@ -646,13 +719,16 @@
   line-height: 1.125rem;
 }
 
-.app-guest {
-  margin-right: 0.25rem;
-  color: hsl(var(--muted-foreground));
-  font-size: 0.875rem;
-}
-
+.app-account,
+.app-burger { border-radius: 50%; }
 .app-burger { display: none; }
+
+.menu-who {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem;
+}
 
 .app-sheet {
   width: min(20rem, 100vw);
@@ -684,9 +760,22 @@
 .app-sheet-body { gap: 1.25rem; }
 
 .app-sheet-links a:not(.btn) {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
   padding: 0.375rem 0;
   font-weight: 500;
   text-decoration: none;
+}
+
+.app-sheet-team {
+  display: grid;
+  flex: 1;
+}
+
+.app-sheet-team small {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
 }
 
 .app-sheet h3 {
@@ -715,33 +804,79 @@
 
 .app-sheet-signout { justify-self: start; }
 
-.app-not-found {
-  display: grid;
-  gap: 1rem;
-  justify-items: center;
-  padding: 4rem 1rem;
-  text-align: center;
+/* A button that reads as a link. */
+.btn-link {
+  --fill: transparent;
+  --ink: var(--link);
+  padding: 0 0.25rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
-.app-not-found h1 {
-  font-size: 1.75rem;
+.btn-link:hover { background: transparent; text-decoration-thickness: 2px; }
+
+/* "You can't open this page" (screens/no-access.js). */
+.no-access {
+  display: grid;
+  place-items: center;
+  min-height: calc(100dvh - var(--header-height) - 4rem);
+  padding: 2rem 1rem;
+}
+
+.no-access-card {
+  display: grid;
+  justify-items: start;
+  gap: 0.875rem;
+  width: min(30rem, 100%);
+  padding: 2rem;
+}
+
+.no-access-card h1 {
+  font-size: 1.375rem;
   font-weight: 700;
+}
+
+.no-access-card p {
+  color: hsl(var(--muted-foreground));
+  line-height: 1.55;
+}
+
+.no-access-icon {
+  display: inline-flex;
+  padding: 0.6875rem;
+  border-radius: var(--radius);
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+}
+
+.no-access-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0.375rem;
 }
 
 @media (max-width: 767px) {
   .app-header {
     position: fixed;
     inset: 0 0 auto;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: 3.5rem;
+    gap: 0 0.5rem;
+    height: auto;
+    padding: 0 0.75rem;
     background: hsl(var(--background) / 0.9);
   }
 
+  .app-has-tabs { --header-height: 6.25rem; }
   .app-has-header .app-view { padding-top: var(--header-height); }
-  .app-brand-name,
-  .app-team-switch,
-  .app-nav { display: none; }
-  .app-account .icon { display: none; }
+  .app-header[data-team] .app-brand,
+  .app-header .app-gear,
+  .app-header .app-account { display: none; }
+  .app-team-switch { justify-self: start; border-color: transparent; font-size: 1rem; }
+  .app-tabs { grid-column: 1 / -1; height: 2.75rem; margin: 0 -0.75rem; padding: 0 0.5rem; }
+  .app-header-actions { grid-row: 1; grid-column: 2; }
   .app-burger { display: inline-flex; }
 }

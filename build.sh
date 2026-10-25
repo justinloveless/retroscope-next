@@ -618,7 +618,7 @@ Works at this stage: sign-up, sign-in and sign-out, magic links, password reset,
 Arrives in wave 5:
   - realtime rooms: an UnavailableRoomGateway stub is still registered, so the WebSocket does not reach
     poker or retro rooms yet;
-  - teams, the dashboard and team lists, and creating poker sessions and boards over HTTP (U24, U25);
+  - teams, and creating poker sessions and boards over HTTP (U24, U25);
   - the Jira proxy (U26).
 For the whole UI with data, use ./build.sh preview (fake mode).
 Ctrl-C stops the server and removes the containers and the volume.

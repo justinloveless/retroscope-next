@@ -85,7 +85,7 @@ export const EVENTS = Object.freeze({
   'retro.column.deleted': Object.freeze({ rooms: ['board'], fields: ['columnId'] }),
   'retro.column.order': Object.freeze({ rooms: ['board'], fields: ['order'] }),
   'retro.column.actionItems': Object.freeze({ rooms: ['board'], fields: ['columnId'] }),
-  'retro.board.meta': Object.freeze({ rooms: ['board'], fields: ['title', 'visibility', 'archived'] }),
+  'retro.board.meta': Object.freeze({ rooms: ['board'], fields: ['title', 'archived'] }),
   'retro.config': Object.freeze({ rooms: ['board'], fields: ['config'] }),
   'retro.stage': Object.freeze({ rooms: ['board'], fields: ['stage'] }),
   'retro.readiness': Object.freeze({ rooms: ['board'], fields: ['stage', 'ready'] }),
@@ -146,7 +146,7 @@ export const NACK = Object.freeze({
   jira_unavailable: Object.freeze({ retry: true }),
 });
 
-export const KICK_CODES = Object.freeze(['access_revoked', 'deleted', 'not_found', 'forbidden', 'too_many_rooms']);
+export const KICK_CODES = Object.freeze(['access_revoked', 'deleted', 'not_found', 'forbidden', 'too_many_rooms', 'too_many_connections']);
 export const BYE_CODES = Object.freeze(['restart']);
 
 /** WebSocket close codes. */
@@ -172,7 +172,6 @@ export const ENUMS = Object.freeze({
   jiraSubmitStatus: Object.freeze(['pending', 'ok', 'failed']),
   retroStage: Object.freeze(['thinking', 'voting', 'discussing', 'closed']),
   timerState: Object.freeze(['idle', 'running', 'paused']),
-  boardVisibility: Object.freeze(['link', 'team', 'password']),
   columnColor: Object.freeze(['green', 'red', 'blue', 'yellow', 'purple', 'pink', 'indigo', 'orange', 'gray']),
 });
 

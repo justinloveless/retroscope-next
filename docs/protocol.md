@@ -108,7 +108,7 @@ Protocol version 1. One same-origin WebSocket per tab at `GET /ws`; every frame 
 | `retro.column.deleted` | board | `columnId`: uuid (ColumnId) | A column and its cards were deleted. |
 | `retro.column.order` | board | `order`: uuid (ColumnId)[] | The new column order. |
 | `retro.column.actionItems` | board | `columnId?`: uuid (ColumnId) | The action-items column; empty = none. |
-| `retro.board.meta` | board | `title`: string<br>`visibility`: BoardVisibility<br>`archived`: boolean | Title, visibility and archived flag. |
+| `retro.board.meta` | board | `title`: string<br>`archived`: boolean | Title and archived flag. |
 | `retro.config` | board | `config`: RetroConfig | The whole board configuration. |
 | `retro.stage` | board | `stage`: RetroStage | The current stage. |
 | `retro.readiness` | board | `stage`: RetroStage<br>`ready`: uuid (PrincipalId)[] | Who is ready for the stage. |
@@ -259,8 +259,8 @@ Protocol version 1. One same-origin WebSocket per tab at `GET /ws`; every frame 
 | `votes` | PokerVoteState[] |
 | `roster` | PrincipalInfo[] |
 | `presence` | PrincipalInfo[] |
-| `teamId?` | uuid (TeamId) |
-| `createdBy?` | uuid (PrincipalId) |
+| `teamId` | uuid (TeamId) |
+| `createdAt` | integer |
 | `spotlight?` | SpotlightInfo |
 | `currentRoundId?` | uuid (RoundId) |
 | `pointDescriptions?` | {string | string} |
@@ -350,12 +350,12 @@ Protocol version 1. One same-origin WebSocket per tab at `GET /ws`; every frame 
 | `votes` | RetroVoteChanged[] |
 | `readiness` | RetroReadiness |
 | `presence` | PrincipalInfo[] |
-| `teamId?` | uuid (TeamId) |
+| `teamId` | uuid (TeamId) |
+| `members` | MemberInfo[] |
+| `endorsements` | EndorsementInfo[] |
+| `endorsementTypes` | EndorsementTypeInfo[] |
+| `maxEndorsements` | integer |
 | `focus?` | uuid (CardId) |
-| `members?` | MemberInfo[] |
-| `endorsements?` | EndorsementInfo[] |
-| `endorsementTypes?` | EndorsementTypeInfo[] |
-| `maxEndorsements?` | integer |
 
 ### EndorsementTypeInfo
 
@@ -372,7 +372,6 @@ Protocol version 1. One same-origin WebSocket per tab at `GET /ws`; every frame 
 | Member | Type |
 |---|---|
 | `title` | string |
-| `visibility` | BoardVisibility |
 | `archived` | boolean |
 
 ### RetroReadiness
@@ -491,7 +490,7 @@ Protocol version 1. One same-origin WebSocket per tab at `GET /ws`; every frame 
 
 ## Kick and bye codes
 
-Kick: `access_revoked`, `deleted`, `not_found`, `forbidden`, `too_many_rooms`. Bye: `restart`.
+Kick: `access_revoked`, `deleted`, `not_found`, `forbidden`, `too_many_rooms`, `too_many_connections`. Bye: `restart`.
 
 ## Close codes
 
@@ -519,5 +518,4 @@ Kick: `access_revoked`, `deleted`, `not_found`, `forbidden`, `too_many_rooms`. B
 | JiraSubmitStatus | `pending`, `ok`, `failed` |
 | RetroStage | `thinking`, `voting`, `discussing`, `closed` |
 | TimerState | `idle`, `running`, `paused` |
-| BoardVisibility | `link`, `team`, `password` |
 | ColumnColor | `green`, `red`, `blue`, `yellow`, `purple`, `pink`, `indigo`, `orange`, `gray` |

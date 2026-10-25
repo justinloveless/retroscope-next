@@ -66,6 +66,7 @@ export function createActionItemsTab(ctx) {
   const more = createButton({ label: 'Load more', variant: 'secondary', onClick: () => load(cursor) });
   more.el.hidden = true;
   const el = h('section', { class: 'team-section', 'aria-label': 'Action items' },
+    h('div', { class: 'team-toolbar' }, h('h1', { class: 'team-title', text: 'Action items' })),
     h('div', { class: 'card team-filters' },
       h('label', { class: 'team-filter' }, h('span', { text: 'Status' }), statusChoice.el),
       h('label', { class: 'team-filter' }, h('span', { text: 'Assignee' }), assigneeChoice.el),
@@ -161,7 +162,7 @@ export function createActionItemsTab(ctx) {
     reconcile(groups, grouped, (g) => g.key, (group) => {
       const list = h('div', { class: 'team-list' });
       const section = h('section', { class: 'card team-group', dataset: { board: group.key } },
-        h('h3', { class: 'team-group-title' }), list);
+        h('h2', { class: 'team-group-title' }), list);
       updateGroup(section, group);
       return section;
     }, updateGroup);

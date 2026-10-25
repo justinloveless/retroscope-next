@@ -148,7 +148,11 @@ public sealed class EndorsementsRepo(NpgsqlDataSource dataSource) {
         ];
     }
 
-    /// <summary>What <paramref name="user"/> received, newest first, from teams that still exist.</summary>
+    /// <summary>
+    /// What <paramref name="user"/> received, newest first, from teams that still exist and that the user is still a
+    /// member of: kudos are team data, so a team the user left no longer shows its name, its types or its members
+    /// (UX18 decision 16).
+    /// </summary>
     public async Task<IReadOnlyList<ReceivedEndorsement>> ReceivedAsync(PrincipalId user, int limit, CancellationToken cancellationToken) {
         await using var command = dataSource.CreateCommand($"""
             select t.emoji, t.name, {UsersRepo.DisplayNameSql}, tm.name, e.created_at
@@ -156,6 +160,7 @@ public sealed class EndorsementsRepo(NpgsqlDataSource dataSource) {
             join endorsement_types t on t.id = e.type_id
             join users u on u.id = e.from_user_id
             join teams tm on tm.id = e.team_id and tm.deleted_at is null
+            join team_members m on m.team_id = e.team_id and m.user_id = e.to_user_id
             where e.to_user_id = $1
             order by e.created_at desc, e.id
             limit $2

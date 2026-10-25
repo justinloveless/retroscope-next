@@ -163,7 +163,7 @@ public static class PokerDecider {
 
     private static Decision<PokerEvent> DecideDeleteSession(PokerState state, CommandContext context, PolicyCheck can) {
         if (context.Viewer is not { } viewer || !can(viewer.Who, Capability.PokerDeleteSession, Facts(state, viewer), context.Access)) {
-            return Reject(NackCode.Forbidden, "Only a team admin or the quick session's creator may delete it.");
+            return Reject(NackCode.Forbidden, "Only a team admin may delete the session.");
         }
         return Accept(new SessionDeleted());
     }
@@ -171,8 +171,7 @@ public static class PokerDecider {
     internal static ResourceFacts Facts(PokerState state, Viewer viewer) {
         return new ResourceFacts(
             RoomKey.Poker(state.SessionId),
-            Team: state.TeamId,
-            CreatedBy: state.CreatedBy,
+            state.TeamId,
             IsObserver: state.Observers.Contains(viewer.Who.Id),
             JiraConfigured: state.Jira.Configured,
             MembersCanEditJira: state.Jira.MembersCanEdit);

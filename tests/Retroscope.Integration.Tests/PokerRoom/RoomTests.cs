@@ -51,7 +51,7 @@ public sealed class RoomTests(PostgresFixture postgres) {
     public async Task A_kicked_room_no_longer_counts_against_the_connection_room_cap() {
         await using var scope = await PokerScope.CreateAsync(postgres);
         var alice = await scope.Seed.UserAsync("Alice");
-        var room = await scope.Seed.SessionAsync(alice);
+        var room = await scope.Seed.SessionAsync(alice, await scope.Seed.TeamOfAsync(alice));
         var host = await scope.StartAsync();
         await using var a = await PokerSocket.ConnectAsync(host, alice);
 
@@ -68,7 +68,7 @@ public sealed class RoomTests(PostgresFixture postgres) {
         await using var scope = await PokerScope.CreateAsync(postgres);
         var alice = await scope.Seed.UserAsync("Alice");
         var bob = await scope.Seed.UserAsync("Bob");
-        var room = await scope.Seed.SessionAsync(alice, null, "RS-1", "RS-2");
+        var room = await scope.Seed.SessionAsync(alice, await scope.Seed.TeamOfAsync(alice, bob), "RS-1", "RS-2");
         var rounds = await scope.Seed.RoundsAsync(room);
         var host = await scope.StartAsync();
         await using (var a = await host.JoinAsync(alice, room)) {
@@ -91,7 +91,7 @@ public sealed class RoomTests(PostgresFixture postgres) {
         await using var scope = await PokerScope.CreateAsync(postgres);
         var alice = await scope.Seed.UserAsync("Alice");
         var bob = await scope.Seed.UserAsync("Bob");
-        var room = await scope.Seed.SessionAsync(alice);
+        var room = await scope.Seed.SessionAsync(alice, await scope.Seed.TeamOfAsync(alice, bob));
         var host = await scope.StartAsync();
         await using var a = await host.JoinAsync(alice, room);
         var b = await host.JoinAsync(bob, room);
@@ -112,7 +112,7 @@ public sealed class RoomTests(PostgresFixture postgres) {
         await using var scope = await PokerScope.CreateAsync(postgres);
         var alice = await scope.Seed.UserAsync("Alice");
         var bob = await scope.Seed.UserAsync("Bob");
-        var room = await scope.Seed.SessionAsync(alice);
+        var room = await scope.Seed.SessionAsync(alice, await scope.Seed.TeamOfAsync(alice, bob));
         var host = await scope.StartAsync();
         await using var a = await host.JoinAsync(alice, room);
         await using var b = await host.JoinAsync(bob, room);

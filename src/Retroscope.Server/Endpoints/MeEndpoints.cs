@@ -24,9 +24,17 @@ public sealed record MeUser(
     bool IsAdmin,
     bool HasPassword);
 
-public sealed record MeTeam(TeamId Id, string Name, TeamRole Role);
+/// <param name="OpenActions">The team's open action items, for the header's Action items tab.</param>
+public sealed record MeTeam(TeamId Id, string Name, TeamRole Role, int OpenActions);
 
-public sealed record MeResponse(MePrincipal Principal, MeUser? User, IReadOnlyList<MeTeam> Teams, int UnreadMentions);
+/// <param name="Teams">By name, ignoring case.</param>
+/// <param name="LastTeamId">The team visited last among <paramref name="Teams"/>; where a signed-in <c>/</c> leads.</param>
+public sealed record MeResponse(
+    MePrincipal Principal,
+    MeUser User,
+    IReadOnlyList<MeTeam> Teams,
+    int UnreadMentions,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] TeamId? LastTeamId);
 
 /// <param name="Nickname">An empty string clears it.</param>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -46,9 +54,10 @@ public sealed record SessionInfo(
 
 /// <summary>Builds <c>/api/me</c>, which is also the boot JSON's <c>me</c>.</summary>
 public sealed class MeBuilder(UsersRepo users) {
+    /// <returns>Null for a caller that is not a signed-in user, or whose account is gone.</returns>
     public async Task<MeResponse?> BuildAsync(Caller caller, CancellationToken cancellationToken) {
         if (!caller.IsUser) {
-            return new MeResponse(MePrincipal.Of(caller.Principal), null, [], 0);
+            return null;
         }
         var id = caller.Principal.Id;
         if (await users.GetProfileAsync(id, cancellationToken) is not { } profile) {
@@ -59,8 +68,9 @@ public sealed class MeBuilder(UsersRepo users) {
         return new MeResponse(
             new MePrincipal(id, PrincipalKind.User, profile.DisplayName, profile.AvatarBlobId),
             new MeUser(profile.Email, profile.EmailVerified, profile.FullName, profile.Nickname, profile.Theme, profile.IsAdmin, profile.HasPassword),
-            [.. teams.Select(x => new MeTeam(x.Id, x.Name, x.Role))],
-            unread);
+            [.. teams.Teams.Select(x => new MeTeam(x.Id, x.Name, x.Role, x.OpenActions))],
+            unread,
+            teams.LastTeamId);
     }
 }
 
@@ -70,9 +80,23 @@ public sealed class MeBootContributor(MeBuilder builder) : IBootContributor {
         var caller = await boot.Http.GetCallerAsync();
         var me = caller is null ? null : await builder.BuildAsync(caller, cancellationToken);
         boot.Set("me", JsonSerializer.SerializeToElement(me, AuthJsonContext.Default.MeResponse));
-        if (me?.User is { } user) {
-            boot.Theme = user.Theme;
+        if (me is not null) {
+            boot.Theme = me.User.Theme;
         }
+    }
+}
+
+/// <summary>
+/// A signed-in <c>/</c> leads to the team the user visited last, else their first team by name, else the
+/// create-or-join screen at <c>/teams</c> (UX18 decision 8). It cannot see a pending invite, which waits in the
+/// browser: the client lets that win on in-app navigation, and sign-in and the create-or-join screen resume it.
+/// </summary>
+public sealed class HomeRedirect(UsersRepo users) : IShellRedirect {
+    public async ValueTask<string?> RedirectAsync(ShellRoute route, Caller caller, CancellationToken cancellationToken) {
+        if (route.Pattern != "/") {
+            return null;
+        }
+        return await users.HomeTeamAsync(caller.Principal.Id, cancellationToken) is { } team ? $"/teams/{team.Value}" : "/teams";
     }
 }
 
@@ -97,11 +121,12 @@ public static class MeEndpoints {
     public static void AddServices(IServiceCollection services, IConfiguration configuration) {
         services.AddSingleton<MeBuilder>();
         services.AddSingleton<IBootContributor, MeBootContributor>();
+        services.AddSingleton<IShellRedirect, HomeRedirect>();
     }
 
     public static void Map(IEndpointRouteBuilder app) {
         app.MapGet("/api/me", GetAsync)
-            .RequireRoutePolicy(RoutePolicy.Guest)
+            .RequireRoutePolicy(RoutePolicy.User)
             .RequireRateLimit(Read);
         app.MapPatch("/api/me", PatchAsync)
             .RequireRoutePolicy(RoutePolicy.User)
@@ -140,11 +165,11 @@ public static class MeEndpoints {
         TimeProvider time) {
         var fields = new Dictionary<string, string>();
         var fullName = body.FullName?.Trim();
-        if (fullName is not null && (fullName.Length is 0 or > MaxFullNameLength || !GuestNames.IsPlainText(fullName))) {
+        if (fullName is not null && (fullName.Length is 0 or > MaxFullNameLength || !TextRules.IsPlainText(fullName))) {
             fields["fullName"] = fullName.Length == 0 ? "required" : "invalid";
         }
         var nickname = body.Nickname?.Trim();
-        if (nickname is { Length: > 0 } && (nickname.Length > MaxNicknameLength || !GuestNames.IsPlainText(nickname))) {
+        if (nickname is { Length: > 0 } && (nickname.Length > MaxNicknameLength || !TextRules.IsPlainText(nickname))) {
             fields["nickname"] = "invalid";
         }
         if (body.Theme is not null && !Themes.Contains(body.Theme, StringComparer.Ordinal)) {

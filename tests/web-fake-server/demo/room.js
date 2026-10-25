@@ -145,6 +145,7 @@ export class DemoRoom {
     }
     const events = result.events ?? [];
     if (events.length > 0) {
+      this.touch();
       ctx.commit(project(events));
     } else {
       ctx.ack();
@@ -156,10 +157,18 @@ export class DemoRoom {
   act(who, k, d) {
     const result = this.decide(k, d, who, null);
     if (!result.nack) {
+      if ((result.events ?? []).length > 0) {
+        this.touch();
+      }
       this.tx(result.events ?? []);
       result.after?.();
     }
     return result;
+  }
+
+  /** A committed write: the team lists' lastActivityAt, which the server keeps to the minute. */
+  touch() {
+    this.lastActivityAt = Math.floor(this.demo.now() / 60_000) * 60_000;
   }
 
   later(ms, fn) {

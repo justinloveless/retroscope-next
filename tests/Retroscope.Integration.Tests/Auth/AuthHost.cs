@@ -88,14 +88,12 @@ internal sealed class AuthHost : IAsyncDisposable {
         Db.AddServices(services, builder.Configuration);
         AuthEndpoints.AddServices(services, builder.Configuration);
         MeEndpoints.AddServices(services, builder.Configuration);
-        GuestEndpoints.AddServices(services, builder.Configuration);
 
         var app = builder.Build();
         HostingModule.UsePipeline(app);
         HostingModule.Map(app);
         AuthEndpoints.Map(app);
         MeEndpoints.Map(app);
-        GuestEndpoints.Map(app);
         await app.StartAsync(Token);
         return new AuthHost(app, database, time);
     }

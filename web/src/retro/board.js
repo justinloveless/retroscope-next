@@ -1,4 +1,4 @@
-// The board screen: header (title, presence), banners, the columns with pointer and keyboard reorder,
+// The board screen: header (the team and Retros crumbs, title, presence), banners, the columns with pointer and keyboard reorder,
 // and one delegated click handler for every card, comment and column action (DESIGN §g.3). Features of
 // later units (stages, timer, focus, action items, kudos) plug in through `features`.
 
@@ -15,6 +15,8 @@ import { toast } from '../ui/toast.js';
 import { intent, isFacilitator, uuidv7 } from './model.js';
 import { COLUMN_COLORS, createColumn } from './column.js';
 import { avatarSrc } from './card.js';
+import { currentMe, session } from '../screens/app.js';
+import { navLink, teamPath } from '../screens/header.js';
 
 const PENDING_SPINNER_MS = 1500;
 const OFFLINE_BANNER_MS = 10_000;
@@ -36,12 +38,11 @@ const UPLOAD_MESSAGES = {
 
 const UPLOAD_STATUS = { 409: 'board_quota', 413: 'too_large', 415: 'unsupported_media_type', 507: 'storage_full' };
 
+// The kicks the board itself reports, limits that closing a board or a tab clears, so it offers Try again; the
+// others end the user's access, and the page shows the no-access screen instead (retro/index.js).
 const KICKED = {
-  access_revoked: 'You no longer have access to this board.',
-  deleted: 'This board was deleted.',
-  not_found: 'This board does not exist.',
-  forbidden: 'You do not have access to this board.',
-  too_many_rooms: 'Too many boards are open in this tab. Close one and reload.',
+  too_many_rooms: 'Too many boards are open in this tab. Close one, then try again.',
+  too_many_connections: 'This board is open in too many of your tabs. Close one, then try again.',
 };
 
 export function uploadMessage(error) {
@@ -85,7 +86,7 @@ export function moveId(ids, id, index) {
   return order.every((x, i) => x === ids[i]) ? null : order;
 }
 
-export function createBoard({ room, socket, me, boardId, features = [], timerMusic = false }) {
+export function createBoard({ room, socket, me, boardId, features = [], timerMusic = false, onRetry = null }) {
   const columns = new Map();
   const commentCounts = new WeakMap();
   const cleanups = [];
@@ -130,23 +131,30 @@ export function createBoard({ room, socket, me, boardId, features = [], timerMus
     columnAction,
   };
 
-  const title = h('h1', { class: 'retro-title' });
+  const title = h('h1', { class: 'retro-title', 'aria-current': 'page' });
   const renameButton = h('button', { type: 'button', class: 'btn btn-ghost btn-icon btn-sm', 'aria-label': 'Rename board', title: 'Rename board', dataset: { action: 'rename' } }, icon('pencil'));
-  const titleRow = h('div', { class: 'retro-title-row' }, title, renameButton);
+  // "<team> / Retros /" above the title (UX18 decision 12): the board's team from its snapshot, named from `me`.
+  const teamCrumb = navLink('/', '');
+  const retrosCrumb = navLink('/', 'Retros');
+  const crumbs = h('nav', { class: 'retro-crumbs', 'aria-label': 'Breadcrumb', hidden: true },
+    teamCrumb, h('span', { 'aria-hidden': 'true', text: '/' }), retrosCrumb, h('span', { 'aria-hidden': 'true', text: '/' }));
+  const titleRow = h('div', { class: 'retro-heading' }, crumbs, h('div', { class: 'retro-title-row' }, title, renameButton));
   const presence = h('div', { class: 'retro-presence', role: 'group' });
   const presenceCount = h('span', { class: 'retro-presence-count' });
   const toolbar = h('div', { class: 'retro-toolbar' });
   const header = h('header', { class: 'retro-header' }, titleRow, h('span', { class: 'retro-spacer' }), toolbar, h('div', { class: 'retro-presence-wrap' }, presence, presenceCount));
   const archived = h('p', { class: 'retro-banner retro-banner-archived', role: 'status', hidden: true }, icon('archive'), ' This board is archived and read-only.');
   const offline = h('p', { class: 'retro-banner retro-banner-offline', role: 'status', hidden: true }, icon('loader-circle'), ' Reconnecting… your changes are saved and will sync.');
-  const kicked = h('p', { class: 'retro-banner retro-banner-kicked', role: 'alert', hidden: true });
+  const kickedText = h('span');
+  const kickedRetry = h('button', { type: 'button', class: 'btn btn-secondary btn-sm', hidden: true, on: { click: () => onRetry?.() } }, 'Try again');
+  const kicked = h('p', { class: 'retro-banner retro-banner-kicked', role: 'alert', hidden: true }, kickedText, kickedRetry);
   const top = h('div', { class: 'retro-top' });
   const before = h('div', { class: 'retro-before' });
   const list = h('div', { class: 'retro-column-list' });
   const addColumn = h('button', { type: 'button', class: 'btn btn-outline retro-add-column', dataset: { action: 'add-column' } }, icon('plus'), 'Add column');
   const row = h('div', { class: 'retro-columns' }, before, list, addColumn);
   const end = h('div', { class: 'retro-end' });
-  const el = h('div', { class: 'retro-board' }, header, archived, offline, kicked, top, row, end);
+  const el = h('main', { class: 'retro-board' }, header, archived, offline, kicked, top, row, end);
 
   const mounted = features.map((feature) => feature.board?.(ctx, { toolbar, top, before, end })).filter(Boolean);
 
@@ -162,9 +170,21 @@ export function createBoard({ room, socket, me, boardId, features = [], timerMus
     presence.setAttribute('aria-label', `${people.length} online`);
   }
 
+  function renderCrumbs() {
+    const teamId = room.view?.teamId;
+    const team = teamId ? currentMe()?.teams?.find((t) => t.id === teamId) : null;
+    crumbs.hidden = !team;
+    if (team) {
+      teamCrumb.textContent = team.name;
+      teamCrumb.href = teamPath(team.id);
+      retrosCrumb.href = teamPath(team.id, 'retros');
+    }
+  }
+
   function render([view, kickCode]) {
     kicked.hidden = kickCode === null;
-    kicked.textContent = kickCode === null ? '' : KICKED[kickCode] ?? 'You were removed from this board.';
+    kickedText.textContent = kickCode === null ? '' : KICKED[kickCode] ?? 'You were removed from this board.';
+    kickedRetry.hidden = onRetry === null || !Object.hasOwn(KICKED, kickCode ?? '');
     if (!view) {
       return;
     }
@@ -173,6 +193,7 @@ export function createBoard({ room, socket, me, boardId, features = [], timerMus
       title.textContent = view.meta.title;
     }
     document.title = `${view.meta.title} · Retroscope`;
+    renderCrumbs();
     renameButton.hidden = !facilitator;
     archived.hidden = !view.meta.archived;
     addColumn.hidden = !facilitator;
@@ -454,6 +475,7 @@ export function createBoard({ room, socket, me, boardId, features = [], timerMus
   cleanups.push(() => clearInterval(pendingTimer));
 
   cleanups.push(room.select(() => [room.view, room.kicked], shallowEq, render));
+  cleanups.push(session.select((state) => state.me, Object.is, renderCrumbs));
   render([room.view, room.kicked]);
   // Nearly every visit types something, so the composer chunk is fetched once the board has painted.
   const prefetch = setTimeout(() => import('./composer.js').catch(() => {}), 0);

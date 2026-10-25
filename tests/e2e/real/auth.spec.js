@@ -1,10 +1,28 @@
 // Auth end to end (§e): sign-up, verification, password sign-in, magic link, reset, Google and Entra through
-// FakeOidc, and invites (an email invite refuses another account). Mail goes through SMTP into Mailpit.
+// FakeOidc, and invites: an email invite refuses another account, and a link invite opened while signed out leads
+// through an emailed sign-in link into the team (UX18 decision 13). Every sign-in lands on '/', which goes on to the
+// user's team, or to the create-or-join screen for someone in none (decisions 7, 8). Mail goes through SMTP into
+// Mailpit.
 import { randomUUID } from 'node:crypto';
-import { ENTRA_TENANT, PASSWORD, createTeam, expect, json, mailedToken, routeOidc, seedUsers, sql, test } from './_real.js';
+import {
+  ENTRA_TENANT, PASSWORD, createTeam, expect, inviteLink, json, mailedToken, routeOidc, seedUsers, sql, test,
+} from './_real.js';
 
 const field = (page, label) => page.getByLabel(label, { exact: true }).filter({ visible: true });
-const dashboard = (page) => expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
+
+/** Where a signed-in user in no team lands: /teams, the create-or-join screen. */
+async function noTeam(page) {
+  await expect(page).toHaveURL(/\/teams$/);
+  await expect(page.getByRole('heading', { level: 1, name: /^Welcome, / })).toBeVisible();
+}
+
+/** A team's home: its Poker section, marked as the current one among the header's sections of that team. */
+async function teamHome(page, team) {
+  await expect(page).toHaveURL(new RegExp(`/teams/${team.id}$`));
+  await expect(page.getByRole('heading', { level: 1, name: 'Poker' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: `${team.name} sections` }).getByRole('link', { name: 'Poker' }))
+    .toHaveAttribute('aria-current', 'page');
+}
 
 async function signInWithForm(page, email, password) {
   await page.goto('/login');
@@ -21,7 +39,7 @@ test('sign up, verify through the mailed link, then sign in again with the passw
   await field(page, 'Email').fill(email);
   await field(page, 'Password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Create account' }).click();
-  await dashboard(page);
+  await noTeam(page);
   await expect(page.getByText('Account created. Check your inbox to verify your email.')).toBeVisible();
 
   const token = await mailedToken(page.request, email, '/auth/verify');
@@ -35,7 +53,7 @@ test('sign up, verify through the mailed link, then sign in again with the passw
   await expect(other.page.getByRole('alert')).toHaveText('Email or password is incorrect.');
   await field(other.page, 'Password').fill(PASSWORD);
   await other.page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await dashboard(other.page);
+  await noTeam(other.page);
   await expect(other.page.getByText('Account created.')).toHaveCount(0);
 });
 
@@ -56,8 +74,9 @@ test('a verification link opened while signed out waits for the right sign-in', 
   expect(await sql(`select email_verified_at is not null from users where email = '${email}'`)).toEqual([['t']]);
 });
 
-test('a magic link signs in only after the click', async ({ open }) => {
+test('a magic link signs in only after the click, then lands on the team home', async ({ open }) => {
   const [user] = await seedUsers(['Maggie Link']);
+  const team = await createTeam((await open(user)).page.request);
   const { page } = await open();
   await page.goto('/login');
   await page.getByRole('button', { name: 'Email me a sign-in link' }).click();
@@ -73,7 +92,7 @@ test('a magic link signs in only after the click', async ({ open }) => {
   expect((await page.request.get('/api/me')).status()).toBe(401);
 
   await confirm.click();
-  await dashboard(page);
+  await teamHome(page, team);
   expect((await (await page.request.get('/api/me')).json()).principal.id).toBe(user.id);
 
   const again = await open();
@@ -104,7 +123,7 @@ test('a reset link sets a new password; the old one stops working', async ({ ope
   await expect(page.getByRole('alert')).toHaveText('Email or password is incorrect.');
   await field(page, 'Password').fill(fresh);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await dashboard(page);
+  await noTeam(page);
 });
 
 test('Google sign-in creates a verified account and signs in again by subject', async ({ open }) => {
@@ -115,8 +134,7 @@ test('Google sign-in creates a verified account and signs in again by subject', 
   await routeOidc(first.context, claims);
   await first.page.goto('/login?return=%2Fteams');
   await first.page.getByRole('link', { name: 'Continue with Google' }).click();
-  await expect(first.page).toHaveURL(/\/teams$/);
-  await expect(first.page.getByRole('heading', { level: 1, name: 'Teams' })).toBeVisible();
+  await noTeam(first.page);
   expect(await sql(`select u.email_verified_at is not null, u.full_name from users u
     join external_identities i on i.user_id = u.id where i.provider = 'google' and i.subject = '${sub}'`))
     .toEqual([['t', 'Gina Google']]);
@@ -125,7 +143,7 @@ test('Google sign-in creates a verified account and signs in again by subject', 
   await routeOidc(second.context, { ...claims, email: `changed-${email}` });
   await second.page.goto('/login');
   await second.page.getByRole('link', { name: 'Continue with Google' }).click();
-  await dashboard(second.page);
+  await noTeam(second.page);
   const [me1, me2] = await Promise.all([first, second].map(async ({ page }) => (await (await page.request.get('/api/me')).json()).principal.id));
   expect(me2).toBe(me1);
 });
@@ -136,7 +154,7 @@ test('Entra sign-in trusts a tenant domain; an untrusted email never signs into 
   await routeOidc(trusted.context, { tid: ENTRA_TENANT, oid, email: `e2e-${randomUUID()}@contoso.test`, name: 'Ena Entra' });
   await trusted.page.goto('/login');
   await trusted.page.getByRole('link', { name: 'Continue with Microsoft' }).click();
-  await dashboard(trusted.page);
+  await noTeam(trusted.page);
   expect(await sql(`select u.email_verified_at is not null from users u join external_identities i on i.user_id = u.id
     where i.provider = 'entra' and i.subject = '${ENTRA_TENANT}:${oid}'`)).toEqual([['t']]);
 
@@ -164,15 +182,46 @@ test('an email invite refuses another account and admits the invited one', async
   const token = await mailedToken(admin.page.request, invited.email, '/invite');
   const wrong = await open(stranger);
   await wrong.page.goto(`/invite#t=${token}`);
-  await expect(wrong.page.getByText(`You are invited to join ${team.name}.`)).toBeVisible();
+  await expect(wrong.page.getByRole('heading', { level: 1, name: `Join ${team.name}` })).toBeVisible();
   await expect(wrong.page).toHaveURL(/\/invite$/);
   await wrong.page.getByRole('button', { name: 'Accept invite' }).click();
-  await expect(wrong.page.getByRole('alert')).toHaveText('This invite was sent to a different email address. Sign in with that account to accept it.');
+  await expect(wrong.page.getByRole('alert')).toHaveText(/^This invite was sent to a different email address\./);
 
   const right = await open(invited);
   await right.page.goto(`/invite#t=${token}`);
   await right.page.getByRole('button', { name: 'Accept invite' }).click();
-  await expect(right.page).toHaveURL(new RegExp(`/teams/${team.id}`));
+  await teamHome(right.page, team);
   expect(await sql(`select role from team_members where team_id = '${team.id}' and user_id = '${invited.id}'`)).toEqual([['member']]);
   expect(await sql(`select count(*) from team_members where team_id = '${team.id}' and user_id = '${stranger.id}'`)).toEqual([['0']]);
+});
+
+test('a link invite opened while signed out leads through an emailed sign-in link into the team', async ({ open }) => {
+  const [owner] = await seedUsers(['Lena Link']);
+  const admin = await open(owner);
+  const team = await createTeam(admin.page.request);
+  const token = await inviteLink(admin.page.request, team.id);
+  // Nobody has an account at this address yet: the emailed link creates one, already verified.
+  const email = `e2e-${randomUUID()}@example.test`;
+
+  const { page } = await open();
+  await page.goto(`/invite#t=${token}`);
+  await expect(page).toHaveURL(/\/invite$/);
+  await expect(page.getByRole('heading', { level: 1, name: `Join ${team.name}` })).toBeVisible();
+  await field(page, 'Email').fill(email);
+  await page.getByRole('button', { name: 'Email me a sign-in link' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'a sign-in link is on its way' })).toBeVisible();
+
+  const magic = await mailedToken(page.request, email, '/auth/magic');
+  await page.goto(`/auth/magic#t=${magic}`);
+  await page.getByRole('button', { name: /^Sign in as / }).click();
+  // '/' resumes the pending invite before anything else.
+  await expect(page.getByRole('heading', { level: 1, name: `Join ${team.name}` })).toBeVisible();
+  await page.getByRole('button', { name: 'Accept invite' }).click();
+  await teamHome(page, team);
+  expect(await sql(`select u.email_verified_at is not null, m.role from users u join team_members m on m.user_id = u.id
+    where u.email = '${email}' and m.team_id = '${team.id}'`)).toEqual([['t', 'member']]);
+
+  // Accepting cleared the pending invite, so no later in-app '/' reopens it. A full page load of '/' could not
+  // tell: the server sends it to the team without seeing the browser's storage.
+  expect(await page.evaluate(() => localStorage.getItem('rs.invite'))).toBeNull();
 });

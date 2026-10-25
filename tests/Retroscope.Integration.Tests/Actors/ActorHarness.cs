@@ -19,6 +19,9 @@ internal static class ActorHarness {
 
     public static RoomKey Room { get; } = RoomKey.Poker(new SessionId(Guid.Parse("00000000-0000-4000-8000-0000000000a0")));
 
+    /// <summary>The team the harness rooms belong to.</summary>
+    public static TeamId RoomTeam { get; } = new(Guid.Parse("00000000-0000-4000-8000-0000000000b0"));
+
     public static Viewer Alice { get; } = Viewer(1, "Alice");
 
     public static Viewer Bob { get; } = Viewer(2, "Bob");
@@ -285,13 +288,11 @@ internal sealed class MemoryStore<TState, TEvent>(TState? persisted, Func<TState
     private sealed record CommitFault(Exception Exception, bool Landed);
 }
 
-/// <summary>Roles and grants for the tests; nobody has any unless a test grants it.</summary>
+/// <summary>Roles for the tests; nobody has any unless a test grants it.</summary>
 internal sealed class TestAccess : IAccessView {
     public Dictionary<(TeamId, PrincipalId), TeamRole> Roles { get; } = [];
 
     public TeamRole? RoleIn(TeamId team, PrincipalId principal) => Roles.TryGetValue((team, principal), out var role) ? role : null;
-
-    public bool HasCurrentGrant(BoardId board, PrincipalId principal, DateTimeOffset? passwordSetAt) => false;
 }
 
 // A counter room: the smallest domain that exercises every runtime path. Poker command types carry the client
@@ -489,7 +490,9 @@ internal sealed class CounterBinding(CounterDomain domain) : IRoomBinding<Counte
             [],
             [],
             [],
-            presence);
+            presence,
+            ActorHarness.RoomTeam,
+            CreatedAt: 0);
     }
 
     public RoomOverlay? Overlay(Counter state, Viewer viewer) => new PokerOverlay([], state.Mine.Contains(viewer.Who.Id));

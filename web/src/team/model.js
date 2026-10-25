@@ -88,4 +88,13 @@ export function optimistic(state, k, d, now = Date.now(), by = null) {
   }
 }
 
+/** Open action items: the room holds every open item (and those done in the last 30 days), so this is exact. */
+export function openActions(state) {
+  let open = 0;
+  for (const item of state.items.values()) {
+    open += item.doneAt == null ? 1 : 0;
+  }
+  return open;
+}
+
 export const model = { snapshot, apply, optimistic };

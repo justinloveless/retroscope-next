@@ -9,11 +9,8 @@ namespace Retroscope.Server.Json;
     JsonSerializerDefaults.Web,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(QuickSessionRequest))]
-[JsonSerializable(typeof(QuickBoardRequest))]
+[JsonSerializable(typeof(NewSessionRequest))]
 [JsonSerializable(typeof(TeamBoardRequest))]
-[JsonSerializable(typeof(BoardAccessRequest))]
-[JsonSerializable(typeof(UnlockRequest))]
 [JsonSerializable(typeof(DeleteBoardRequest))]
 [JsonSerializable(typeof(ActionItemCommentRequest))]
 [JsonSerializable(typeof(RoomCreated))]

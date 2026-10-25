@@ -295,7 +295,7 @@ public static class IdTokenValidator {
 
     private static string FullName(string? name) {
         var trimmed = name?.Trim() ?? "";
-        return trimmed.Length <= MeEndpoints.MaxFullNameLength && GuestNames.IsPlainText(trimmed) ? trimmed : "";
+        return trimmed.Length <= MeEndpoints.MaxFullNameLength && TextRules.IsPlainText(trimmed) ? trimmed : "";
     }
 
     private static Uri? GooglePicture(string? value) =>

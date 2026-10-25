@@ -77,13 +77,14 @@ public sealed class PokerBinding(IRoomDomain<PokerState, PokerInput, PokerEvent>
 
     public bool IsDeleted(PokerState state) => state.Deleted;
 
+    public TeamId? TeamOf(PokerState state) => state.TeamId;
+
     public PokerInput? OnShutdown(PokerState state) => state.Spotlight is { Dirty: true } ? new SpotlightSettleDue() : null;
 
     private static ResourceFacts Facts(PokerState state, Viewer viewer) {
         return new ResourceFacts(
             RoomKey.Poker(state.SessionId),
-            Team: state.TeamId,
-            CreatedBy: state.CreatedBy,
+            state.TeamId,
             Deleted: state.Deleted,
             IsObserver: state.Observers.Contains(viewer.Who.Id),
             JiraConfigured: state.Jira.Configured,
@@ -107,8 +108,8 @@ public sealed class PokerRoomDomain(
 
     public void Apply(PokerState state, PokerEvent evt) {
         inner.Apply(state, evt);
-        if (evt is JiraSubmitChanged { Status: JiraSubmitStatus.Pending } submit && state.TeamId is { } team) {
-            jira.Submit(RoomKey.Poker(state.SessionId), team, submit);
+        if (evt is JiraSubmitChanged { Status: JiraSubmitStatus.Pending } submit) {
+            jira.Submit(RoomKey.Poker(state.SessionId), state.TeamId, submit);
         }
     }
 
@@ -130,7 +131,7 @@ public sealed class PokerRoomDomain(
 
     /// <summary>Pointed = revealed rounds, total = committed rounds (pending previews are not counted).</summary>
     private void NoticeTallies(PokerState state) {
-        if (notices is null || state.TeamId is not { } team) {
+        if (notices is null) {
             return;
         }
         var total = 0;
@@ -149,7 +150,7 @@ public sealed class PokerRoomDomain(
         }
         if (last.Value != (pointed, total)) {
             last.Value = (pointed, total);
-            notices.PokerChanged(team, state.SessionId, pointed, total);
+            notices.PokerChanged(state.TeamId, state.SessionId, pointed, total);
         }
     }
 }
@@ -181,11 +182,11 @@ public sealed class PokerJiraLoop(
     /// key, a reload). Actor thread only.
     /// </summary>
     public void Track(PokerState state) {
-        if (port is null || state.TeamId is not { } team || !state.Jira.Configured || state.Deleted) {
+        if (port is null || !state.Jira.Configured || state.Deleted) {
             return;
         }
         var room = RoomKey.Poker(state.SessionId);
-        var meta = _rooms.GetOrAdd(room, static (_, team) => new RoomMeta(team), team);
+        var meta = _rooms.GetOrAdd(room, static (_, team) => new RoomMeta(team), state.TeamId);
         List<JiraMeta>? refill = null;
         HashSet<string>? stale = null;
         lock (meta) {

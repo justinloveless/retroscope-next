@@ -74,6 +74,7 @@ const pokerSnapshot = {
   votes: [],
   roster: [],
   presence: [],
+  createdAt: 1792454400000,
 };
 const voteState = (pid, extra) => ({ k: 'poker.vote.state', d: { roundId: ROUND, pid, ...extra } });
 const voteCmd = (q, points = 5) => ({ t: 'cmd', r: POKER, q, k: 'poker.vote.set', d: { roundId: ROUND, points } });
@@ -217,6 +218,45 @@ describe('HTTP', () => {
     assert.equal((await missing.json()).code, 'not_found');
   });
 
+  test('the old /dashboard address sends visitors home with a no-store 302, as the real shell does', async () => {
+    const old = await fetch(`${fake.url}/dashboard`, { redirect: 'manual' });
+    assert.equal(old.status, 302);
+    assert.equal(old.headers.get('location'), '/');
+    assert.equal(old.headers.get('cache-control'), 'no-store');
+  });
+
+  test("a signed-in '/' goes to the user's team with a no-store 302, as the real HomeRedirect does", async () => {
+    const team = (id, name) => ({ id, name, role: 'member', openActions: 0 });
+    const [apps, billing, zeta] = [team('a1', 'apps'), team('b2', 'Billing'), team('c3', 'Zeta')];
+    const user = { principal: { id: ME, kind: 'user', name: 'Ada' }, user: { email: 'ada@example.com' } };
+    let me = null;
+    fake.boot = (path) => ({ build: 'fake', me, path });
+    fake.shellHeaders = () => ({ 'Set-Cookie': 'who=ada' });
+    const home = async (path = '/') => {
+      const res = await fetch(`${fake.url}${path}`, { redirect: 'manual' });
+      return { status: res.status, location: res.headers.get('location'), cache: res.headers.get('cache-control'), cookie: res.headers.get('set-cookie') };
+    };
+
+    me = { ...user, teams: [zeta, billing, apps], lastTeamId: zeta.id };
+    assert.deepEqual(await home(), { status: 302, location: '/teams/c3', cache: 'no-store', cookie: 'who=ada' }, 'the team used last');
+    assert.equal((await home('/?utm=x')).location, '/teams/c3', 'whatever the query');
+    me = { ...user, teams: [zeta, billing, apps], lastTeamId: null };
+    assert.equal((await home()).location, '/teams/a1', 'else the first by name, ignoring case');
+    me = { ...user, teams: [zeta, team('b1', 'billing'), billing], lastTeamId: 'gone' };
+    assert.equal((await home()).location, '/teams/b1', 'then by id, and never a team the user left');
+    me = { ...user, teams: [], lastTeamId: null };
+    assert.equal((await home()).location, '/teams', 'else create-or-join');
+
+    for (const signedOut of [null, { principal: { id: ME, kind: 'user', name: 'Ada' }, teams: [apps] }]) {
+      me = signedOut;
+      const page = await home();
+      assert.equal(page.status, 200, 'signed out, / is the welcome page');
+      assert.equal(page.cookie, 'who=ada');
+    }
+    me = { ...user, teams: [apps], lastTeamId: apps.id };
+    assert.equal((await home('/teams')).status, 200, 'only / redirects');
+  });
+
   test('serves the root files with a day of caching and ETag revalidation, and links them from the shell', async () => {
     const types = { '/favicon.ico': 'image/x-icon', '/manifest.webmanifest': 'application/manifest+json', '/robots.txt': 'text/plain; charset=utf-8' };
     for (const [path, type] of Object.entries(types)) {
@@ -358,6 +398,30 @@ describe('WebSocket protocol', () => {
     assert.equal((await client.next()).code, 'not_subscribed');
   });
 
+  test('canSubscribe refuses a sub with kick forbidden and no snapshot, and drops a subscription it no longer admits', async () => {
+    fake.room(POKER, { snapshot: pokerSnapshot });
+    const asked = [];
+    let admitted = false;
+    fake.canSubscribe = (conn, room) => {
+      asked.push(room.key);
+      return admitted;
+    };
+    const client = await hello([{ r: POKER }]);
+    assert.deepEqual(await client.next(), { t: 'kick', r: POKER, code: 'forbidden' });
+    assert.equal(fake.rooms.get(POKER).subscribers.size, 0);
+    admitted = true;
+    client.send({ t: 'sub', r: POKER });
+    assert.equal((await client.next()).t, 'snap');
+    admitted = false;
+    client.send({ t: 'sub', r: POKER });
+    assert.deepEqual(await client.next(), { t: 'kick', r: POKER, code: 'forbidden' });
+    client.send(voteCmd(1));
+    assert.equal((await client.next()).code, 'not_subscribed');
+    client.send({ t: 'sub', r: 'poker:5e551011-0000-4000-8000-0000000000ff' });
+    assert.equal((await client.next()).code, 'not_found');
+    assert.deepEqual(asked, [POKER, POKER, POKER], 'asked on every sub to a room that exists');
+  });
+
   test('commands: default ack, commit sends tx before ack, nack carries the retry flag, dup on resend', async () => {
     fake.room(POKER, { snapshot: pokerSnapshot });
     const client = await hello([{ r: POKER }]);
@@ -478,6 +542,13 @@ describe('WebSocket protocol', () => {
     const snap = await again.next();
     assert.equal(snap.t, 'snap');
     assert.notEqual(snap.e, oldEpoch);
+  });
+
+  test('a hello with nobody signed in (me resolves to null) is closed with 4401', async () => {
+    fake.me = () => null;
+    const client = await TestClient.connect(fake);
+    client.send({ t: 'hello', v: 1, cid: CID, subs: [] });
+    assert.equal((await client.closed).code, 4401);
   });
 
   test('cid in use and rejectNextHello close with 4409', async () => {

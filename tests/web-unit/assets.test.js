@@ -215,3 +215,10 @@ test('THIRD_PARTY.md credits the font, the icons and the music track or its abse
     assert.match(notice, /music\.mp3[^\n]*not shipped/i);
   }
 });
+
+test('the installed app opens at / and keeps the identity it was installed under', () => {
+  const manifest = JSON.parse(read('public/manifest.webmanifest'));
+  assert.equal(manifest.start_url, '/', '/ finds the user’s team (UX18)');
+  assert.equal(manifest.id, '/dashboard', 'the old start URL, so installed apps stay the same app');
+  assert.equal(manifest.scope, '/');
+});

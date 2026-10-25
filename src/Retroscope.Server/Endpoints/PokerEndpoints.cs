@@ -14,8 +14,9 @@ using Retroscope.Server.Realtime.Actors;
 
 namespace Retroscope.Server.Endpoints;
 
+/// <summary>A new team session takes no options; the body is empty or <c>{}</c>.</summary>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record QuickSessionRequest;
+public sealed record NewSessionRequest;
 
 public sealed record RoomCreated(Guid Id, string Code);
 
@@ -23,8 +24,10 @@ public sealed record RoomCreated(Guid Id, string Code);
 /// The answer of <c>by-code</c>: the same two members for every found room, never the team (S9). Missing and
 /// forbidden rooms get <see cref="RoomResolver.HiddenResult"/> instead.
 /// </summary>
-/// <param name="Access"><c>granted</c>, or <c>password</c> for a password board the caller has not unlocked.</param>
-public sealed record RoomLookup(Guid Id, string Access);
+/// <param name="Access">Always <c>granted</c>: a room is found only for a member of its team (UX18).</param>
+public sealed record RoomLookup(Guid Id, string Access) {
+    public const string Granted = "granted";
+}
 
 /// <param name="NextCursor">Written as <c>null</c> on the last page.</param>
 public sealed record ListPage<T>(IReadOnlyList<T> Items, [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? NextCursor);
@@ -122,19 +125,20 @@ public sealed class RoomBootContributor(RoomResolver resolver, ActorRegistry reg
         if (kind is null || !boot.Parameters.TryGetValue("code", out var code)) {
             return;
         }
+        // Only a member is ever admitted, so a caller who is not signed in spends no lookup (UX18).
+        if (await boot.Http.GetCallerAsync() is not { IsUser: true } caller) {
+            return;
+        }
         var resolution = await resolver.ResolveAsync(boot.Http, kind.Value, code, cancellationToken);
         if (resolution is not RoomResolution.Found found) {
             return;
         }
         if (boot.Parameters.TryGetValue("tid", out var tid)
-            && (!Guid.TryParse(tid, out var team) || found.Facts.Team?.Value != team)) {
+            && (!Guid.TryParse(tid, out var team) || found.Facts.Team.Value != team)) {
             return;
         }
-        byte[]? snap = null;
-        if (found.Access == RoomAccess.Granted && await boot.Http.GetCallerAsync() is { } caller) {
-            snap = await SnapAsync(found.Room, HttpViewer.Of(caller.Principal), cancellationToken);
-        }
-        boot.Set("room", Compose(found.Room, found.Access, snap));
+        var snap = await SnapAsync(found.Room, HttpViewer.Of(caller.Principal), cancellationToken);
+        boot.Set("room", Compose(found.Room, snap));
     }
 
     private async Task<byte[]?> SnapAsync(RoomKey room, Viewer viewer, CancellationToken cancellationToken) {
@@ -156,12 +160,12 @@ public sealed class RoomBootContributor(RoomResolver resolver, ActorRegistry reg
         return view.CanSubscribe(viewer) ? await view.SnapFrameAsync(viewer) : null;
     }
 
-    private static JsonElement Compose(RoomKey room, RoomAccess access, byte[]? snap) {
+    private static JsonElement Compose(RoomKey room, byte[]? snap) {
         var buffer = new ArrayBufferWriter<byte>(snap?.Length + 128 ?? 128);
         using (var writer = new Utf8JsonWriter(buffer)) {
             writer.WriteStartObject();
             writer.WriteString("r", room.ToString());
-            writer.WriteString("access", access == RoomAccess.Granted ? "granted" : "password");
+            writer.WriteString("access", RoomLookup.Granted);
             if (snap is not null) {
                 using var frame = JsonDocument.Parse(snap);
                 foreach (var member in frame.RootElement.EnumerateObject()) {
@@ -177,12 +181,11 @@ public sealed class RoomBootContributor(RoomResolver resolver, ActorRegistry reg
     }
 }
 
-/// <summary>Quick and team poker sessions over HTTP (§d): create, look up by code, delete, and the team's list.</summary>
+/// <summary>
+/// Team poker sessions over HTTP (§d): look up by code, delete, and the team's list and session creation. Every
+/// session belongs to a team and opens to its members only (UX18).
+/// </summary>
 public static class PokerEndpoints {
-    /// <summary>S7: per principal and per IP, so fresh guest principals do not lift the limit.</summary>
-    public static readonly RateLimit CreateQuick = RateLimit.Define(
-        "poker.create", RateRule.PerPrincipal(10, TimeSpan.FromHours(1)), RateRule.PerIp(30, TimeSpan.FromHours(1)));
-
     public static readonly RateLimit Manage = RateLimit.Define(
         "poker.manage", RateRule.PerPrincipal(30, TimeSpan.FromMinutes(1)), RateRule.PerIp(60, TimeSpan.FromMinutes(1)));
 
@@ -198,12 +201,10 @@ public static class PokerEndpoints {
     }
 
     public static void Map(IEndpointRouteBuilder app) {
-        app.MapPost("/api/poker", CreateQuickAsync)
-            .RequireRoutePolicy(RoutePolicy.Guest)
-            .RequireRateLimit(CreateQuick);
-        // RoomResolver limits every code lookup itself (30/min per IP, S9), whichever route makes it.
+        // RoomResolver limits every code lookup itself (30/min per IP, S9), whichever route makes it. Only a member can
+        // be admitted, so a caller who is not signed in is refused before any lookup is spent (UX18).
         app.MapGet("/api/poker/by-code/{code}", ByCodeAsync)
-            .RequireRoutePolicy(RoutePolicy.Public)
+            .RequireRoutePolicy(RoutePolicy.User)
             .RequireRateLimit(RateLimit.Unlimited);
         app.MapDelete("/api/poker/{id:guid}", DeleteAsync)
             .RequireRoutePolicy(RoutePolicy.SessionManage)
@@ -216,15 +217,10 @@ public static class PokerEndpoints {
             .RequireRateLimit(TeamCreate);
     }
 
-    private static async Task<IResult> CreateQuickAsync(HttpContext context, QuickSessionRequest? body, PokerListsRepo repo) {
-        var caller = (await context.GetCallerAsync())!;
-        return await CreateAsync(repo, null, caller.Principal.Id, null, context.RequestAborted);
-    }
-
     private static async Task<IResult> ByCodeAsync(HttpContext context, string code, RoomResolver resolver) {
         var resolution = await resolver.ResolveAsync(context, RoomKind.Poker, code, context.RequestAborted);
         return resolution is RoomResolution.Found found
-            ? Results.Json(new RoomLookup(found.Room.Id, "granted"), RoomHttpJsonContext.Default.RoomLookup)
+            ? Results.Json(new RoomLookup(found.Room.Id, RoomLookup.Granted), RoomHttpJsonContext.Default.RoomLookup)
             : RoomResolver.Result(resolution);
     }
 
@@ -269,7 +265,7 @@ public static class PokerEndpoints {
     private static async Task<IResult> CreateTeamAsync(
         HttpContext context,
         Guid id,
-        QuickSessionRequest? body,
+        NewSessionRequest? body,
         PokerListsRepo repo,
         NpgsqlDataSource dataSource) {
         if (await TeamGate.RoleAsync(context, dataSource, id) is null) {
@@ -282,7 +278,7 @@ public static class PokerEndpoints {
 
     private static async Task<IResult> CreateAsync(
         PokerListsRepo repo,
-        TeamId? team,
+        TeamId team,
         PrincipalId createdBy,
         ITeamNotices? notices,
         CancellationToken cancellationToken) {
@@ -292,9 +288,7 @@ public static class PokerEndpoints {
         if (code is not { } created) {
             return RoomAsk.Unavailable();
         }
-        if (team is { } owner) {
-            notices?.PokerChanged(owner, session, 0, 1);
-        }
+        notices?.PokerChanged(team, session, 0, 1);
         return Results.Json(
             new RoomCreated(session.Value, created.Value),
             RoomHttpJsonContext.Default.RoomCreated,

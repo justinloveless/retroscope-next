@@ -10,9 +10,9 @@ public sealed record TeamPurgeReport(int Teams, int Skipped);
 
 /// <summary>
 /// Hard-deletes teams 30 days after their soft delete (§0.1, §b). Everything the team owns goes with it by
-/// cascade (sessions, boards and their images, members, invites, Jira settings); the client cursors and
-/// recent-activity rows of its rooms, which have no foreign key, are deleted in the same fenced statement, so a server
-/// that loses leadership mid-pass deletes nothing more. The team's room key is held closed for the delete. Its poker
+/// cascade (sessions, boards and their images, members, invites, Jira settings); the client cursors of its rooms and
+/// the recent-activity rows of the team, which have no foreign key, are deleted in the same fenced statement, so a
+/// server that loses leadership mid-pass deletes nothing more. The team's room key is held closed for the delete. Its poker
 /// and board rooms need no purge of their own: a room of a soft-deleted team loads as missing, so a racing load can
 /// neither see nor write anything.
 /// </summary>
@@ -36,8 +36,9 @@ public sealed partial class TeamPurgeJob(
         """;
 
     // The deleted_at test is repeated: an undelete would have to clear it, and nothing may purge a live team. The
-    // audit insert is the main statement, so its row count is the number of teams purged. Both lookups by room are
-    // index lookups: client_cursors by its key's leading column, recent_activity by recent_activity_entity_ix (0002).
+    // audit insert is the main statement, so its row count is the number of teams purged. Both deletes are index
+    // lookups: client_cursors by its key's leading column, recent_activity by recent_activity_entity_ix (0002), which
+    // holds only team rows since 0003 (UX18).
     internal const string PurgeSql = """
         with doomed as (
           select id from teams where id = $1 and deleted_at < $2),
@@ -50,7 +51,7 @@ public sealed partial class TeamPurgeJob(
         cursors as (
           delete from client_cursors where room_key in (select kind || ':' || id::text from rooms)),
         activity as (
-          delete from recent_activity where (entity_kind, entity_id) in (select kind, id from rooms)),
+          delete from recent_activity where entity_kind = 'team' and entity_id in (select id from doomed)),
         gone as (
           delete from teams where id in (select id from doomed) returning id)
         insert into audit_log (at, team_id, action, target) select $3, id, 'team.purge', id::text from gone

@@ -13,7 +13,6 @@ export class Team extends DemoRoom {
     this.description = seed.description;
     this.createdAt = seed.createdAt;
     this.members = seed.members.map(({ person, role }) => ({ pid: person.pid, role }));
-    this.favoriteOf = new Set(seed.favoriteOf);
     this.pointDescriptions = { ...seed.pointDescriptions };
     this.maxEndorsements = seed.maxEndorsements;
     this.endorsementTypes = seed.endorsementTypes.map((t) => ({ ...t }));
@@ -218,11 +217,27 @@ export class Team extends DemoRoom {
     });
   }
 
+  /** Open action items, as `me.teams[].openActions` counts them for the header. */
+  openActions() {
+    return this.items.filter((i) => !i.doneAt).length;
+  }
+
   boardList(archived) {
     return this.demo.boardsOf(this)
       .filter((b) => b.meta.archived === archived)
       .sort((a, b) => b.createdAt - a.createdAt)
-      .map((b) => compact({ id: b.id, code: b.code, title: b.meta.title, visibility: b.meta.visibility, archived: b.meta.archived, archivedAt: b.archivedAt, createdAt: b.createdAt }));
+      .map((b) => compact({
+        id: b.id,
+        code: b.code,
+        title: b.meta.title,
+        archived: b.meta.archived,
+        archivedAt: b.archivedAt,
+        createdAt: b.createdAt,
+        stage: b.stage,
+        stagesEnabled: b.config.stagesEnabled,
+        cardCount: b.cards.size,
+        lastActivityAt: b.lastActivityAt,
+      }));
   }
 
   sessionList() {
@@ -234,7 +249,14 @@ export class Team extends DemoRoom {
           const key = round.parentKey ?? null;
           keys.set(key, (keys.get(key) ?? 0) + 1);
         }
-        return { id: s.id, code: s.code, createdAt: s.createdAt, ...this.sessionCounts(s), parentKeys: [...keys].map(([key, count]) => ({ key, count })) };
+        return {
+          id: s.id,
+          code: s.code,
+          createdAt: s.createdAt,
+          ...this.sessionCounts(s),
+          parentKeys: [...keys].map(([key, count]) => ({ key, count })),
+          lastActivityAt: s.lastActivityAt,
+        };
       });
   }
 

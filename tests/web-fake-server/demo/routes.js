@@ -1,5 +1,7 @@
-// The HTTP API of the demo: §d routes with the response shapes of docs/decisions/U29.md and U30.md,
+// The HTTP API of the demo: §d routes with the response shapes of docs/decisions/U29.md, U30.md and UX18.md,
 // answered from the live demo state so a change made over HTTP shows up in the rooms and the other way round.
+// Everything that belongs to a team answers its signed-in members only, and a missing and a forbidden room
+// look the same (404). There are no guests, quick rooms, board passwords, Dashboard or team list (UX18).
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { json, problem } from '../http.js';
@@ -8,7 +10,7 @@ import { DEMO, avatarSvg, burndownSvg, personByKey } from './people.js';
 import { PokerSession } from './poker.js';
 import { RetroBoard } from './retro.js';
 import { Team } from './team.js';
-import { AS_COOKIE, DAY, GUEST_COOKIE, SIGNED_OUT, compact, cookie, maskEmail, newId } from './util.js';
+import { AS_COOKIE, DAY, SIGNED_OUT, compact, cookie, maskEmail, newId } from './util.js';
 
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
@@ -153,10 +155,7 @@ export function installRoutes(demo) {
       return problem(400, 'validation', { fields: { password: 'too_short' } });
     }
     if (!demo.personByEmail(email) && fullName && email.includes('@')) {
-      const n = demo.extraPeople.size + 1;
-      const key = `new${n}`;
-      const pid = `0d3e0000-0002-7000-8000-${String(900 + n).padStart(12, '0')}`;
-      demo.extraPeople.set(key, { pid, key, kind: 'user', name: fullName, nickname: fullName.split(' ')[0], email, emailVerified: false, isAdmin: false, theme: 'system', hue: 190 });
+      demo.addPerson({ email, name: fullName, emailVerified: false });
       mail(email, 'Verify your email', '/auth/verify');
     }
     return { status: 202 };
@@ -164,9 +163,11 @@ export function installRoutes(demo) {
   const signOut = () => ({ status: 204, headers: { 'Set-Cookie': cookie(AS_COOKIE, SIGNED_OUT, { maxAge: 365 * 24 * 3600 }) } });
   route('POST', '/api/auth/logout', signOut);
   route('POST', '/api/auth/logout-all', signOut);
+  // A sign-in link goes to any address: for a new one it creates the account, already verified (UX18 decision 13).
   route('POST', '/api/auth/magic/request', (req) => {
-    if (demo.personByEmail(req.body?.email)) {
-      mail(req.body.email, 'Your sign-in link', '/auth/magic');
+    const email = String(req.body?.email ?? '').trim().toLowerCase();
+    if (/^[^@\s]+@[^@\s]+$/.test(email)) {
+      mail(email, 'Your sign-in link', '/auth/magic');
     }
     return { status: 202 };
   });
@@ -181,13 +182,18 @@ export function installRoutes(demo) {
     return entry ? demo.personByEmail(entry.email) : null;
   };
   route('POST', '/api/auth/magic/preview', (req) => {
-    const who = tokenPerson(req);
-    return who ? json({ email: maskEmail(who.email) }) : problem(400, 'invalid_token');
+    const entry = demo.tokens.get(req.body?.token);
+    return entry?.path === '/auth/magic' ? json({ email: maskEmail(entry.email) }) : problem(400, 'invalid_token');
   });
   route('POST', '/api/auth/magic/consume', (req) => {
-    const who = tokenPerson(req);
-    demo.tokens.delete(req.body?.token);
-    return who ? signIn(who) : problem(400, 'invalid_token');
+    const entry = demo.tokens.get(req.body?.token);
+    if (entry?.path !== '/auth/magic') {
+      return problem(400, 'invalid_token');
+    }
+    demo.tokens.delete(req.body.token);
+    const who = demo.personByEmail(entry.email) ?? demo.addPerson({ email: entry.email, name: entry.email.split('@')[0], emailVerified: true });
+    who.emailVerified = true;
+    return signIn(who);
   });
   route('POST', '/api/auth/reset/consume', (req) => {
     const who = tokenPerson(req);
@@ -197,6 +203,13 @@ export function installRoutes(demo) {
     }
     return who ? noContent : problem(400, 'invalid_token');
   });
+  // Sends the verification email again (UX18 decision 14). It answers the same whether or not a mail went out.
+  route('POST', '/api/auth/verify/request', user((req, who) => {
+    if (!who.emailVerified) {
+      mail(who.email, 'Verify your email', '/auth/verify');
+    }
+    return { status: 202 };
+  }));
   route('POST', '/api/auth/verify/consume', user((req, who) => {
     const owner = tokenPerson(req);
     if (!owner) {
@@ -209,29 +222,6 @@ export function installRoutes(demo) {
     demo.tokens.delete(req.body.token);
     return noContent;
   }));
-
-  // ---- guests ---------------------------------------------------------------------------------------
-
-  route('POST', '/api/guest', (req) => {
-    const name = String(req.body?.displayName ?? '').trim();
-    if (name === '' || name.length > 40 || name.includes('@')) {
-      return problem(400, 'invalid');
-    }
-    const guest = { pid: newId(), kind: 'guest', name, hue: 120 };
-    demo.guests.set(guest.pid, guest);
-    return {
-      status: 200,
-      body: demo.meBody(guest),
-      headers: { 'Set-Cookie': [cookie(GUEST_COOKIE, guest.pid, { maxAge: 30 * 24 * 3600 }), cookie(AS_COOKIE, SIGNED_OUT, { maxAge: 365 * 24 * 3600 })] },
-    };
-  });
-  route('PATCH', '/api/guest', (req, who) => {
-    if (who?.kind !== 'guest') {
-      return unauthenticated();
-    }
-    who.name = String(req.body?.displayName ?? who.name).trim() || who.name;
-    return json(demo.meBody(who));
-  });
 
   // ---- me -------------------------------------------------------------------------------------------
 
@@ -280,9 +270,10 @@ export function installRoutes(demo) {
     demo.mentionsSeenAt.set(who.pid, demo.now());
     return noContent;
   }));
+  // Kudos received in the teams the user is still on (UX18 decision 16).
   route('GET', '/api/me/endorsements', user((req, who) => {
     const received = [];
-    for (const team of demo.teams.values()) {
+    for (const team of [...demo.teams.values()].filter((t) => !t.deleted && t.roleOf(who.pid))) {
       for (const e of team.allEndorsements().filter((x) => x.to === who.pid)) {
         const type = team.endorsementTypes.find((t) => t.id === e.typeId);
         received.push({ emoji: type?.emoji, typeName: type?.name, fromName: demo.principal(e.from)?.name, teamName: team.name, createdAt: e.createdAt });
@@ -291,33 +282,8 @@ export function installRoutes(demo) {
     return json(received.sort((a, b) => b.createdAt - a.createdAt));
   }));
 
-  // ---- dashboard and teams --------------------------------------------------------------------------
+  // ---- teams ---------------------------------------------------------------------------------------
 
-  route('GET', '/api/dashboard', user((req, who) => {
-    const mine = [...demo.teams.values()].filter((t) => !t.deleted && t.roleOf(who.pid));
-    const lastAt = (team) => Math.max(team.createdAt, ...demo.boardsOf(team).map((b) => b.createdAt), ...demo.sessionsOf(team).map((s) => s.createdAt));
-    const teamRow = (t) => ({ id: t.id, name: t.name, lastAt: lastAt(t) });
-    const boards = [...demo.boards.values()]
-      .filter((b) => !b.deleted && !b.meta.archived && (b.team ? b.team.roleOf(who.pid) : b.createdBy === who.pid))
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, 5)
-      .map((b) => compact({ id: b.id, code: b.code, title: b.meta.title, teamName: b.team?.name, lastAt: b.createdAt }));
-    const sessions = [...demo.sessions.values()]
-      .filter((s) => !s.deleted && (s.team ? s.team.roleOf(who.pid) : s.createdBy === who.pid))
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, 5)
-      .map((s) => compact({ id: s.id, code: s.code, teamId: s.team?.id, teamName: s.team?.name, lastAt: s.createdAt }));
-    return json({
-      teams: mine.map(teamRow).sort((a, b) => b.lastAt - a.lastAt),
-      favorites: mine.filter((t) => t.favoriteOf.has(who.pid)).map(teamRow),
-      boards,
-      sessions,
-    });
-  }));
-
-  route('GET', '/api/teams', user((req, who) => json([...demo.teams.values()]
-    .filter((t) => !t.deleted && t.roleOf(who.pid))
-    .map((t) => ({ id: t.id, name: t.name, description: t.description, role: t.roleOf(who.pid), favorite: t.favoriteOf.has(who.pid) })))));
   route('POST', '/api/teams', user((req, who) => {
     const name = String(req.body?.name ?? '').trim();
     if (!name) {
@@ -329,7 +295,6 @@ export function installRoutes(demo) {
       description: req.body?.description ?? '',
       createdAt: demo.now(),
       members: [{ person: who, role: 'owner' }],
-      favoriteOf: [],
       pointDescriptions: {},
       maxEndorsements: 3,
       jiraConfigured: false,
@@ -344,16 +309,10 @@ export function installRoutes(demo) {
     }));
     return json({ id: team.id }, 201);
   }));
-  route('PUT', '/api/teams/:id/favorite', member((req, who, team) => {
-    team.favoriteOf.add(who.pid);
-    return noContent;
+  route('GET', '/api/teams/:id', member((req, who, team) => {
+    demo.visited(who.pid, team);
+    return json(team.info(who.pid));
   }));
-  route('DELETE', '/api/teams/:id/favorite', member((req, who, team) => {
-    team.favoriteOf.delete(who.pid);
-    return noContent;
-  }));
-
-  route('GET', '/api/teams/:id', member((req, who, team) => json(team.info(who.pid))));
   route('PATCH', '/api/teams/:id', admin((req, who, team) => {
     const body = req.body ?? {};
     if (typeof body.name === 'string' && body.name.trim()) {
@@ -502,7 +461,7 @@ export function installRoutes(demo) {
   route('POST', '/api/teams/:id/boards', member((req, who, team) => {
     const body = req.body ?? {};
     const template = team.templates.find((t) => t.id === body.templateId) ?? team.templates.find((t) => t.isDefault) ?? { columns: DEFAULT_COLUMNS, config: DEFAULT_CONFIG };
-    const board = createBoard({ team, who, title: String(body.title ?? '').trim() || 'Retro', visibility: body.visibility ?? 'team', password: body.password, template });
+    const board = createBoard({ team, who, title: String(body.title ?? '').trim() || 'Retro', template });
     team.boardsChanged(board);
     return json({ id: board.id, code: board.code }, 201);
   }));
@@ -629,7 +588,7 @@ export function installRoutes(demo) {
 
   // ---- poker ------------------------------------------------------------------------------------------
 
-  function createSession({ team = null, who, presenceEnabled = true, followSpotlight = true }) {
+  function createSession({ team, who, presenceEnabled = true, followSpotlight = true }) {
     const firstRound = { id: newId(), number: 1, version: 1, state: 'voting', active: true, pending: false, autoReveal: true, votes: {} };
     return demo.addSession(new PokerSession(demo, {
       id: newId(),
@@ -641,111 +600,70 @@ export function installRoutes(demo) {
       followSpotlight,
       rounds: [firstRound],
       currentRoundId: firstRound.id,
-      roster: team ? [] : [who],
       peers: [],
     }));
   }
 
-  route('POST', '/api/poker', (req, who) => {
-    if (!who) {
-      return unauthenticated();
-    }
-    const session = createSession({ who });
-    return json({ id: session.id, code: session.code }, 201);
-  });
-  route('GET', '/api/poker/by-code/:code', (req, who) => {
-    const session = demo.sessionByCode(req.params.code);
-    if (!session || (session.team && !session.team.roleOf(who?.pid))) {
-      return notFound();
-    }
-    return json({ id: session.id, access: 'granted' });
-  });
+  // A session or board of a team the caller is not on is as missing as one that does not exist.
+  const ofMember = (room, who) => (room && !room.deleted && room.team.roleOf(who.pid) ? room : null);
+
+  route('GET', '/api/poker/by-code/:code', user((req, who) => {
+    const session = ofMember(demo.sessionByCode(req.params.code), who);
+    return session ? json({ id: session.id, access: 'granted' }) : notFound();
+  }));
   route('DELETE', '/api/poker/:id', user((req, who) => {
-    const session = demo.sessions.get(req.params.id);
-    if (!session || session.deleted) {
+    const session = ofMember(demo.sessions.get(req.params.id), who);
+    if (!session) {
       return notFound();
     }
-    if (session.team ? !session.team.isAdmin(who.pid) : session.createdBy !== who.pid) {
+    if (!session.team.isAdmin(who.pid)) {
       return forbidden();
     }
     session.tx([{ k: 'poker.session.deleted', d: {} }]);
     session.deleted = true;
     demo.fake.kick(session.key, 'deleted');
-    session.team?.pokerChanged(session);
+    session.team.pokerChanged(session);
     return noContent;
   }));
 
   // ---- retro ------------------------------------------------------------------------------------------
 
-  function createBoard({ team = null, who, title, visibility, password, template }) {
+  function createBoard({ team, who, title, template }) {
     const columns = template.columns.map((c) => ({ id: newId(), title: c.title, color: c.color, actionItems: Boolean(c.actionItems) }));
     const board = demo.addBoard(new RetroBoard(demo, {
       id: newId(),
       code: code(),
       team,
       title,
-      visibility,
       createdBy: who.pid,
       createdAt: demo.now(),
       config: { ...DEFAULT_CONFIG, ...template.config },
       columns,
       peers: [],
     }));
-    board.password = password || undefined;
     return board;
   }
 
-  route('POST', '/api/retro', (req, who) => {
-    if (!who) {
-      return unauthenticated();
-    }
-    const board = createBoard({ who, title: String(req.body?.title ?? '').trim() || 'Quick retro', visibility: 'link', template: { columns: DEFAULT_COLUMNS, config: { ...DEFAULT_CONFIG, stagesEnabled: false } } });
-    return json({ id: board.id, code: board.code }, 201);
-  });
-  route('GET', '/api/retro/by-code/:code', (req, who) => {
-    const board = demo.boardByCode(req.params.code);
+  route('GET', '/api/retro/by-code/:code', user((req, who) => {
+    const board = ofMember(demo.boardByCode(req.params.code), who);
+    return board ? json({ id: board.id, access: 'granted' }) : notFound();
+  }));
+  // Archiving and deleting are for the team's admins and owners.
+  const manage = (handler) => user((req, who) => {
+    const board = ofMember(demo.boards.get(req.params.id), who);
     if (!board) {
       return notFound();
     }
-    return json({ id: board.id, access: boardAccess(board, who) });
+    return board.team.isAdmin(who.pid) ? handler(req, who, board) : forbidden();
   });
-  route('POST', '/api/retro/:id/unlock', (req, who) => {
-    const board = demo.boards.get(req.params.id);
-    if (!board || !who) {
-      return notFound();
-    }
-    if (board.password !== req.body?.password) {
-      return problem(403, 'wrong_password');
-    }
-    board.grants = new Set([...(board.grants ?? []), who.pid]);
-    return noContent;
-  });
-  const manage = (handler) => user((req, who) => {
-    const board = demo.boards.get(req.params.id);
-    if (!board || board.deleted) {
-      return notFound();
-    }
-    const allowed = board.team ? board.team.isAdmin(who.pid) || board.createdBy === who.pid : board.createdBy === who.pid;
-    return allowed ? handler(req, who, board) : forbidden();
-  });
-  route('PATCH', '/api/retro/:id', manage((req, who, board) => {
-    if (['link', 'team', 'password'].includes(req.body?.visibility)) {
-      board.meta.visibility = req.body.visibility;
-    }
-    if (typeof req.body?.password === 'string') {
-      board.password = req.body.password;
-      board.grants = new Set();
-    }
-    board.tx([{ k: 'retro.board.meta', d: { ...board.meta } }]);
-    return noContent;
-  }));
   const setArchived = (archived) => manage((req, who, board) => {
     if (board.meta.archived !== archived) {
       const shownBefore = board.showsVoters();
       board.meta.archived = archived;
       board.archivedAt = archived ? demo.now() : undefined;
       board.tx([{ k: 'retro.board.meta', d: { ...board.meta } }, ...board.votesIfVisibilityChanged(shownBefore)]);
-      board.team?.boardsChanged(board);
+      board.touch();
+      board.team.boardsChanged(board);
     }
     return noContent;
   });
@@ -757,13 +675,13 @@ export function installRoutes(demo) {
     }
     board.deleted = true;
     demo.fake.kick(board.key, 'deleted');
-    board.team?.boardsChanged(board);
+    board.team.boardsChanged(board);
     return noContent;
   }));
-  route('POST', '/api/retro/:id/images', (req, who) => {
-    const board = demo.boards.get(req.params.id);
+  route('POST', '/api/retro/:id/images', user((req, who) => {
+    const board = ofMember(demo.boards.get(req.params.id), who);
     const type = req.headers['content-type']?.split(';')[0];
-    if (!board || !who) {
+    if (!board) {
       return notFound();
     }
     if (!IMAGE_TYPES.has(type)) {
@@ -775,20 +693,7 @@ export function installRoutes(demo) {
     const blobId = newId();
     demo.blobs.set(blobId, { type, bytes: req.bytes });
     return json({ blobId }, 201);
-  });
-
-  function boardAccess(board, who) {
-    if (!board.team || board.team.roleOf(who?.pid)) {
-      return board.meta.visibility === 'password' && board.createdBy !== who?.pid && !board.grants?.has(who?.pid) && !board.team ? 'password' : 'granted';
-    }
-    if (board.meta.visibility === 'team') {
-      return who ? 'denied' : 'signin';
-    }
-    if (board.meta.visibility === 'password' && !board.grants?.has(who?.pid)) {
-      return who ? 'password' : 'signin';
-    }
-    return 'granted';
-  }
+  }));
 
   // ---- admin ------------------------------------------------------------------------------------------
 

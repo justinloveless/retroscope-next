@@ -296,6 +296,16 @@ class Element extends Node {
     return this.attributes.has(name);
   }
 
+  toggleAttribute(name, force) {
+    const on = force ?? !this.hasAttribute(name);
+    if (on) {
+      this.setAttribute(name, '');
+    } else {
+      this.removeAttribute(name);
+    }
+    return on;
+  }
+
   removeAttribute(name) {
     this.attributes.delete(name);
   }
@@ -386,6 +396,10 @@ class Element extends Node {
 
   get firstElementChild() {
     return this.children[0] ?? null;
+  }
+
+  get childElementCount() {
+    return this.children.length;
   }
 
   matches(selector) {

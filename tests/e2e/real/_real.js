@@ -1,59 +1,28 @@
 // Shared setup for the full e2e matrix against deploy/compose.test.yml (DESIGN §j). Builds on smoke/_stack.js (the
-// https base URL, a fresh client address per context, Mailpit) and adds: several signed-in people per test, each in
-// its own context and failing the test on any CSP violation, page error or dialog; seeded accounts; SQL against the
-// stack's database; the FakeOidc route; and a lock that lets one spec restart the app while nothing else runs.
-import { execFile } from 'node:child_process';
+// https base URL, a fresh client address per context, Mailpit, seeded accounts and SQL against the stack's database)
+// and adds: several signed-in people per test, each in its own context and failing the test on any CSP violation,
+// page error or dialog; the FakeOidc route; and a lock that lets one spec restart the app while nothing else runs.
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
-import { BASE, MAILPIT, PASSWORD, clientIp, expect, json, mailedToken, test as stack } from '../smoke/_stack.js';
+import {
+  BASE, MAILPIT, PASSWORD, addMembers, clientIp, compose, createPoker, createTeam, expect, inviteLink, json, mailedToken,
+  seedUsers, signIn, sql, test as stack,
+} from '../smoke/_stack.js';
 
-export { BASE, MAILPIT, PASSWORD, clientIp, expect, json, mailedToken };
+export { networkSwitch } from '../network-switch.js';
 
-const run = promisify(execFile);
+export {
+  BASE, MAILPIT, PASSWORD, addMembers, clientIp, compose, createPoker, createTeam, expect, inviteLink, json, mailedToken,
+  seedUsers, signIn, sql,
+};
+
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
-const COMPOSE = ['compose', '-f', `${ROOT}deploy/compose.test.yml`];
 
 export const OIDC = `http://localhost:${process.env.RS_TEST_OIDC_PORT ?? 18446}`;
 // The app's view of FakeOidc (compose.test.yml); a browser cannot resolve it, so contexts route it to OIDC.
 const OIDC_IN_STACK = 'http://fakeoidc:8081';
 export const ENTRA_TENANT = '7c1e5d2a-0b7e-4c55-9d1e-3f4a8b6c2e10';
-
-// bcrypt cost 4 of PASSWORD. Seeded accounts sign in through the real login route, and at cost 10 the HashGate (one
-// hash at a time, 2 s queue) would answer 503 to a dozen parallel sign-ins on the stack's 0.6 vCPU.
-const SEED_HASH = '$2a$04$6x8JWnT3vccNDWa3GtzOROA19eccXMuJ/ZQs3MfUCjIfmf6S6BKRS';
-
-/** Runs `statement` with psql in the stack's db container; returns rows as arrays of strings. */
-export async function sql(statement) {
-  const { stdout } = await run('docker', [...COMPOSE, 'exec', '-T', 'db', 'psql', '-U', 'retroscope_owner', '-d', 'retroscope',
-    '-v', 'ON_ERROR_STOP=1', '-At', '-F', '\t', '-c', statement]);
-  return stdout.split('\n').filter((line) => line.length > 0).map((line) => line.split('\t'));
-}
-
-export const compose = (...args) => run('docker', [...COMPOSE, ...args], { timeout: 180_000 });
-
-const literal = (value) => `'${String(value).replaceAll("'", "''")}'`;
-
-/**
- * Inserts accounts straight into the database: signing up through the route sends a verification mail per person,
- * and the global email budget (200/h) would run out within one run of the matrix. The auth specs sign up for real.
- */
-export async function seedUsers(names, { verified = true, ordered = false } = {}) {
-  // `ordered` makes the ids sort in the order of `names` (seats sort by principal id), for the visual baselines.
-  const id = (i) => (ordered ? `${i.toString(16)}${randomUUID().slice(1)}` : randomUUID());
-  const users = names.map((name, i) => ({ id: id(i), email: `e2e-${randomUUID()}@example.test`, name }));
-  await sql(`
-    insert into principals (id, kind) values ${users.map((u) => `(${literal(u.id)}, 'user')`).join(', ')};
-    insert into users (id, email, email_verified_at, password_hash, full_name) values ${users.map((u) =>
-    `(${literal(u.id)}, ${literal(u.email)}, ${verified ? 'now()' : 'null'}, ${literal(SEED_HASH)}, ${literal(u.name)})`).join(', ')};`);
-  return users;
-}
-
-export async function signIn(request, user) {
-  const response = await request.post('/api/auth/login', json({ email: user.email, password: PASSWORD }));
-  expect(response.status(), await response.text()).toBe(200);
-}
 
 /** The options a project's device gives the default context, for contexts a test opens itself. */
 function deviceOptions(project) {
@@ -203,58 +172,6 @@ export async function watch(context, problems) {
   });
 }
 
-/**
- * Takes a context off the network and back. `context.setOffline` cuts HTTP everywhere, but Firefox and WebKit keep an
- * open WebSocket alive through it, so the room socket runs through a route that this switch closes, and that refuses
- * new sockets while offline. Install it before the page opens its socket (reload a page that already has one).
- */
-export async function networkSwitch(context) {
-  let offline = false;
-  const open = new Set();
-  await context.routeWebSocket(/\/ws$/, (page) => {
-    if (offline) {
-      page.close({ code: 1001, reason: 'offline' });
-      return;
-    }
-    const server = page.connectToServer();
-    const pair = { page, server };
-    open.add(pair);
-    page.onClose(() => open.delete(pair));
-  });
-  return {
-    async offline() {
-      offline = true;
-      await context.setOffline(true);
-      for (const { page, server } of open) {
-        await server.close({ code: 1001, reason: 'offline' });
-        await page.close({ code: 1001, reason: 'offline' });
-      }
-      open.clear();
-    },
-    async online() {
-      offline = false;
-      await context.setOffline(false);
-    },
-  };
-}
-
-/** A team owned by `owner` (signed in on `request`), with `members` joined through a link invite. */
-export async function createTeam(owner, members = [], name = `Team ${randomUUID().slice(0, 8)}`) {
-  const created = await owner.post('/api/teams', json({ name }));
-  expect(created.status(), await created.text()).toBe(201);
-  const team = { ...(await created.json()), name };
-  if (members.length > 0) {
-    const invite = await owner.post(`/api/teams/${team.id}/invites`, json({ kind: 'link', expiresInDays: 1 }));
-    expect(invite.status(), await invite.text()).toBe(201);
-    const token = new URL((await invite.json()).url).hash.replace('#t=', '');
-    for (const member of members) {
-      const accepted = await member.post('/api/invites/accept', json({ token }));
-      expect(accepted.ok(), await accepted.text()).toBe(true);
-    }
-  }
-  return team;
-}
-
 export async function connectJira(request, teamId, { projectKey = 'ACME', boardId = 1 } = {}) {
   const response = await request.put(`/api/teams/${teamId}/jira`, json({
     siteHost: 'acme.atlassian.net',
@@ -266,18 +183,9 @@ export async function connectJira(request, teamId, { projectKey = 'ACME', boardI
   expect(response.ok(), await response.text()).toBe(true);
 }
 
-export async function createPoker(request, teamId = null) {
-  const response = teamId
-    ? await request.post(`/api/teams/${teamId}/poker-sessions`, json({}))
-    : await request.post('/api/poker', json({}));
-  expect(response.ok(), await response.text()).toBe(true);
-  return response.json();
-}
-
-export async function createBoard(request, teamId = null, body = {}) {
-  const response = teamId
-    ? await request.post(`/api/teams/${teamId}/boards`, json({ title: 'Sprint retro', ...body }))
-    : await request.post('/api/retro', json({ title: 'Quick retro', ...body }));
+/** A retro board of `teamId`, made by a member signed in on `request`. Every board belongs to a team (UX18). */
+export async function createBoard(request, teamId, body = {}) {
+  const response = await request.post(`/api/teams/${teamId}/boards`, json({ title: 'Sprint retro', ...body }));
   expect(response.ok(), await response.text()).toBe(true);
   return response.json();
 }

@@ -21,7 +21,6 @@ public sealed class RunVerifyTests(ImporterDatabases databases) {
         "import_run",
         "team_jira_config.credentials_box",
         "team_invites.token_box",
-        "retro_boards.password_hash",
     ];
 
     [Fact]
@@ -42,6 +41,10 @@ public sealed class RunVerifyTests(ImporterDatabases databases) {
         Assert.Equal(0L, await import.ScalarAsync<long>(
             $"select count(*) from team_members where team_id = '{Beta}'"));
         Assert.Contains(Beta, report.Findings("teamsWithoutMembers").Select(x => x!.ToString()));
+        Assert.Equal(1L, report.Table("public.retro_boards").Skipped[RetroMap.NoTeam]);
+        Assert.Equal(1L, report.Table(PokerMap.SessionsTable).Skipped["no_team"]);
+        Assert.Equal(0L, await import.ScalarAsync<long>(
+            $"select (select count(*) from retro_boards where id = '{QuickBoard}') + (select count(*) from poker_sessions where id = '{QuickSession}')"));
 
         var foreign = runner.SourceStatements.Where(x => x.Contains("\"consultation_requests\"", StringComparison.Ordinal)).ToList();
         Assert.NotEmpty(foreign);
@@ -120,8 +123,8 @@ public sealed class RunVerifyTests(ImporterDatabases databases) {
         return dump;
     }
 
-    // Values the run stamps with its own time (or its time plus the 7-day link invite cap), and the boxes and passwords
-    // that are random per run, are masked.
+    // Values the run stamps with its own time (or its time plus the 7-day link invite cap), and the boxes that are random
+    // per run, are masked.
     private static string Mask(string table, JsonObject row, DateTime from, DateTime to) {
         foreach (var (column, value) in row.ToList()) {
             if (RandomColumns.Contains(column) || RandomColumns.Contains($"{table}.{column}")) {

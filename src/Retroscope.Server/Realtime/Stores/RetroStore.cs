@@ -37,18 +37,18 @@ public sealed class RetroStore(
         left join users u on u.id = x.author_id
         """;
 
-    // Every statement takes the board id as $1. A deleted board, or a board of a deleted team, loads as missing.
+    // Every statement takes the board id as $1. A deleted board or a board of a deleted team loads as missing; every
+    // board belongs to a team (UX18, migration 0003).
     private static readonly string[] LoadStatements = [
         """
-        select b.code, b.team_id, b.created_by, b.title, b.visibility, b.password_set_at, b.archived_at is not null,
-               b.stage, b.focus_card_id,
+        select b.code, b.team_id, b.title, b.archived_at is not null, b.stage, b.focus_card_id,
                b.allow_anonymous, b.voting_enabled, b.show_author_names, b.stages_enabled, b.enforce_readiness,
                b.allow_self_votes, b.vote_emoji, b.sort_chronologically, b.max_votes_per_user,
                b.timer_state, b.timer_duration_ms, b.timer_alarm, b.timer_music, b.timer_ends_at, b.timer_remaining_ms,
                t.max_endorsements_per_board
         from retro_boards b
-        left join teams t on t.id = b.team_id
-        where b.id = $1 and b.deleted_at is null and (b.team_id is null or t.deleted_at is null)
+        join teams t on t.id = b.team_id
+        where b.id = $1 and b.deleted_at is null and t.deleted_at is null
         """,
         "select id, title, color, sort_key, is_action_items, version from retro_columns where board_id = $1 order by sort_key",
         $"select x.id, x.column_id, x.body, x.version, x.created_at, {AuthorColumns} from retro_cards x {AuthorJoins} where x.board_id = $1",
@@ -172,38 +172,35 @@ public sealed class RetroStore(
     }
 
     private static RetroState ReadBoard(NpgsqlDataReader reader, BoardId board) {
-        var timerState = RetroSql.ParseTimerState(reader.GetString(18));
+        var timerState = RetroSql.ParseTimerState(reader.GetString(15));
         var state = new RetroState {
             BoardId = board,
             Code = reader.GetString(0),
-            TeamId = reader.IsDBNull(1) ? null : new TeamId(reader.GetGuid(1)),
-            CreatedBy = reader.IsDBNull(2) ? null : new PrincipalId(reader.GetGuid(2)),
-            Title = reader.GetString(3),
-            Visibility = RetroSql.ParseVisibility(reader.GetString(4)),
-            PasswordSetAt = reader.IsDBNull(5) ? null : reader.GetFieldValue<DateTimeOffset>(5),
-            Archived = reader.GetBoolean(6),
-            Stage = RetroSql.ParseStage(reader.GetString(7)),
-            Focus = reader.IsDBNull(8) ? null : new CardId(reader.GetGuid(8)),
+            TeamId = new TeamId(reader.GetGuid(1)),
+            Title = reader.GetString(2),
+            Archived = reader.GetBoolean(3),
+            Stage = RetroSql.ParseStage(reader.GetString(4)),
+            Focus = reader.IsDBNull(5) ? null : new CardId(reader.GetGuid(5)),
             Config = new RetroConfig(
-                AllowAnonymous: reader.GetBoolean(9),
-                VotingEnabled: reader.GetBoolean(10),
-                ShowAuthorNames: reader.GetBoolean(11),
-                StagesEnabled: reader.GetBoolean(12),
-                EnforceReadiness: reader.GetBoolean(13),
-                AllowSelfVotes: reader.GetBoolean(14),
-                VoteEmoji: reader.GetString(15),
-                SortChronologically: reader.GetBoolean(16),
-                MaxVotes: reader.IsDBNull(17) ? null : reader.GetInt16(17)),
+                AllowAnonymous: reader.GetBoolean(6),
+                VotingEnabled: reader.GetBoolean(7),
+                ShowAuthorNames: reader.GetBoolean(8),
+                StagesEnabled: reader.GetBoolean(9),
+                EnforceReadiness: reader.GetBoolean(10),
+                AllowSelfVotes: reader.GetBoolean(11),
+                VoteEmoji: reader.GetString(12),
+                SortChronologically: reader.GetBoolean(13),
+                MaxVotes: reader.IsDBNull(14) ? null : reader.GetInt16(14)),
             Timer = new TimerValue(
                 timerState,
-                reader.GetInt32(19),
-                reader.GetBoolean(20),
-                reader.GetBoolean(21),
-                EndsAt: reader.IsDBNull(22) ? null : reader.GetFieldValue<DateTimeOffset>(22),
-                RemainingMs: reader.IsDBNull(23) ? null : reader.GetInt32(23)),
+                reader.GetInt32(16),
+                reader.GetBoolean(17),
+                reader.GetBoolean(18),
+                EndsAt: reader.IsDBNull(19) ? null : reader.GetFieldValue<DateTimeOffset>(19),
+                RemainingMs: reader.IsDBNull(20) ? null : reader.GetInt32(20)),
         };
-        if (!reader.IsDBNull(24)) {
-            state.MaxEndorsements = reader.GetInt16(24);
+        if (!reader.IsDBNull(21)) {
+            state.MaxEndorsements = reader.GetInt16(21);
         }
         return state;
     }
@@ -425,7 +422,7 @@ public sealed class RetroStore(
                     """,
                     Id(e.Endorsement.Id.Value),
                     Id(board),
-                    Id(state.TeamId!.Value.Value),
+                    Id(state.TeamId.Value),
                     Id(e.Endorsement.TypeId.Value),
                     Id(e.Endorsement.From.Value),
                     Id(e.Endorsement.To.Value),
@@ -516,7 +513,7 @@ public sealed class RetroStore(
             values ($1, $2, $3, $4, $5, $6, $7, $8)
             """,
             Id(item.Id.Value),
-            Id(state.TeamId!.Value.Value),
+            Id(state.TeamId.Value),
             Text(item.Text),
             Id(item.SourceBoardId?.Value),
             Id(item.SourceCardId?.Value),
@@ -537,11 +534,11 @@ public sealed class RetroStore(
         CursorAdvance? cursor,
         CancellationToken cancellationToken) {
         await CommitAsync(room, state, events, cursor, cancellationToken);
-        if (notices is null || state.TeamId is not { } team) {
+        if (notices is null) {
             return;
         }
         try {
-            NotifyTeam(notices, team, state, events);
+            NotifyTeam(notices, state.TeamId, state, events);
         } catch (Exception e) {
             RetroStoreLog.NoticeFailed(logger, e, room);
         }
@@ -658,13 +655,6 @@ internal static class RetroSql {
         "running" => TimerState.Running,
         "paused" => TimerState.Paused,
         _ => throw new ArgumentOutOfRangeException(nameof(value), value, "Unknown timer state."),
-    };
-
-    public static BoardVisibility ParseVisibility(string value) => value switch {
-        "link" => BoardVisibility.Link,
-        "team" => BoardVisibility.Team,
-        "password" => BoardVisibility.Password,
-        _ => throw new ArgumentOutOfRangeException(nameof(value), value, "Unknown visibility."),
     };
 
     public static TeamRole ParseRole(string value) => value switch {
