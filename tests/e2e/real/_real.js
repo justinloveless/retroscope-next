@@ -6,10 +6,14 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import {
-  BASE, MAILPIT, PASSWORD, clientIp, compose, expect, json, mailedToken, seedUsers, signIn, sql, test as stack,
+  BASE, MAILPIT, PASSWORD, addMembers, clientIp, compose, createPoker, createTeam, expect, inviteLink, json, mailedToken,
+  seedUsers, signIn, sql, test as stack,
 } from '../smoke/_stack.js';
 
-export { BASE, MAILPIT, PASSWORD, clientIp, compose, expect, json, mailedToken, seedUsers, signIn, sql };
+export {
+  BASE, MAILPIT, PASSWORD, addMembers, clientIp, compose, createPoker, createTeam, expect, inviteLink, json, mailedToken,
+  seedUsers, signIn, sql,
+};
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 
@@ -201,36 +205,6 @@ export async function networkSwitch(context) {
   };
 }
 
-/** A link invite to `teamId`, made by one of its admins signed in on `admin`; returns the token in the link's fragment. */
-export async function inviteLink(admin, teamId) {
-  const invite = await admin.post(`/api/teams/${teamId}/invites`, json({ kind: 'link', expiresInDays: 1 }));
-  expect(invite.status(), await invite.text()).toBe(201);
-  return new URL((await invite.json()).url).hash.replace('#t=', '');
-}
-
-/**
- * Adds `members` (each a signed-in request) to `team` through a link invite, the only way into a team (UX18). The
- * token is kept on `team.invite`, so later members join through the same link.
- */
-export async function addMembers(admin, team, members) {
-  team.invite ??= await inviteLink(admin, team.id);
-  for (const member of members) {
-    const accepted = await member.post('/api/invites/accept', json({ token: team.invite }));
-    expect(accepted.ok(), await accepted.text()).toBe(true);
-  }
-}
-
-/** A team owned by `owner` (signed in on `request`), with `members` joined through a link invite. */
-export async function createTeam(owner, members = [], name = `Team ${randomUUID().slice(0, 8)}`) {
-  const created = await owner.post('/api/teams', json({ name }));
-  expect(created.status(), await created.text()).toBe(201);
-  const team = { ...(await created.json()), name };
-  if (members.length > 0) {
-    await addMembers(owner, team, members);
-  }
-  return team;
-}
-
 export async function connectJira(request, teamId, { projectKey = 'ACME', boardId = 1 } = {}) {
   const response = await request.put(`/api/teams/${teamId}/jira`, json({
     siteHost: 'acme.atlassian.net',
@@ -240,13 +214,6 @@ export async function connectJira(request, teamId, { projectKey = 'ACME', boardI
     boardId,
   }));
   expect(response.ok(), await response.text()).toBe(true);
-}
-
-/** A poker session of `teamId`, made by a member signed in on `request`. Every session belongs to a team (UX18). */
-export async function createPoker(request, teamId) {
-  const response = await request.post(`/api/teams/${teamId}/poker-sessions`, json({}));
-  expect(response.ok(), await response.text()).toBe(true);
-  return response.json();
 }
 
 /** A retro board of `teamId`, made by a member signed in on `request`. Every board belongs to a team (UX18). */

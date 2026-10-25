@@ -115,3 +115,40 @@ export async function verifiedUser(api, name) {
 }
 
 export { json };
+
+/** A link invite to `teamId`, made by one of its admins signed in on `admin`; returns the token in the link's fragment. */
+export async function inviteLink(admin, teamId) {
+  const invite = await admin.post(`/api/teams/${teamId}/invites`, json({ kind: 'link', expiresInDays: 1 }));
+  expect(invite.status(), await invite.text()).toBe(201);
+  return new URL((await invite.json()).url).hash.replace('#t=', '');
+}
+
+/**
+ * Adds `members` (each a signed-in request) to `team` through a link invite, the only way into a team (UX18). The
+ * token is kept on `team.invite`, so later members join through the same link.
+ */
+export async function addMembers(admin, team, members) {
+  team.invite ??= await inviteLink(admin, team.id);
+  for (const member of members) {
+    const accepted = await member.post('/api/invites/accept', json({ token: team.invite }));
+    expect(accepted.ok(), await accepted.text()).toBe(true);
+  }
+}
+
+/** A team owned by `owner` (signed in on `request`), with `members` joined through a link invite. */
+export async function createTeam(owner, members = [], name = `Team ${randomUUID().slice(0, 8)}`) {
+  const created = await owner.post('/api/teams', json({ name }));
+  expect(created.status(), await created.text()).toBe(201);
+  const team = { ...(await created.json()), name };
+  if (members.length > 0) {
+    await addMembers(owner, team, members);
+  }
+  return team;
+}
+
+/** A poker session of `teamId`, made by a member signed in on `request`. Every session belongs to a team (UX18). */
+export async function createPoker(request, teamId) {
+  const response = await request.post(`/api/teams/${teamId}/poker-sessions`, json({}));
+  expect(response.ok(), await response.text()).toBe(true);
+  return response.json();
+}
