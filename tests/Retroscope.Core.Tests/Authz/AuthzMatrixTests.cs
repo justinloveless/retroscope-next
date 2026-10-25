@@ -85,14 +85,18 @@ public sealed class AuthzMatrixTests {
         }
     }
 
+    /// <summary>
+    /// Every capability needs a signed-in member of the room's team (UX18): signed-out callers, guest and external
+    /// principals, signed-in non-members and app admins as such are denied everything, as is everyone on a deleted room.
+    /// </summary>
     [Fact]
-    public void Every_capability_is_denied_to_anonymous_and_external_callers_and_on_deleted_rooms() {
+    public void Every_capability_is_denied_to_non_members_and_on_deleted_rooms() {
         var rows = Load();
-        var anonymous = Column("anonymous");
-        var external = Column("external");
+        var outsiders = new[] { "anonymous", "external", "guest", "user", "app_admin" };
         foreach (var ((capability, resource), cells) in rows) {
-            Assert.True(cells[anonymous] == Deny, $"{capability},{resource} allows anonymous");
-            Assert.True(cells[external] == Deny, $"{capability},{resource} allows external");
+            foreach (var outsider in outsiders) {
+                Assert.True(cells[Column(outsider)] == Deny, $"{capability},{resource} allows {outsider}");
+            }
             if (resource.EndsWith("_deleted", StringComparison.Ordinal)) {
                 Assert.True(cells.All(x => x == Deny), $"{capability},{resource} allows someone on a deleted room");
             }
