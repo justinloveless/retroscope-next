@@ -76,10 +76,17 @@ export class Demo {
         ctx.ack();
       }
     });
+    // Every room is a team room that admits the team's members only, as on the server: anyone else's
+    // subscribe is kicked forbidden before any snapshot or presence join.
+    this.canSubscribe = (conn, room) => {
+      const team = this.teamOf(this.rooms.get(room.key));
+      return !team || Boolean(team.roleOf(conn.me?.pid));
+    };
+    this.fake.canSubscribe = this.canSubscribe;
     this.onSubscribe = (conn, room) => {
       const demoRoom = this.rooms.get(room.key);
       demoRoom?.onSubscribe(conn);
-      const team = demoRoom instanceof Team ? demoRoom : demoRoom?.team;
+      const team = this.teamOf(demoRoom);
       if (team && conn.me) {
         this.visited(conn.me.pid, team);
       }
@@ -101,6 +108,9 @@ export class Demo {
   stop() {
     this.stopPeers();
     this.removeHandler?.();
+    if (this.fake.canSubscribe === this.canSubscribe) {
+      this.fake.canSubscribe = null;
+    }
     this.fake.off('subscribe', this.onSubscribe);
     this.fake.off('unsubscribe', this.onUnsubscribe);
     this.fake.off('error', this.onError);
@@ -149,6 +159,11 @@ export class Demo {
   addSession(session) {
     this.sessions.set(session.id, session);
     return this.addRoom(session);
+  }
+
+  /** The team a demo room belongs to (a team room is its own), or null for a room the demo does not run. */
+  teamOf(demoRoom) {
+    return demoRoom instanceof Team ? demoRoom : (demoRoom?.team ?? null);
   }
 
   /** Records a visit to `team` by a member, for `me.lastTeamId`. */

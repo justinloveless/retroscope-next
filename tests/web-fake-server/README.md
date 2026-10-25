@@ -49,6 +49,7 @@ const client = await TestClient.connect(fake);   // a protocol client for node -
 | `fake.musicFile` | Path of a local track (`.mp3`, `.ogg`, `.oga`, `.m4a` or `.wav`) served at `GET /media/timer-music` with range requests, as the real server serves `MUSIC_FILE` (UX13), but without the real route's session check. While set, the boot JSON of `/retro/*` paths gets `timerMusic: true`. Null (the default) answers 404 |
 | `fake.clockOffsetMs` | Added to the `welcome.n` and `pong.n` server clock (clock-skew tests) |
 | `fake.room(key, {snapshot, overlay, epoch, seq})` | Creates or updates a room. `snapshot` and `overlay` may be functions of the connection (per-viewer projections) |
+| `fake.canSubscribe` | `(conn, room) => boolean`, asked on every `sub` to a room that exists. False answers `kick forbidden` with no snapshot and drops a subscription the connection held, as the real server refuses a non-member (UX18). Null (the default) admits everyone; the demo admits the room's team members only |
 | `fake.onCommand(kind or '*', handler)` | `handler(ctx)` gets `{frame, conn, room, commit(events), ack(), nack(code, {msg, d})}`. `commit` sends the tx, then the ack. A handler that answers nothing leaves the command unanswered. Without a handler, commands are acked at the current seq (NoOp). Resent `q`s at or below the cid's cursor get `ack {dup:true}` automatically, or `nack cid_reuse` when the payload differs from the one recorded for that `(cid, q)` (DESIGN §c.6) |
 | `fake.seedCommands(room, cid, [{q, k, d}])` | Records commands as if another tab with the same cid had sent them and had them acked. The cid's cursor (and so `lastQ`) moves to the highest `q`, and a resend of one of those `q`s with a different payload gets `nack cid_reuse`. `fake.bye({newEpoch:true})` forgets the recorded payloads, as a restart empties the server's LRU |
 | `fake.tx(room, events)` | Appends and fans out one tx. `events` is a list of `{k, d}` or `(conn) => list` |
@@ -72,7 +73,7 @@ welcome page. Sending a signed-out visitor from a member page to `/login` is lef
 
 `sub` answers the way the real server does: the current `{e, s}` gets an empty replay, an older `s` in the
 same epoch gets the missed txs, and anything else gets a snapshot. `lastQ` is the highest acked `q` of
-that cid. An unknown room gets `kick not_found`. A cmd without a sub gets `nack not_subscribed`, and a
+that cid. An unknown room gets `kick not_found`, and a room `canSubscribe` refuses gets `kick forbidden`. A cmd without a sub gets `nack not_subscribed`, and a
 cmd with a valid envelope but a bad kind or payload gets `nack invalid`. Other protocol violations close
 with 4400. A missing hello closes with 4400 after 5 s, a frame over 64 KiB with 4413 and a foreign
 Origin with 4403.

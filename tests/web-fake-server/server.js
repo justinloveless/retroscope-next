@@ -162,6 +162,9 @@ export class FakeServer extends EventEmitter {
     this.requests = [];
     this.commandHandlers = [];
     this.helloRejections = [];
+    // `(conn, room) => boolean`, asked on every `sub` to a room that exists: false answers `kick forbidden`
+    // with no snapshot, as the real server refuses a principal the room does not admit (UX18 decision 1).
+    this.canSubscribe = null;
     this.http = createServer((req, res) => {
       this.onRequest(req, res).catch((error) => {
         if (!res.headersSent) {
@@ -627,6 +630,11 @@ export class FakeServer extends EventEmitter {
     const room = this.rooms.get(key);
     if (!room) {
       conn.send({ t: 'kick', r: key, code: 'not_found' });
+      return;
+    }
+    if (this.canSubscribe && !this.canSubscribe(conn, room)) {
+      conn.send({ t: 'kick', r: key, code: 'forbidden' });
+      this.unsubscribe(conn, room);
       return;
     }
     const fresh = !room.subscribers.has(conn);
