@@ -21,12 +21,12 @@ function api(page, method, path, body) {
 
 test('fixture routes answer the page and record what it sent', async ({ page, fake }) => {
   fake.route('GET', '/api/teams/:id', ({ params }) => json({ id: params.id, name: 'Fixture team' }));
-  fake.route('POST', '/api/retro', ({ body }) => json({ id: 'b1', code: 'ABCDEFGHJK', title: body.title }, 201));
+  fake.route('POST', '/api/teams/:id/boards', ({ body }) => json({ id: 'b1', code: 'ABCDEFGHJK', title: body.title }, 201));
   fake.route('DELETE', '/api/retro/:id', problem(403, 'forbidden'));
-  await page.goto('/dashboard');
+  await page.goto('/login');
 
   expect((await api(page, 'GET', `/api/teams/${TEAM}`)).body).toEqual({ id: TEAM, name: 'Fixture team' });
-  const created = await api(page, 'POST', '/api/retro', { title: 'Sprint 9 retro' });
+  const created = await api(page, 'POST', `/api/teams/${TEAM}/boards`, { title: 'Sprint 9 retro' });
   expect(created.status).toBe(201);
   expect(created.body.title).toBe('Sprint 9 retro');
   const denied = await api(page, 'DELETE', '/api/retro/b1');
