@@ -36,7 +36,6 @@ Collect these before you start:
 - [ ] Admin access to the GitHub repo `justinloveless/retroscope-next`.
 - [ ] An account with a transactional email provider (section 8).
 - [ ] Optional: a Google Cloud account for Google sign-in (section 6).
-- [ ] Optional: a Microsoft Entra tenant for Microsoft sign-in (section 7).
 - [ ] `openssl` on your own machine, to generate secrets.
 - [ ] A password manager to store every secret you generate. Coolify and the providers show several of them only once.
 
@@ -115,7 +114,7 @@ Sources: https://coolify.io/docs/knowledge-base/dns-configuration, https://cooli
 4. Check the record from your machine: `dig +short <your-domain> A` prints the VPS IP.
 5. If you use Cloudflare, set the record to **DNS only** (grey cloud) until Coolify has issued the certificate. **UNVERIFIED:** Coolify's docs do not cover Let's Encrypt behind Cloudflare's proxy. DNS only is the safe choice. If you turn the proxy on later, set `CLIENT_IP_HEADER=CF-Connecting-IP` (section 5).
 
-Your `PUBLIC_URL` is now `https://<your-domain>`. The Google and Entra redirect URIs must use exactly this host.
+Your `PUBLIC_URL` is now `https://<your-domain>`. The Google redirect URI must use exactly this host.
 
 ## 3. Prepare GitHub: images, digests, and registry access
 
@@ -292,11 +291,6 @@ Required means the compose file marks it `${VAR:?}`. Defaults come from the comp
 | `CLIENT_IP_HEADER` | no (empty) | `CF-Connecting-IP` | Set only when Cloudflare proxies in front of Traefik. |
 | `GOOGLE_CLIENT_ID` | no (empty) | `<id>.apps.googleusercontent.com` | Google sign-in. Set both Google values, or neither. |
 | `GOOGLE_CLIENT_SECRET` | no (empty) | from Google | Google sign-in secret. |
-| `ENTRA_CLIENT_ID` | no (empty) | `<GUID>` | Entra sign-in. Set both Entra values, or neither. |
-| `ENTRA_CLIENT_SECRET` | no (empty) | from Entra | Entra sign-in secret. |
-| `ENTRA_TENANT` | no (`organizations`) | `organizations` or `<tenant GUID>` | Authority tenant segment. ASCII letters, digits, `-`, and `.` only. |
-| `ENTRA_ALLOWED_TENANTS` | no (empty) | `<tid1>,<tid2>` | Tenant IDs allowed to sign in. **Empty disables Entra.** |
-| `ENTRA_TENANT_DOMAINS` | no (empty) | `<tid>=example.com\|example.org` | Email domains trusted per tenant when the token lacks `xms_edov`. |
 | `JIRA_HOST_ALLOWLIST` | no (empty) | `jira.example.com` | Extra exact Jira host names beyond `*.atlassian.net`. |
 | `BLOB_BYTES_MAX` | no (`2147483648`) | `2147483648` | Ceiling on all board images together, in bytes. |
 | `MUSIC_FILE` | no (empty) | `/music/track.mp3` | Optional retro timer track, as a path inside the container. Empty plays the generated music (section 5.12). |
@@ -314,7 +308,7 @@ Optional variables that are **not** in the compose file. Add them to the `app` s
 - `Logging__Console__FormatterName=simple`: plain-text logs instead of JSON.
 - `Logging__LogLevel__Default=Warning`: quieter logs.
 
-Never set `GOOGLE_AUTHORIZE_URL`, `GOOGLE_TOKEN_URL`, or `ENTRA_AUTHORITY_URL` in production. They exist for tests.
+Never set `GOOGLE_AUTHORIZE_URL` or `GOOGLE_TOKEN_URL` in production. They exist for tests.
 
 The `IMPORT_*` variables are only for the data import (section 14).
 
@@ -409,7 +403,7 @@ Leave `CLIENT_IP_HEADER` empty unless Cloudflare proxies your domain (orange clo
 
 ### 5.10 Sign-in variables
 
-`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` come from section 6. The `ENTRA_*` variables come from section 7. A provider with no credentials does not appear on the sign-in screen, so you can deploy first with email and password only and add providers later.
+`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` come from section 6. Google is the only sign-in provider besides email: Microsoft Entra sign-in was removed (`docs/decisions/UX19.md`), and the app no longer reads any `ENTRA_*` variable. Without Google credentials the Google button does not appear, so you can deploy first with email and password only and add Google later.
 
 ### 5.11 `JIRA_HOST_ALLOWLIST` and `BLOB_BYTES_MAX`
 
@@ -470,43 +464,9 @@ Notes:
 - **UNVERIFIED:** whether publishing an app with only these non-sensitive scopes needs Google's verification. The pages say verification is needed to show the app's name and logo and for sensitive scopes.
 - To replace the secret later, use **Add Secret** on the client page (two at most), switch the app over, then delete the old one.
 
-## 7. Set up Microsoft Entra sign-in (optional)
+## 7. Microsoft sign-in (removed)
 
-Sources: https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app, https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-redirect-uri, https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-credentials, https://learn.microsoft.com/en-us/entra/identity-platform/optional-claims, https://learn.microsoft.com/en-us/entra/identity-platform/optional-claims-reference
-
-How the app checks an Entra sign-in (`src/Retroscope.Server/Auth/Oidc.cs`):
-
-- Entra is enabled only when `ENTRA_ALLOWED_TENANTS` is non-empty.
-- The token's `tid` must be in `ENTRA_ALLOWED_TENANTS`. Otherwise sign-in fails with `oidc_tenant`.
-- The issuer must be `https://login.microsoftonline.com/{tid}/v2.0`.
-- The email is trusted only if `xms_edov` is true, or if its domain is listed for that tenant in `ENTRA_TENANT_DOMAINS`.
-
-Steps:
-
-1. Sign in to https://entra.microsoft.com as at least an Application Developer. If you have several tenants, switch with the **Settings** icon.
-2. Go to **Entra ID** > **App registrations** > **New registration** and enter a **Name**.
-3. Pick **Supported account types**:
-   - For your organisation only: choose **Single tenant only**. You will set `ENTRA_TENANT=<tenant ID>` and `ENTRA_ALLOWED_TENANTS=<same tenant ID>`.
-   - For several organisations: choose **Multiple Entra ID tenants**. Keep `ENTRA_TENANT=organizations` and list every permitted tenant ID in `ENTRA_ALLOWED_TENANTS`.
-   - Do not choose any option that includes personal Microsoft accounts. Use `organizations` or a tenant ID for `ENTRA_TENANT`. Personal-account tenants are rejected unless listed in `ENTRA_ALLOWED_TENANTS`.
-4. Click **Register**.
-5. On the **Overview** page, copy the **Application (client) ID** into `ENTRA_CLIENT_ID`. Copy the tenant ID too. **UNVERIFIED:** its label, normally **Directory (tenant) ID**.
-6. Add the redirect URI: **Manage** > **Authentication**, open the **Redirect URI configuration** tab, select **Add Redirect URI**, choose the **Web** tile, enter `https://<your-domain>/auth/oidc/entra/callback`, then click **Configure**.
-7. Create the secret: **Certificates & secrets** > **Client secrets** > **New client secret**.
-   - Enter a description and an expiry. The maximum is 24 months, and Microsoft recommends less than 12.
-   - Click **Add**, then copy the **Value**, not the **Secret ID**, into `ENTRA_CLIENT_SECRET`. Microsoft never shows it again.
-   - Put a rotation reminder in your calendar before the expiry. Microsoft prefers certificates over secrets in production, but the app reads only a secret.
-8. Add optional claims: **Manage** > **Token configuration** > **Add optional claim**, choose token type **ID**, select `email` and `xms_edov`, then click **Add**.
-   - `xms_edov` is issued only together with `email`.
-   - **UNVERIFIED:** that `xms_edov` appears in the picker. If it does not, open **Manage** > **Manifest** and add `{"name":"xms_edov","essential":false}` (and `email` the same way, if missing) under `optionalClaims.idToken`.
-   - **UNVERIFIED:** a prompt to turn on the Microsoft Graph email permission often appears when you add `email`. If it appears, accept it.
-9. Optional: under **API permissions** > **Add a permission** > **Microsoft Graph** > **Delegated permissions**, tick `openid`, `email`, and `profile`. The app requests them dynamically anyway, and they need no admin consent. **UNVERIFIED:** exact labels.
-10. In Coolify, set:
-    - `ENTRA_CLIENT_ID` and `ENTRA_CLIENT_SECRET`.
-    - `ENTRA_TENANT`: `organizations`, or your tenant ID for a single-tenant app.
-    - `ENTRA_ALLOWED_TENANTS`: the tenant IDs, comma-separated, lower case.
-    - Optional `ENTRA_TENANT_DOMAINS`: `<tid>=example.com|example.org`, and `,` between tenants. A malformed entry stops the app.
-11. Restart the resource.
+Microsoft Entra sign-in was removed (`docs/decisions/UX19.md`). If an older deploy set `ENTRA_*` variables, delete them from the resource; the app ignores them. The later sections keep their numbers, so references to them elsewhere stay valid.
 
 ## 8. Set up email (SMTP) and its DNS records
 
@@ -660,7 +620,7 @@ Do not test with `curl -sI .../api/me`. `-I` sends HEAD, and `/api/me` accepts o
 3. Create a team.
 4. Start a poker session in the team. Every room belongs to a team and only its signed-in members open it, so add a second account first: under **Members**, create a link invite, open it in a second browser or a private window, sign up there (the emailed sign-in link is quickest) and accept. Open the session in both windows and vote in both. Votes appear live in both windows. That proves WebSockets work through Traefik.
 5. Open a retro board, add an anonymous card, then edit it. That is the first use of `ANON_TAG_KEY` (section 5.7). If it fails, check the app log for a key error.
-6. If you configured Google or Entra, sign out and sign in with each provider.
+6. If you configured Google, sign out and sign in with Google.
 
 ### 10.5 Make yourself an app admin
 
@@ -843,7 +803,7 @@ If a key leaked, drop the old key at once instead of waiting. Open link invites 
 
 **`DB_OWNER_PASSWORD`:** changing the variable alone does not change the role's password. There is no documented procedure for it.
 
-**External credentials:** the GHCR token (section 3.3), the Google and Entra secrets, and the SMTP credentials expire or can be rotated at the provider. Update the variable in Coolify and restart.
+**External credentials:** the GHCR token (section 3.3), the Google secret, and the SMTP credentials expire or can be rotated at the provider. Update the variable in Coolify and restart.
 
 ## 14. Import data from the old Supabase app
 
@@ -909,15 +869,12 @@ Pulling the importer image on your own machine needs the same GHCR login as the 
 | Pull fails with `unauthorized` or `denied` | No GHCR login on the server, or the token lacks `read:packages` or expired | Redo section 3.3 and 3.4. Test with `docker pull` on the VPS. |
 | Pull fails with `invalid reference format` | `APP_DIGEST` or `IMPORTER_DIGEST` is empty or includes `sha256:` | Paste only the hex (section 5.3). |
 | Pull fails with `no matching manifest` | The VPS is ARM | The images are `linux/amd64` only. Use an x86_64 VPS. |
-| App exits at start with a configuration error | Invalid `PUBLIC_URL`, `TRUSTED_PROXY_CIDRS`, `ENTRA_*`, `SMTP_*`, or `JIRA_HOST_ALLOWLIST` value, or only one half of a client ID and secret pair | Read the app log in Coolify, fix the named variable, and restart. |
+| App exits at start with a configuration error | Invalid `PUBLIC_URL`, `TRUSTED_PROXY_CIDRS`, `SMTP_*`, or `JIRA_HOST_ALLOWLIST` value, or only one half of a client ID and secret pair | Read the app log in Coolify, fix the named variable, and restart. |
 | App log says `Cannot load library libgssapi_krb5.so.2` | A custom connection string without `GSS Encryption Mode=Disable` | Use the compose file's connection strings unchanged. |
 | App never turns healthy | `/healthz` returns 200 only while the app holds the leader lease and the database answers | Check that `db` is healthy and read the app log. A second app instance waits `LEADER_ACQUIRE_SECONDS` and exits. |
 | Database authentication fails after you changed `DB_OWNER_PASSWORD` | Postgres kept the password from its first initialisation | Set the variable back to the original value. |
 | Certificate is not issued | DNS does not point at the VPS, port 80 is closed, a broken `AAAA` record, or Cloudflare proxy on | Check sections 1.3 and 2. |
 | `redirect_uri_mismatch` from Google | The registered URI differs from `PUBLIC_URL` + `/auth/oidc/google/callback` | Fix the URI and wait up to a few hours. |
-| Entra sign-in fails with `oidc_tenant` | The user's tenant is not in `ENTRA_ALLOWED_TENANTS` | Add the tenant ID. |
-| Entra button missing | `ENTRA_ALLOWED_TENANTS` empty, or client ID or secret missing | Set all three (section 7). |
-| Entra account not linked by email | No `xms_edov` claim and the domain not in `ENTRA_TENANT_DOMAINS` | Add the optional claims (section 7 step 8) or the domain. |
 | No email arrives | Port blocked by the VPS provider, wrong `SMTP_SECURITY`, unverified sending domain, or SES sandbox | Check the app log, then section 8.1 and 8.2. |
 | Every user hits the login rate limit together | `TRUSTED_PROXY_CIDRS` does not cover Traefik's address | Redo section 9. |
 | Responses carry `content-encoding: gzip` | Coolify's gzip middleware is on | Section 4.5. |
@@ -944,8 +901,7 @@ The research could not confirm these in official docs or the repo:
 9. Whether a new Coolify project gets a `production` environment automatically.
 10. Let's Encrypt behaviour behind Cloudflare's proxy.
 11. Google verification for apps with only non-sensitive scopes.
-12. Entra's tenant ID label, the `xms_edov` picker entry, the Graph email permission prompt, and the API permission labels.
-13. Mailgun's username format and all Brevo details.
-14. Traefik's compress middleware minimum body size (1024 bytes per Traefik's docs), which section 10.3 relies on.
-15. On-screen labels taken from Coolify source rather than docs: **Gzip compression** (section 4.5), **Auto deploy** (section 4.3), and the API token page name (section 11.4).
-16. Whether `/deploy` and `/deployments/…` limit a token to its own team's resources, as the application endpoints do (section 11.3).
+12. Mailgun's username format and all Brevo details.
+13. Traefik's compress middleware minimum body size (1024 bytes per Traefik's docs), which section 10.3 relies on.
+14. On-screen labels taken from Coolify source rather than docs: **Gzip compression** (section 4.5), **Auto deploy** (section 4.3), and the API token page name (section 11.4).
+15. Whether `/deploy` and `/deployments/…` limit a token to its own team's resources, as the application endpoints do (section 11.3).

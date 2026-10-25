@@ -769,7 +769,7 @@ The locked decisions from the user are taken as given and are not re-argued here
 <td>4/5/5/4</td>
 <td>5/3/4/5</td>
 <td>B (opaque cookie, bcrypt, hand-rolled OIDC)</td>
-<td>C: pre-hijack account-linking rules, Entra tenant allow-list, magic link creates account; A: durable email outbox; B: custom header + Origin CSRF</td>
+<td>C: pre-hijack account-linking rules, Entra tenant allow-list (Entra removed in UX19), magic link creates account; A: durable email outbox; B: custom header + Origin CSRF</td>
 </tr>
 <tr>
 <td>(f) Jira proxy</td>
@@ -848,6 +848,11 @@ The locked decisions from the user are taken as given and are not re-argued here
 <td>Navigation</td>
 <td><strong>Team-first (UX18).</strong> The app header is the team: logo, team switcher, then the team&#39;s sections as tabs (§g.2). There is no Dashboard, no Teams list and no favorites; a signed-in visit to <code>/</code> opens the user&#39;s last team, and a user in no team gets a &quot;create or join a team&quot; screen.</td>
 <td>Most people are in exactly one team, and the Dashboard mostly repeated the team page.</td>
+</tr>
+<tr>
+<td>Microsoft sign-in</td>
+<td><strong>Removed (UX19).</strong> Google is the only OIDC provider; password and the emailed sign-in link stay. Migration 0004 deleted the Entra identity links and signed out Entra sessions. A user whose only sign-in was Microsoft keeps their account and signs in with an emailed sign-in link or a password reset to the same email.</td>
+<td>The owner judged Entra (tenant allow-list, tenant email domains, <code>xms_edov</code> trust) too much scope for its value.</td>
 </tr>
 <tr>
 <td>Team deletion</td>
@@ -1027,7 +1032,7 @@ The locked decisions from the user are taken as given and are not re-argued here
 <li>Entity versions (<code>poker_rounds.version</code>, <code>retro_cards.version</code>, <code>retro_columns.version</code>) are the preconditions overwrite commands carry (§c.4).</li>
 <li><code>0001_init.sql</code> stays editable (owned by U1, change requests by PR) until U43 freezes it before the first production deploy; until then CI and Testcontainers always use fresh databases, so the migrator&#39;s sha guard never trips during development.</li>
 </ul>
-<pre><code>-- db/migrations/0001_init.sql, with 0002 and 0003 (UX18) folded in; &quot;Later migrations&quot; below says what each changed.
+<pre><code>-- db/migrations/0001_init.sql, with 0002, 0003 (UX18) and 0004 (UX19) folded in; &quot;Later migrations&quot; below says what each changed.
 -- tests/schema.snapshot.sql is the exact schema.
 create schema if not exists archive;
 
@@ -1109,8 +1114,8 @@ create unique index users_email_uq on users (email);
 create index users_name_prefix_ix on users (lower(full_name) text_pattern_ops);   -- admin search
 
 create table external_identities (
-  provider   text not null check (provider in ('google','entra')),
-  subject    text not null check (char_length(subject) &lt;= 200),   -- google: sub; entra: &quot;&lt;tid&gt;:&lt;oid&gt;&quot;
+  provider   text not null check (provider in ('google')),          -- 0004 (UX19): Entra removed
+  subject    text not null check (char_length(subject) &lt;= 200),   -- google: sub
   user_id    uuid not null references users(id) on delete cascade,
   linked_at  timestamptz not null default now(),
   primary key (provider, subject)
@@ -1120,7 +1125,7 @@ create index external_identities_user_ix on external_identities (user_id);
 create table sessions (
   id_hash         bytea primary key check (octet_length(id_hash) = 32),  -- sha256(cookie token)
   user_id         uuid not null references users(id) on delete cascade,
-  auth_method     text not null check (auth_method in ('password','google','entra','magic_link')),
+  auth_method     text not null check (auth_method in ('password','google','magic_link')),  -- 0004 (UX19): Entra removed
   created_at      timestamptz not null default now(),
   last_seen_at    timestamptz not null default now(),                    -- written at most every 5 min
   idle_expires_at timestamptz not null,                                  -- sliding 30 days
@@ -1583,6 +1588,7 @@ create table archive.excluded_tables (       -- foreign / non-Retroscope data: c
 <ul>
 <li><code>0002_recent_activity_entity_ix.sql</code> indexes <code>recent_activity</code> by entity, for the purges that delete by entity.</li>
 <li><code>0003</code> (UX18) contracts the schema for members-only access in the same release that stops using it (<code>deploy/RUNBOOK.md</code> §11): it deletes the team-less poker sessions and retro boards (cascading to their rounds, votes, cards, comments and every other row with a foreign key to them) and the <code>client_cursors</code> and <code>recent_activity</code> rows that point at them, which have no foreign key; sets <code>team_id</code> <code>NOT NULL</code> on both room tables and drops the two quick-room retention indexes; drops board visibility, the board password columns and <code>board_access_grants</code>; drops <code>guest_tokens</code> and <code>team_favorites</code>; deletes the <code>recent_activity</code> rows that are not of kind <code>team</code> and narrows its kind check. Every principal stays, <code>guest</code> and <code>external</code> ones included.</li>
+<li><code>0004</code> (UX19) removes Microsoft Entra sign-in: it deletes the sessions with <code>auth_method = &#39;entra&#39;</code> (signing them out) and the <code>external_identities</code> rows with <code>provider = &#39;entra&#39;</code>, then narrows <code>external_identities_provider_check</code> to <code>google</code> and <code>sessions_auth_method_check</code> to <code>password</code>, <code>google</code> and <code>magic_link</code>. Accounts stay, and so do the audit log&#39;s Entra rows.</li>
 </ul>
 <p><strong>Retention</strong> (<code>RetentionJob</code>, hourly, only on the leader):</p>
 <ul>
@@ -2537,7 +2543,7 @@ public static class Deck { public static readonly short[] Values = [1, 2, 3, 5, 
 </tr>
 <tr>
 <td>GET</td>
-<td><code>/auth/oidc/{google|entra}/start?return=</code></td>
+<td><code>/auth/oidc/google/start?return=</code></td>
 <td>P</td>
 <td>302; sets <code>__Host-rs_oidc</code> (AES-GCM: state, nonce, PKCE verifier, return, link flag; 10 min; <code>SameSite=Lax</code>; single use)</td>
 </tr>
@@ -2545,7 +2551,7 @@ public static class Deck { public static readonly short[] Values = [1, 2, 3, 5, 
 <td>GET</td>
 <td><code>/auth/oidc/{provider}/callback</code></td>
 <td>P</td>
-<td>§e; <code>response_mode=query</code> for both providers (S20)</td>
+<td>§e; <code>response_mode=query</code> (S20). Google is the only provider (UX19); any other <code>{provider}</code> is 404</td>
 </tr>
 <tr>
 <td>POST</td>
@@ -2835,12 +2841,11 @@ public static class Deck { public static readonly short[] Values = [1, 2, 3, 5, 
 <li>Backoff keyed on (account, IP prefix) after 5 failures up to 15 minutes; a global per-account cap triggers an emailed unlock link rather than a hard lock (S13); per-IP 10 logins/min.</li>
 </ul>
 <p><strong>Ownership proof and takeover rule (one place: <code>Auth/AccountClaims.cs</code>).</strong> An account whose email is not verified is <em>unclaimed</em>. The first <strong>proof of email ownership</strong> by someone other than the current session holder (OIDC with a trusted email assertion, or consuming a magic link) claims it: set <code>email_verified_at</code>, <strong>clear <code>password_hash</code>, revoke all sessions</strong>, audit <code>auth.claim</code>. This closes pre-hijack via OIDC, via magic link (S4) and via imported accounts (S1). Password reset consumption also verifies (it proves mailbox control and sets a new password).</p>
-<p><strong>OIDC (Google and Microsoft Entra), hand-rolled.</strong></p>
+<p><strong>OIDC (Google), hand-rolled.</strong> Google is the only provider; UX19 removed Microsoft Entra.</p>
 <ul>
 <li>Authorization code flow with PKCE (S256), <code>state</code> and <code>nonce</code>; <code>scope=openid email profile</code>; <code>response_mode=query</code> (S20). Endpoints are configured statically from env (no runtime discovery fetch).</li>
 <li>The callback checks <code>state</code> (cookie is single-use and deleted on callback), exchanges the code at the token endpoint over TLS with the client secret, decodes the <code>id_token</code> payload with STJ, and validates <code>iss</code>, <code>aud</code>, <code>exp</code>, <code>iat</code> (±5 min) and <code>nonce</code>. The signature is not verified because the token came straight from the token endpoint over TLS, which OIDC Core §3.1.3.7 permits (critique F &quot;checked and OK&quot;; U18 cites the spec text in the PR). No <code>Microsoft.IdentityModel</code> (reflection-heavy under AOT).</li>
 <li>Google: issuer <code>https://accounts.google.com</code> <strong>or</strong> <code>accounts.google.com</code> (both forms occur, F13); subject <code>sub</code>; email trusted only when <code>email_verified=true</code>.</li>
-<li>Entra: authority <code>https://login.microsoftonline.com/{ENTRA_TENANT}/v2.0</code> (<code>organizations</code> or a tenant id); subject <code>tid:oid</code>; the <code>tid</code> must be in <code>ENTRA_ALLOWED_TENANTS</code> — <strong>an empty list disables Entra</strong> (S5); issuer must equal <code>https://login.microsoftonline.com/{tid}/v2.0</code>. The Entra <code>email</code> claim is admin-mutable (&quot;nOAuth&quot;), so it is trusted <strong>only</strong> when the optional claim <code>xms_edov=true</code> is present <strong>or</strong> the email&#39;s domain is listed for that tenant in <code>ENTRA_TENANT_DOMAINS</code> (<code>tid=domain1|domain2,…</code>). <strong>(<code>xms_edov</code> semantics unverified; U18 confirms against Microsoft docs; the domain map works regardless.)</strong> <code>preferred_username</code> is used for display only.</li>
 <li><strong>Account linking (pre-hijack defence):</strong><ul>
 <li>Existing <code>(provider, subject)</code> → sign in.</li>
 <li>Else, if the provider email is <strong>trusted</strong> (rules above):<ul>
@@ -2849,7 +2854,7 @@ public static class Deck { public static readonly short[] Values = [1, 2, 3, 5, 
 <li>no match → create a user with <code>email_verified_at = now()</code>.</li>
 </ul>
 </li>
-<li>Else (untrusted email): never link by email. If no account has that email, create one with <code>email_verified_at = NULL</code>; if one exists, show &quot;An account with this email exists. Sign in with your existing method, then link Microsoft from Account settings.&quot;</li>
+<li>Else (untrusted email): never link by email. If no account has that email, create one with <code>email_verified_at = NULL</code>; if one exists, show &quot;An account with this email exists. Sign in with your existing method, then link Google from Account settings.&quot;</li>
 <li>The explicit link flow (<code>/api/me/identities/{provider}/link</code>) refuses a <code>(provider, subject)</code> already linked to another user.</li>
 </ul>
 </li>
@@ -3107,8 +3112,8 @@ web/assets/ cards.png (9-frame sprite) m6x11plus.woff2 (Latin subset) icons.svg 
 <li><strong>Team page.</strong> The header owns the sections, so the page has no tab bar and no team header block. Each section has one <code>h1</code> inside a <code>main</code>; the admin Jira banner stays at the top. Poker: &quot;Start poker session&quot;, the latest session highlighted (&quot;Latest session&quot;, pointed/total, &quot;last activity N min ago&quot;, topics, Join), then earlier sessions. Nothing claims a session is live or in progress: sessions never close and no data says so. Retros: Active and Archived, &quot;New board&quot; (title and template only), and a card per board with its title and date, plus its stage when stages are on.</li>
 <li><strong>Rooms.</strong> The retro board keeps the app header (Retros active, from the snapshot&#39;s <code>teamId</code>); the board&#39;s own header shows &quot;<team> / Retros /&quot; above its title, and the app header no longer mirrors the board title. The poker screen keeps its own toolbar: its Back link becomes the trail &quot;<team> / Poker / <created date>&quot;, built from the snapshot&#39;s <code>teamId</code>; a session opened at <code>/poker/:code</code> or under another team&#39;s URL is <code>replaceState</code>d to <code>/teams/&lt;teamId&gt;/poker/&lt;code&gt;</code>; &quot;Copy link&quot; shows for every session; the toolbar docks the mentions bell and the account menu. The retro Share dialog is &quot;Copy link&quot;.</li>
 <li><strong><code>/teams</code>, create or join.</strong> A pending invite is opened first (<code>/invite</code>, replacing the entry). &quot;Create a team&quot; is disabled with the reason and a resend link until the email is verified. &quot;Join a team&quot; takes a pasted invite (<code>…/invite#t=…</code>, <code>/invite/&lt;token&gt;</code> or a bare token), previews it and opens it. Teams are invite-only: there is no team discovery and no request to join.</li>
-<li><strong><code>/invite</code>.</strong> A signed-out visitor is offered &quot;Email me a sign-in link&quot; first, then Google, Microsoft and password sign-in (§e). The pending invite is kept in <code>localStorage</code> (<code>rs.invite</code>, with an expiry) and cleared on accept, on sign-out and when it expires. It is resumed by the in-app <code>/</code> after the magic-link consume and the verify page&#39;s &quot;Continue&quot;, by the sign-in card&#39;s password and OIDC sign-in, which return to <code>/invite</code> while it waits (§e), and by the create-or-join screen. A member&#39;s full page load of <code>/</code> goes to their team.</li>
-<li><strong><code>/</code> signed out</strong> is a short welcome page with sign-in and sign-up (Google, Microsoft, email and password, the emailed sign-in link). It has no quick-start buttons, guest name dialog or join-by-code forms.</li>
+<li><strong><code>/invite</code>.</strong> A signed-out visitor is offered &quot;Email me a sign-in link&quot; first, then Google and password sign-in (§e). The pending invite is kept in <code>localStorage</code> (<code>rs.invite</code>, with an expiry) and cleared on accept, on sign-out and when it expires. It is resumed by the in-app <code>/</code> after the magic-link consume and the verify page&#39;s &quot;Continue&quot;, by the sign-in card&#39;s password and OIDC sign-in, which return to <code>/invite</code> while it waits (§e), and by the create-or-join screen. A member&#39;s full page load of <code>/</code> goes to their team.</li>
+<li><strong><code>/</code> signed out</strong> is a short welcome page with sign-in and sign-up (Google, email and password, the emailed sign-in link). It has no quick-start buttons, guest name dialog or join-by-code forms.</li>
 </ul>
 <h3 id="g-3-rendering-and-component-pattern">g.3 Rendering and component pattern</h3>
 <ul>
@@ -3448,11 +3453,6 @@ web/assets/ cards.png (9-frame sprite) m6x11plus.woff2 (Latin subset) icons.svg 
       ANON_TAG_KEY: ${ANON_TAG_KEY}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
-      ENTRA_CLIENT_ID: ${ENTRA_CLIENT_ID}
-      ENTRA_CLIENT_SECRET: ${ENTRA_CLIENT_SECRET}
-      ENTRA_TENANT: ${ENTRA_TENANT:-organizations}
-      ENTRA_ALLOWED_TENANTS: ${ENTRA_ALLOWED_TENANTS:-}   # empty = Entra disabled
-      ENTRA_TENANT_DOMAINS: ${ENTRA_TENANT_DOMAINS:-}    # &quot;tid=acme.com|acme.io,…&quot; trusted email domains
       SMTP_HOST: ${SMTP_HOST}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER}
@@ -3696,8 +3696,8 @@ volumes: { pgdata: {}, pgbackups: {} }</code></pre>
 </tr>
 <tr>
 <td>Integration</td>
-<td>Testcontainers <code>postgres:18-alpine</code> (same image as compose), in-proc server via <code>WebApplicationFactory</code>, real <code>ClientWebSocket</code>, in-proc Kestrel fakes for Jira, OIDC (Google and Entra) and SMTP</td>
-<td>Migrations (apply twice; <code>pg_dump -s</code> snapshot), every store&#39;s Plan/Load round trip, every HTTP route happy path and denial, WS end to end (subscribe, command, ack, resume/replay with <code>lastQ</code>, epoch change, kick on access change, 4409 cid in use, protocol PING/PONG keeps a JS-silent client alive), leader lease and fencing (the <strong>real batch</strong> with a stale epoch raises <code>RS001</code> and commits nothing; a second host cannot acquire and exits; killed lease connection → the other acquires; the new leader&#39;s epoch bump waits for an in-flight fenced tx), spotlight FK repair on clearAll/delete/principal deletion, per-role timeouts, CSRF/Origin matrix, cookie flags, session revocation closes sockets, OIDC state/nonce/iss (both Google forms)/aud/tenant/empty-allow-list/untrusted Entra email/pre-hijack and claim cases, magic-link single use, click-to-consume and claim-clears-password, verify requires same-user session, email budget, per-IP and per-principal limits, blob quota and GC, <code>return</code> bypass corpus (<code>/%09/evil.com</code>, <code>/\evil</code>), Jira throttling/Retry-After/breaker/single-flight/SSRF (private IPs via a fake resolver, redirects refused)/error mapping/points field never <code>customfield_10020</code>, and a grep of every serialized <code>/api</code> body in the suite proving no token or email leaks.</td>
+<td>Testcontainers <code>postgres:18-alpine</code> (same image as compose), in-proc server via <code>WebApplicationFactory</code>, real <code>ClientWebSocket</code>, in-proc Kestrel fakes for Jira, OIDC (Google) and SMTP</td>
+<td>Migrations (apply twice; <code>pg_dump -s</code> snapshot), every store&#39;s Plan/Load round trip, every HTTP route happy path and denial, WS end to end (subscribe, command, ack, resume/replay with <code>lastQ</code>, epoch change, kick on access change, 4409 cid in use, protocol PING/PONG keeps a JS-silent client alive), leader lease and fencing (the <strong>real batch</strong> with a stale epoch raises <code>RS001</code> and commits nothing; a second host cannot acquire and exits; killed lease connection → the other acquires; the new leader&#39;s epoch bump waits for an in-flight fenced tx), spotlight FK repair on clearAll/delete/principal deletion, per-role timeouts, CSRF/Origin matrix, cookie flags, session revocation closes sockets, OIDC state/nonce/iss (both Google forms)/aud/untrusted email/pre-hijack and claim cases, magic-link single use, click-to-consume and claim-clears-password, verify requires same-user session, email budget, per-IP and per-principal limits, blob quota and GC, <code>return</code> bypass corpus (<code>/%09/evil.com</code>, <code>/\evil</code>), Jira throttling/Retry-After/breaker/single-flight/SSRF (private IPs via a fake resolver, redirects refused)/error mapping/points field never <code>customfield_10020</code>, and a grep of every serialized <code>/api</code> body in the suite proving no token or email leaks.</td>
 </tr>
 <tr>
 <td>Importer</td>
@@ -3717,7 +3717,7 @@ volumes: { pgdata: {}, pgbackups: {} }</code></pre>
 <tr>
 <td>E2E</td>
 <td>Playwright (Chromium, WebKit incl. mobile WebKit project, Firefox), multiple contexts per test, against <code>compose.test.yml</code> (Mailpit, fake Jira, fake OIDC)</td>
-<td>Poker: 4 players vote, between via Shift-click and drag-hold, abstain, lock, auto-reveal once, replay, next/end/continue (everyone navigates on Next, including followers of someone else&#39;s spotlight), parallel rounds, reorder (pointer drag incl. touch long-press, and keyboard), spotlight take/give/follow/joiner lands on it/holder hidden for 6 min keeps it (<code>page.clock</code> + hidden page)/release 3 min after holder leaves, pending preview discarded when the holder disconnects, observers, Jira browse filters/buckets/Pointing-Pointed reasons/add single and batch/pending preview commit or discard/drawer edits incl. a description with a table and screenshot (islands preserved)/hover prefetch/submit points visible to others/retro action item &quot;Create in Jira&quot;. Retro: cards with mentions and image paste, anonymous (no author in DOM, WS frames via CDP, or DB), votes and limits, stages and readiness with two facilitators, timer across contexts with ±30 s skew (<code>page.clock</code>), focus for late joiners, action items into the team tab, previous action items, endorsements and celebration, templates. Auth: signup, verify, login, magic link, reset, Google/Entra, invites (email mismatch refused, a link invite accepted while signed out). Access (UX18): a signed-out visit goes to sign-in and back, a non-member sees the same screen as for a missing page, sign-in lands on the user&#39;s team or the create-or-join screen, <code>/dashboard</code> redirects to <code>/</code>. Reconnect: <code>context.setOffline</code> mid-vote → converged and outbox flushed; server restart mid-session. <strong>Security:</strong> a <code>securitypolicyviolation</code> listener fails any test; XSS corpus (<code>&lt;img onerror&gt;</code>, <code>javascript:</code> links, mention-name injection, hostile ADF) produces no dialog and no <code>on*</code> attributes. Visual baselines of the Neotro table, hand, strip, reveal and retro board in light and dark, desktop and 390×844. Axe scan of core screens.</td>
+<td>Poker: 4 players vote, between via Shift-click and drag-hold, abstain, lock, auto-reveal once, replay, next/end/continue (everyone navigates on Next, including followers of someone else&#39;s spotlight), parallel rounds, reorder (pointer drag incl. touch long-press, and keyboard), spotlight take/give/follow/joiner lands on it/holder hidden for 6 min keeps it (<code>page.clock</code> + hidden page)/release 3 min after holder leaves, pending preview discarded when the holder disconnects, observers, Jira browse filters/buckets/Pointing-Pointed reasons/add single and batch/pending preview commit or discard/drawer edits incl. a description with a table and screenshot (islands preserved)/hover prefetch/submit points visible to others/retro action item &quot;Create in Jira&quot;. Retro: cards with mentions and image paste, anonymous (no author in DOM, WS frames via CDP, or DB), votes and limits, stages and readiness with two facilitators, timer across contexts with ±30 s skew (<code>page.clock</code>), focus for late joiners, action items into the team tab, previous action items, endorsements and celebration, templates. Auth: signup, verify, login, magic link, reset, Google, invites (email mismatch refused, a link invite accepted while signed out). Access (UX18): a signed-out visit goes to sign-in and back, a non-member sees the same screen as for a missing page, sign-in lands on the user&#39;s team or the create-or-join screen, <code>/dashboard</code> redirects to <code>/</code>. Reconnect: <code>context.setOffline</code> mid-vote → converged and outbox flushed; server restart mid-session. <strong>Security:</strong> a <code>securitypolicyviolation</code> listener fails any test; XSS corpus (<code>&lt;img onerror&gt;</code>, <code>javascript:</code> links, mention-name injection, hostile ADF) produces no dialog and no <code>on*</code> attributes. Visual baselines of the Neotro table, hand, strip, reveal and retro board in light and dark, desktop and 390×844. Axe scan of core screens.</td>
 </tr>
 <tr>
 <td>Budgets</td>
@@ -3811,7 +3811,7 @@ volumes: { pgdata: {}, pgbackups: {} }</code></pre>
 <ol start="28">
 <li><strong>U15 Simulation harness.</strong> After U13, U7, U8, U9. Owns <code>tests/Retroscope.Sim/**</code>. <strong>Check:</strong> <code>dotnet run --project tests/Retroscope.Sim -- --seeds 2000</code> green, including outcome-unknown, client-storage faults, cross-posting full queues, spotlight-settle loss; the injected cursor bug and an injected missing precondition are both caught.</li>
 <li><strong>U17 Email, magic link, reset, verify.</strong> After U16. Owns <code>Server/Auth/Tokens.cs</code>, <code>Server/Auth/Email/**</code>, <code>Server/Jobs/EmailWorker.cs</code>. <strong>Check:</strong> <code>dotnet test tests/Retroscope.Integration.Tests --filter Category=Email</code> — fake SMTP receives plain-text mail with fragment links; GET never consumes; magic consume requires the click POST; claim on unverified; verify requires same-user session; single use; unknown-email responses identical; email budget drops silently; body nulled after final failure; CR/LF header rejection; STARTTLS against the fake.</li>
-<li><strong>U18 OIDC.</strong> After U16. Owns <code>Server/Auth/Oidc.cs</code>, <code>Server/Endpoints/OidcEndpoints.cs</code>, <code>tests/Fakes/FakeOidc/**</code>. <strong>Check:</strong> <code>dotnet test tests/Retroscope.Integration.Tests --filter Category=Oidc</code> — state/nonce/PKCE; both Google issuer forms; wrong iss/aud; expiry; empty allow-list disables Entra; disallowed tenant; untrusted Entra email never links; <code>xms_edov</code>/domain-map trusted linking; claim on unverified; link flow refuses a subject linked elsewhere; <code>response_mode=query</code>; single-use Lax cookie; open-redirect corpus. PR cites OIDC Core §3.1.3.7 and the <code>xms_edov</code> doc.</li>
+<li><strong>U18 OIDC.</strong> After U16. Owns <code>Server/Auth/Oidc.cs</code>, <code>Server/Endpoints/OidcEndpoints.cs</code>, <code>tests/Fakes/FakeOidc/**</code>. <strong>Check:</strong> <code>dotnet test tests/Retroscope.Integration.Tests --filter Category=Oidc</code> — state/nonce/PKCE; both Google issuer forms; wrong iss/aud; expiry; empty allow-list disables Entra; disallowed tenant; untrusted Entra email never links; <code>xms_edov</code>/domain-map trusted linking; claim on unverified; link flow refuses a subject linked elsewhere; <code>response_mode=query</code>; single-use Lax cookie; open-redirect corpus. PR cites OIDC Core §3.1.3.7 and the <code>xms_edov</code> doc. (UX19 removed Entra and its checks.)</li>
 <li><strong>U21 Poker room.</strong> After U13, U7, U9. Owns <code>Server/Realtime/Rooms/PokerRoom.cs</code>, <code>Server/Realtime/Stores/PokerStore.cs</code>. <strong>Check:</strong> <code>dotnet test tests/Retroscope.Integration.Tests --filter Category=PokerRoom</code> — every poker command over real WebSockets; Plan/Load round trip per event; reveal SQL; reorder under the deferred constraint; clearAll/delete with spotlight held; spotlight settle persistence; auto-reveal once across 5 clients and after warm-up; crash mid-round recovers votes; projection hides votes; <code>JiraMetaLoop</code> driven through a fake <code>IPokerJiraPort</code>.</li>
 <li><strong>U22 Retro room.</strong> After U13, U8, U9. Owns <code>Server/Realtime/Rooms/RetroRoom.cs</code>, <code>Server/Realtime/Stores/RetroStore.cs</code>. <strong>Check:</strong> <code>dotnet test tests/Retroscope.Integration.Tests --filter Category=RetroRoom</code> — all retro commands; anonymous rows have no principal in <strong>any</strong> column (cards, comments, blobs, action items) and owner edit still works; blobs marked attached; mentions persisted; timer expires once after restart; preconditions; action item created in place.</li>
 <li><strong>U23 Team room and membership cache.</strong> After U13, U9. Owns <code>Server/Realtime/Rooms/TeamRoom.cs</code>, <code>Server/Realtime/Stores/TeamStore.cs</code>, <code>Server/Data/Repos/MembershipCache.cs</code> (implements <code>IMembershipLookup</code>/<code>IAccessView</code>). <strong>Check:</strong> <code>dotnet test tests/Retroscope.Integration.Tests --filter Category=TeamRoom</code> — board → team action item sync, idempotent create, column-scoped updates (no resurrected FK), load-time repair query, <code>MemberAdded</code> path bumps the cache, <code>AccessChanged</code> kicks, demotion takes effect on the next command, roster refresh in poker, <code>TeamSettingsChanged</code> fan-out.</li>
@@ -3924,7 +3924,7 @@ volumes: { pgdata: {}, pgbackups: {} }</code></pre>
 <td>U12</td>
 </tr>
 <tr>
-<td>OIDC Core §3.1.3.7 text; Entra <code>xms_edov</code> optional-claim semantics</td>
+<td>OIDC Core §3.1.3.7 text; Entra <code>xms_edov</code> optional-claim semantics (moot since UX19 removed Entra)</td>
 <td>U18</td>
 </tr>
 <tr>
@@ -4037,7 +4037,7 @@ volumes: { pgdata: {}, pgbackups: {} }</code></pre>
 <td>F13</td>
 <td>Google issuer forms; Entra email unverified</td>
 <td>Accepted</td>
-<td>§e both issuer forms; Entra trust via <code>xms_edov</code> or domain map</td>
+<td>§e both issuer forms; Entra trust via <code>xms_edov</code> or domain map (Entra removed, UX19)</td>
 </tr>
 <tr>
 <td>F14</td>
@@ -4319,7 +4319,7 @@ volumes: { pgdata: {}, pgbackups: {} }</code></pre>
 <td>S5</td>
 <td>Entra email trust; new OIDC users always verified</td>
 <td>Accepted</td>
-<td>§e trusted-email rules, empty allow-list disables, verified only when asserted, link flow refuses foreign subject</td>
+<td>§e trusted-email rules, empty allow-list disables, verified only when asserted, link flow refuses foreign subject (Entra removed, UX19)</td>
 </tr>
 <tr>
 <td>S6</td>

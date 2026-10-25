@@ -678,7 +678,7 @@
       <li class="nav-h3"><a href="#5-11-jira-host-allowlist-and-blob-bytes-max">5.11 JIRA_HOST_ALLOWLIST and BLOB_BYTES_MAX</a></li>
       <li class="nav-h3"><a href="#5-12-music-file-a-timer-track-optional">5.12 MUSIC_FILE: a timer track (optional)</a></li>
       <li class="nav-h2"><a href="#6-set-up-google-sign-in-optional">6. Set up Google sign-in (optional)</a></li>
-      <li class="nav-h2"><a href="#7-set-up-microsoft-entra-sign-in-optional">7. Set up Microsoft Entra sign-in (optional)</a></li>
+      <li class="nav-h2"><a href="#7-microsoft-sign-in-removed">7. Microsoft sign-in (removed)</a></li>
       <li class="nav-h2"><a href="#8-set-up-email-smtp-and-its-dns-records">8. Set up email (SMTP) and its DNS records</a></li>
       <li class="nav-h3"><a href="#8-1-check-which-ports-your-vps-provider-blocks">8.1 Check which ports your VPS provider blocks</a></li>
       <li class="nav-h3"><a href="#8-2-pick-a-provider-and-get-credentials">8.2 Pick a provider and get credentials</a></li>
@@ -765,7 +765,6 @@
 <li><input disabled="" type="checkbox"> Admin access to the GitHub repo <code>justinloveless/retroscope-next</code>.</li>
 <li><input disabled="" type="checkbox"> An account with a transactional email provider (section 8).</li>
 <li><input disabled="" type="checkbox"> Optional: a Google Cloud account for Google sign-in (section 6).</li>
-<li><input disabled="" type="checkbox"> Optional: a Microsoft Entra tenant for Microsoft sign-in (section 7).</li>
 <li><input disabled="" type="checkbox"> <code>openssl</code> on your own machine, to generate secrets.</li>
 <li><input disabled="" type="checkbox"> A password manager to store every secret you generate. Coolify and the providers show several of them only once.</li>
 </ul>
@@ -825,7 +824,7 @@ unset ROOT_USER_PASSWORD</code></pre>
 <li>Check the record from your machine: <code>dig +short &lt;your-domain&gt; A</code> prints the VPS IP.</li>
 <li>If you use Cloudflare, set the record to <strong>DNS only</strong> (grey cloud) until Coolify has issued the certificate. <strong>UNVERIFIED:</strong> Coolify&#39;s docs do not cover Let&#39;s Encrypt behind Cloudflare&#39;s proxy. DNS only is the safe choice. If you turn the proxy on later, set <code>CLIENT_IP_HEADER=CF-Connecting-IP</code> (section 5).</li>
 </ol>
-<p>Your <code>PUBLIC_URL</code> is now <code>https://&lt;your-domain&gt;</code>. The Google and Entra redirect URIs must use exactly this host.</p>
+<p>Your <code>PUBLIC_URL</code> is now <code>https://&lt;your-domain&gt;</code>. The Google redirect URI must use exactly this host.</p>
 <h2 id="3-prepare-github-images-digests-and-registry-access">3. Prepare GitHub: images, digests, and registry access</h2>
 <h3 id="3-1-confirm-the-images-build">3.1 Confirm the images build</h3>
 <p><code>.github/workflows/images.yml</code> runs inside the <code>ci</code> run of every push to <code>main</code>, after the tests pass, and on every <code>v*</code> tag. The preview workflow also calls it for a branch&#39;s head commit (section 11.3). It:</p>
@@ -1066,36 +1065,6 @@ unset REGISTRY_TOKEN</code></pre>
 <td>Google sign-in secret.</td>
 </tr>
 <tr>
-<td><code>ENTRA_CLIENT_ID</code></td>
-<td>no (empty)</td>
-<td><code>&lt;GUID&gt;</code></td>
-<td>Entra sign-in. Set both Entra values, or neither.</td>
-</tr>
-<tr>
-<td><code>ENTRA_CLIENT_SECRET</code></td>
-<td>no (empty)</td>
-<td>from Entra</td>
-<td>Entra sign-in secret.</td>
-</tr>
-<tr>
-<td><code>ENTRA_TENANT</code></td>
-<td>no (<code>organizations</code>)</td>
-<td><code>organizations</code> or <code>&lt;tenant GUID&gt;</code></td>
-<td>Authority tenant segment. ASCII letters, digits, <code>-</code>, and <code>.</code> only.</td>
-</tr>
-<tr>
-<td><code>ENTRA_ALLOWED_TENANTS</code></td>
-<td>no (empty)</td>
-<td><code>&lt;tid1&gt;,&lt;tid2&gt;</code></td>
-<td>Tenant IDs allowed to sign in. <strong>Empty disables Entra.</strong></td>
-</tr>
-<tr>
-<td><code>ENTRA_TENANT_DOMAINS</code></td>
-<td>no (empty)</td>
-<td><code>&lt;tid&gt;=example.com|example.org</code></td>
-<td>Email domains trusted per tenant when the token lacks <code>xms_edov</code>.</td>
-</tr>
-<tr>
 <td><code>JIRA_HOST_ALLOWLIST</code></td>
 <td>no (empty)</td>
 <td><code>jira.example.com</code></td>
@@ -1126,7 +1095,7 @@ unset REGISTRY_TOKEN</code></pre>
 <li><code>Logging__Console__FormatterName=simple</code>: plain-text logs instead of JSON.</li>
 <li><code>Logging__LogLevel__Default=Warning</code>: quieter logs.</li>
 </ul>
-<p>Never set <code>GOOGLE_AUTHORIZE_URL</code>, <code>GOOGLE_TOKEN_URL</code>, or <code>ENTRA_AUTHORITY_URL</code> in production. They exist for tests.</p>
+<p>Never set <code>GOOGLE_AUTHORIZE_URL</code> or <code>GOOGLE_TOKEN_URL</code> in production. They exist for tests.</p>
 <p>The <code>IMPORT_*</code> variables are only for the data import (section 14).</p>
 <h3 id="5-2-ghcr-owner">5.2 <code>GHCR_OWNER</code></h3>
 <p>Set it to <code>justinloveless</code>. It must be lower case, because <code>images.yml</code> lowercases the owner when it names the images.</p>
@@ -1184,7 +1153,7 @@ openssl rand -hex 32   # DB_APP_PASSWORD</code></pre>
 </ol>
 <p>Leave <code>CLIENT_IP_HEADER</code> empty unless Cloudflare proxies your domain (orange cloud). Then set <code>CF-Connecting-IP</code>.</p>
 <h3 id="5-10-sign-in-variables">5.10 Sign-in variables</h3>
-<p><code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> come from section 6. The <code>ENTRA_*</code> variables come from section 7. A provider with no credentials does not appear on the sign-in screen, so you can deploy first with email and password only and add providers later.</p>
+<p><code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> come from section 6. Google is the only sign-in provider besides email: Microsoft Entra sign-in was removed (<code>docs/decisions/UX19.md</code>), and the app no longer reads any <code>ENTRA_*</code> variable. Without Google credentials the Google button does not appear, so you can deploy first with email and password only and add Google later.</p>
 <h3 id="5-11-jira-host-allowlist-and-blob-bytes-max">5.11 <code>JIRA_HOST_ALLOWLIST</code> and <code>BLOB_BYTES_MAX</code></h3>
 <ul>
 <li><code>JIRA_HOST_ALLOWLIST</code>: leave it empty if your teams use Jira Cloud (<code>*.atlassian.net</code>). For self-hosted Jira, list the exact host names, comma-separated. A malformed entry stops the app.</li>
@@ -1244,50 +1213,8 @@ ssh &lt;vps&gt; 'sudo mv /tmp/track.mp3 /data/retroscope-music/track.mp3 &amp;&a
 <li><strong>UNVERIFIED:</strong> whether publishing an app with only these non-sensitive scopes needs Google&#39;s verification. The pages say verification is needed to show the app&#39;s name and logo and for sensitive scopes.</li>
 <li>To replace the secret later, use <strong>Add Secret</strong> on the client page (two at most), switch the app over, then delete the old one.</li>
 </ul>
-<h2 id="7-set-up-microsoft-entra-sign-in-optional">7. Set up Microsoft Entra sign-in (optional)</h2>
-<p>Sources: <a href="https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app">https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app</a>, <a href="https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-redirect-uri">https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-redirect-uri</a>, <a href="https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-credentials">https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-credentials</a>, <a href="https://learn.microsoft.com/en-us/entra/identity-platform/optional-claims">https://learn.microsoft.com/en-us/entra/identity-platform/optional-claims</a>, <a href="https://learn.microsoft.com/en-us/entra/identity-platform/optional-claims-reference">https://learn.microsoft.com/en-us/entra/identity-platform/optional-claims-reference</a></p>
-<p>How the app checks an Entra sign-in (<code>src/Retroscope.Server/Auth/Oidc.cs</code>):</p>
-<ul>
-<li>Entra is enabled only when <code>ENTRA_ALLOWED_TENANTS</code> is non-empty.</li>
-<li>The token&#39;s <code>tid</code> must be in <code>ENTRA_ALLOWED_TENANTS</code>. Otherwise sign-in fails with <code>oidc_tenant</code>.</li>
-<li>The issuer must be <code>https://login.microsoftonline.com/{tid}/v2.0</code>.</li>
-<li>The email is trusted only if <code>xms_edov</code> is true, or if its domain is listed for that tenant in <code>ENTRA_TENANT_DOMAINS</code>.</li>
-</ul>
-<p>Steps:</p>
-<ol>
-<li>Sign in to <a href="https://entra.microsoft.com">https://entra.microsoft.com</a> as at least an Application Developer. If you have several tenants, switch with the <strong>Settings</strong> icon.</li>
-<li>Go to <strong>Entra ID</strong> &gt; <strong>App registrations</strong> &gt; <strong>New registration</strong> and enter a <strong>Name</strong>.</li>
-<li>Pick <strong>Supported account types</strong>:<ul>
-<li>For your organisation only: choose <strong>Single tenant only</strong>. You will set <code>ENTRA_TENANT=&lt;tenant ID&gt;</code> and <code>ENTRA_ALLOWED_TENANTS=&lt;same tenant ID&gt;</code>.</li>
-<li>For several organisations: choose <strong>Multiple Entra ID tenants</strong>. Keep <code>ENTRA_TENANT=organizations</code> and list every permitted tenant ID in <code>ENTRA_ALLOWED_TENANTS</code>.</li>
-<li>Do not choose any option that includes personal Microsoft accounts. Use <code>organizations</code> or a tenant ID for <code>ENTRA_TENANT</code>. Personal-account tenants are rejected unless listed in <code>ENTRA_ALLOWED_TENANTS</code>.</li>
-</ul>
-</li>
-<li>Click <strong>Register</strong>.</li>
-<li>On the <strong>Overview</strong> page, copy the <strong>Application (client) ID</strong> into <code>ENTRA_CLIENT_ID</code>. Copy the tenant ID too. <strong>UNVERIFIED:</strong> its label, normally <strong>Directory (tenant) ID</strong>.</li>
-<li>Add the redirect URI: <strong>Manage</strong> &gt; <strong>Authentication</strong>, open the <strong>Redirect URI configuration</strong> tab, select <strong>Add Redirect URI</strong>, choose the <strong>Web</strong> tile, enter <code>https://&lt;your-domain&gt;/auth/oidc/entra/callback</code>, then click <strong>Configure</strong>.</li>
-<li>Create the secret: <strong>Certificates &amp; secrets</strong> &gt; <strong>Client secrets</strong> &gt; <strong>New client secret</strong>.<ul>
-<li>Enter a description and an expiry. The maximum is 24 months, and Microsoft recommends less than 12.</li>
-<li>Click <strong>Add</strong>, then copy the <strong>Value</strong>, not the <strong>Secret ID</strong>, into <code>ENTRA_CLIENT_SECRET</code>. Microsoft never shows it again.</li>
-<li>Put a rotation reminder in your calendar before the expiry. Microsoft prefers certificates over secrets in production, but the app reads only a secret.</li>
-</ul>
-</li>
-<li>Add optional claims: <strong>Manage</strong> &gt; <strong>Token configuration</strong> &gt; <strong>Add optional claim</strong>, choose token type <strong>ID</strong>, select <code>email</code> and <code>xms_edov</code>, then click <strong>Add</strong>.<ul>
-<li><code>xms_edov</code> is issued only together with <code>email</code>.</li>
-<li><strong>UNVERIFIED:</strong> that <code>xms_edov</code> appears in the picker. If it does not, open <strong>Manage</strong> &gt; <strong>Manifest</strong> and add <code>{&quot;name&quot;:&quot;xms_edov&quot;,&quot;essential&quot;:false}</code> (and <code>email</code> the same way, if missing) under <code>optionalClaims.idToken</code>.</li>
-<li><strong>UNVERIFIED:</strong> a prompt to turn on the Microsoft Graph email permission often appears when you add <code>email</code>. If it appears, accept it.</li>
-</ul>
-</li>
-<li>Optional: under <strong>API permissions</strong> &gt; <strong>Add a permission</strong> &gt; <strong>Microsoft Graph</strong> &gt; <strong>Delegated permissions</strong>, tick <code>openid</code>, <code>email</code>, and <code>profile</code>. The app requests them dynamically anyway, and they need no admin consent. <strong>UNVERIFIED:</strong> exact labels.</li>
-<li>In Coolify, set:<ul>
-<li><code>ENTRA_CLIENT_ID</code> and <code>ENTRA_CLIENT_SECRET</code>.</li>
-<li><code>ENTRA_TENANT</code>: <code>organizations</code>, or your tenant ID for a single-tenant app.</li>
-<li><code>ENTRA_ALLOWED_TENANTS</code>: the tenant IDs, comma-separated, lower case.</li>
-<li>Optional <code>ENTRA_TENANT_DOMAINS</code>: <code>&lt;tid&gt;=example.com|example.org</code>, and <code>,</code> between tenants. A malformed entry stops the app.</li>
-</ul>
-</li>
-<li>Restart the resource.</li>
-</ol>
+<h2 id="7-microsoft-sign-in-removed">7. Microsoft sign-in (removed)</h2>
+<p>Microsoft Entra sign-in was removed (<code>docs/decisions/UX19.md</code>). If an older deploy set <code>ENTRA_*</code> variables, delete them from the resource; the app ignores them. The later sections keep their numbers, so references to them elsewhere stay valid.</p>
 <h2 id="8-set-up-email-smtp-and-its-dns-records">8. Set up email (SMTP) and its DNS records</h2>
 <p>The app sends sign-up verification, magic-link, and password-reset mail over SMTP. Without working SMTP, nobody can verify an email address.</p>
 <h3 id="8-1-check-which-ports-your-vps-provider-blocks">8.1 Check which ports your VPS provider blocks</h3>
@@ -1431,7 +1358,7 @@ curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' https://&lt;your-domain&gt;
 <li>Create a team.</li>
 <li>Start a poker session in the team. Every room belongs to a team and only its signed-in members open it, so add a second account first: under <strong>Members</strong>, create a link invite, open it in a second browser or a private window, sign up there (the emailed sign-in link is quickest) and accept. Open the session in both windows and vote in both. Votes appear live in both windows. That proves WebSockets work through Traefik.</li>
 <li>Open a retro board, add an anonymous card, then edit it. That is the first use of <code>ANON_TAG_KEY</code> (section 5.7). If it fails, check the app log for a key error.</li>
-<li>If you configured Google or Entra, sign out and sign in with each provider.</li>
+<li>If you configured Google, sign out and sign in with Google.</li>
 </ol>
 <h3 id="10-5-make-yourself-an-app-admin">10.5 Make yourself an app admin</h3>
 <p>A fresh database has no app admin, and the repo has no bootstrap step for one outside the import (where <code>IMPORT_ADMIN_EMAILS</code> sets them). The <code>users</code> table has an <code>is_admin</code> column. To make your account an admin:</p>
@@ -1583,7 +1510,7 @@ ssh &lt;vps&gt; 'docker run --rm -v &lt;volume-name&gt;:/b alpine cat /b/rs-$(da
 <p><strong><code>ANON_TAG_KEY</code>:</strong> never rotate it unless it leaks.</p>
 <p><strong><code>DB_APP_PASSWORD</code>:</strong> change it and redeploy. The migrator re-applies it on every start.</p>
 <p><strong><code>DB_OWNER_PASSWORD</code>:</strong> changing the variable alone does not change the role&#39;s password. There is no documented procedure for it.</p>
-<p><strong>External credentials:</strong> the GHCR token (section 3.3), the Google and Entra secrets, and the SMTP credentials expire or can be rotated at the provider. Update the variable in Coolify and restart.</p>
+<p><strong>External credentials:</strong> the GHCR token (section 3.3), the Google secret, and the SMTP credentials expire or can be rotated at the provider. Update the variable in Coolify and restart.</p>
 <h2 id="14-import-data-from-the-old-supabase-app">14. Import data from the old Supabase app</h2>
 <p>Full procedure: <code>deploy/IMPORT_RUNBOOK.md</code>. Almost all of it runs <strong>off the VPS</strong>, on your own machine. Only the restore happens on the VPS.</p>
 <p>Summary of the order (<code>deploy/IMPORT_RUNBOOK.md</code> sections 5-9):</p>
@@ -1668,7 +1595,7 @@ rm /root/rs.env      # when the import is done</code></pre>
 </tr>
 <tr>
 <td>App exits at start with a configuration error</td>
-<td>Invalid <code>PUBLIC_URL</code>, <code>TRUSTED_PROXY_CIDRS</code>, <code>ENTRA_*</code>, <code>SMTP_*</code>, or <code>JIRA_HOST_ALLOWLIST</code> value, or only one half of a client ID and secret pair</td>
+<td>Invalid <code>PUBLIC_URL</code>, <code>TRUSTED_PROXY_CIDRS</code>, <code>SMTP_*</code>, or <code>JIRA_HOST_ALLOWLIST</code> value, or only one half of a client ID and secret pair</td>
 <td>Read the app log in Coolify, fix the named variable, and restart.</td>
 </tr>
 <tr>
@@ -1695,21 +1622,6 @@ rm /root/rs.env      # when the import is done</code></pre>
 <td><code>redirect_uri_mismatch</code> from Google</td>
 <td>The registered URI differs from <code>PUBLIC_URL</code> + <code>/auth/oidc/google/callback</code></td>
 <td>Fix the URI and wait up to a few hours.</td>
-</tr>
-<tr>
-<td>Entra sign-in fails with <code>oidc_tenant</code></td>
-<td>The user&#39;s tenant is not in <code>ENTRA_ALLOWED_TENANTS</code></td>
-<td>Add the tenant ID.</td>
-</tr>
-<tr>
-<td>Entra button missing</td>
-<td><code>ENTRA_ALLOWED_TENANTS</code> empty, or client ID or secret missing</td>
-<td>Set all three (section 7).</td>
-</tr>
-<tr>
-<td>Entra account not linked by email</td>
-<td>No <code>xms_edov</code> claim and the domain not in <code>ENTRA_TENANT_DOMAINS</code></td>
-<td>Add the optional claims (section 7 step 8) or the domain.</td>
 </tr>
 <tr>
 <td>No email arrives</td>
@@ -1756,7 +1668,6 @@ rm /root/rs.env      # when the import is done</code></pre>
 <li>Whether a new Coolify project gets a <code>production</code> environment automatically.</li>
 <li>Let&#39;s Encrypt behaviour behind Cloudflare&#39;s proxy.</li>
 <li>Google verification for apps with only non-sensitive scopes.</li>
-<li>Entra&#39;s tenant ID label, the <code>xms_edov</code> picker entry, the Graph email permission prompt, and the API permission labels.</li>
 <li>Mailgun&#39;s username format and all Brevo details.</li>
 <li>Traefik&#39;s compress middleware minimum body size (1024 bytes per Traefik&#39;s docs), which section 10.3 relies on.</li>
 <li>On-screen labels taken from Coolify source rather than docs: <strong>Gzip compression</strong> (section 4.5), <strong>Auto deploy</strong> (section 4.3), and the API token page name (section 11.4).</li>
