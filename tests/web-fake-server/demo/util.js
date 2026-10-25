@@ -8,9 +8,8 @@ export function demoId(group, n) {
 
 export const newId = () => uuidv7();
 
-// Who the browser is in the demo: a person's key, or SIGNED_OUT (then the guest cookie, if any).
+// Who the browser is in the demo: a person's key, or SIGNED_OUT.
 export const AS_COOKIE = 'rs_demo_as';
-export const GUEST_COOKIE = 'rs_demo_guest';
 export const SIGNED_OUT = 'signed-out';
 
 // mulberry32: small, fast and good enough to make the peers look human.

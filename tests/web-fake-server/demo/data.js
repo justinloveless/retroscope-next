@@ -1,10 +1,12 @@
-// The demo's seed content: two teams, retro boards in every stage, team and quick poker sessions, action
-// items, templates, invites and kudos. Times are relative to `now`, so the demo always looks recent.
-import { AISHA, CROWD, DEMO, GUESTS, JONAS, LENA, MARCUS, PRIYA, SOFIA, TOM } from './people.js';
+// The demo's seed content: three teams, retro boards in every stage, poker sessions, action items, templates,
+// invites and kudos. Every board and session belongs to a team (UX18). Times are relative to `now`, so the demo
+// always looks recent.
+import { AISHA, CROWD, DEMO, JONAS, LENA, MARCUS, PRIYA, SOFIA, TOM } from './people.js';
 import { DAY, HOUR, MINUTE, demoId } from './util.js';
 
 export const DEMO_TEAM = demoId('0001', 1);
 export const GUILD_TEAM = demoId('0001', 2);
+export const ALL_HANDS_TEAM = demoId('0001', 3);
 export const BURNDOWN_BLOB = demoId('00b0', 1);
 
 export const CODES = {
@@ -17,7 +19,6 @@ export const CODES = {
   teamPoker: 'PKR41CHKT1',
   oldPoker: 'PKR40SRCH1',
   guildPoker: 'GLDPKR0001',
-  quickPoker: 'QCKPKR2026',
   crowdPoker: 'CRWDPKR012',
 };
 
@@ -96,7 +97,6 @@ export function teams(now) {
       { person: JONAS, role: 'member' },
       { person: AISHA, role: 'member' },
     ],
-    favoriteOf: [DEMO.pid, PRIYA.pid],
     pointDescriptions: {
       1: 'A quick tweak, under an hour',
       2: 'Half a day',
@@ -173,13 +173,31 @@ export function teams(now) {
       { person: DEMO, role: 'member' },
       { person: TOM, role: 'member' },
     ],
-    favoriteOf: [],
     pointDescriptions: {},
     maxEndorsements: 2,
     jiraConfigured: false,
     endorsementTypes: [
       { id: demoId('00e0', 11), name: 'Helping Hand', emoji: '🤝', archived: false },
       { id: demoId('00e0', 12), name: 'Problem Solver', emoji: '🧠', archived: false },
+    ],
+    pastEndorsements: [],
+    templates: [],
+    invites: [],
+  }, {
+    id: ALL_HANDS_TEAM,
+    name: 'Product All-Hands',
+    description: 'Everyone in product and engineering, for the quarterly estimates',
+    createdAt: now - 90 * DAY,
+    members: [
+      { person: CROWD[0], role: 'owner' },
+      { person: DEMO, role: 'member' },
+      ...CROWD.slice(1).map((person) => ({ person, role: 'member' })),
+    ],
+    pointDescriptions: {},
+    maxEndorsements: 3,
+    jiraConfigured: false,
+    endorsementTypes: [
+      { id: demoId('00e0', 21), name: 'Helping Hand', emoji: '🤝', archived: false },
     ],
     pastEndorsements: [],
     templates: [],
@@ -487,29 +505,12 @@ export function pokerSessions(now) {
     currentRoundId: round(21),
     rounds: [{ id: round(21), number: 1, version: 1, state: 'revealed', active: false, pending: false, autoReveal: true, winner: 3, revealedAt: now - 5 * DAY, votes: revealedVotes([[LENA, 3], [TOM, 2], [DEMO, 3]]) }],
   }, {
-    id: demoId('0004', 4),
-    code: CODES.quickPoker,
-    team: null,
-    createdBy: DEMO.pid,
-    createdAt: now - 12 * MINUTE,
-    peers: GUESTS,
-    roster: [...GUESTS],
-    currentRoundId: round(32),
-    rounds: [
-      {
-        id: round(31), number: 1, version: 1, state: 'revealed', active: false, pending: false, autoReveal: true, winner: 2,
-        revealedAt: now - 8 * MINUTE, votes: revealedVotes([[DEMO, 2], [GUESTS[0], 2], [GUESTS[1], 3]]),
-      },
-      { id: round(32), number: 2, version: 1, state: 'voting', active: true, pending: false, autoReveal: true, votes: {} },
-    ],
-  }, {
     id: demoId('0004', 5),
     code: CODES.crowdPoker,
-    team: null,
-    createdBy: DEMO.pid,
+    team: ALL_HANDS_TEAM,
+    createdBy: CROWD[0].pid,
     createdAt: now - 20 * MINUTE,
     peers: CROWD,
-    roster: [...CROWD],
     currentRoundId: round(42),
     rounds: [
       {
