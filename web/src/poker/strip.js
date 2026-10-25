@@ -41,16 +41,10 @@ export function chipPoints(round) {
   return round.state === 'revealed' ? round.winner ?? null : null;
 }
 
-/** Whether the viewer may delete rounds (§c.4): team admins and owners, any signed-in user of a quick session. */
+/** Whether the viewer may delete rounds (§c.4): the session's team admins and owners. */
 export function mayDeleteRounds(view, me = currentMe()) {
-  if (!me?.principal) {
-    return false;
-  }
-  if (view.teamId) {
-    const role = me.teams?.find((t) => t.id === view.teamId)?.role;
-    return role === 'admin' || role === 'owner';
-  }
-  return me.principal.kind === 'user';
+  const role = me?.teams?.find((t) => t.id === view.teamId)?.role;
+  return role === 'admin' || role === 'owner';
 }
 
 export function personOf(view, pid) {

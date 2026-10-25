@@ -323,11 +323,9 @@ export function isMember(state, pid) {
   return state.members?.some((m) => m.pid === pid) ?? false;
 }
 
+/** Every member of the board's team facilitates (UX18: a board always has a team). */
 export function isFacilitator(state, me) {
-  if (!me || me.kind !== 'user') {
-    return false;
-  }
-  return state.teamId ? isMember(state, me.pid) : true;
+  return Boolean(me) && isMember(state, me.pid);
 }
 
 export function allowsContent(state, column) {
