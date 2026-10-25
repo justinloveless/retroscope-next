@@ -1,6 +1,7 @@
 // The sign-in card: Google and Microsoft, email and password, creating an account, the emailed sign-in link
 // and the password reset request. /login shows it (screens/auth.js), and so does the welcome page at '/'
-// (UX18 decision 15). Without a ?return= it lands on '/', which finds the user's team or pending invite.
+// (UX18 decision 15). Without a ?return= it lands on the pending invite when one waits, else on '/', which
+// finds the user's team.
 
 import { h, replaceContent } from '../core/h.js';
 import { http } from '../core/http.js';
@@ -8,6 +9,7 @@ import { createTabs } from '../ui/tabs.js';
 import { toast } from '../ui/toast.js';
 import { navigate, safeReturn, signedIn } from './app.js';
 import { card, field, form, muted, row, stack } from './frame.js';
+import { pendingInvite } from './pending-invite.js';
 
 const LOGIN_ERRORS = {
   invalid_credentials: 'Email or password is incorrect.',
@@ -45,7 +47,9 @@ function emailLinkForm({ path, label, sent }) {
 
 /** The sign-in and create-account card, with the emailed-link and reset forms. Returns {el, destroy()}. */
 export function signInCard(query) {
-  const returnTo = safeReturn(query.get('return'));
+  // Google and Microsoft come back by a full page load, and the server answers '/' with the user's team: it
+  // cannot see the invite, which waits in this browser. So a pending invite is named as the return itself.
+  const returnTo = safeReturn(query.get('return'), pendingInvite() ? '/invite' : '/');
   const done = () => navigate(returnTo, { replace: true });
 
   const email = field({ label: 'Email', name: 'email', type: 'email', autocomplete: 'username', required: true });
