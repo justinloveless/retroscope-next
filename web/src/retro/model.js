@@ -203,7 +203,8 @@ function authorOf(state, me, anonymous) {
   if (anonymous || !state.config.showAuthorNames || !me) {
     return null;
   }
-  const author = { name: me.name, guest: me.kind === 'guest', pid: me.pid };
+  // Only signed-in users act on a board (UX18); the server writes `guest: false` for them too.
+  const author = { name: me.name, guest: false, pid: me.pid };
   return me.avatar ? { ...author, avatar: me.avatar } : author;
 }
 

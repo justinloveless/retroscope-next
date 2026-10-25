@@ -293,7 +293,6 @@
 .retro-sound-volume { display: grid; grid-template-columns: auto 1fr 2.75rem; align-items: center; gap: 0.625rem; font-size: 0.875rem; }
 .retro-sound-level { font-variant-numeric: tabular-nums; text-align: end; color: hsl(var(--muted-foreground)); }
 .retro-sound-panel.is-muted .range { --range-color: hsl(var(--muted-foreground)); }
-.retro-timer-hint { font-size: 0.75rem; color: hsl(var(--muted-foreground)); }
 .retro-timer-form { display: grid; gap: 0.75rem; }
 .retro-timer-duration { display: flex; align-items: flex-end; gap: 0.5rem; }
 .retro-timer-input { width: 4.5rem; font-variant-numeric: tabular-nums; }
