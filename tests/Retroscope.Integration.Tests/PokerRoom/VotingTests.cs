@@ -15,7 +15,7 @@ public sealed class VotingTests(PostgresFixture postgres) {
         for (var i = 0; i < 5; i++) {
             people.Add(await scope.Seed.UserAsync($"Voter {i}"));
         }
-        var room = await scope.Seed.SessionAsync(people[0]);
+        var room = await scope.Seed.SessionAsync(people[0], await scope.Seed.TeamOfAsync(people[0], [.. people.Skip(1)]));
         var r1 = (await scope.Seed.RoundsAsync(room))[0];
         var host = await scope.StartAsync();
         var tabs = new List<PokerSocket>();
@@ -57,7 +57,7 @@ public sealed class VotingTests(PostgresFixture postgres) {
         await using var scope = await PokerScope.CreateAsync(postgres);
         var alice = await scope.Seed.UserAsync("Alice");
         var bob = await scope.Seed.UserAsync("Bob");
-        var room = await scope.Seed.SessionAsync(alice);
+        var room = await scope.Seed.SessionAsync(alice, await scope.Seed.TeamOfAsync(alice, bob));
         var r1 = (await scope.Seed.RoundsAsync(room))[0];
         var host = await scope.StartAsync();
         await using var a = await host.JoinAsync(alice, room);
@@ -80,7 +80,7 @@ public sealed class VotingTests(PostgresFixture postgres) {
         await using var scope = await PokerScope.CreateAsync(postgres);
         var alice = await scope.Seed.UserAsync("Alice");
         var bob = await scope.Seed.UserAsync("Bob");
-        var room = await scope.Seed.SessionAsync(alice);
+        var room = await scope.Seed.SessionAsync(alice, await scope.Seed.TeamOfAsync(alice, bob));
         var r1 = (await scope.Seed.RoundsAsync(room))[0];
         var host = await scope.StartAsync();
         await using var a = await host.JoinAsync(alice, room);

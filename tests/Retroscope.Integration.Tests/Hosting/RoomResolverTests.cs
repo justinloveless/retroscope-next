@@ -5,7 +5,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Retroscope.Core.Authz;
 using Retroscope.Core.Ids;
-using Retroscope.Core.Protocol;
 using Retroscope.Core.Room;
 using Retroscope.Integration.Tests.Schema;
 using Retroscope.Server.Data;
@@ -16,38 +15,36 @@ namespace Retroscope.Integration.Tests.Hosting;
 [Trait("Category", "Hosting")]
 [Collection(SharedPostgres.Name)]
 public sealed class RoomResolverTests(PostgresFixture postgres) {
-    // Any bcrypt-shaped hash satisfies the column check; the resolver never verifies it.
-    private static readonly string PasswordHash = "$2a$10$" + new string('a', 53);
-
     [Fact]
     public async Task Exact_code_wins_over_a_case_insensitive_match() {
         await using var room = await RoomAppAsync();
-        var lower = await room.InsertPokerAsync("abcdefghjk");
-        var upper = await room.InsertPokerAsync("ABCDEFGHJK");
+        var team = await room.InsertTeamAsync(deleted: false);
+        var lower = await room.InsertPokerAsync("abcdefghjk", team);
+        var upper = await room.InsertPokerAsync("ABCDEFGHJK", team);
 
-        Assert.Equal($"poker:{lower}:Granted", await room.ResolveTextAsync("poker", "abcdefghjk"));
-        Assert.Equal($"poker:{upper}:Granted", await room.ResolveTextAsync("poker", "ABCDEFGHJK"));
-        Assert.Equal($"poker:{lower}:Granted", await room.ResolveTextAsync("poker", "AbCdEfGhJk"));
+        Assert.Equal($"poker:{lower}", await room.ResolveTextAsync("poker", "abcdefghjk"));
+        Assert.Equal($"poker:{upper}", await room.ResolveTextAsync("poker", "ABCDEFGHJK"));
+        Assert.Equal($"poker:{lower}", await room.ResolveTextAsync("poker", "AbCdEfGhJk"));
     }
 
     [Fact]
     public async Task Board_facts_are_read_from_the_row() {
         await using var room = await RoomAppAsync();
         var team = await room.InsertTeamAsync(deleted: false);
-        var board = await room.InsertBoardAsync("BOARD12345", "link", team);
+        var board = await room.InsertBoardAsync("BOARD12345", team);
 
-        Assert.Equal($"board:{board}:Granted", await room.ResolveTextAsync("board", "board12345"));
+        Assert.Equal($"board:{board}", await room.ResolveTextAsync("board", "board12345"));
         var facts = Assert.Single(room.Access.Seen);
         Assert.Equal(RoomKey.Board(new BoardId(board)), facts.Room);
         Assert.Equal(new TeamId(team), facts.Team);
-        Assert.Equal(BoardVisibility.Link, facts.Visibility);
         Assert.False(facts.Archived);
     }
 
     [Fact]
     public async Task Missing_and_forbidden_rooms_get_byte_identical_responses() {
         await using var room = await RoomAppAsync();
-        var hidden = await room.InsertBoardAsync("SECRET0001", "link", team: null);
+        var team = await room.InsertTeamAsync(deleted: false);
+        var hidden = await room.InsertBoardAsync("SECRET0001", team);
         room.Access.Deny.Add(hidden);
 
         var (forbiddenStatus, forbiddenHeaders, forbiddenBody) = await room.RawAsync("board", "SECRET0001");
@@ -67,9 +64,10 @@ public sealed class RoomResolverTests(PostgresFixture postgres) {
     [Fact]
     public async Task Deleted_boards_and_rooms_of_deleted_teams_are_hidden_even_when_access_would_allow() {
         await using var room = await RoomAppAsync();
-        await room.InsertBoardAsync("GONE000001", "link", team: null, deleted: true);
+        var team = await room.InsertTeamAsync(deleted: false);
+        await room.InsertBoardAsync("GONE000001", team, deleted: true);
         var deletedTeam = await room.InsertTeamAsync(deleted: true);
-        await room.InsertBoardAsync("GONE000002", "team", deletedTeam);
+        await room.InsertBoardAsync("GONE000002", deletedTeam);
         await room.InsertPokerAsync("GONE000003", deletedTeam);
 
         Assert.Equal("hidden", await room.ResolveTextAsync("board", "GONE000001"));
@@ -78,18 +76,10 @@ public sealed class RoomResolverTests(PostgresFixture postgres) {
     }
 
     [Fact]
-    public async Task A_password_board_without_access_offers_the_password_prompt() {
-        await using var room = await RoomAppAsync();
-        var board = await room.InsertBoardAsync("LOCKED0001", "password", team: null);
-        room.Access.Deny.Add(board);
-
-        Assert.Equal($"board:{board}:Password", await room.ResolveTextAsync("board", "LOCKED0001"));
-    }
-
-    [Fact]
     public async Task Codes_are_only_looked_up_in_their_own_room_kind() {
         await using var room = await RoomAppAsync();
-        await room.InsertBoardAsync("ONLYBOARD1", "link", team: null);
+        var team = await room.InsertTeamAsync(deleted: false);
+        await room.InsertBoardAsync("ONLYBOARD1", team);
 
         Assert.Equal("hidden", await room.ResolveTextAsync("poker", "ONLYBOARD1"));
     }
@@ -97,7 +87,8 @@ public sealed class RoomResolverTests(PostgresFixture postgres) {
     [Fact]
     public async Task Lookups_are_limited_to_30_per_minute_per_ip_hits_and_misses_alike() {
         await using var room = await RoomAppAsync();
-        await room.InsertPokerAsync("LIMIT00001");
+        var team = await room.InsertTeamAsync(deleted: false);
+        await room.InsertPokerAsync("LIMIT00001", team);
 
         for (var i = 0; i < 15; i++) {
             Assert.StartsWith("poker:", await room.ResolveTextAsync("poker", "LIMIT00001"), StringComparison.Ordinal);
@@ -114,7 +105,7 @@ public sealed class RoomResolverTests(PostgresFixture postgres) {
     [Fact]
     public async Task The_default_access_check_asks_the_policy() {
         var access = new PolicyRoomAccess(new ServiceCollection().BuildServiceProvider());
-        var facts = new ResourceFacts(RoomKey.Poker(new SessionId(Guid.CreateVersion7())));
+        var facts = new ResourceFacts(RoomKey.Poker(new SessionId(Guid.CreateVersion7())), new TeamId(Guid.CreateVersion7()));
         var who = new Principal(new PrincipalId(Guid.CreateVersion7()), PrincipalKind.User, "Uma", null, false);
 
         var allowed = await access.CanSubscribeAsync(who, facts, TestContext.Current.CancellationToken);
@@ -133,7 +124,7 @@ public sealed class RoomResolverTests(PostgresFixture postgres) {
             map: app => app.MapGet("/test/room/{kind}/{code}", async (HttpContext context, RoomResolver resolver, string kind, string code) => {
                 var resolution = await resolver.ResolveAsync(context, kind == "poker" ? RoomKind.Poker : RoomKind.Board, code, context.RequestAborted);
                 return resolution is RoomResolution.Found found
-                    ? Results.Text($"{found.Room}:{found.Access}")
+                    ? Results.Text($"{found.Room}")
                     : RoomResolver.Result(resolution);
             }).RequireRoutePolicy(RoutePolicy.Public).RequireRateLimit(RateLimit.Unlimited));
         return new RoomApp(app, database, access);
@@ -170,24 +161,19 @@ public sealed class RoomResolverTests(PostgresFixture postgres) {
             return id;
         }
 
-        public async Task<Guid> InsertPokerAsync(string code, Guid? team = null) {
+        public async Task<Guid> InsertPokerAsync(string code, Guid team) {
             var id = Guid.CreateVersion7();
             await ExecuteAsync("insert into poker_sessions (id, code, team_id) values ($1, $2, $3)", id, code, team);
             return id;
         }
 
-        public async Task<Guid> InsertBoardAsync(string code, string visibility, Guid? team, bool deleted = false) {
+        public async Task<Guid> InsertBoardAsync(string code, Guid team, bool deleted = false) {
             var id = Guid.CreateVersion7();
-            var password = visibility == "password";
             await ExecuteAsync(
-                "insert into retro_boards (id, code, team_id, title, visibility, password_hash, password_set_at, deleted_at) " +
-                "values ($1, $2, $3, 'Board', $4, $5, $6, $7)",
+                "insert into retro_boards (id, code, team_id, title, deleted_at) values ($1, $2, $3, 'Board', $4)",
                 id,
                 code,
                 team,
-                visibility,
-                password ? PasswordHash : null,
-                password ? DateTimeOffset.UtcNow : null,
                 deleted ? DateTimeOffset.UtcNow : null);
             return id;
         }
@@ -218,7 +204,5 @@ public sealed class RoomResolverTests(PostgresFixture postgres) {
 
     private sealed class EmptyAccessView : IAccessView {
         public TeamRole? RoleIn(TeamId team, PrincipalId principal) => null;
-
-        public bool HasCurrentGrant(BoardId board, PrincipalId principal, DateTimeOffset? passwordSetAt) => false;
     }
 }

@@ -58,8 +58,10 @@ public sealed class SessionCommandTests {
 
     [Fact]
     public void Only_principals_known_to_the_session_can_be_observers() {
-        var room = Quick();
+        var room = PokerHarness.Team();
+        room.State.Roster.Remove(Carol.Who.Id);
 
+        Rejected(room.Send(Bob, new PokerObserverSet(Outsider.Who.Id, true)), NackCode.NotFound);
         Rejected(room.Send(Bob, new PokerObserverSet(Carol.Who.Id, true)), NackCode.NotFound);
         room.Join(Carol);
         room.Accepted(Bob, new PokerObserverSet(Carol.Who.Id, true));
@@ -236,7 +238,6 @@ public sealed class SessionCommandTests {
         var noJira = PokerHarness.Team(jira: false);
         noJira.Accepted(Bob, new PokerRoundReveal(R(1)));
         Rejected(noJira.Send(Bob, new PokerJiraSubmitPoints(R(1), 5)), NackCode.JiraNotConfigured);
-        Rejected(Quick().Send(Bob, new PokerJiraSubmitPoints(R(1), 5)), NackCode.Forbidden);
 
         var room = PokerHarness.Team();
         Rejected(room.Send(Outsider, new PokerJiraSubmitPoints(R(1), 5)), NackCode.Forbidden);
@@ -317,16 +318,13 @@ public sealed class SessionCommandTests {
     }
 
     [Fact]
-    public void Delete_session_is_for_team_admins_or_the_quick_creator() {
+    public void Delete_session_is_for_team_admins() {
         var team = PokerHarness.Team();
         Rejected(team.Send(Bob, new DeleteSession()), NackCode.Forbidden);
+        Rejected(team.Send(Outsider, new DeleteSession()), NackCode.Forbidden);
         Rejected(team.Send(null, new DeleteSession()), NackCode.Forbidden);
         Assert.IsType<SessionDeleted>(Assert.Single(team.Accepted(Dave, new DeleteSession())));
         Rejected(team.Send(Alice, new PokerVoteSet(R(1), 5)), NackCode.NotFound);
-
-        var quick = Quick();
-        Rejected(quick.Send(Bob, new DeleteSession()), NackCode.Forbidden);
-        quick.Accepted(Alice, new DeleteSession());
     }
 
     [Fact]

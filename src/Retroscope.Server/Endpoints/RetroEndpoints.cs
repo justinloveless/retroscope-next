@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json.Serialization;
 using Npgsql;
 using Retroscope.Core.Authz;
@@ -16,20 +15,9 @@ using Retroscope.Server.Realtime.Rooms;
 
 namespace Retroscope.Server.Endpoints;
 
-[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record QuickBoardRequest(string? Title);
-
-/// <param name="Visibility">Defaults to <c>team</c> (§0.1: new team boards are team-only).</param>
 /// <param name="TemplateId">One of the team's templates; the team's default template, else the built-in columns.</param>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record TeamBoardRequest(string? Title, BoardVisibility? Visibility, string? Password, Guid? TemplateId);
-
-/// <param name="Password">A new password; it implies <c>password</c> visibility and invalidates every grant.</param>
-[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record BoardAccessRequest(BoardVisibility? Visibility, string? Password);
-
-[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record UnlockRequest(string? Password);
+public sealed record TeamBoardRequest(string? Title, Guid? TemplateId);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record DeleteBoardRequest(string? ConfirmTitle);
@@ -51,26 +39,11 @@ public sealed record ActionItemComments(IReadOnlyList<ActionItemComment> Items);
 public sealed record ActionItemCommentPosted(CommentId CommentId);
 
 /// <summary>
-/// Quick and team boards over HTTP (§d): create, look up by code, unlock, access, archive, delete, the team's board
-/// list, and the team page's action items with their comments.
+/// Team boards over HTTP (§d): look up by code, archive, delete, the team's board list and board creation, and the
+/// team page's action items with their comments. Every board belongs to a team and opens to its members only (UX18).
 /// </summary>
 public static class RetroEndpoints {
-    public const string QuickBoardTitle = "Quick Retro Board";
     public const int MaxTitleLength = 200;
-    public const int MinPasswordBytes = 4;
-    public const int MaxPasswordBytes = 72;
-
-    /// <summary>S7: per principal and per IP, so fresh guest principals do not lift the limit.</summary>
-    public static readonly RateLimit CreateQuick = RateLimit.Define(
-        "retro.create", RateRule.PerPrincipal(10, TimeSpan.FromHours(1)), RateRule.PerIp(30, TimeSpan.FromHours(1)));
-
-    /// <summary>§d: 20/h per IP; the per-principal-per-board half is <see cref="UnlockPerBoard"/>.</summary>
-    public static readonly RateLimit Unlock = RateLimit.Define(
-        "retro.unlock", RateRule.PerIp(20, TimeSpan.FromHours(1)), RateRule.PerPrincipal(60, TimeSpan.FromHours(1)));
-
-    /// <summary>§d: 5/min per principal per board; the subject is the pair.</summary>
-    public static readonly RateLimit UnlockPerBoard = RateLimit.Define(
-        "retro.unlock.board", RateRule.PerSubject(5, TimeSpan.FromMinutes(1)));
 
     public static readonly RateLimit Manage = RateLimit.Define(
         "retro.manage", RateRule.PerPrincipal(30, TimeSpan.FromMinutes(1)), RateRule.PerIp(60, TimeSpan.FromMinutes(1)));
@@ -84,19 +57,11 @@ public static class RetroEndpoints {
     }
 
     public static void Map(IEndpointRouteBuilder app) {
-        app.MapPost("/api/retro", CreateQuickAsync)
-            .RequireRoutePolicy(RoutePolicy.Guest)
-            .RequireRateLimit(CreateQuick);
-        // RoomResolver limits every code lookup itself (30/min per IP, S9), whichever route makes it.
+        // RoomResolver limits every code lookup itself (30/min per IP, S9), whichever route makes it. Only a member can
+        // be admitted, so a caller who is not signed in is refused before any lookup is spent (UX18).
         app.MapGet("/api/retro/by-code/{code}", ByCodeAsync)
-            .RequireRoutePolicy(RoutePolicy.Public)
+            .RequireRoutePolicy(RoutePolicy.User)
             .RequireRateLimit(RateLimit.Unlimited);
-        app.MapPost("/api/retro/{id:guid}/unlock", UnlockAsync)
-            .RequireRoutePolicy(RoutePolicy.Guest)
-            .RequireRateLimit(Unlock);
-        app.MapPatch("/api/retro/{id:guid}", SetAccessAsync)
-            .RequireRoutePolicy(RoutePolicy.BoardManage)
-            .RequireRateLimit(Manage);
         app.MapPost("/api/retro/{id:guid}/archive", (HttpContext context, Guid id, RetroListsRepo repo, ActorRegistry registry) =>
                 SetArchivedAsync(context, id, true, repo, registry))
             .RequireRoutePolicy(RoutePolicy.BoardManage)
@@ -123,114 +88,12 @@ public static class RetroEndpoints {
             .RequireRateLimit(CommentPost);
     }
 
-    private static async Task<IResult> CreateQuickAsync(HttpContext context, QuickBoardRequest? body, RetroListsRepo repo) {
-        if (!TryTitle(body?.Title, QuickBoardTitle, out var title)) {
-            return Invalid("title");
-        }
-        var caller = (await context.GetCallerAsync())!;
-        var template = new BoardTemplate(RetroListsRepo.DefaultSettings with { MaxVotes = 3 }, RetroListsRepo.DefaultColumns);
-        return await CreateAsync(repo, null, title, caller.Principal.Id, BoardVisibility.Link, null, template, null, context.RequestAborted);
-    }
-
     private static async Task<IResult> ByCodeAsync(HttpContext context, string code, RoomResolver resolver) {
         var resolution = await resolver.ResolveAsync(context, RoomKind.Board, code, context.RequestAborted);
         if (resolution is not RoomResolution.Found found) {
             return RoomResolver.Result(resolution);
         }
-        var access = found.Access == RoomAccess.Granted ? "granted" : "password";
-        return Results.Json(new RoomLookup(found.Room.Id, access), RoomHttpJsonContext.Default.RoomLookup);
-    }
-
-    // Anyone who can reach a password board may try its password; every other board answers as the resolver does.
-    private static async Task<IResult> UnlockAsync(
-        HttpContext context,
-        Guid id,
-        UnlockRequest body,
-        RetroListsRepo repo,
-        RateLimiter limiter,
-        HashGate gate) {
-        var who = (await context.GetCallerAsync())!.Principal;
-        var keys = new RateKeys(ClientIp.LimitKey(context), who.Id.ToString(), $"{id:N}:{who.Id}");
-        if (!limiter.TryAcquire(UnlockPerBoard, keys, out var retryAfter)) {
-            return RateLimits.LimitedResult(retryAfter);
-        }
-        var cancellationToken = context.RequestAborted;
-        var board = await repo.BoardAsync(new BoardId(id), who.Id, cancellationToken);
-        if (board is null || board.Facts.Deleted || board.Facts.TeamDeleted) {
-            return RoomResolver.HiddenResult();
-        }
-        if (Policy.Can(who, Capability.Subscribe, board.Facts, board.Access)) {
-            return Results.NoContent();
-        }
-        if (board.Facts.Visibility != BoardVisibility.Password || board.PasswordHash is not { } hash || board.Facts.PasswordSetAt is not { } epoch) {
-            return RoomResolver.HiddenResult();
-        }
-        var gated = await gate.RunAsync(() => Bcrypt.Verify(body.Password ?? "", hash), cancellationToken);
-        if (!gated.Admitted) {
-            return HashGate.BusyResult();
-        }
-        if (!gated.Value) {
-            return Problem.Result(StatusCodes.Status403Forbidden, "wrong_password");
-        }
-        // The membership cache reads a grant it does not hold, so the next subscribe sees this one (U23).
-        return await repo.GrantAsync(new BoardId(id), who.Id, epoch, cancellationToken)
-            ? Results.NoContent()
-            : Problem.Result(StatusCodes.Status409Conflict, "password_changed");
-    }
-
-    /// <summary>
-    /// §d: the route writes visibility and password itself (the board cannot, U22 decision 4), then the live board
-    /// learns the change, then every subscriber is re-checked: a new password drops every grant, so holders of the
-    /// old one are kicked.
-    /// </summary>
-    private static async Task<IResult> SetAccessAsync(
-        HttpContext context,
-        Guid id,
-        BoardAccessRequest body,
-        RetroListsRepo repo,
-        ActorRegistry registry,
-        HashGate gate) {
-        var cancellationToken = context.RequestAborted;
-        var who = (await context.GetCallerAsync())!.Principal;
-        var boardId = new BoardId(id);
-        if (await ManagedAsync(repo, boardId, who, Capability.RetroManageAccess, cancellationToken) is not { } board) {
-            return Problem.Result(StatusCodes.Status404NotFound, "not_found");
-        }
-        if (!Policy.Can(who, Capability.RetroManageAccess, board.Facts, board.Access)) {
-            return Problem.Result(StatusCodes.Status403Forbidden, "forbidden");
-        }
-        var visibility = body.Visibility ?? (body.Password is not null ? BoardVisibility.Password : board.Facts.Visibility!.Value);
-        if (visibility == BoardVisibility.Team && board.Facts.Team is null) {
-            return Invalid("visibility");
-        }
-        if (body.Password is not null && (visibility != BoardVisibility.Password || !ValidPassword(body.Password))) {
-            return Invalid("password");
-        }
-        if (visibility == BoardVisibility.Password && body.Password is null && board.PasswordHash is null) {
-            return Problem.Result(StatusCodes.Status400BadRequest, "invalid", new Dictionary<string, string> { ["password"] = "required" });
-        }
-        if (visibility == board.Facts.Visibility && body.Password is null) {
-            return Results.NoContent();
-        }
-
-        string? hash = null;
-        if (body.Password is { } password) {
-            var gated = await gate.RunAsync(() => Bcrypt.Hash(password), cancellationToken);
-            if (!gated.Admitted) {
-                return HashGate.BusyResult();
-            }
-            hash = gated.Value;
-        }
-        var (found, passwordSetAt) = await repo.SetAccessAsync(boardId, visibility, hash, cancellationToken);
-        if (!found) {
-            return Problem.Result(StatusCodes.Status404NotFound, "not_found");
-        }
-        var room = RoomKey.Board(boardId);
-        var result = await registry.AskAsync<RetroState, RetroInput>(
-            room, new RetroInput.AccessSet(visibility, passwordSetAt), HttpViewer.Of(who), cancellationToken);
-        registry.AccessChanged(room);
-        // The rows are written; a board that could not be told now loads them when it next starts.
-        return result.Status == AskStatus.Unavailable ? RoomAsk.Unavailable() : Results.NoContent();
+        return Results.Json(new RoomLookup(found.Room.Id, RoomLookup.Granted), RoomHttpJsonContext.Default.RoomLookup);
     }
 
     private static async Task<IResult> SetArchivedAsync(
@@ -282,9 +145,7 @@ public static class RetroEndpoints {
         // The row is gone either way: a board that could not be told loads as missing when it next starts.
         await registry.AskAsync<RetroState, RetroInput>(room, new RetroInput.Delete(), HttpViewer.Of(who), cancellationToken);
         await registry.TryPurgeAsync(room, _ => Task.CompletedTask, cancellationToken);
-        if (board.Facts.Team is { } team) {
-            context.RequestServices.GetService<ITeamNotices>()?.BoardsChanged(team, boardId);
-        }
+        context.RequestServices.GetService<ITeamNotices>()?.BoardsChanged(board.Facts.Team, boardId);
         return Results.NoContent();
     }
 
@@ -311,35 +172,21 @@ public static class RetroEndpoints {
         Guid id,
         TeamBoardRequest body,
         RetroListsRepo repo,
-        NpgsqlDataSource dataSource,
-        HashGate gate) {
+        NpgsqlDataSource dataSource) {
         var cancellationToken = context.RequestAborted;
         if (await TeamGate.RoleAsync(context, dataSource, id) is null) {
             return TeamGate.NotMember();
         }
-        if (!TryTitle(body.Title, null, out var title)) {
+        if (!TryTitle(body.Title, out var title)) {
             return Invalid("title");
-        }
-        var visibility = body.Visibility ?? BoardVisibility.Team;
-        if ((visibility == BoardVisibility.Password) != (body.Password is not null)
-            || (body.Password is { } given && !ValidPassword(given))) {
-            return Invalid("password");
         }
         var team = new TeamId(id);
         if (await repo.TemplateAsync(team, body.TemplateId, cancellationToken) is not { } template) {
             return Invalid("templateId");
         }
-        string? hash = null;
-        if (body.Password is { } password) {
-            var gated = await gate.RunAsync(() => Bcrypt.Hash(password), cancellationToken);
-            if (!gated.Admitted) {
-                return HashGate.BusyResult();
-            }
-            hash = gated.Value;
-        }
         var caller = (await context.GetCallerAsync())!;
         var notices = context.RequestServices.GetService<ITeamNotices>();
-        return await CreateAsync(repo, team, title, caller.Principal.Id, visibility, hash, template, notices, cancellationToken);
+        return await CreateAsync(repo, team, title, caller.Principal.Id, template, notices, cancellationToken);
     }
 
     /// <summary>
@@ -409,7 +256,7 @@ public static class RetroEndpoints {
     }
 
     private static IReadOnlyList<ActionItemComment> Project(RetroState state, CardId card, PrincipalId viewer, IAnonTagger tagger) {
-        var snapshot = RetroProjection.Snapshot(state, [], forMembers: false);
+        var snapshot = RetroProjection.Snapshot(state, []);
         var mine = new RetroProjection(tagger).Overlay(state, viewer).MineComments.ToHashSet();
         return [
             .. snapshot.Comments
@@ -438,39 +285,27 @@ public static class RetroEndpoints {
 
     private static async Task<IResult> CreateAsync(
         RetroListsRepo repo,
-        TeamId? team,
+        TeamId team,
         string title,
         PrincipalId createdBy,
-        BoardVisibility visibility,
-        string? passwordHash,
         BoardTemplate template,
         ITeamNotices? notices,
         CancellationToken cancellationToken) {
         var board = new BoardId(Guid.CreateVersion7());
-        var code = await RoomCodes.CreateAsync(x => repo.CreateBoardAsync(
-            new NewBoard(board, x, team, title, createdBy, visibility, passwordHash, template),
-            cancellationToken));
+        var code = await RoomCodes.CreateAsync(x => repo.CreateBoardAsync(new NewBoard(board, x, team, title, createdBy, template), cancellationToken));
         if (code is not { } created) {
             return RoomAsk.Unavailable();
         }
-        if (team is { } owner) {
-            notices?.BoardsChanged(owner, board);
-        }
+        notices?.BoardsChanged(team, board);
         return Results.Json(
             new RoomCreated(board.Value, created.Value),
             RoomHttpJsonContext.Default.RoomCreated,
             statusCode: StatusCodes.Status201Created);
     }
 
-    private static bool TryTitle(string? given, string? fallback, out string title) {
-        title = given?.Trim() is { Length: > 0 } trimmed ? trimmed : fallback ?? "";
+    private static bool TryTitle(string? given, out string title) {
+        title = given?.Trim() ?? "";
         return title.Length is > 0 and <= MaxTitleLength && !title.Any(char.IsControl);
-    }
-
-    // bcrypt reads 72 bytes at most; a longer password would be accepted with any suffix.
-    private static bool ValidPassword(string password) {
-        var bytes = Encoding.UTF8.GetByteCount(password);
-        return bytes is >= MinPasswordBytes and <= MaxPasswordBytes;
     }
 
     private static IResult Invalid(string field) =>

@@ -16,7 +16,7 @@ public sealed class BlobsRepoTests(PostgresFixture postgres) {
     public async Task Gc_deletes_only_unattached_board_images_older_than_the_ttl() {
         await using var app = await BlobApp.StartAsync(postgres);
         var user = await app.InsertUserAsync();
-        var board = await app.InsertBoardAsync();
+        var board = await app.InsertBoardAsync(await app.InsertTeamAsync());
         var stale = await app.InsertBoardImageRowAsync(board, 10, Old);
         var attached = await app.InsertBoardImageRowAsync(board, 10, Old, attached: true);
         var young = await app.InsertBoardImageRowAsync(board, 10, TimeSpan.FromHours(23));
@@ -42,7 +42,7 @@ public sealed class BlobsRepoTests(PostgresFixture postgres) {
     [Fact]
     public async Task Gc_deletes_the_oldest_first_and_at_most_the_limit() {
         await using var app = await BlobApp.StartAsync(postgres);
-        var board = await app.InsertBoardAsync();
+        var board = await app.InsertBoardAsync(await app.InsertTeamAsync());
         var oldest = await app.InsertBoardImageRowAsync(board, 10, Old + TimeSpan.FromHours(3));
         var older = await app.InsertBoardImageRowAsync(board, 10, Old + TimeSpan.FromHours(2));
         var old = await app.InsertBoardImageRowAsync(board, 10, Old + TimeSpan.FromHours(1));

@@ -8,23 +8,18 @@ namespace Retroscope.Server.Data.Repos;
 
 /// <summary>
 /// The process-wide team membership cache (§c.2) and the <see cref="IAccessView"/> every decision resolves roles
-/// and password grants through (R12). Only the team actor writes <c>team_members</c>, and it publishes each committed
+/// through (R12). Only the team actor writes <c>team_members</c>, and it publishes each committed
 /// roster here before anything else can observe it, so a load that read older rows never replaces a published
 /// version.
 /// </summary>
 public sealed class MembershipCache(NpgsqlDataSource dataSource) : IMembershipLookup, IAccessView {
-    private const int MaxGrants = 16_384;
-
     // A soft-deleted team has no members: its rooms stay closed to the old roster after a restart or a Forget.
     private const string MembersSql = """
         select m.user_id, m.role from team_members m join teams t on t.id = m.team_id
         where m.team_id = $1 and t.deleted_at is null
         """;
 
-    private const string GrantSql = "select password_epoch from board_access_grants where board_id = $1 and principal_id = $2";
-
     private readonly ConcurrentDictionary<TeamId, TeamMembership> _teams = new();
-    private readonly ConcurrentDictionary<(BoardId Board, PrincipalId Principal), DateTimeOffset> _grants = new();
 
     public bool TryGet(TeamId team, out TeamMembership membership) => _teams.TryGetValue(team, out membership!);
 
@@ -70,27 +65,6 @@ public sealed class MembershipCache(NpgsqlDataSource dataSource) : IMembershipLo
         return membership.RoleOf(principal);
     }
 
-    /// <summary>
-    /// A grant is current when its epoch equals the board's <c>password_set_at</c>. Only matching epochs are cached:
-    /// a miss or an older epoch reads the row again, because the board actor may have granted or re-granted since.
-    /// </summary>
-    public bool HasCurrentGrant(BoardId board, PrincipalId principal, DateTimeOffset? passwordSetAt) {
-        if (passwordSetAt is not { } current) {
-            return false;
-        }
-        if (_grants.TryGetValue((board, principal), out var epoch) && epoch == current) {
-            return true;
-        }
-        if (ReadGrant(board, principal) is not { } stored || stored != current) {
-            return false;
-        }
-        if (_grants.Count >= MaxGrants) {
-            _grants.Clear();
-        }
-        _grants[(board, principal)] = stored;
-        return true;
-    }
-
     private Dictionary<PrincipalId, TeamRole> ReadRoles(TeamId team) {
         using var command = MembersCommand(team);
         using var reader = command.ExecuteReader();
@@ -99,14 +73,6 @@ public sealed class MembershipCache(NpgsqlDataSource dataSource) : IMembershipLo
             roles[new PrincipalId(reader.GetGuid(0))] = ParseRole(reader.GetString(1));
         }
         return roles;
-    }
-
-    private DateTimeOffset? ReadGrant(BoardId board, PrincipalId principal) {
-        using var command = dataSource.CreateCommand(GrantSql);
-        command.Parameters.Add(new() { Value = board.Value });
-        command.Parameters.Add(new() { Value = principal.Value });
-        using var reader = command.ExecuteReader();
-        return reader.Read() ? reader.GetFieldValue<DateTimeOffset>(0) : null;
     }
 
     private NpgsqlCommand MembersCommand(TeamId team) {

@@ -58,6 +58,12 @@ public sealed record SessionView(
 /// </summary>
 public sealed class Sessions {
     public const string CookieName = "__Host-rs_sid";
+
+    /// <summary>
+    /// The cookie that identified a guest before UX18. Nothing reads it any more; signing in and out expires it, so a
+    /// browser stops sending a credential that no longer means anything.
+    /// </summary>
+    public const string LegacyGuestCookieName = "__Host-rs_guest";
     public const int CacheCapacity = 4096;
 
     public static readonly TimeSpan IdleLifetime = TimeSpan.FromDays(30);
@@ -135,6 +141,7 @@ public sealed class Sessions {
             SessionsRepo.Insert(hash, user.Id, method, now, session.IdleExpiresAt, session.AbsExpiresAt, context.Request.Headers.UserAgent.ToString()),
             cancellationToken);
         context.Response.Cookies.Append(CookieName, token, CookieOptions(AbsoluteLifetime));
+        ExpireLegacyGuestCookie(context);
         return session;
     }
 
@@ -166,8 +173,16 @@ public sealed class Sessions {
     /// <summary>Drops cached sessions of the user after a profile change, so the next request sees the new name.</summary>
     public void EvictUser(PrincipalId user) => _cache.RemoveWhere(x => x.User.Id == user);
 
-    public static void ClearCookie(HttpResponse response) =>
+    public static void ClearCookie(HttpResponse response) {
         response.Cookies.Append(CookieName, "", CookieOptions(TimeSpan.Zero));
+        ExpireLegacyGuestCookie(response.HttpContext);
+    }
+
+    private static void ExpireLegacyGuestCookie(HttpContext context) {
+        if (context.Request.Cookies.ContainsKey(LegacyGuestCookieName)) {
+            context.Response.Cookies.Append(LegacyGuestCookieName, "", CookieOptions(TimeSpan.Zero));
+        }
+    }
 
     internal static CookieOptions CookieOptions(TimeSpan maxAge) => new() {
         HttpOnly = true,
@@ -181,13 +196,10 @@ public sealed class Sessions {
     private static DateTimeOffset Min(DateTimeOffset a, DateTimeOffset b) => a < b ? a : b;
 }
 
-/// <summary>Resolves the request's caller: a live session cookie first (a user takes precedence), else the guest cookie.</summary>
-public sealed class AuthCallerResolver(Sessions sessions, Guests guests) : ICallerResolver {
+/// <summary>Resolves the request's caller from a live session cookie: every caller is a signed-in user (UX18).</summary>
+public sealed class AuthCallerResolver(Sessions sessions) : ICallerResolver {
     public async ValueTask<Caller?> ResolveAsync(HttpContext context) {
-        if (await sessions.CurrentAsync(context) is { } session) {
-            return session.ToCaller();
-        }
-        return await guests.CurrentAsync(context) is { } guest ? new Caller(guest, EmailVerified: false) : null;
+        return await sessions.CurrentAsync(context) is { } session ? session.ToCaller() : null;
     }
 }
 

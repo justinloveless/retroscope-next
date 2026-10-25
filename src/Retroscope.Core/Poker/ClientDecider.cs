@@ -469,7 +469,7 @@ internal sealed class ClientDecider(PokerState state, Viewer viewer, CommandCont
         if (!can(viewer.Who, Capability.PokerSubmitJiraPoints, configured, context.Access)) {
             return Reject(NackCode.Forbidden, "Not allowed.");
         }
-        if (state.TeamId is null || !state.Jira.Configured) {
+        if (!state.Jira.Configured) {
             return Reject(NackCode.JiraNotConfigured, "This session's team has no Jira configured.");
         }
         if (Round(Capability.PokerSubmitJiraPoints, command.RoundId, out var round) is { } rejected) {
@@ -530,13 +530,7 @@ internal sealed class ClientDecider(PokerState state, Viewer viewer, CommandCont
     }
 
     private Decision<PokerEvent> VoteChange(Round round, Vote? vote) {
-        var events = new List<PokerEvent> { new VoteChanged(round.Id, Me, vote), new AutoRevealArmed(round.Id, Now) };
-        if (!state.IsTeamSession && vote is not null && !state.Roster.ContainsKey(Me)) {
-            var me = viewer.Who;
-            var seats = state.Roster.Values.Append(new PrincipalInfo(me.Id, me.Kind, me.DisplayName, me.AvatarBlobId));
-            events.Add(new RosterSet(seats.OrderBy(x => x.Pid.ToString(), StringComparer.Ordinal).ToArray()));
-        }
-        return new Decision<PokerEvent>.Accept(events);
+        return Accept(new VoteChanged(round.Id, Me, vote), new AutoRevealArmed(round.Id, Now));
     }
 
     /// <summary>

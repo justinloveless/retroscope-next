@@ -71,7 +71,7 @@ public sealed class RoomListTests(PostgresFixture postgres) {
         var team = await app.TeamAsync((member, "member"));
         for (var i = 0; i < 5; i++) {
             await app.ExecAsync(
-                "insert into retro_boards (id, code, team_id, title, visibility, created_at) values ($1, $2, $3, $4, 'team', now() - $5 * interval '1 minute')",
+                "insert into retro_boards (id, code, team_id, title, created_at) values ($1, $2, $3, $4, now() - $5 * interval '1 minute')",
                 Guid.CreateVersion7(),
                 $"PAGEBOARD{i}",
                 team,
@@ -120,13 +120,62 @@ public sealed class RoomListTests(PostgresFixture postgres) {
 
         var item = Assert.Single(active.GetProperty("items").EnumerateArray());
         Assert.Equal(
-            ["id", "code", "title", "visibility", "archived", "createdAt"],
+            ["id", "code", "title", "archived", "createdAt", "stage", "stagesEnabled", "cardCount", "lastActivityAt"],
             item.EnumerateObject().Select(x => x.Name));
         Assert.Equal(open.GetProperty("code").GetString(), item.GetProperty("code").GetString());
-        Assert.Equal("team", item.GetProperty("visibility").GetString());
         var oldItem = Assert.Single(old.GetProperty("items").EnumerateArray());
         Assert.Equal("Archived", oldItem.GetProperty("title").GetString());
         Assert.True(oldItem.GetProperty("archived").GetBoolean());
         Assert.True(oldItem.GetProperty("archivedAt").GetInt64() > 0);
+    }
+
+    // UX18 decision 11: the team page shows each board's stage (when stages are on), its cards and its last activity,
+    // and each session's last activity; nothing in a row claims a room is live.
+    [Fact]
+    public async Task List_rows_carry_the_stage_the_cards_and_the_last_activity() {
+        await using var app = await RoomHttpApp.StartAsync(postgres);
+        var member = await app.UserAsync();
+        var caller = RoomHttpApp.User(member);
+        var team = await app.TeamAsync((member, "member"));
+        var staged = (await RoomHttpApp.JsonAsync(
+            await app.PostAsync($"/api/teams/{team}/boards", caller, new { title = "Staged" }), HttpStatusCode.Created)).GetProperty("id").GetGuid();
+        var plain = (await RoomHttpApp.JsonAsync(
+            await app.PostAsync($"/api/teams/{team}/boards", caller, new { title = "Plain" }), HttpStatusCode.Created)).GetProperty("id").GetGuid();
+        var session = (await RoomHttpApp.JsonAsync(
+            await app.PostAsync($"/api/teams/{team}/poker-sessions", caller), HttpStatusCode.Created)).GetProperty("id").GetGuid();
+        var boardActivity = DateTimeOffset.Parse("2026-10-01T12:00:00Z", System.Globalization.CultureInfo.InvariantCulture);
+        var sessionActivity = DateTimeOffset.Parse("2026-10-02T08:30:00Z", System.Globalization.CultureInfo.InvariantCulture);
+        await app.ExecAsync(
+            "update retro_boards set stage = 'voting', stages_enabled = true, last_activity_at = $2 where id = $1", staged, boardActivity);
+        for (var i = 0; i < 3; i++) {
+            await app.ExecAsync(
+                """
+                insert into retro_cards (id, board_id, column_id, body)
+                select gen_random_uuid(), $1, id, 'A card' from retro_columns where board_id = $1 order by sort_key limit 1
+                """,
+                staged);
+        }
+        await app.ExecAsync("update poker_sessions set last_activity_at = $2 where id = $1", session, sessionActivity);
+
+        var boards = (await RoomHttpApp.JsonAsync(await app.GetAsync($"/api/teams/{team}/boards", caller)))
+            .GetProperty("items").EnumerateArray().ToDictionary(x => x.GetProperty("id").GetGuid());
+        var sessions = (await RoomHttpApp.JsonAsync(await app.GetAsync($"/api/teams/{team}/poker-sessions", caller)))
+            .GetProperty("items").EnumerateArray().ToList();
+
+        Assert.Equal("voting", boards[staged].GetProperty("stage").GetString());
+        Assert.True(boards[staged].GetProperty("stagesEnabled").GetBoolean());
+        Assert.Equal(3, boards[staged].GetProperty("cardCount").GetInt32());
+        Assert.Equal(boardActivity.ToUnixTimeMilliseconds(), boards[staged].GetProperty("lastActivityAt").GetInt64());
+        Assert.Equal("thinking", boards[plain].GetProperty("stage").GetString());
+        Assert.False(boards[plain].GetProperty("stagesEnabled").GetBoolean());
+        Assert.Equal(0, boards[plain].GetProperty("cardCount").GetInt32());
+        Assert.True(boards[plain].GetProperty("lastActivityAt").GetInt64() >= boards[plain].GetProperty("createdAt").GetInt64() - 1000);
+        Assert.False(boards[plain].TryGetProperty("visibility", out _));
+        var row = Assert.Single(sessions);
+        Assert.Equal(session, row.GetProperty("id").GetGuid());
+        Assert.Equal(sessionActivity.ToUnixTimeMilliseconds(), row.GetProperty("lastActivityAt").GetInt64());
+        Assert.Equal(
+            ["id", "code", "createdAt", "pointed", "total", "parentKeys", "lastActivityAt"],
+            row.EnumerateObject().Select(x => x.Name));
     }
 }

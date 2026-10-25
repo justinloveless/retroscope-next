@@ -70,6 +70,8 @@ public sealed class TeamBinding(TimeProvider time) : IRoomBinding<TeamState, Tea
     }
 
     public bool IsDeleted(TeamState state) => state.Deleted;
+
+    public TeamId? TeamOf(TeamState state) => state.TeamId;
 }
 
 /// <summary>Board and poker actors' posts to the team actor: synchronous enqueues on live rooms only (§c.2).</summary>

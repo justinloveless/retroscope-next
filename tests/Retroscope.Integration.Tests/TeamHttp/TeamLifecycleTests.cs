@@ -53,10 +53,11 @@ public sealed class TeamLifecycleTests(PostgresFixture postgres) {
         Assert.Equal(3, json.GetProperty("maxEndorsements").GetInt32());
         Assert.False(json.GetProperty("jira").GetProperty("configured").GetBoolean());
         Assert.Equal(1, json.GetProperty("counts").GetProperty("members").GetInt32());
-        using var list = await host.GetAsync(owner, "/api/teams");
-        var summary = Assert.Single((await TeamHttpHost.JsonAsync(list)).EnumerateArray());
-        Assert.Equal(team, summary.GetProperty("id").GetGuid());
-        Assert.False(summary.GetProperty("favorite").GetBoolean());
+        using var me = await host.GetAsync(owner, "/api/me");
+        var mine = Assert.Single((await TeamHttpHost.JsonAsync(me)).GetProperty("teams").EnumerateArray());
+        Assert.Equal(team, mine.GetProperty("id").GetGuid());
+        Assert.Equal("Platform", mine.GetProperty("name").GetString());
+        Assert.Equal("owner", mine.GetProperty("role").GetString());
     }
 
     [Fact]
@@ -117,8 +118,8 @@ public sealed class TeamLifecycleTests(PostgresFixture postgres) {
         Assert.Equal(3L, await host.ScalarAsync<long>("select count(*) from team_members where team_id = $1", team));
         using var gone = await host.GetAsync(owner, $"/api/teams/{team}");
         Assert.Equal(HttpStatusCode.NotFound, gone.StatusCode);
-        using var list = await host.GetAsync(member, "/api/teams");
-        Assert.Empty((await TeamHttpHost.JsonAsync(list)).EnumerateArray());
+        using var me = await host.GetAsync(member, "/api/me");
+        Assert.Empty((await TeamHttpHost.JsonAsync(me)).GetProperty("teams").EnumerateArray());
         Assert.Equal(1L, await host.ScalarAsync<long>("select count(*) from audit_log where action = 'team.delete' and team_id = $1", team));
     }
 
@@ -141,24 +142,5 @@ public sealed class TeamLifecycleTests(PostgresFixture postgres) {
         cache.Forget(team);
         Assert.Empty((await cache.LoadAsync(team, TeamHttpHost.Token)).Roles);
         Assert.Equal(2L, await restarted.ScalarAsync<long>("select count(*) from team_members where team_id = $1", team.Value));
-    }
-
-    [Fact]
-    public async Task Favorites_are_per_user_and_idempotent() {
-        await using var host = await TeamHttpHost.StartAsync(postgres);
-        var owner = await host.UserAsync("Olive");
-        var member = await host.UserAsync("Mia");
-        var team = await host.TeamAsync(owner, "Platform", (member, "member"));
-
-        (await host.SendAsync(member, HttpMethod.Put, $"/api/teams/{team}/favorite", null)).Dispose();
-        (await host.SendAsync(member, HttpMethod.Put, $"/api/teams/{team}/favorite", null)).Dispose();
-
-        using var mine = await host.GetAsync(member, "/api/teams");
-        using var theirs = await host.GetAsync(owner, "/api/teams");
-        Assert.True(Assert.Single((await TeamHttpHost.JsonAsync(mine)).EnumerateArray()).GetProperty("favorite").GetBoolean());
-        Assert.False(Assert.Single((await TeamHttpHost.JsonAsync(theirs)).EnumerateArray()).GetProperty("favorite").GetBoolean());
-
-        (await host.SendAsync(member, HttpMethod.Delete, $"/api/teams/{team}/favorite", null)).Dispose();
-        Assert.Equal(0L, await host.ScalarAsync<long>("select count(*) from team_favorites"));
     }
 }

@@ -4,21 +4,14 @@ using Retroscope.Core.Room;
 
 namespace Retroscope.Core.Retro;
 
-// Columns, title, configuration and stages: facilitators only.
+// Columns, title, configuration and stages: the facilitation every member has (UX18).
 public sealed partial class RetroDecider {
     private const int ColumnTitleLength = 100;
     private const int BoardTitleLength = 200;
     private const int VoteEmojiLength = 8;
     private const int MaxVotesLimit = 99;
 
-    private static Decision<RetroEvent>? RequireFacilitator(RetroState state, Principal who, IAccessView access) {
-        return RetroRoles.IsFacilitator(state, who, access) ? null : Reject(NackCode.Forbidden, "Facilitators only.");
-    }
-
-    private static Decision<RetroEvent> AddColumn(RetroState state, RetroColumnAdd command, Principal who, IAccessView access) {
-        if (RequireFacilitator(state, who, access) is { } denied) {
-            return denied;
-        }
+    private static Decision<RetroEvent> AddColumn(RetroState state, RetroColumnAdd command) {
         // A resend of a create that already committed acks without applying twice; a column renamed or recoloured
         // since then can no longer be compared.
         if (state.FindColumn(command.ColumnId) is { } existing) {
@@ -34,10 +27,7 @@ public sealed partial class RetroDecider {
         return Accept(new ColumnAdded(command.ColumnId, command.Title, command.Color, sortKey));
     }
 
-    private static Decision<RetroEvent> UpdateColumn(RetroState state, RetroColumnUpdate command, Principal who, IAccessView access) {
-        if (RequireFacilitator(state, who, access) is { } denied) {
-            return denied;
-        }
+    private static Decision<RetroEvent> UpdateColumn(RetroState state, RetroColumnUpdate command) {
         if (state.FindColumn(command.ColumnId) is not { } column) {
             return Reject(NackCode.NotFound, "No such column.");
         }
@@ -55,10 +45,7 @@ public sealed partial class RetroDecider {
         return Accept(new ColumnUpdated(column.Id, nextTitle, nextColor, column.Version + 1));
     }
 
-    private static Decision<RetroEvent> DeleteColumn(RetroState state, RetroColumnDelete command, Principal who, IAccessView access) {
-        if (RequireFacilitator(state, who, access) is { } denied) {
-            return denied;
-        }
+    private static Decision<RetroEvent> DeleteColumn(RetroState state, RetroColumnDelete command) {
         if (state.FindColumn(command.ColumnId) is null) {
             return Reject(NackCode.NotFound, "No such column.");
         }
@@ -67,10 +54,7 @@ public sealed partial class RetroDecider {
         return state.Focus is { } focus && cards.Contains(focus) ? Accept(deleted, new FocusChanged(null)) : Accept(deleted);
     }
 
-    private static Decision<RetroEvent> ReorderColumns(RetroState state, RetroColumnReorder command, Principal who, IAccessView access) {
-        if (RequireFacilitator(state, who, access) is { } denied) {
-            return denied;
-        }
+    private static Decision<RetroEvent> ReorderColumns(RetroState state, RetroColumnReorder command) {
         var current = state.Columns.Select(column => column.Id).ToList();
         var isPermutation = command.Order.Count == current.Count
             && command.Order.Distinct().Count() == current.Count
@@ -87,24 +71,14 @@ public sealed partial class RetroDecider {
         return command.Order.SequenceEqual(current) ? NoOp : Accept(new ColumnsReordered(command.Order.ToList()));
     }
 
-    private static Decision<RetroEvent> SetActionItemsColumn(
-        RetroState state,
-        RetroColumnSetActionItems command,
-        Principal who,
-        IAccessView access) {
-        if (RequireFacilitator(state, who, access) is { } denied) {
-            return denied;
-        }
+    private static Decision<RetroEvent> SetActionItemsColumn(RetroState state, RetroColumnSetActionItems command) {
         if (command.ColumnId is { } id && state.FindColumn(id) is null) {
             return Reject(NackCode.NotFound, "No such column.");
         }
         return state.ActionItemsColumn?.Id == command.ColumnId ? NoOp : Accept(new ActionItemsColumnSet(command.ColumnId));
     }
 
-    private static Decision<RetroEvent> Rename(RetroState state, RetroBoardRename command, Principal who, IAccessView access) {
-        if (RequireFacilitator(state, who, access) is { } denied) {
-            return denied;
-        }
+    private static Decision<RetroEvent> Rename(RetroState state, RetroBoardRename command) {
         if (!string.Equals(command.Expected, state.Title, StringComparison.Ordinal)) {
             return Stale(state.Title, WireJsonContext.Default.String);
         }
@@ -118,10 +92,7 @@ public sealed partial class RetroDecider {
     /// Only the fields present in the patch apply, and each must come with the value the client last saw, so a
     /// settings dialog opened before someone else's change cannot overwrite it (R5).
     /// </summary>
-    private static Decision<RetroEvent> UpdateConfig(RetroState state, RetroConfigUpdate command, Principal who, IAccessView access) {
-        if (RequireFacilitator(state, who, access) is { } denied) {
-            return denied;
-        }
+    private static Decision<RetroEvent> UpdateConfig(RetroState state, RetroConfigUpdate command) {
         var current = state.Config;
         var currentAsPatch = RetroConfigPatches.FromConfig(current);
         var patch = command.Patch;
@@ -141,10 +112,7 @@ public sealed partial class RetroDecider {
         return next == current ? NoOp : Accept(new ConfigChanged(next, current));
     }
 
-    private static Decision<RetroEvent> SetStage(RetroState state, RetroStageSet command, Principal who, CommandContext context) {
-        if (RequireFacilitator(state, who, context.Access) is { } denied) {
-            return denied;
-        }
+    private static Decision<RetroEvent> SetStage(RetroState state, RetroStageSet command, CommandContext context) {
         if (command.From != state.Stage) {
             return Stale(state.Stage, WireJsonContext.Default.RetroStage);
         }

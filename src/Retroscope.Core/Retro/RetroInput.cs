@@ -21,7 +21,7 @@ public abstract record RetroInput {
     /// <summary><c>max_endorsements_per_board</c> changed on the team.</summary>
     public sealed record TeamSettingsChanged(int MaxEndorsements) : RetroInput;
 
-    /// <summary>A new version of the team's membership; the board shows it to members only.</summary>
+    /// <summary>A new version of the team's membership.</summary>
     public sealed record MembersChanged(IReadOnlyList<MemberInfo> Members) : RetroInput;
 
     public sealed record ArchiveSet(bool Archived, PrincipalId? By) : RetroInput;
@@ -32,9 +32,6 @@ public abstract record RetroInput {
     /// is the HTTP caller.
     /// </summary>
     public sealed record ActionItemCommentAdd(CommentId CommentId, CardId CardId, string Body) : RetroInput;
-
-    /// <summary>Visibility or password changed; <paramref name="PasswordSetAt"/> is null without a password.</summary>
-    public sealed record AccessSet(BoardVisibility Visibility, DateTimeOffset? PasswordSetAt) : RetroInput;
 
     /// <summary>The board's row was soft-deleted (<c>DELETE /api/retro/{id}</c>); the actor kicks every subscriber.</summary>
     public sealed record Delete : RetroInput;

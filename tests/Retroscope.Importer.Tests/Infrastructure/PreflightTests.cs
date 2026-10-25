@@ -107,8 +107,8 @@ public sealed class PreflightTests(ImporterDatabases databases) {
         await ImporterDatabases.ExecuteAsync(source, """
             alter table public.retro_items drop column session_id;
             alter table public.retro_columns alter column position type bigint;
-            alter table public.user_favorite_teams drop constraint user_favorite_teams_pkey;
-            alter table public.user_favorite_teams add primary key (user_id, team_id);
+            alter table public.user_recent_activity drop constraint user_recent_activity_pkey;
+            alter table public.user_recent_activity add primary key (user_id, entity_type, entity_id);
             """);
 
         var failure = await Assert.ThrowsAsync<PreflightFailedException>(() => PreflightAsync(source, ExpectedSchema.Embedded));
@@ -116,7 +116,7 @@ public sealed class PreflightTests(ImporterDatabases databases) {
         Assert.Equal([
             "column public.retro_columns.position is int8, expected int4",
             "expected column public.retro_items.session_id is missing",
-            "primary key of public.user_favorite_teams is (user_id, team_id), expected (id)",
+            "primary key of public.user_recent_activity is (user_id, entity_type, entity_id), expected (id)",
         ], failure.Errors.Order());
     }
 

@@ -21,27 +21,28 @@ using static Retroscope.Integration.Tests.Actors.ActorHarness;
 namespace Retroscope.Integration.Tests.RetroRooms;
 
 /// <summary>
-/// One migrated database with a team (Alice owns it, Bob is a member), a non-member (Carol), a guest (Gina), a team
-/// board with a plain and an action-items column, and a quick board. Registries run the real retro binding and store
-/// against it; a new registry is a restarted process.
+/// One migrated database with a team (Alice owns it, Bob is a member), a non-member (Carol), a legacy guest principal
+/// (Gina), a team board with a plain and an action-items column, and a board of another team that only Alice belongs
+/// to. Registries run the real retro binding and store against it; a new registry is a restarted process.
 /// </summary>
 internal sealed class RetroScope : IAsyncDisposable {
     public static readonly Viewer Gina = ActorHarness.Viewer(4, "Gina", kind: PrincipalKind.Guest);
 
     public static readonly TeamId Team = new(ActorHarness.Id(0x100));
+    public static readonly TeamId OtherTeam = new(ActorHarness.Id(0x102));
     public static readonly BoardId TeamBoard = new(ActorHarness.Id(0x200));
-    public static readonly BoardId QuickBoard = new(ActorHarness.Id(0x201));
+    public static readonly BoardId OtherBoard = new(ActorHarness.Id(0x201));
     public static readonly ColumnId Good = new(ActorHarness.Id(0x300));
     public static readonly ColumnId Actions = new(ActorHarness.Id(0x301));
-    public static readonly ColumnId QuickColumn = new(ActorHarness.Id(0x302));
+    public static readonly ColumnId OtherColumn = new(ActorHarness.Id(0x302));
     public static readonly EndorsementTypeId Kudos = new(ActorHarness.Id(0x400));
     public static readonly BlobId Image1 = new(ActorHarness.Id(0x500));
     public static readonly BlobId Image2 = new(ActorHarness.Id(0x501));
-    public static readonly BlobId QuickImage = new(ActorHarness.Id(0x502));
+    public static readonly BlobId OtherImage = new(ActorHarness.Id(0x502));
     public static readonly BlobId Avatar = new(ActorHarness.Id(0x503));
 
     public static readonly RoomKey TeamBoardRoom = RoomKey.Board(TeamBoard);
-    public static readonly RoomKey QuickBoardRoom = RoomKey.Board(QuickBoard);
+    public static readonly RoomKey OtherBoardRoom = RoomKey.Board(OtherBoard);
 
     private readonly List<ActorRegistry> _registries = [];
 
@@ -51,6 +52,7 @@ internal sealed class RetroScope : IAsyncDisposable {
         DataSource = dataSource;
         Access.Roles[(Team, Alice.Who.Id)] = TeamRole.Owner;
         Access.Roles[(Team, Bob.Who.Id)] = TeamRole.Member;
+        Access.Roles[(OtherTeam, Alice.Who.Id)] = TeamRole.Owner;
     }
 
     public TestDatabase Database { get; }
@@ -113,14 +115,13 @@ internal sealed class RetroScope : IAsyncDisposable {
         return Assert.IsType<NackFrame>(await SendAsync(registry, room, peer, q, command));
     }
 
-    /// <summary>The shared snapshot (both variants, without presence) and the overlays of the given viewers, as JSON.</summary>
+    /// <summary>The shared snapshot (without presence) and the overlays of the given viewers, as JSON.</summary>
     public Task<string> DescribeAsync(ActorRegistry registry, RoomKey room, params Viewer[] viewers) {
         var projection = new RetroProjection(Tagger);
         return registry.QueryAsync<RetroState, RetroInput, string>(room, view => {
             var state = view.State!;
             var parts = new List<string> {
-                JsonSerializer.Serialize(RetroProjection.Snapshot(state, [], forMembers: true), WireJsonContext.Default.RetroSnapshot),
-                JsonSerializer.Serialize(RetroProjection.Snapshot(state, [], forMembers: false), WireJsonContext.Default.RetroSnapshot),
+                JsonSerializer.Serialize(RetroProjection.Snapshot(state, []), WireJsonContext.Default.RetroSnapshot),
             };
             parts.AddRange(viewers.Select(viewer => JsonSerializer.Serialize(projection.Overlay(state, viewer.Who.Id), WireJsonContext.Default.RetroOverlay)));
             return ValueTask.FromResult(string.Join('\n', parts));
@@ -188,21 +189,23 @@ internal sealed class RetroScope : IAsyncDisposable {
           ('{Alice.Who.Id.Value}', 'alice@example.com', 'Alice Liddell', 'Alice'),
           ('{Bob.Who.Id.Value}', 'bob@example.com', 'Bob', null),
           ('{Carol.Who.Id.Value}', 'carol@example.com', 'Carol', null);
-        insert into teams (id, name, created_by) values ('{Team.Value}', 'Team', '{Alice.Who.Id.Value}');
+        insert into teams (id, name, created_by) values
+          ('{Team.Value}', 'Team', '{Alice.Who.Id.Value}'), ('{OtherTeam.Value}', 'Other team', '{Alice.Who.Id.Value}');
         insert into team_members (team_id, user_id, role) values
-          ('{Team.Value}', '{Alice.Who.Id.Value}', 'owner'), ('{Team.Value}', '{Bob.Who.Id.Value}', 'member');
+          ('{Team.Value}', '{Alice.Who.Id.Value}', 'owner'), ('{Team.Value}', '{Bob.Who.Id.Value}', 'member'),
+          ('{OtherTeam.Value}', '{Alice.Who.Id.Value}', 'owner');
         insert into endorsement_types (id, team_id, name, emoji, sort_key) values ('{Kudos.Value}', '{Team.Value}', 'Kudos', '🎉', 0);
-        insert into retro_boards (id, code, team_id, title, created_by, visibility) values
-          ('{TeamBoard.Value}', 'TEAMBOARD1', '{Team.Value}', 'Sprint 1', '{Alice.Who.Id.Value}', 'link'),
-          ('{QuickBoard.Value}', 'QUICKBOARD', null, 'Quick', '{Alice.Who.Id.Value}', 'link');
+        insert into retro_boards (id, code, team_id, title, created_by) values
+          ('{TeamBoard.Value}', 'TEAMBOARD1', '{Team.Value}', 'Sprint 1', '{Alice.Who.Id.Value}'),
+          ('{OtherBoard.Value}', 'OTHERBOARD', '{OtherTeam.Value}', 'Other', '{Alice.Who.Id.Value}');
         insert into retro_columns (id, board_id, title, color, sort_key, is_action_items) values
           ('{Good.Value}', '{TeamBoard.Value}', 'Good', 'green', 0, false),
           ('{Actions.Value}', '{TeamBoard.Value}', 'Actions', 'blue', 1, true),
-          ('{QuickColumn.Value}', '{QuickBoard.Value}', 'Notes', 'gray', 0, false);
+          ('{OtherColumn.Value}', '{OtherBoard.Value}', 'Notes', 'gray', 0, false);
         insert into blobs (id, purpose, board_id, content_type, byte_size, sha256, bytes, created_by) values
           ('{Image1.Value}', 'board_image', '{TeamBoard.Value}', 'image/png', 1, sha256('\x01'), '\x01', '{Alice.Who.Id.Value}'),
           ('{Image2.Value}', 'board_image', '{TeamBoard.Value}', 'image/png', 1, sha256('\x02'), '\x02', '{Alice.Who.Id.Value}'),
-          ('{QuickImage.Value}', 'board_image', '{QuickBoard.Value}', 'image/png', 1, sha256('\x03'), '\x03', '{Alice.Who.Id.Value}'),
+          ('{OtherImage.Value}', 'board_image', '{OtherBoard.Value}', 'image/png', 1, sha256('\x03'), '\x03', '{Alice.Who.Id.Value}'),
           ('{Avatar.Value}', 'avatar', null, 'image/png', 1, sha256('\x04'), '\x04', '{Alice.Who.Id.Value}');
         """;
 }

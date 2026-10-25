@@ -90,7 +90,5 @@ public sealed record MembersReplaced(IReadOnlyList<MemberInfo> Members) : RetroE
 
 public sealed record ArchivedChanged(bool Archived, PrincipalId? By, DateTimeOffset At) : RetroEvent;
 
-public sealed record AccessChanged(BoardVisibility Visibility, DateTimeOffset? PasswordSetAt) : RetroEvent;
-
 /// <summary>Has no wire event: the kick that follows tells subscribers.</summary>
 public sealed record BoardDeleted : RetroEvent;

@@ -50,18 +50,16 @@ public sealed class BlobsRepo(NpgsqlDataSource dataSource) {
           limit $2)
         """;
 
-    // Columns 0-11 of every board read; the caller's principal is $2 (null for anonymous callers).
+    // Columns 0-8 of every board read; the caller's principal is $2 (null for anonymous callers).
     private const string BoardColumns = """
-        r.id, r.team_id, r.created_by, r.visibility, r.password_set_at, r.archived_at is not null,
-        r.deleted_at is not null, coalesce(t.deleted_at is not null, false), m.role, g.password_epoch,
-        r.stage, r.stages_enabled,
+        r.id, r.team_id, r.archived_at is not null, r.deleted_at is not null, coalesce(t.deleted_at is not null, false),
+        m.role, r.stage, r.stages_enabled,
         exists (select 1 from retro_columns c where c.board_id = r.id and c.is_action_items)
         """;
 
     private const string BoardJoins = """
         left join teams t on t.id = r.team_id
         left join team_members m on m.team_id = r.team_id and m.user_id = $2
-        left join board_access_grants g on g.board_id = r.id and g.principal_id = $2
         """;
 
     public async Task<StoredBlob?> GetAsync(BlobId id, PrincipalId? caller, CancellationToken cancellationToken) {
@@ -187,57 +185,40 @@ public sealed class BlobsRepo(NpgsqlDataSource dataSource) {
     }
 
     private static BoardView? ReadBoard(NpgsqlDataReader reader, int at, PrincipalId? caller) {
-        if (reader.IsDBNull(at)) {
+        if (reader.IsDBNull(at) || reader.IsDBNull(at + 1)) {
             return null;
         }
         var board = new BoardId(reader.GetGuid(at));
-        var team = reader.IsDBNull(at + 1) ? (TeamId?)null : new TeamId(reader.GetGuid(at + 1));
-        var passwordSetAt = reader.IsDBNull(at + 4) ? (DateTimeOffset?)null : reader.GetFieldValue<DateTimeOffset>(at + 4);
+        var team = new TeamId(reader.GetGuid(at + 1));
         var facts = new ResourceFacts(
             RoomKey.Board(board),
-            Team: team,
-            CreatedBy: reader.IsDBNull(at + 2) ? null : new PrincipalId(reader.GetGuid(at + 2)),
-            Visibility: reader.GetString(at + 3) switch {
-                "link" => BoardVisibility.Link,
-                "team" => BoardVisibility.Team,
-                _ => BoardVisibility.Password,
-            },
-            PasswordSetAt: passwordSetAt,
-            Archived: reader.GetBoolean(at + 5),
-            Deleted: reader.GetBoolean(at + 6),
-            TeamDeleted: reader.GetBoolean(at + 7));
-        var role = reader.IsDBNull(at + 8)
+            team,
+            Archived: reader.GetBoolean(at + 2),
+            Deleted: reader.GetBoolean(at + 3),
+            TeamDeleted: reader.GetBoolean(at + 4));
+        var role = reader.IsDBNull(at + 5)
             ? (TeamRole?)null
-            : reader.GetString(at + 8) switch {
+            : reader.GetString(at + 5) switch {
                 "owner" => TeamRole.Owner,
                 "admin" => TeamRole.Admin,
                 _ => TeamRole.Member,
             };
-        var grant = reader.IsDBNull(at + 9) ? (DateTimeOffset?)null : reader.GetFieldValue<DateTimeOffset>(at + 9);
-        var stage = reader.GetString(at + 10) switch {
+        var stage = reader.GetString(at + 6) switch {
             "thinking" => RetroStage.Thinking,
             "voting" => RetroStage.Voting,
             "discussing" => RetroStage.Discussing,
             _ => RetroStage.Closed,
         };
-        var access = new CallerBoardAccess(team, board, caller, role, grant);
-        return new BoardView(facts, access, stage, reader.GetBoolean(at + 11), reader.GetBoolean(at + 12));
+        var access = new CallerBoardAccess(team, caller, role);
+        return new BoardView(facts, access, stage, reader.GetBoolean(at + 7), reader.GetBoolean(at + 8));
     }
 
     /// <summary>
-    /// The one caller's role and grant as the database holds them at read time. Membership and grants are written by
-    /// the team and board actors before they are announced, so the row is never behind the actors.
+    /// The one caller's role as the database holds it at read time. Membership is written by the team actor before it
+    /// is announced, so the row is never behind the actor.
     /// </summary>
-    private sealed class CallerBoardAccess(
-        TeamId? boardTeam,
-        BoardId readBoard,
-        PrincipalId? caller,
-        TeamRole? role,
-        DateTimeOffset? grantEpoch) : IAccessView {
+    private sealed class CallerBoardAccess(TeamId boardTeam, PrincipalId? caller, TeamRole? role) : IAccessView {
         public TeamRole? RoleIn(TeamId team, PrincipalId principal) =>
             team == boardTeam && principal == caller ? role : null;
-
-        public bool HasCurrentGrant(BoardId board, PrincipalId principal, DateTimeOffset? passwordSetAt) =>
-            board == readBoard && principal == caller && grantEpoch is not null && grantEpoch == passwordSetAt;
     }
 }

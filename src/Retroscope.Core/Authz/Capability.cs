@@ -29,9 +29,7 @@ public enum Capability : byte {
     /// <summary>Columns, action-items column, title, config, stages, and deleting action-item cards.</summary>
     RetroFacilitate,
     RetroEndorse,
-    RetroViewRoster,
     RetroArchive,
-    RetroManageAccess,
     RetroDeleteBoard,
 
     TeamUpdateActionItem,

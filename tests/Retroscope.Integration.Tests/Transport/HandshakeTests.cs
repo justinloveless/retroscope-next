@@ -15,14 +15,14 @@ public sealed class HandshakeTests {
     public async Task Hello_is_answered_with_welcome_naming_the_connection_and_the_principal() {
         await using var app = await TransportApp.StartAsync();
         var principal = Guid.CreateVersion7();
-        await using var client = await app.ConnectAsync($"guest:{principal}");
+        await using var client = await app.ConnectAsync($"user:{principal}");
 
         await client.SendAsync(new HelloFrame(1, TransportApp.NewClient(), []));
         var welcome = Assert.IsType<WelcomeFrame>(await client.ReceiveAsync());
 
         Assert.Equal(principal, welcome.Me.Pid.Value);
-        Assert.Equal(PrincipalKind.Guest, welcome.Me.Kind);
-        Assert.Equal("Gus", welcome.Me.Name);
+        Assert.Equal(PrincipalKind.User, welcome.Me.Kind);
+        Assert.Equal("Uma", welcome.Me.Name);
         Assert.NotEqual(Guid.Empty, welcome.Conn.Value);
         Assert.InRange(welcome.N, DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeMilliseconds(), DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
     }
@@ -79,6 +79,21 @@ public sealed class HandshakeTests {
         await Assert.ThrowsAsync<WebSocketException>(() => socket.ConnectAsync(app.SocketUri, TestContext.Current.CancellationToken));
 
         Assert.Equal(HttpStatusCode.Unauthorized, socket.HttpStatusCode);
+    }
+
+    // A former guest's open tab reconnects with its old identity and is refused at the upgrade (UX18).
+    [Fact]
+    public async Task A_guest_upgrade_is_refused_before_it_is_accepted() {
+        await using var app = await TransportApp.StartAsync();
+        using var socket = new ClientWebSocket();
+        socket.Options.CollectHttpResponseDetails = true;
+        socket.Options.SetRequestHeader("Origin", TransportApp.Origin);
+        socket.Options.SetRequestHeader(TransportApp.CallerHeader, $"guest:{Guid.CreateVersion7()}");
+
+        await Assert.ThrowsAsync<WebSocketException>(() => socket.ConnectAsync(app.SocketUri, TestContext.Current.CancellationToken));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, socket.HttpStatusCode);
+        Assert.Equal(0, app.Registry.Count);
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Retroscope.Core.Room;
+using Retroscope.Server.Data.Repos;
 using Retroscope.Server.Hosting;
 using Retroscope.Server.Realtime.Transport;
 
@@ -12,7 +13,8 @@ public static class ActorsModule {
         services.AddSingleton(sp => new ActorRuntime(
             sp.GetRequiredService<ActorOptions>(),
             sp.GetRequiredService<TimeProvider>(),
-            sp.GetRequiredService<ILoggerFactory>()));
+            sp.GetRequiredService<ILoggerFactory>(),
+            sp.GetService<IRoomVisits>()));
         services.AddSingleton(sp => new ActorRegistry(sp.GetRequiredService<ActorRuntime>(), sp.GetServices<RoomType>()));
         services.AddSingleton<RoomGateway>();
         services.AddSingleton<IRoomGateway>(sp => sp.GetRequiredService<RoomGateway>());

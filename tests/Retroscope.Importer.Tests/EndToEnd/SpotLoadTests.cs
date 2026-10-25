@@ -58,9 +58,9 @@ public sealed class SpotLoadTests(ImporterDatabases databases) {
 
         Assert.True(report.Ok, output.ToString());
         Assert.Equal(
-            new Dictionary<RoomKind, int> { [RoomKind.Poker] = 2, [RoomKind.Board] = 2, [RoomKind.Team] = 2 },
+            new Dictionary<RoomKind, int> { [RoomKind.Poker] = 1, [RoomKind.Board] = 2, [RoomKind.Team] = 2 },
             report.Loaded);
-        Assert.Equal("spot-load: poker 2, board 2, team 2 loaded; 0 failed", output.ToString().Trim());
+        Assert.Equal("spot-load: poker 1, board 2, team 2 loaded; 0 failed", output.ToString().Trim());
         var poker = services.GetRequiredService<PokerStore>();
         Assert.Equal(2, (await poker.LoadAsync(RoomKey.Poker(new SessionId(new Guid(TeamSession))), DateTimeOffset.UtcNow, Ct))!.Rounds.Count);
     }

@@ -92,9 +92,9 @@ public sealed class TimerMusic {
         // Resolved here so a bad MUSIC_FILE is reported when the server starts, not on the first request.
         var music = app.ServiceProvider.GetRequiredService<TimerMusic>();
         // Only a page that holds a session plays it, and the deployer's licence may not cover anyone else, so the
-        // route needs one (guests included) and shared caches must not keep a copy.
+        // route needs a signed-in user and shared caches must not keep a copy.
         app.MapGet(Path, music.ServeAsync)
-            .RequireRoutePolicy(RoutePolicy.Guest)
+            .RequireRoutePolicy(RoutePolicy.User)
             .RequireRateLimit(Limit)
             .ExcludeFromDescription();
     }

@@ -27,7 +27,7 @@ public interface IClientConnection {
     /// <summary>Identity, tab and socket. Set by <c>hello</c>, before the gateway sees the connection.</summary>
     Viewer Viewer { get; }
 
-    /// <summary>The sign-in session behind a user's cookie; null for guests.</summary>
+    /// <summary>The sign-in session behind the user's cookie; null for callers made up by tests.</summary>
     Guid? AuthSessionId { get; }
 
     /// <summary>Queues a frame behind everything sent before it. False when the socket is closing or just overflowed (4008).</summary>

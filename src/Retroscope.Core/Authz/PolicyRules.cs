@@ -1,33 +1,35 @@
 using Retroscope.Core.Ids;
-using Retroscope.Core.Protocol;
-using Retroscope.Core.Retro;
 using Retroscope.Core.Room;
 
 namespace Retroscope.Core.Authz;
 
 /// <summary>
-/// The rules behind <see cref="Policy"/> (§c.11, §d, S12, R12). Every answer is computed from the arguments:
-/// roles and grants come from <see cref="IAccessView"/> on each call, so a demotion or a password change applies
-/// to the very next check. Anything not matched below is denied.
+/// The rules behind <see cref="Policy"/> (§c.11, §d, R12, UX18). Every room belongs to a team, and every capability
+/// needs a signed-in user who is a member of that team. Guests and external principals are history, never callers,
+/// and being an app admin opens nothing. Roles come from <see cref="IAccessView"/> on each call, so a removal or a
+/// demotion applies to the very next check. Anything not matched below is denied.
 /// </summary>
 internal static class PolicyRules {
     public static bool Evaluate(Principal? who, Capability capability, ResourceFacts facts, IAccessView access) {
-        if (who is null || who.Kind == PrincipalKind.External || facts.Deleted || facts.TeamDeleted) {
+        if (who is not { Kind: PrincipalKind.User } || facts.Deleted || facts.TeamDeleted) {
             return false;
         }
-        var subject = new Subject(who, facts, access);
+        // A team room belongs to itself; facts that say otherwise were gathered wrongly.
+        if (facts.Room.Kind == RoomKind.Team && facts.Room.Id != facts.Team.Value) {
+            return false;
+        }
+        if (access.RoleIn(facts.Team, who.Id) is not { } role) {
+            return false;
+        }
         return facts.Room.Kind switch {
-            RoomKind.Poker => Poker(subject, capability),
-            RoomKind.Board => Board(subject, capability),
-            RoomKind.Team => Team(subject, capability),
+            RoomKind.Poker => Poker(capability, facts, role),
+            RoomKind.Board => Board(capability, facts, role),
+            RoomKind.Team => Team(capability, facts, role),
             _ => false,
         };
     }
 
-    private static bool Poker(Subject s, Capability capability) {
-        if (!s.CanJoinSession) {
-            return false;
-        }
+    private static bool Poker(Capability capability, ResourceFacts facts, TeamRole role) {
         return capability switch {
             Capability.Subscribe
                 or Capability.PokerRevealOrReplay
@@ -35,100 +37,46 @@ internal static class PolicyRules {
                 or Capability.PokerUpdateSettings
                 or Capability.PokerSetObserver
                 or Capability.PokerSpotlight => true,
-            Capability.PokerVote => !s.Facts.IsObserver,
-            Capability.PokerDeleteRound or Capability.PokerClearAllRounds => s.IsTeamRoom ? s.IsTeamAdmin : s.IsUser,
-            Capability.PokerDeleteSession => s.IsTeamRoom ? s.IsTeamAdmin : s.IsCreator,
-            Capability.PokerSubmitJiraPoints => s.IsTeamRoom && s.CanEditJira,
+            Capability.PokerVote => !facts.IsObserver,
+            Capability.PokerDeleteRound or Capability.PokerClearAllRounds or Capability.PokerDeleteSession => IsAdmin(role),
+            Capability.PokerSubmitJiraPoints => CanEditJira(facts, role),
             _ => false,
         };
     }
 
-    private static bool Board(Subject s, Capability capability) {
-        if (!s.CanOpenBoard) {
-            return false;
-        }
-        var open = !s.Facts.Archived;
+    /// <summary>An archived board stays readable and manageable but takes no content (§c.4).</summary>
+    private static bool Board(Capability capability, ResourceFacts facts, TeamRole role) {
         return capability switch {
             Capability.Subscribe => true,
-            Capability.RetroAddCard or Capability.RetroVote or Capability.RetroComment => open,
-            Capability.RetroReady or Capability.RetroFocus => open && RetroRoles.MayPace(s.Team, s.Who, s.Access),
-            Capability.RetroTimer or Capability.RetroFacilitate => open && RetroRoles.IsFacilitator(s.Team, s.Who, s.Access),
-            Capability.RetroEndorse => open && RetroRoles.IsMember(s.Team, s.Who, s.Access),
-            Capability.RetroViewRoster => RetroRoles.IsMember(s.Team, s.Who, s.Access),
-            Capability.RetroArchive or Capability.RetroManageAccess or Capability.RetroDeleteBoard => s.CanManageBoard,
+            Capability.RetroAddCard
+                or Capability.RetroVote
+                or Capability.RetroComment
+                or Capability.RetroReady
+                or Capability.RetroFocus
+                or Capability.RetroTimer
+                or Capability.RetroFacilitate
+                or Capability.RetroEndorse => !facts.Archived,
+            Capability.RetroArchive or Capability.RetroDeleteBoard => IsAdmin(role),
             _ => false,
         };
     }
 
-    private static bool Team(Subject s, Capability capability) {
-        if (!s.IsMember) {
-            return false;
-        }
+    private static bool Team(Capability capability, ResourceFacts facts, TeamRole role) {
         return capability switch {
             Capability.Subscribe or Capability.TeamUpdateActionItem => true,
             Capability.TeamDeleteActionItem
                 or Capability.TeamManageMembers
                 or Capability.TeamManageSettings
-                or Capability.JiraConfigure => s.IsTeamAdmin,
-            Capability.TeamManageAdmins or Capability.TeamDelete => s.Role == TeamRole.Owner,
-            Capability.JiraEditIssues => s.CanEditJira,
+                or Capability.JiraConfigure => IsAdmin(role),
+            Capability.TeamManageAdmins or Capability.TeamDelete => role == TeamRole.Owner,
+            Capability.JiraEditIssues => CanEditJira(facts, role),
             _ => false,
         };
     }
 
-    private readonly struct Subject {
-        public Subject(Principal who, ResourceFacts facts, IAccessView access) {
-            Who = who;
-            Facts = facts;
-            Access = access;
-            Team = facts.Room.Kind == RoomKind.Team ? new TeamId(facts.Room.Id) : facts.Team;
-            // Only users can be team members; a role reported for a guest is ignored.
-            Role = Team is { } team && who.Kind == PrincipalKind.User ? access.RoleIn(team, who.Id) : null;
-        }
+    private static bool IsAdmin(TeamRole role) => role is TeamRole.Admin or TeamRole.Owner;
 
-        public Principal Who { get; }
-
-        public ResourceFacts Facts { get; }
-
-        public IAccessView Access { get; }
-
-        public TeamId? Team { get; }
-
-        public TeamRole? Role { get; }
-
-        public bool IsTeamRoom => Team is not null;
-
-        public bool IsUser => Who.Kind == PrincipalKind.User;
-
-        public bool IsMember => Role is not null;
-
-        public bool IsTeamAdmin => Role is TeamRole.Admin or TeamRole.Owner;
-
-        public bool IsCreator => Facts.CreatedBy == Who.Id;
-
-        public bool CanEditJira => IsMember && Facts.JiraConfigured && (Facts.MembersCanEditJira || IsTeamAdmin);
-
-        /// <summary>Team sessions: members. Quick sessions: anyone with the code.</summary>
-        public bool CanJoinSession => !IsTeamRoom || IsMember;
-
-        public bool CanOpenBoard {
-            get {
-                if (IsMember) {
-                    return true;
-                }
-                return Facts.Visibility switch {
-                    BoardVisibility.Link => true,
-                    BoardVisibility.Password => (!IsTeamRoom && IsCreator) || HasCurrentGrant,
-                    _ => false,
-                };
-            }
-        }
-
-        /// <summary>BoardManage (§d): team admin or owner on team boards, the creator on quick boards.</summary>
-        public bool CanManageBoard => IsTeamRoom ? IsTeamAdmin : IsCreator;
-
-        private bool HasCurrentGrant =>
-            Facts.PasswordSetAt is not null
-            && Access.HasCurrentGrant(new BoardId(Facts.Room.Id), Who.Id, Facts.PasswordSetAt);
+    private static bool CanEditJira(ResourceFacts facts, TeamRole role) {
+        return facts.JiraConfigured && (facts.MembersCanEditJira || IsAdmin(role));
     }
 }

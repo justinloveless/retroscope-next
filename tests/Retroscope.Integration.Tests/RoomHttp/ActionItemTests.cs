@@ -101,7 +101,7 @@ public sealed class ActionItemTests(PostgresFixture postgres) {
             var card = Guid.CreateVersion7();
             var item = Guid.CreateVersion7();
             await app.ExecAsync(
-                "insert into retro_boards (id, code, team_id, title, created_by, visibility) values ($1, $2, $3, 'Sprint 7', $4, 'team')",
+                "insert into retro_boards (id, code, team_id, title, created_by) values ($1, $2, $3, 'Sprint 7', $4)",
                 board,
                 RoomCode.NewRandom().Value,
                 team,

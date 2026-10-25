@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
+using Retroscope.Core.Authz;
 using Retroscope.Core.Ids;
 using Retroscope.Core.Poker;
 using Retroscope.Core.Protocol;
@@ -63,7 +64,7 @@ internal sealed class TeamRoomScope : IAsyncDisposable {
         await leader.StartAsync(Token);
         var scope = new TeamRoomScope(database, leader, Db.CreateDataSource(database.AppConnectionString));
         await scope.ExecAsync("insert into teams (id, name, point_descriptions) values ($1, 'Platform', '{\"1\":\"tiny\"}')", Team.Value);
-        await scope.ExecAsync("insert into retro_boards (id, code, team_id, title, visibility) values ($1, 'BOARD1', $2, 'Sprint 1', 'link')", Board.Value, Team.Value);
+        await scope.ExecAsync("insert into retro_boards (id, code, team_id, title) values ($1, 'BOARD1', $2, 'Sprint 1')", Board.Value, Team.Value);
         await scope.ExecAsync("""
             insert into retro_columns (id, board_id, title, color, sort_key, is_action_items) values ($1, $2, 'Actions', 'green', 0, true)
             """, ActionColumn.Value, Board.Value);
@@ -199,7 +200,7 @@ internal sealed class TeamRoomScope : IAsyncDisposable {
         }
     }
 
-    /// <summary>Enough of U22's binding for a link team board: anyone may subscribe, members get the roster variant.</summary>
+    /// <summary>Enough of U22's binding for a team board: members of the team subscribe, as the real policy decides.</summary>
     private sealed class BoardBinding : IRoomBinding<RetroState, RetroInput, RetroEvent> {
         private readonly RetroProjection _projection = new(NoTags.Instance);
 
@@ -209,20 +210,18 @@ internal sealed class TeamRoomScope : IAsyncDisposable {
 
         public RetroInput? FromClient(Command command) => command is RetroCommand retro ? (RetroInput)retro : null;
 
-        public bool CanSubscribe(RetroState state, Viewer viewer, IAccessView access) => true;
-
-        public bool IsMember(RetroState state, Viewer viewer, IAccessView access) {
-            return state.TeamId is { } team && access.RoleIn(team, viewer.Who.Id) is not null;
+        public bool CanSubscribe(RetroState state, Viewer viewer, IAccessView access) {
+            return Policy.Can(viewer, Capability.Subscribe, RetroBinding.Facts(state), access);
         }
 
         public RoomSnapshot Snapshot(RetroState state, IReadOnlyList<PrincipalInfo> presence, bool forMembers) {
-            return RetroProjection.Snapshot(state, presence, forMembers);
+            return RetroProjection.Snapshot(state, presence);
         }
 
         public RoomOverlay? Overlay(RetroState state, Viewer viewer) => _projection.Overlay(state, viewer.Who.Id);
 
         public IReadOnlyList<WireEvent> Project(RetroState state, IReadOnlyList<RetroEvent> events, PrincipalId viewer, bool viewerIsMember) {
-            return _projection.ForViewer(state, events, viewer, viewerIsMember);
+            return _projection.ForViewer(state, events, viewer);
         }
     }
 

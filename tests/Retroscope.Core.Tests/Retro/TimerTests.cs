@@ -122,7 +122,7 @@ public sealed class TimerTests {
         Assert.Equal(Start.AddMinutes(1), changed.ExpiredAt);
         Assert.Equal(TimerState.Idle, fx.State.Timer.State);
 
-        var wire = Assert.IsType<RetroTimer>(Assert.Single(fx.Projection.ForViewer(fx.State, [changed], Bob.Id, false)));
+        var wire = Assert.IsType<RetroTimer>(Assert.Single(fx.Projection.ForViewer(fx.State, [changed], Bob.Id)));
         Assert.Equal(new RetroTimer(TimerState.Idle, 60_000, true, false, EndsAt: Start.AddMinutes(1).ToUnixTimeMilliseconds(), Expired: true), wire);
 
         fx.NoOp(null, due);
@@ -164,15 +164,11 @@ public sealed class TimerTests {
     }
 
     [Fact]
-    public void Guests_and_non_members_of_a_team_board_cannot_run_the_timer() {
-        var quick = new RetroFixture();
-        quick.Rejects(Gus, new RetroTimerStart(60_000, true, false, TimerState.Idle), NackCode.Forbidden);
-        quick.Do(Carol, new RetroTimerStart(60_000, true, false, TimerState.Idle));
-
-        var team = new RetroFixture(team: true);
-        team.Rejects(Carol, new RetroTimerStart(60_000, true, false, TimerState.Idle), NackCode.Forbidden);
-        team.Rejects(Gus, new RetroTimerSetFlags(Music: true), NackCode.Forbidden);
-        team.Do(Bob, new RetroTimerStart(60_000, true, false, TimerState.Idle));
+    public void Only_members_run_the_timer() {
+        var fx = new RetroFixture();
+        fx.Rejects(Carol, new RetroTimerStart(60_000, true, false, TimerState.Idle), NackCode.Forbidden);
+        fx.Rejects(Gus, new RetroTimerSetFlags(Music: true), NackCode.Forbidden);
+        fx.Do(Bob, new RetroTimerStart(60_000, true, false, TimerState.Idle));
     }
 
     [Fact]

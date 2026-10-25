@@ -31,8 +31,9 @@ public sealed class SpotLoadTests(PostgresFixture postgres) {
     [Fact]
     public async Task The_sample_bounds_how_many_rooms_of_each_kind_are_loaded() {
         await using var host = await StartAsync(postgres);
+        var team = await AdminEndpointTests.TeamAsync(host, "Team", (await host.CreateUserAsync("u@example.com")).Id);
         for (var i = 0; i < 5; i++) {
-            await RetentionTests.SessionAsync(host, $"MANY{i:D2}", host.Time.GetUtcNow());
+            await RetentionTests.SessionAsync(host, $"MANY{i:D2}", host.Time.GetUtcNow(), team);
         }
 
         var report = await SpotLoadCommand.RunAsync(host.App.Services, 3, TextWriter.Null, Token);
@@ -82,19 +83,20 @@ public sealed class SpotLoadTests(PostgresFixture postgres) {
         Assert.Contains("Stop the app before running spot-load", busyOutput, StringComparison.Ordinal);
     }
 
-    // A quick session with a voted round, a quick board with a named and an anonymous card, and a team with a member
-    // and an action item; plus rooms that must not be sampled: a deleted board and a soft-deleted team's session.
+    // A team with a member and an action item, its session with a voted round and its board with a named and an
+    // anonymous card; plus rooms that must not be sampled: a deleted board and a soft-deleted team's session.
     private static async Task SeedAsync(AdminHost host) {
         var user = await host.CreateUserAsync("u@example.com");
         var now = host.Time.GetUtcNow();
-        var session = await RetentionTests.SessionAsync(host, "SPOT01", now);
+        var team = await AdminEndpointTests.TeamAsync(host, "Spot team", user.Id);
+        var session = await RetentionTests.SessionAsync(host, "SPOT01", now, team);
         var round = Guid.CreateVersion7();
         await host.ExecuteAsync(
             "insert into poker_rounds (id, session_id, number, sort_key, ticket_key) values ($1, $2, 1, 0, 'ABC-1')", round, session.Value);
         await host.ExecuteAsync(
             "insert into poker_votes (round_id, principal_id, points) values ($1, $2, 5)", round, user.Id.Value);
 
-        var board = await RetentionTests.BoardAsync(host, "SPOTB1", now);
+        var board = await RetentionTests.BoardAsync(host, "SPOTB1", now, team);
         var column = Guid.CreateVersion7();
         await host.ExecuteAsync(
             "insert into retro_columns (id, board_id, title, color, sort_key) values ($1, $2, 'Good', 'green', 0)", column, board.Value);
@@ -104,10 +106,9 @@ public sealed class SpotLoadTests(PostgresFixture postgres) {
         await host.ExecuteAsync(
             "insert into retro_cards (id, board_id, column_id, body, anon_tag) values ($1, $2, $3, 'Anonymous card', $4)",
             Guid.CreateVersion7(), board.Value, column, RandomNumberGenerator.GetBytes(32));
-        var deletedBoard = await RetentionTests.BoardAsync(host, "SPOTB2", now);
+        var deletedBoard = await RetentionTests.BoardAsync(host, "SPOTB2", now, team);
         await host.ExecuteAsync("update retro_boards set deleted_at = now() where id = $1", deletedBoard.Value);
 
-        var team = await AdminEndpointTests.TeamAsync(host, "Spot team", user.Id);
         await host.ExecuteAsync(
             "insert into team_action_items (id, team_id, text) values ($1, $2, 'Follow up')", Guid.CreateVersion7(), team.Value);
         var gone = await AdminEndpointTests.TeamAsync(host, "Gone", user.Id, deleted: true);

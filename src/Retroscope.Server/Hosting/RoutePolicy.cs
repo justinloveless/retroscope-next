@@ -2,11 +2,11 @@ namespace Retroscope.Server.Hosting;
 
 /// <summary>
 /// Who may call a route (§d). Every endpoint declares one with <see cref="RoutePolicyExtensions.RequireRoutePolicy"/>;
-/// the route-inventory test fails the build otherwise.
+/// the route-inventory test fails the build otherwise. Every policy but <see cref="Public"/> needs a signed-in user:
+/// guests are gone (UX18).
 /// </summary>
 public enum RoutePolicy {
     Public,
-    Guest,
     User,
     VerifiedUser,
     TeamMember,
@@ -62,8 +62,8 @@ public static class RoutePolicyFilter {
             return (StatusCodes.Status401Unauthorized, "unauthenticated");
         }
         return policy switch {
-            RoutePolicy.Guest or RoutePolicy.BoardAccess or RoutePolicy.BoardManage or RoutePolicy.SessionManage => null,
-            RoutePolicy.User or RoutePolicy.TeamMember or RoutePolicy.TeamAdmin or RoutePolicy.TeamOwner =>
+            RoutePolicy.User or RoutePolicy.TeamMember or RoutePolicy.TeamAdmin or RoutePolicy.TeamOwner
+                or RoutePolicy.BoardAccess or RoutePolicy.BoardManage or RoutePolicy.SessionManage =>
                 caller.IsUser ? null : (StatusCodes.Status401Unauthorized, "unauthenticated"),
             RoutePolicy.VerifiedUser when !caller.IsUser => (StatusCodes.Status401Unauthorized, "unauthenticated"),
             RoutePolicy.VerifiedUser => caller.EmailVerified ? null : (StatusCodes.Status403Forbidden, "email_unverified"),

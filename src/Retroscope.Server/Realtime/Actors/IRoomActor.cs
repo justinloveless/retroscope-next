@@ -35,7 +35,7 @@ public interface IRoomActor {
     /// <summary>Re-checks every subscriber's access and kicks those who lost it (§c.2).</summary>
     PostResult AccessChanged();
 
-    /// <summary>A profile or guest rename: <c>presence.update</c> when the principal is present.</summary>
+    /// <summary>A profile change: <c>presence.update</c> when the principal is present.</summary>
     PostResult PrincipalUpdated(PrincipalInfo principal);
 }
 

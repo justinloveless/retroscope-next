@@ -1,11 +1,9 @@
-using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Npgsql;
 using NpgsqlTypes;
 using Retroscope.Core.Ids;
 using Retroscope.Core.Markup;
-using Retroscope.Core.Security;
 using Retroscope.Importer.Archive;
 using Retroscope.Importer.Html;
 using Retroscope.Importer.Source;
@@ -16,8 +14,16 @@ namespace Retroscope.Importer.Map;
 /// Retro boards and everything on them (DESIGN §h.2): <c>retro_boards</c> with their inlined config, columns,
 /// cards, comments, votes, readiness, the mentions and board images derived from the bodies, and the guest
 /// principals behind guest posts and votes. Users and teams are already in the target (U39's stages run first).
+/// Every board belongs to a team (UX18): a board without one, or whose team was not imported, is skipped with
+/// everything on it, each row counted under the board's reason (<see cref="NoTeam"/>, <see cref="TeamMissing"/>).
 /// </summary>
 public sealed class RetroMap : IImportStage {
+    /// <summary>The skip reason of a quick (team-less) board and of every row on it.</summary>
+    public const string NoTeam = "noTeam";
+
+    /// <summary>The skip reason of a board whose team was not imported, and of every row on it.</summary>
+    public const string TeamMissing = "teamMissing";
+
     public int Order => 400;
 
     public string Name => "retro";
@@ -31,12 +37,9 @@ public sealed class RetroMap : IImportStage {
     private sealed record Board(
         Guid Id,
         string Code,
-        Guid? TeamId,
+        Guid TeamId,
         string Title,
         Guid? CreatedBy,
-        string Visibility,
-        string? PasswordHash,
-        DateTime? PasswordSetAt,
         string Stage,
         BoardConfig Config,
         DateTime? ArchivedAt,
@@ -81,6 +84,9 @@ public sealed class RetroMap : IImportStage {
         private const string Ready = "public.retro_user_readiness";
 
         private readonly Dictionary<Guid, Board> _boards = [];
+        private readonly Dictionary<Guid, string> _skippedBoards = [];
+        private readonly Dictionary<Guid, string> _skippedColumns = [];
+        private readonly Dictionary<Guid, string> _skippedCards = [];
         private readonly Dictionary<Guid, Column> _columns = [];
         private readonly Dictionary<Guid, Card> _cards = [];
         private readonly List<Comment> _comments = [];
@@ -156,8 +162,7 @@ public sealed class RetroMap : IImportStage {
         private Task WriteBoardsAsync(CancellationToken cancellationToken) =>
             RetroCopy.WriteAsync(context.Target, "retro_boards",
                 [("id", NpgsqlDbType.Uuid), ("code", NpgsqlDbType.Text), ("team_id", NpgsqlDbType.Uuid), ("title", NpgsqlDbType.Text),
-                 ("created_by", NpgsqlDbType.Uuid), ("visibility", NpgsqlDbType.Text), ("password_hash", NpgsqlDbType.Text),
-                 ("password_set_at", NpgsqlDbType.TimestampTz), ("stage", NpgsqlDbType.Text), ("allow_anonymous", NpgsqlDbType.Boolean),
+                 ("created_by", NpgsqlDbType.Uuid), ("stage", NpgsqlDbType.Text), ("allow_anonymous", NpgsqlDbType.Boolean),
                  ("voting_enabled", NpgsqlDbType.Boolean), ("max_votes_per_user", NpgsqlDbType.Smallint), ("show_author_names", NpgsqlDbType.Boolean),
                  ("stages_enabled", NpgsqlDbType.Boolean), ("enforce_readiness", NpgsqlDbType.Boolean), ("allow_self_votes", NpgsqlDbType.Boolean),
                  ("vote_emoji", NpgsqlDbType.Text), ("sort_chronologically", NpgsqlDbType.Boolean), ("timer_state", NpgsqlDbType.Text),
@@ -166,7 +171,7 @@ public sealed class RetroMap : IImportStage {
                  ("last_activity_at", NpgsqlDbType.TimestampTz), ("created_at", NpgsqlDbType.TimestampTz), ("updated_at", NpgsqlDbType.TimestampTz)],
                 _boards.Values.OrderBy(x => x.Id),
                 x => [
-                    x.Id, x.Code, x.TeamId, x.Title, x.CreatedBy, x.Visibility, x.PasswordHash, x.PasswordSetAt, x.Stage,
+                    x.Id, x.Code, x.TeamId, x.Title, x.CreatedBy, x.Stage,
                     x.Config.AllowAnonymous, x.Config.VotingEnabled, x.Config.MaxVotesPerUser, x.Config.ShowAuthorNames,
                     x.Config.StagesEnabled, x.Config.EnforceReadiness, x.Config.AllowSelfVotes, x.Config.VoteEmoji,
                     x.Config.SortChronologically, "idle", x.Config.TimerDurationMs, x.Config.TimerAlarm, x.Config.TimerMusic,
@@ -175,20 +180,26 @@ public sealed class RetroMap : IImportStage {
                 cancellationToken);
 
         private void MapBoards(IReadOnlyList<SourceRow> rows, IReadOnlyList<SourceRow> configRows) {
-            var configs = MapConfigs(configRows, rows.Select(x => x.Uuid("id")!.Value).ToHashSet());
-            var codes = new HashSet<string>(StringComparer.Ordinal);
             var tally = context.Report.Table(Boards);
+            var kept = new List<(SourceRow Row, Guid TeamId)>();
             foreach (var row in rows) {
+                if (row.Uuid("team_id") is { } team && teamMembers.ContainsKey(team)) {
+                    kept.Add((row, team));
+                } else {
+                    var reason = row.Uuid("team_id") is null ? NoTeam : TeamMissing;
+                    _skippedBoards[row.Uuid("id")!.Value] = reason;
+                    tally.Skip(reason);
+                }
+            }
+
+            var configs = MapConfigs(configRows, kept.Select(x => x.Row.Uuid("id")!.Value).ToHashSet());
+            var codes = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var (row, teamId) in kept) {
                 var id = row.Uuid("id")!.Value;
                 var createdAt = row.Timestamp("created_at") ?? row.Timestamp("updated_at") ?? context.ImportedAt;
                 var updatedAt = row.Timestamp("updated_at") ?? createdAt;
-                var teamId = row.Uuid("team_id") is { } team && teamMembers.ContainsKey(team) ? team : (Guid?)null;
-                if (row.Uuid("team_id") is not null && teamId is null) {
-                    context.Report.Count("retroBoards.teamMissing");
-                }
                 var createdBy = context.PrincipalRef("retro_boards", "creator_id", row.Uuid("creator_id"));
                 var code = BoardCode(id, row.Text("room_id"), codes);
-                var (visibility, hash) = Visibility(row, id, code, teamId, createdBy);
                 var archived = row.Bool("archived") == true;
                 var stage = row.Text("retro_stage") is { } value && RetroText.Stages.Contains(value) ? value : "thinking";
 
@@ -198,9 +209,6 @@ public sealed class RetroMap : IImportStage {
                     teamId,
                     RetroText.Cap(row.Text("title"), 200, "Retro"),
                     createdBy,
-                    visibility,
-                    hash,
-                    hash is null ? null : context.ImportedAt,
                     stage,
                     configs.GetValueOrDefault(id) ?? new BoardConfig(),
                     archived ? row.Timestamp("archived_at") ?? updatedAt : null,
@@ -217,6 +225,10 @@ public sealed class RetroMap : IImportStage {
             var tally = context.Report.Table(Configs);
             foreach (var row in rows) {
                 var boardId = row.Uuid("board_id")!.Value;
+                if (_skippedBoards.TryGetValue(boardId, out var skipped)) {
+                    tally.Skip(skipped);
+                    continue;
+                }
                 if (!boards.Contains(boardId)) {
                     tally.Skip("boardMissing");
                     continue;
@@ -255,44 +267,15 @@ public sealed class RetroMap : IImportStage {
             return code;
         }
 
-        // DESIGN §h.2 visibility (C). Old board passwords are not honoured: private quick boards get a fresh
-        // password the operator hands to the creator or an unknowable one.
-        private (string Visibility, string? Hash) Visibility(SourceRow row, Guid id, string code, Guid? teamId, Guid? createdBy) {
-            if (row.Bool("is_private") != true) {
-                return ("link", null);
-            }
-            if (teamId is not null) {
-                return ("team", null);
-            }
-
-            var old = row.Text("password_hash");
-            if (string.IsNullOrEmpty(old) || RetroText.IsSha256Hex(old)) {
-                context.Report.Count("retroBoards.unknowablePasswords");
-                context.Report.Note("unknowableBoardPasswords", new JsonObject {
-                    ["board"] = id.ToString(),
-                    ["code"] = code,
-                    ["reason"] = string.IsNullOrEmpty(old) ? "no password" : "sha256 of an orphaned team board",
-                });
-                return ("password", Bcrypt.Hash(Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))));
-            }
-
-            var password = RandomNumberGenerator.GetString(RetroText.PasswordAlphabet, RetroText.RotatedPasswordLength);
-            context.Report.Count("retroBoards.rotatedPasswords");
-            context.Report.Note("rotatedBoardPasswords", new JsonObject {
-                ["board"] = id.ToString(),
-                ["code"] = code,
-                ["createdBy"] = createdBy?.ToString(),
-                ["password"] = context.Archive.Protect(Boards, id.ToString(), "rotated_password", password),
-            });
-            return ("password", Bcrypt.Hash(password));
-        }
-
         private void MapColumns(IReadOnlyList<SourceRow> rows) {
             var tally = context.Report.Table(Columns);
             var kept = new List<SourceRow>();
             foreach (var row in rows) {
                 if (row.Uuid("board_id") is not { } boardId) {
                     tally.Skip("orphan");
+                } else if (_skippedBoards.TryGetValue(boardId, out var skipped)) {
+                    _skippedColumns[row.Uuid("id")!.Value] = skipped;
+                    tally.Skip(skipped);
                 } else if (!_boards.ContainsKey(boardId)) {
                     tally.Skip("boardMissing");
                 } else {
@@ -333,6 +316,11 @@ public sealed class RetroMap : IImportStage {
         private void MapCards(IReadOnlyList<SourceRow> rows) {
             var tally = context.Report.Table(Items);
             foreach (var row in rows) {
+                if (row.Uuid("column_id") is { } skippedColumn && _skippedColumns.TryGetValue(skippedColumn, out var skipped)) {
+                    _skippedCards[row.Uuid("id")!.Value] = skipped;
+                    tally.Skip(skipped);
+                    continue;
+                }
                 if (row.Uuid("column_id") is not { } columnId || !_columns.TryGetValue(columnId, out var column)) {
                     tally.Skip(row.Uuid("board_id") is null && row.Uuid("column_id") is null ? "orphan" : "columnMissing");
                     continue;
@@ -354,6 +342,10 @@ public sealed class RetroMap : IImportStage {
         private void MapComments(IReadOnlyList<SourceRow> rows) {
             var tally = context.Report.Table(Comments);
             foreach (var row in rows) {
+                if (_skippedCards.TryGetValue(row.Uuid("item_id")!.Value, out var skipped)) {
+                    tally.Skip(skipped);
+                    continue;
+                }
                 if (!_cards.TryGetValue(row.Uuid("item_id")!.Value, out var card)) {
                     tally.Skip("cardMissing");
                     continue;
@@ -375,6 +367,10 @@ public sealed class RetroMap : IImportStage {
             var tally = context.Report.Table(Votes);
             var sourceCounts = new Dictionary<Guid, int>();
             foreach (var row in rows.OrderByDescending(x => x.Timestamp("created_at") ?? DateTime.MinValue).ThenBy(x => x.Uuid("id"))) {
+                if (row.Uuid("item_id") is { } skippedCard && _skippedCards.TryGetValue(skippedCard, out var skipped)) {
+                    tally.Skip(skipped);
+                    continue;
+                }
                 if (row.Uuid("item_id") is not { } cardId || !_cards.TryGetValue(cardId, out var card)) {
                     tally.Skip("cardMissing");
                     continue;
@@ -405,6 +401,10 @@ public sealed class RetroMap : IImportStage {
         private void MapReadiness(IReadOnlyList<SourceRow> rows) {
             var tally = context.Report.Table(Ready);
             foreach (var row in rows) {
+                if (_skippedBoards.TryGetValue(row.Uuid("board_id")!.Value, out var skipped)) {
+                    tally.Skip(skipped);
+                    continue;
+                }
                 if (!_boards.TryGetValue(row.Uuid("board_id")!.Value, out var board)) {
                     tally.Skip("boardMissing");
                     continue;
@@ -435,10 +435,7 @@ public sealed class RetroMap : IImportStage {
         }
 
         private void AddMentions(string kind, Guid sourceId, Guid boardId, HtmlConversion body, DateTime createdAt) {
-            if (_boards[boardId].TeamId is not { } teamId) {
-                return;
-            }
-            var members = teamMembers[teamId];
+            var members = teamMembers[_boards[boardId].TeamId];
             foreach (var user in Mentions.Extract(body.Doc).Where(members.Contains)) {
                 _mentions.Add(new Mention(kind, sourceId, boardId, user, createdAt));
             }
@@ -495,10 +492,6 @@ internal static class RetroAuthorship {
 internal static partial class RetroText {
     public const string DefaultVoteEmoji = "👍";
     public const int DefaultTimerMs = 900_000;
-    public const int RotatedPasswordLength = 12;
-
-    // No look-alikes (0/O, 1/l/I), so the password survives being read aloud or retyped.
-    public const string PasswordAlphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
     public static readonly HashSet<string> Stages = new(StringComparer.Ordinal) { "thinking", "voting", "discussing", "closed" };
 
@@ -518,13 +511,8 @@ internal static partial class RetroText {
 
     public static bool IsBoardCode(string code) => BoardCode().IsMatch(code);
 
-    public static bool IsSha256Hex(string value) => Sha256Hex().IsMatch(value);
-
     [GeneratedRegex(@"^[A-Za-z0-9-]{3,64}\z", RegexOptions.CultureInvariant)]
     private static partial Regex BoardCode();
-
-    [GeneratedRegex(@"^[0-9A-Fa-f]{64}\z", RegexOptions.CultureInvariant)]
-    private static partial Regex Sha256Hex();
 }
 
 /// <summary>Target-side reads and writes shared by the retro stages.</summary>

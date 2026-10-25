@@ -10,6 +10,15 @@ public interface IBootContributor {
     ValueTask ContributeAsync(BootContext boot, CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// Sends a signed-in caller of a shell page elsewhere before any boot contributor runs, e.g. <c>/</c> to the user's
+/// team (UX18 decision 8). The first redirect that answers wins.
+/// </summary>
+public interface IShellRedirect {
+    /// <returns>The same-origin path to redirect to, or null to serve the page.</returns>
+    ValueTask<string?> RedirectAsync(ShellRoute route, Caller caller, CancellationToken cancellationToken);
+}
+
 /// <summary>One boot document under construction.</summary>
 public sealed class BootContext {
     private static readonly string[] Themes = ["light", "dark", "system"];

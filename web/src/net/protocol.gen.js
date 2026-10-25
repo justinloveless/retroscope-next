@@ -85,7 +85,7 @@ export const EVENTS = Object.freeze({
   'retro.column.deleted': Object.freeze({ rooms: ['board'], fields: ['columnId'] }),
   'retro.column.order': Object.freeze({ rooms: ['board'], fields: ['order'] }),
   'retro.column.actionItems': Object.freeze({ rooms: ['board'], fields: ['columnId'] }),
-  'retro.board.meta': Object.freeze({ rooms: ['board'], fields: ['title', 'visibility', 'archived'] }),
+  'retro.board.meta': Object.freeze({ rooms: ['board'], fields: ['title', 'archived'] }),
   'retro.config': Object.freeze({ rooms: ['board'], fields: ['config'] }),
   'retro.stage': Object.freeze({ rooms: ['board'], fields: ['stage'] }),
   'retro.readiness': Object.freeze({ rooms: ['board'], fields: ['stage', 'ready'] }),
@@ -172,7 +172,6 @@ export const ENUMS = Object.freeze({
   jiraSubmitStatus: Object.freeze(['pending', 'ok', 'failed']),
   retroStage: Object.freeze(['thinking', 'voting', 'discussing', 'closed']),
   timerState: Object.freeze(['idle', 'running', 'paused']),
-  boardVisibility: Object.freeze(['link', 'team', 'password']),
   columnColor: Object.freeze(['green', 'red', 'blue', 'yellow', 'purple', 'pink', 'indigo', 'orange', 'gray']),
 });
 

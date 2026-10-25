@@ -247,24 +247,23 @@ public sealed class TeamRoomTests(PostgresFixture postgres) {
     }
 
     [Fact]
-    public async Task Membership_changes_give_a_board_viewer_the_variant_for_their_new_role() {
+    public async Task A_member_removed_while_on_a_board_is_kicked_and_the_board_hears_the_new_roster() {
         await using var scope = await StartAsync(postgres);
         await scope.AddUserAsync(Alice, TeamRole.Owner);
-        await scope.AddUserAsync(Dave);
-        var board = await scope.SubscribeAsync(Dave, RoomKey.Board(Board));
-        Assert.Empty(Assert.IsType<RetroSnapshot>((await board.NextAsync<SnapFrame>()).D).Members ?? []);
+        await scope.AddUserAsync(Dave, TeamRole.Member);
+        var alice = await scope.SubscribeAsync(Alice, RoomKey.Board(Board));
+        var dave = await scope.SubscribeAsync(Dave, RoomKey.Board(Board));
+        await alice.NextAsync<SnapFrame>();
+        await dave.NextAsync<SnapFrame>();
         await scope.SettleAsync();
-        await board.DrainAsync();
+        await alice.DrainAsync();
 
-        await scope.AskAsync(new TeamInput.MemberAdded(new MemberInfo(Dave.Who.Id, "Dave", TeamRole.Member)));
-        await scope.SettleAsync();
-        var asMember = Assert.IsType<RetroSnapshot>((await board.UntilAsync<SnapFrame>()).D);
         await scope.AskAsync(new TeamInput.MemberRemoved(Dave.Who.Id));
         await scope.SettleAsync();
-        var asOutsider = Assert.IsType<RetroSnapshot>((await board.UntilAsync<SnapFrame>()).D);
 
-        Assert.Contains(asMember.Members!, x => x.Pid == Dave.Who.Id);
-        Assert.Empty(asOutsider.Members ?? []);
+        Assert.Equal(KickCode.AccessRevoked, (await dave.UntilAsync<KickFrame>()).Code);
+        var roster = await UntilEventAsync<RetroMembers>(alice);
+        Assert.DoesNotContain(roster.Members, x => x.Pid == Dave.Who.Id);
     }
 
     [Fact]
@@ -331,16 +330,16 @@ public sealed class TeamRoomTests(PostgresFixture postgres) {
         await using var scope = await StartAsync(postgres);
         await scope.AddUserAsync(Alice, TeamRole.Owner);
         var board = await scope.SubscribeAsync(Alice, RoomKey.Board(Board));
-        Assert.NotNull(Assert.IsType<RetroSnapshot>((await board.NextAsync<SnapFrame>()).D).Members);
+        await board.NextAsync<SnapFrame>();
         await scope.SettleAsync();
         await board.DrainAsync();
 
-        // The member variant of a board's snapshot ends with the roles: Alice is sent the outsiders' snapshot.
+        // Only members open a board (UX18): with the roles gone, Alice loses it.
         await scope.AskAsync(new TeamInput.TeamDeleted());
         await scope.SettleAsync();
 
         Assert.Null(scope.Cache.RoleIn(Team, Alice.Who.Id));
-        await board.UntilAsync<SnapFrame>();
+        Assert.Equal(KickCode.AccessRevoked, (await board.UntilAsync<KickFrame>()).Code);
     }
 
     private static async Task<T> UntilEventAsync<T>(TestPeer peer) where T : WireEvent {

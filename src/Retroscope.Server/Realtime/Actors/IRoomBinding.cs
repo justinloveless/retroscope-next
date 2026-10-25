@@ -37,7 +37,10 @@ public interface IRoomBinding<TState, TInput, TEvent> where TState : class where
     /// <summary><c>Policy.Can(viewer, Subscribe, room)</c> (§c.11), re-run on <c>AccessChanged</c>.</summary>
     bool CanSubscribe(TState state, Viewer viewer, IAccessView access);
 
-    /// <summary>Selects the shared snapshot variant (S12: the roster goes to team members only).</summary>
+    /// <summary>
+    /// Selects the shared snapshot variant for a binding whose subscribers are not all alike. The poker, board and team
+    /// rooms keep the default: since UX18 every subscriber is a member of the room's team, so they have one variant.
+    /// </summary>
     bool IsMember(TState state, Viewer viewer, IAccessView access) => false;
 
     /// <param name="presence">Present principals in canonical order (pid as lower-case string, ordinal).</param>
@@ -59,6 +62,9 @@ public interface IRoomBinding<TState, TInput, TEvent> where TState : class where
 
     /// <summary>Once true every subscriber is kicked with <c>deleted</c> and new subscriptions get <c>not_found</c>.</summary>
     bool IsDeleted(TState state) => false;
+
+    /// <summary>The team the room belongs to; an admitted subscription counts as a visit to it (UX18).</summary>
+    TeamId? TeamOf(TState state) => null;
 
     /// <summary>The last input decided on a graceful shutdown (persist a moving spotlight), or null.</summary>
     TInput? OnShutdown(TState state) => null;

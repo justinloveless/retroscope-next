@@ -12,7 +12,6 @@ public sealed class ShellRoute {
         new("/"),
         new("/login"),
         new("/auth/*"),
-        new("/dashboard"),
         new("/account"),
         new("/mentions"),
         new("/teams"),
@@ -46,6 +45,12 @@ public sealed class ShellRoute {
     public string Template { get; }
 
     public bool IsPoker => Pattern.Contains("/poker/", StringComparison.Ordinal);
+
+    /// <summary>
+    /// The pages a signed-out visitor may open: the welcome page, sign-in and the invite (UX18 decision 1). Every other
+    /// page sends them to sign in first.
+    /// </summary>
+    public bool IsOpenToSignedOut => Pattern is "/" or "/login" or "/auth/*" or "/invite";
 
     public static (ShellRoute Route, IReadOnlyDictionary<string, string> Parameters)? Resolve(string path) {
         foreach (var route in All) {

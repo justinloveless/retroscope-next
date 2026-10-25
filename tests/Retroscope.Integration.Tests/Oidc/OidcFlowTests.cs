@@ -65,7 +65,7 @@ public sealed class OidcFlowTests(PostgresFixture postgres) {
 
         var response = await browser.SignInAsync("google", OidcHost.Google("g-1", "grace@example.com"));
 
-        OidcAssert.RedirectsTo(response, "/dashboard");
+        OidcAssert.RedirectsTo(response, "/");
         var authorize = host.Provider.Requests.Single(x => x.Path == "/google/authorize");
         var token = host.Provider.Requests.Single(x => x.Path == "/google/token");
         Assert.Equal("authorization_code", token.Values["grant_type"]);
@@ -103,7 +103,7 @@ public sealed class OidcFlowTests(PostgresFixture postgres) {
 
         var first = await browser.GetAsync(callback);
         Assert.Equal(TimeSpan.Zero, SetCookieHeader.Find(first, OidcService.CookieName).MaxAge);
-        OidcAssert.RedirectsTo(first, "/dashboard");
+        OidcAssert.RedirectsTo(first, "/");
 
         var replay = host.Browser();
         replay.SetCookie(OidcService.CookieName, flowCookie);
@@ -173,7 +173,7 @@ public sealed class OidcFlowTests(PostgresFixture postgres) {
 
         var response = await host.Browser().SignInAsync("google", claims);
 
-        OidcAssert.RedirectsTo(response, "/dashboard");
+        OidcAssert.RedirectsTo(response, "/");
     }
 
     public static TheoryData<string, string, JsonNode?, string> BadTokens() {
@@ -222,7 +222,7 @@ public sealed class OidcFlowTests(PostgresFixture postgres) {
 
         var response = await host.Browser().SignInAsync("google", claims);
 
-        OidcAssert.RedirectsTo(response, "/dashboard");
+        OidcAssert.RedirectsTo(response, "/");
     }
 
     [Fact]
@@ -234,7 +234,7 @@ public sealed class OidcFlowTests(PostgresFixture postgres) {
 
         var response = await host.Browser().SignInAsync("google", claims);
 
-        OidcAssert.RedirectsTo(response, "/dashboard");
+        OidcAssert.RedirectsTo(response, "/");
     }
 
     // U18 decision 4: the five-minute leeway applies to `exp` as well as `iat`, and ends exactly at five minutes.
@@ -301,12 +301,12 @@ public sealed class OidcFlowTests(PostgresFixture postgres) {
 
     [Theory]
     [MemberData(nameof(HostileReturns))]
-    public async Task Hostile_return_values_land_on_the_dashboard(string value) {
+    public async Task Hostile_return_values_land_on_the_root(string value) {
         await using var host = await OidcHost.StartAsync(postgres);
 
         var response = await host.Browser().SignInAsync("google", OidcHost.Google("g-1", "grace@example.com"), value);
 
-        OidcAssert.RedirectsTo(response, "/dashboard");
+        OidcAssert.RedirectsTo(response, "/");
     }
 
     [Theory]

@@ -47,15 +47,15 @@ public sealed class IdentityGoldenTests(ImporterDatabases databases) {
     [InlineData("accounts")]
     [InlineData("teams")]
     [InlineData("invites")]
-    public async Task Every_source_row_is_imported_skipped_or_archived(string fixture) {
+    public async Task Every_source_row_is_imported_skipped_archived_or_excluded(string fixture) {
         var import = await IdentityImport.CreateAsync(databases, fixture);
 
         var report = await import.RunAsync(Ct);
 
         Assert.All(IdentityImport.SourceTables, table => {
             var tally = report.Table(table);
-            Assert.True(tally.Source == tally.Imported + tally.Archived + tally.Skipped.Values.Sum(),
-                $"{table}: source {tally.Source}, imported {tally.Imported}, archived {tally.Archived}, skipped {tally.Skipped.Values.Sum()}");
+            Assert.True(tally.Source == tally.Imported + tally.Archived + tally.Excluded + tally.Skipped.Values.Sum(),
+                $"{table}: source {tally.Source}, imported {tally.Imported}, archived {tally.Archived}, excluded {tally.Excluded}, skipped {tally.Skipped.Values.Sum()}");
         });
     }
 }

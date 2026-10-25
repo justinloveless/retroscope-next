@@ -11,8 +11,6 @@ namespace Retroscope.Server.Json;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(SignupRequest))]
 [JsonSerializable(typeof(LoginRequest))]
-[JsonSerializable(typeof(GuestRequest))]
-[JsonSerializable(typeof(GuestResponse))]
 [JsonSerializable(typeof(ProfileRequest))]
 [JsonSerializable(typeof(PasswordRequest))]
 [JsonSerializable(typeof(MeResponse))]

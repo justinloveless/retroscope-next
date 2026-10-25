@@ -43,7 +43,7 @@ public sealed class IdentityTests {
         var first = await app.HelloAsync($"user:{Guid.CreateVersion7()}", cid);
         await first.DisposeAsync();
         await Wait.UntilAsync(() => app.Registry.Count == 0);
-        await using var other = await app.ConnectAsync($"guest:{Guid.CreateVersion7()}");
+        await using var other = await app.ConnectAsync($"user:{Guid.CreateVersion7()}");
 
         await other.SendAsync(new HelloFrame(1, cid, []));
 

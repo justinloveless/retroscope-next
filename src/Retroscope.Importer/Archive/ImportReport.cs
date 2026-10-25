@@ -53,7 +53,7 @@ public sealed class ImportReport {
 
     public JsonNode? Fact(string key) => _facts.GetValueOrDefault(key);
 
-    /// <summary>A soft finding listed for review, e.g. <c>demotedAdmins</c> or <c>rotatedBoardPasswords</c>.</summary>
+    /// <summary>A soft finding listed for review, e.g. <c>demotedAdmins</c> or <c>recodedBoards</c>.</summary>
     public void Note(string list, JsonNode item) {
         if (!_findings.TryGetValue(list, out var items)) {
             _findings[list] = items = [];

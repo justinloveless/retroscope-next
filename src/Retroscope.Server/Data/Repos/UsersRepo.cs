@@ -32,7 +32,11 @@ public sealed record NewUser(
     DateTimeOffset? EmailVerifiedAt,
     DateTimeOffset Now);
 
-public sealed record UserTeam(TeamId Id, string Name, TeamRole Role);
+/// <param name="OpenActions">The team's action items not yet done.</param>
+public sealed record UserTeam(TeamId Id, string Name, TeamRole Role, int OpenActions);
+
+/// <param name="LastTeamId">The team the user visited last among their current teams, or null.</param>
+public sealed record UserTeams(IReadOnlyList<UserTeam> Teams, TeamId? LastTeamId);
 
 /// <summary>A profile change; a null member is left as it is, an empty <see cref="Nickname"/> clears it.</summary>
 public sealed record ProfilePatch(string? FullName, string? Nickname, string? Theme);
@@ -234,26 +238,71 @@ public sealed class UsersRepo(NpgsqlDataSource dataSource) {
         return (bool)(await batch.ExecuteScalarAsync(cancellationToken))!;
     }
 
-    public async Task<IReadOnlyList<UserTeam>> TeamsAsync(PrincipalId id, CancellationToken cancellationToken) {
-        await using var command = dataSource.CreateCommand("""
-            select t.id, t.name, m.role
-            from team_members m join teams t on t.id = m.team_id
-            where m.user_id = $1 and t.deleted_at is null
-            order by t.name, t.id
-            """);
-        command.Parameters.Add(new() { Value = id.Value });
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+    /// <summary>
+    /// The user's teams, by name ignoring case, each with its open action-item count (one grouped count over the
+    /// open-items index), and the team the user visited last among them (UX18 decisions 8 and 10). One round trip.
+    /// </summary>
+    public async Task<UserTeams> TeamsAsync(PrincipalId id, CancellationToken cancellationToken) {
+        await using var batch = dataSource.CreateBatch();
+        batch.BatchCommands.Add(new("""
+            select t.id, t.name, m.role, coalesce(o.open, 0)
+            from team_members m
+            join teams t on t.id = m.team_id and t.deleted_at is null
+            left join (
+              select a.team_id, count(*)::int as open
+              from team_action_items a
+              join team_members mine on mine.team_id = a.team_id and mine.user_id = $1
+              where a.done_at is null
+              group by a.team_id
+            ) o on o.team_id = t.id
+            where m.user_id = $1
+            order by lower(t.name), t.id
+            """) {
+            Parameters = { new() { Value = id.Value } },
+        });
+        batch.BatchCommands.Add(new("""
+            select a.entity_id
+            from recent_activity a
+            join team_members m on m.team_id = a.entity_id and m.user_id = a.user_id
+            join teams t on t.id = a.entity_id and t.deleted_at is null
+            where a.user_id = $1 and a.entity_kind = 'team'
+            order by a.last_at desc, a.entity_id
+            limit 1
+            """) {
+            Parameters = { new() { Value = id.Value } },
+        });
+        await using var reader = await batch.ExecuteReaderAsync(cancellationToken);
         var teams = new List<UserTeam>();
         while (await reader.ReadAsync(cancellationToken)) {
-            teams.Add(new UserTeam(new TeamId(reader.GetGuid(0)), reader.GetString(1), ParseRole(reader.GetString(2))));
+            teams.Add(new UserTeam(new TeamId(reader.GetGuid(0)), reader.GetString(1), ParseRole(reader.GetString(2)), reader.GetInt32(3)));
         }
-        return teams;
+        await reader.NextResultAsync(cancellationToken);
+        TeamId? last = await reader.ReadAsync(cancellationToken) ? new TeamId(reader.GetGuid(0)) : null;
+        return new UserTeams(teams, last);
+    }
+
+    /// <summary>
+    /// Where a signed-in <c>/</c> leads: the team visited last among the user's current teams, else the first of them
+    /// in <c>me.teams</c> order (by name, ignoring case); null when the user is in no team.
+    /// </summary>
+    public async Task<TeamId?> HomeTeamAsync(PrincipalId id, CancellationToken cancellationToken) {
+        await using var command = dataSource.CreateCommand("""
+            select t.id
+            from team_members m
+            join teams t on t.id = m.team_id and t.deleted_at is null
+            left join recent_activity a on a.user_id = m.user_id and a.entity_kind = 'team' and a.entity_id = t.id
+            where m.user_id = $1
+            order by a.last_at desc nulls last, lower(t.name), t.id
+            limit 1
+            """);
+        command.Parameters.Add(new() { Value = id.Value });
+        return await command.ExecuteScalarAsync(cancellationToken) is Guid team ? new TeamId(team) : null;
     }
 
     /// <summary>
     /// Mentions newer than <c>mentions_seen_at</c> on boards the user can still read: the board and its team are not
-    /// deleted, and the user is a member, or the board is <c>link</c>, or it is <c>password</c> and the user holds a
-    /// current grant (or created the quick board). The same rules as <c>Policy.Can(Subscribe)</c> for a board.
+    /// deleted, and the user is a member of the board's team. The same rule as <c>Policy.Can(Subscribe)</c> for a
+    /// board (UX18).
     /// </summary>
     public async Task<int> UnreadMentionsAsync(PrincipalId id, CancellationToken cancellationToken) {
         await using var command = dataSource.CreateCommand("""
@@ -261,18 +310,10 @@ public sealed class UsersRepo(NpgsqlDataSource dataSource) {
             from mentions m
             join users u on u.id = m.user_id
             join retro_boards b on b.id = m.board_id and b.deleted_at is null
-            left join teams t on t.id = b.team_id
-            left join team_members tm on tm.team_id = b.team_id and tm.user_id = m.user_id
+            join teams t on t.id = b.team_id and t.deleted_at is null
+            join team_members tm on tm.team_id = b.team_id and tm.user_id = m.user_id
             where m.user_id = $1
               and m.created_at > u.mentions_seen_at
-              and (b.team_id is null or t.deleted_at is null)
-              and (tm.user_id is not null
-                or b.visibility = 'link'
-                or (b.visibility = 'password'
-                    and ((b.team_id is null and b.created_by = m.user_id)
-                      or exists (select 1 from board_access_grants g
-                                 where g.board_id = b.id and g.principal_id = m.user_id
-                                   and g.password_epoch = b.password_set_at))))
             """);
         command.Parameters.Add(new() { Value = id.Value });
         return (int)(await command.ExecuteScalarAsync(cancellationToken))!;

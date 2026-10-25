@@ -35,7 +35,7 @@ public sealed class CompositionRootTests {
 
     [Fact]
     public void Server_declares_the_expected_number_of_modules() {
-        Assert.Equal(25, Modules().Count);
+        Assert.Equal(23, Modules().Count);
     }
 
     [Theory]

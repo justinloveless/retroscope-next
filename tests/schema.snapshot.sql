@@ -204,20 +204,6 @@ ALTER TABLE ONLY public.blobs ALTER COLUMN bytes SET STORAGE EXTERNAL;
 ALTER TABLE public.blobs OWNER TO retroscope_owner;
 
 --
--- Name: board_access_grants; Type: TABLE; Schema: public; Owner: retroscope_owner
---
-
-CREATE TABLE public.board_access_grants (
-    board_id uuid NOT NULL,
-    principal_id uuid NOT NULL,
-    password_epoch timestamp with time zone NOT NULL,
-    granted_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
-ALTER TABLE public.board_access_grants OWNER TO retroscope_owner;
-
---
 -- Name: board_templates; Type: TABLE; Schema: public; Owner: retroscope_owner
 --
 
@@ -350,20 +336,6 @@ CREATE TABLE public.external_identities (
 ALTER TABLE public.external_identities OWNER TO retroscope_owner;
 
 --
--- Name: guest_tokens; Type: TABLE; Schema: public; Owner: retroscope_owner
---
-
-CREATE TABLE public.guest_tokens (
-    token_hash bytea NOT NULL,
-    principal_id uuid NOT NULL,
-    expires_at timestamp with time zone NOT NULL,
-    CONSTRAINT guest_tokens_token_hash_check CHECK ((octet_length(token_hash) = 32))
-);
-
-
-ALTER TABLE public.guest_tokens OWNER TO retroscope_owner;
-
---
 -- Name: mentions; Type: TABLE; Schema: public; Owner: retroscope_owner
 --
 
@@ -435,7 +407,7 @@ ALTER TABLE public.poker_rounds OWNER TO retroscope_owner;
 CREATE TABLE public.poker_sessions (
     id uuid NOT NULL,
     code text NOT NULL,
-    team_id uuid,
+    team_id uuid NOT NULL,
     created_by uuid,
     presence_enabled boolean DEFAULT true NOT NULL,
     follow_spotlight boolean DEFAULT true NOT NULL,
@@ -502,7 +474,7 @@ CREATE TABLE public.recent_activity (
     entity_kind text NOT NULL,
     entity_id uuid NOT NULL,
     last_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT recent_activity_entity_kind_check CHECK ((entity_kind = ANY (ARRAY['team'::text, 'board'::text, 'poker'::text])))
+    CONSTRAINT recent_activity_entity_kind_check CHECK ((entity_kind = 'team'::text))
 );
 
 
@@ -515,12 +487,9 @@ ALTER TABLE public.recent_activity OWNER TO retroscope_owner;
 CREATE TABLE public.retro_boards (
     id uuid NOT NULL,
     code text NOT NULL,
-    team_id uuid,
+    team_id uuid NOT NULL,
     title text NOT NULL,
     created_by uuid,
-    visibility text NOT NULL,
-    password_hash text,
-    password_set_at timestamp with time zone,
     stage text DEFAULT 'thinking'::text NOT NULL,
     focus_card_id uuid,
     allow_anonymous boolean DEFAULT true NOT NULL,
@@ -544,20 +513,15 @@ CREATE TABLE public.retro_boards (
     last_activity_at timestamp with time zone DEFAULT now() NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT retro_boards_check CHECK (((visibility = 'password'::text) = (password_hash IS NOT NULL))),
-    CONSTRAINT retro_boards_check1 CHECK (((password_hash IS NULL) = (password_set_at IS NULL))),
-    CONSTRAINT retro_boards_check2 CHECK (((visibility <> 'team'::text) OR (team_id IS NOT NULL))),
     CONSTRAINT retro_boards_check3 CHECK (((timer_state = 'running'::text) = (timer_ends_at IS NOT NULL))),
     CONSTRAINT retro_boards_check4 CHECK (((timer_state = 'paused'::text) = (timer_remaining_ms IS NOT NULL))),
     CONSTRAINT retro_boards_code_check CHECK ((code ~ '^[A-Za-z0-9-]{3,64}$'::text)),
     CONSTRAINT retro_boards_max_votes_per_user_check CHECK (((max_votes_per_user >= 1) AND (max_votes_per_user <= 99))),
-    CONSTRAINT retro_boards_password_hash_check CHECK ((password_hash ~ '^\$2[aby]\$\d\d\$[./A-Za-z0-9]{53}$'::text)),
     CONSTRAINT retro_boards_stage_check CHECK ((stage = ANY (ARRAY['thinking'::text, 'voting'::text, 'discussing'::text, 'closed'::text]))),
     CONSTRAINT retro_boards_timer_duration_ms_check CHECK (((timer_duration_ms >= 1000) AND (timer_duration_ms <= 7200000))),
     CONSTRAINT retro_boards_timer_remaining_ms_check CHECK ((timer_remaining_ms >= 0)),
     CONSTRAINT retro_boards_timer_state_check CHECK ((timer_state = ANY (ARRAY['idle'::text, 'running'::text, 'paused'::text]))),
     CONSTRAINT retro_boards_title_check CHECK (((char_length(title) >= 1) AND (char_length(title) <= 200))),
-    CONSTRAINT retro_boards_visibility_check CHECK ((visibility = ANY (ARRAY['link'::text, 'team'::text, 'password'::text]))),
     CONSTRAINT retro_boards_vote_emoji_check CHECK (((char_length(vote_emoji) >= 1) AND (char_length(vote_emoji) <= 8)))
 );
 
@@ -731,19 +695,6 @@ CREATE TABLE public.team_action_items (
 
 
 ALTER TABLE public.team_action_items OWNER TO retroscope_owner;
-
---
--- Name: team_favorites; Type: TABLE; Schema: public; Owner: retroscope_owner
---
-
-CREATE TABLE public.team_favorites (
-    user_id uuid NOT NULL,
-    team_id uuid NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
-ALTER TABLE public.team_favorites OWNER TO retroscope_owner;
 
 --
 -- Name: team_invites; Type: TABLE; Schema: public; Owner: retroscope_owner
@@ -960,14 +911,6 @@ ALTER TABLE ONLY public.blobs
 
 
 --
--- Name: board_access_grants board_access_grants_pkey; Type: CONSTRAINT; Schema: public; Owner: retroscope_owner
---
-
-ALTER TABLE ONLY public.board_access_grants
-    ADD CONSTRAINT board_access_grants_pkey PRIMARY KEY (board_id, principal_id);
-
-
---
 -- Name: board_templates board_templates_pkey; Type: CONSTRAINT; Schema: public; Owner: retroscope_owner
 --
 
@@ -1021,14 +964,6 @@ ALTER TABLE ONLY public.endorsements
 
 ALTER TABLE ONLY public.external_identities
     ADD CONSTRAINT external_identities_pkey PRIMARY KEY (provider, subject);
-
-
---
--- Name: guest_tokens guest_tokens_pkey; Type: CONSTRAINT; Schema: public; Owner: retroscope_owner
---
-
-ALTER TABLE ONLY public.guest_tokens
-    ADD CONSTRAINT guest_tokens_pkey PRIMARY KEY (token_hash);
 
 
 --
@@ -1192,14 +1127,6 @@ ALTER TABLE ONLY public.team_action_items
 
 
 --
--- Name: team_favorites team_favorites_pkey; Type: CONSTRAINT; Schema: public; Owner: retroscope_owner
---
-
-ALTER TABLE ONLY public.team_favorites
-    ADD CONSTRAINT team_favorites_pkey PRIMARY KEY (user_id, team_id);
-
-
---
 -- Name: team_invites team_invites_pkey; Type: CONSTRAINT; Schema: public; Owner: retroscope_owner
 --
 
@@ -1348,13 +1275,6 @@ CREATE INDEX external_identities_user_ix ON public.external_identities USING btr
 
 
 --
--- Name: guest_tokens_principal_ix; Type: INDEX; Schema: public; Owner: retroscope_owner
---
-
-CREATE INDEX guest_tokens_principal_ix ON public.guest_tokens USING btree (principal_id);
-
-
---
 -- Name: mentions_user_ix; Type: INDEX; Schema: public; Owner: retroscope_owner
 --
 
@@ -1373,13 +1293,6 @@ CREATE INDEX poker_sessions_code_ci_ix ON public.poker_sessions USING btree (upp
 --
 
 CREATE UNIQUE INDEX poker_sessions_code_uq ON public.poker_sessions USING btree (code);
-
-
---
--- Name: poker_sessions_quick_idle_ix; Type: INDEX; Schema: public; Owner: retroscope_owner
---
-
-CREATE INDEX poker_sessions_quick_idle_ix ON public.poker_sessions USING btree (last_activity_at) WHERE (team_id IS NULL);
 
 
 --
@@ -1415,13 +1328,6 @@ CREATE INDEX retro_boards_code_ci_ix ON public.retro_boards USING btree (upper(c
 --
 
 CREATE UNIQUE INDEX retro_boards_code_uq ON public.retro_boards USING btree (code);
-
-
---
--- Name: retro_boards_quick_idle_ix; Type: INDEX; Schema: public; Owner: retroscope_owner
---
-
-CREATE INDEX retro_boards_quick_idle_ix ON public.retro_boards USING btree (last_activity_at) WHERE (team_id IS NULL);
 
 
 --
@@ -1606,22 +1512,6 @@ ALTER TABLE ONLY public.blobs
 
 
 --
--- Name: board_access_grants board_access_grants_board_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: retroscope_owner
---
-
-ALTER TABLE ONLY public.board_access_grants
-    ADD CONSTRAINT board_access_grants_board_id_fkey FOREIGN KEY (board_id) REFERENCES public.retro_boards(id) ON DELETE CASCADE;
-
-
---
--- Name: board_access_grants board_access_grants_principal_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: retroscope_owner
---
-
-ALTER TABLE ONLY public.board_access_grants
-    ADD CONSTRAINT board_access_grants_principal_id_fkey FOREIGN KEY (principal_id) REFERENCES public.principals(id) ON DELETE CASCADE;
-
-
---
 -- Name: board_templates board_templates_team_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: retroscope_owner
 --
 
@@ -1683,14 +1573,6 @@ ALTER TABLE ONLY public.endorsements
 
 ALTER TABLE ONLY public.external_identities
     ADD CONSTRAINT external_identities_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-
---
--- Name: guest_tokens guest_tokens_principal_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: retroscope_owner
---
-
-ALTER TABLE ONLY public.guest_tokens
-    ADD CONSTRAINT guest_tokens_principal_id_fkey FOREIGN KEY (principal_id) REFERENCES public.principals(id) ON DELETE CASCADE;
 
 
 --
@@ -2006,22 +1888,6 @@ ALTER TABLE ONLY public.team_action_items
 
 
 --
--- Name: team_favorites team_favorites_team_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: retroscope_owner
---
-
-ALTER TABLE ONLY public.team_favorites
-    ADD CONSTRAINT team_favorites_team_id_fkey FOREIGN KEY (team_id) REFERENCES public.teams(id) ON DELETE CASCADE;
-
-
---
--- Name: team_favorites team_favorites_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: retroscope_owner
---
-
-ALTER TABLE ONLY public.team_favorites
-    ADD CONSTRAINT team_favorites_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-
---
 -- Name: team_invites team_invites_accepted_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: retroscope_owner
 --
 
@@ -2146,13 +2012,6 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.blobs TO retroscope_app;
 
 
 --
--- Name: TABLE board_access_grants; Type: ACL; Schema: public; Owner: retroscope_owner
---
-
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.board_access_grants TO retroscope_app;
-
-
---
 -- Name: TABLE board_templates; Type: ACL; Schema: public; Owner: retroscope_owner
 --
 
@@ -2192,13 +2051,6 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.endorsements TO retroscope_app
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.external_identities TO retroscope_app;
-
-
---
--- Name: TABLE guest_tokens; Type: ACL; Schema: public; Owner: retroscope_owner
---
-
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.guest_tokens TO retroscope_app;
 
 
 --
@@ -2318,13 +2170,6 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.system_state TO retroscope_app
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.team_action_items TO retroscope_app;
-
-
---
--- Name: TABLE team_favorites; Type: ACL; Schema: public; Owner: retroscope_owner
---
-
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.team_favorites TO retroscope_app;
 
 
 --

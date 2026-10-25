@@ -7,25 +7,26 @@ using static Retroscope.Core.Tests.Retro.RetroFixture;
 namespace Retroscope.Core.Tests.Retro;
 
 /// <summary>
-/// Seeded random command sequences from up to four principals: the board invariants hold after every step,
-/// and every viewer's folded tx events equal a fresh snapshot of what that viewer may see.
+/// Seeded random command sequences from up to four principals, a non-member and a legacy guest among them: the board
+/// invariants hold after every step, and every member's folded tx events equal a fresh snapshot.
 /// </summary>
 [Trait("Category", "Retro")]
 public sealed class RandomSequenceTests {
-    private static readonly Principal[] Cast = [Alice, Bob, Carol, Gus];
+    private static readonly Principal[] Cast = [Alice, Bob, Dave, Carol, Gus];
+    private static readonly Principal[] Members = [Alice, Bob, Dave];
 
     [Theory]
-    [InlineData(1, false)]
-    [InlineData(2, true)]
-    [InlineData(3, false)]
-    [InlineData(4, true)]
-    [InlineData(5, true)]
-    [InlineData(6, false)]
-    public void Invariants_hold_and_every_viewer_converges(int seed, bool team) {
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    public void Invariants_hold_and_every_viewer_converges(int seed) {
         var random = new Random(seed);
-        var driver = new RetroRoomDriver(new RetroFixture(team));
+        var driver = new RetroRoomDriver(new RetroFixture());
         var fx = driver.Fixture;
-        foreach (var who in Cast) {
+        foreach (var who in Members) {
             driver.Watch(who);
         }
 
@@ -110,13 +111,13 @@ public sealed class RandomSequenceTests {
             1 => new Generated(new RetroInput.TeamSettingsChanged(random.Next(0, 4)), Internal: true),
             2 => new Generated(new RetroInput.ArchiveSet(state.Archived ? true : random.Next(4) == 0, who.Id), Internal: true),
             3 => new Generated(new RetroInput.ArchiveSet(false, who.Id), Internal: true),
-            4 => new Generated(new RetroInput.MembersChanged(Roster()), Internal: true),
-            _ => new Generated(new RetroInput.AccessSet(BoardVisibility.Link, null), Internal: true),
+            _ => new Generated(new RetroInput.MembersChanged(Roster()), Internal: true),
         };
 
         List<MemberInfo> Roster() {
             var owner = new MemberInfo(Alice.Id, Alice.DisplayName, TeamRole.Owner);
-            return [owner, new MemberInfo(Bob.Id, Bob.DisplayName, Coin() ? TeamRole.Member : TeamRole.Admin)];
+            var dave = new MemberInfo(Dave.Id, Dave.DisplayName, TeamRole.Member);
+            return [owner, new MemberInfo(Bob.Id, Bob.DisplayName, Coin() ? TeamRole.Member : TeamRole.Admin), dave];
         }
 
         RetroCommand EditCard() {

@@ -22,7 +22,8 @@ public sealed record OidcLinkResponse(string Url);
 
 /// <summary>Google and Entra sign-in and explicit linking (§d, §e).</summary>
 public static class OidcEndpoints {
-    public const string DefaultReturn = "/dashboard";
+    /// <summary>Where a sign-in without a return path lands: <c>/</c> finds the user's team (UX18 decision 13).</summary>
+    public const string DefaultReturn = "/";
     public const string DefaultLinkReturn = "/account";
 
     public static readonly RateLimit Start = RateLimit.Define("oidc.start", RateRule.PerIp(30, TimeSpan.FromMinutes(1)));

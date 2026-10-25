@@ -19,7 +19,7 @@ public sealed class RealServerTests(PostgresFixture postgres) {
         var board = Guid.CreateVersion7();
         var column = new ColumnId(Guid.CreateVersion7());
         await server.ExecAsync(
-            "insert into retro_boards (id, code, team_id, title, created_by, visibility) values ($1, $2, $3, 'Sprint', $4, 'team')",
+            "insert into retro_boards (id, code, team_id, title, created_by) values ($1, $2, $3, 'Sprint', $4)",
             board, $"B{board:N}"[..12], team.Value, ada.Who.Id.Value);
         await server.ExecAsync(
             "insert into retro_columns (id, board_id, title, color, sort_key, is_action_items) values ($1, $2, 'Went well', 'green', 0, false)",

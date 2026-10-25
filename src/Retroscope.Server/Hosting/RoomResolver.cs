@@ -6,18 +6,12 @@ using Retroscope.Core.Room;
 
 namespace Retroscope.Server.Hosting;
 
-public enum RoomAccess {
-    Granted,
-
-    /// <summary>A password board the caller holds no current grant for: anyone with the code may try the password.</summary>
-    Password,
-}
-
 public abstract record RoomResolution {
     private RoomResolution() {
     }
 
-    public sealed record Found(RoomKey Room, ResourceFacts Facts, RoomAccess Access) : RoomResolution;
+    /// <summary>The caller may subscribe: a member of the room's team (UX18).</summary>
+    public sealed record Found(RoomKey Room, ResourceFacts Facts) : RoomResolution;
 
     /// <summary>Missing, deleted or forbidden: callers must not be able to tell which (S9).</summary>
     public sealed record Hidden : RoomResolution;
@@ -38,19 +32,18 @@ public interface IRoomAccess {
 public sealed class RoomResolver(NpgsqlDataSource dataSource, IRoomAccess access, RateLimiter limiter) {
     public const string HiddenCode = "room_not_found";
 
-    // Exact match first, then case-insensitive (§d); upper(code) is indexed.
+    // Exact match first, then case-insensitive (§d); upper(code) is indexed. Every room belongs to a team (UX18).
     private const string PokerSql = """
-        select s.id, s.team_id, s.created_by, t.deleted_at is not null
-        from poker_sessions s left join teams t on t.id = s.team_id
+        select s.id, s.team_id, t.deleted_at is not null
+        from poker_sessions s join teams t on t.id = s.team_id
         where upper(s.code) = $1
         order by s.code = $2 desc, s.created_at, s.id
         limit 1
         """;
 
     private const string BoardSql = """
-        select b.id, b.team_id, b.created_by, b.visibility, b.password_set_at,
-               b.archived_at is not null, b.deleted_at is not null, t.deleted_at is not null
-        from retro_boards b left join teams t on t.id = b.team_id
+        select b.id, b.team_id, b.archived_at is not null, b.deleted_at is not null, t.deleted_at is not null
+        from retro_boards b join teams t on t.id = b.team_id
         where upper(b.code) = $1
         order by b.code = $2 desc, b.created_at, b.id
         limit 1
@@ -86,11 +79,8 @@ public sealed class RoomResolver(NpgsqlDataSource dataSource, IRoomAccess access
         }
 
         var caller = await context.GetCallerAsync();
-        if (await access.CanSubscribeAsync(caller?.Principal, facts, cancellationToken)) {
-            return new RoomResolution.Found(facts.Room, facts, RoomAccess.Granted);
-        }
-        return facts.Visibility == BoardVisibility.Password
-            ? new RoomResolution.Found(facts.Room, facts, RoomAccess.Password)
+        return await access.CanSubscribeAsync(caller?.Principal, facts, cancellationToken)
+            ? new RoomResolution.Found(facts.Room, facts)
             : new RoomResolution.Hidden();
     }
 
@@ -104,9 +94,8 @@ public sealed class RoomResolver(NpgsqlDataSource dataSource, IRoomAccess access
         }
         return new ResourceFacts(
             RoomKey.Poker(new SessionId(reader.GetGuid(0))),
-            Team: reader.IsDBNull(1) ? null : new TeamId(reader.GetGuid(1)),
-            CreatedBy: reader.IsDBNull(2) ? null : new PrincipalId(reader.GetGuid(2)),
-            TeamDeleted: reader.GetBoolean(3));
+            new TeamId(reader.GetGuid(1)),
+            TeamDeleted: reader.GetBoolean(2));
     }
 
     private async Task<ResourceFacts?> LookupBoardAsync(RoomCode code, CancellationToken cancellationToken) {
@@ -119,29 +108,22 @@ public sealed class RoomResolver(NpgsqlDataSource dataSource, IRoomAccess access
         }
         return new ResourceFacts(
             RoomKey.Board(new BoardId(reader.GetGuid(0))),
-            Team: reader.IsDBNull(1) ? null : new TeamId(reader.GetGuid(1)),
-            CreatedBy: reader.IsDBNull(2) ? null : new PrincipalId(reader.GetGuid(2)),
-            Visibility: reader.GetString(3) switch {
-                "link" => BoardVisibility.Link,
-                "team" => BoardVisibility.Team,
-                _ => BoardVisibility.Password,
-            },
-            PasswordSetAt: reader.IsDBNull(4) ? null : reader.GetFieldValue<DateTimeOffset>(4),
-            Archived: reader.GetBoolean(5),
-            Deleted: reader.GetBoolean(6),
-            TeamDeleted: reader.GetBoolean(7));
+            new TeamId(reader.GetGuid(1)),
+            Archived: reader.GetBoolean(2),
+            Deleted: reader.GetBoolean(3),
+            TeamDeleted: reader.GetBoolean(4));
     }
 }
 
 /// <summary>
 /// <see cref="Policy.Can(Principal?, Capability, ResourceFacts, IAccessView)"/> with <c>Subscribe</c>. Team
 /// membership is loaded into the cache first, because <see cref="IAccessView"/> never does IO. Until the membership
-/// cache (U23) registers an access view, every role and grant reads as absent.
+/// cache (U23) registers an access view, every role reads as absent.
 /// </summary>
 public sealed class PolicyRoomAccess(IServiceProvider services) : IRoomAccess {
     public async ValueTask<bool> CanSubscribeAsync(Principal? who, ResourceFacts facts, CancellationToken cancellationToken) {
-        if (facts.Team is { } team && services.GetService<IMembershipLookup>() is { } memberships) {
-            await memberships.LoadAsync(team, cancellationToken);
+        if (services.GetService<IMembershipLookup>() is { } memberships) {
+            await memberships.LoadAsync(facts.Team, cancellationToken);
         }
         var view = services.GetService<IAccessView>() ?? NoAccess.Instance;
         return Policy.Can(who, Capability.Subscribe, facts, view);
@@ -151,7 +133,5 @@ public sealed class PolicyRoomAccess(IServiceProvider services) : IRoomAccess {
         public static readonly NoAccess Instance = new();
 
         public TeamRole? RoleIn(TeamId team, PrincipalId principal) => null;
-
-        public bool HasCurrentGrant(BoardId board, PrincipalId principal, DateTimeOffset? passwordSetAt) => false;
     }
 }

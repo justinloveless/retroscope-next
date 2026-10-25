@@ -20,7 +20,7 @@ public enum TeamRole : byte {
 public sealed record Principal(PrincipalId Id, PrincipalKind Kind, string DisplayName, BlobId? AvatarBlobId, bool IsAppAdmin);
 
 /// <summary>
-/// Identity only. Role and grant are resolved at decide time through <see cref="IAccessView"/> (R12), never
-/// cached at subscribe, so a demotion or an invalidated password grant applies to the very next command.
+/// Identity only. The role is resolved at decide time through <see cref="IAccessView"/> (R12), never cached at
+/// subscribe, so a removal or a demotion applies to the very next command.
 /// </summary>
 public sealed record Viewer(Principal Who, ClientId Client, ConnectionId Conn);

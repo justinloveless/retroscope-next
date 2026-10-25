@@ -113,18 +113,15 @@ public sealed class JiraTests(PostgresFixture postgres) {
     }
 
     [Fact]
-    public async Task Quick_sessions_and_teams_without_jira_never_call_the_port() {
+    public async Task Teams_without_jira_never_call_the_port() {
         var jira = new FakeJiraPort();
         await using var scope = await PokerScope.CreateAsync(postgres, jira);
         var alice = await scope.Seed.UserAsync("Alice");
         var team = await scope.Seed.TeamAsync((alice, TeamRole.Owner));
-        var quick = await scope.Seed.SessionAsync(alice, null, "RS-1");
         var unconfigured = await scope.Seed.SessionAsync(alice, team, "RS-2");
         var host = await scope.StartAsync();
-        await using var a = await host.JoinAsync(alice, quick);
-        await using var b = await host.JoinAsync(alice, unconfigured);
+        await using var a = await host.JoinAsync(alice, unconfigured);
 
-        await host.AdvanceAsync(quick, TimeSpan.FromSeconds(1));
         await host.AdvanceAsync(unconfigured, TimeSpan.FromSeconds(1));
 
         Assert.Empty(jira.MetaCalls);

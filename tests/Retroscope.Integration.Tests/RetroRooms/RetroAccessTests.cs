@@ -11,9 +11,8 @@ namespace Retroscope.Integration.Tests.RetroRooms;
 [Collection(SharedPostgres.Name)]
 public sealed class RetroAccessTests(PostgresFixture postgres) {
     [Fact]
-    public async Task A_team_only_board_admits_members_with_the_roster_and_kicks_everyone_else() {
+    public async Task A_board_admits_members_with_the_roster_and_kicks_everyone_else() {
         await using var scope = await RetroScope.StartAsync(postgres);
-        await scope.ExecuteAsync("update retro_boards set visibility = 'team' where id = $1", TeamBoard.Value);
         var registry = scope.NewRegistry();
 
         var bob = await SnapOrKickAsync(registry, Bob);
@@ -24,19 +23,6 @@ public sealed class RetroAccessTests(PostgresFixture postgres) {
         Assert.Equal(["Alice", "Bob"], roster!.Select(x => x.Name));
         Assert.Equal(KickCode.Forbidden, Assert.IsType<KickFrame>(carol).Code);
         Assert.Equal(KickCode.Forbidden, Assert.IsType<KickFrame>(gina).Code);
-    }
-
-    [Fact]
-    public async Task Non_members_on_a_link_board_get_the_snapshot_without_the_roster() {
-        await using var scope = await RetroScope.StartAsync(postgres);
-        var registry = scope.NewRegistry();
-
-        var snap = Assert.IsType<SnapFrame>(await SnapOrKickAsync(registry, Carol));
-
-        var board = Assert.IsType<RetroSnapshot>(snap.D);
-        Assert.Null(board.Members);
-        Assert.Null(board.EndorsementTypes);
-        Assert.Equal("Sprint 1", board.Meta.Title);
     }
 
     [Theory]

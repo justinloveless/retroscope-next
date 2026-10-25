@@ -14,8 +14,7 @@ public sealed record PokerSnapshot(
     IReadOnlyList<PokerVoteState> Votes,
     IReadOnlyList<PrincipalInfo> Roster,
     IReadOnlyList<PrincipalInfo> Presence,
-    TeamId? TeamId = null,
-    PrincipalId? CreatedBy = null,
+    TeamId TeamId,
     SpotlightInfo? Spotlight = null,
     RoundId? CurrentRoundId = null,
     IReadOnlyDictionary<string, string>? PointDescriptions = null,
@@ -25,7 +24,7 @@ public sealed record PokerSnapshot(
 /// <param name="HeldByThisTab">The spotlight is bound to this viewer's tab.</param>
 public sealed record PokerOverlay(IReadOnlyList<PokerVoteState> Own, bool HeldByThisTab) : RoomOverlay;
 
-/// <param name="Members">Team boards only, and only for team members (S12), as are the endorsement fields.</param>
+/// <param name="Members">The board's team, for mentions and endorsements.</param>
 public sealed record RetroSnapshot(
     BoardId BoardId,
     string Code,
@@ -39,12 +38,12 @@ public sealed record RetroSnapshot(
     IReadOnlyList<RetroVoteChanged> Votes,
     RetroReadiness Readiness,
     IReadOnlyList<PrincipalInfo> Presence,
-    TeamId? TeamId = null,
-    CardId? Focus = null,
-    IReadOnlyList<MemberInfo>? Members = null,
-    IReadOnlyList<EndorsementInfo>? Endorsements = null,
-    IReadOnlyList<EndorsementTypeInfo>? EndorsementTypes = null,
-    int? MaxEndorsements = null) : RoomSnapshot;
+    TeamId TeamId,
+    IReadOnlyList<MemberInfo> Members,
+    IReadOnlyList<EndorsementInfo> Endorsements,
+    IReadOnlyList<EndorsementTypeInfo> EndorsementTypes,
+    int MaxEndorsements,
+    CardId? Focus = null) : RoomSnapshot;
 
 public sealed record RetroOverlay(
     IReadOnlyList<CardId> MineCards,

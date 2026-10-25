@@ -136,12 +136,14 @@ public sealed class MeTests(PostgresFixture postgres) {
         await host.ExecuteAsync("insert into teams (id, name) values ($1, 'Platform'), ($2, 'Gone')", team, gone);
         await host.ExecuteAsync("update teams set deleted_at = now() where id = $1", gone);
         await host.ExecuteAsync("insert into team_members (team_id, user_id, role) values ($1, $3, 'admin'), ($2, $3, 'owner')", team, gone, user.Value);
+        var other = Guid.CreateVersion7();
+        await host.ExecuteAsync("insert into teams (id, name) values ($1, 'Other')", other);
         var readable = Guid.CreateVersion7();
         var locked = Guid.CreateVersion7();
         await host.ExecuteAsync("""
-            insert into retro_boards (id, code, title, visibility, password_hash, password_set_at)
-            values ($1, 'AAAAAAAAAA', 'Open', 'link', null, null), ($2, 'BBBBBBBBBB', 'Locked', 'password', $3, now())
-            """, readable, locked, AuthHost.ImportedHash);
+            insert into retro_boards (id, code, team_id, title)
+            values ($1, 'AAAAAAAAAA', $3, 'Ours'), ($2, 'BBBBBBBBBB', $4, 'Theirs')
+            """, readable, locked, team, other);
         await host.ExecuteAsync("update users set mentions_seen_at = now() - interval '1 day' where id = $1", user.Value);
         await host.ExecuteAsync("""
             insert into mentions (source_kind, source_id, board_id, user_id)

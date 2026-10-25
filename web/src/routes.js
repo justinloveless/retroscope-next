@@ -4,7 +4,6 @@ export const routes = [
   { path: '/', module: 'screens/landing.js', load: () => import('./screens/landing.js') },
   { path: '/login', module: 'screens/auth.js', load: () => import('./screens/auth.js') },
   { path: '/auth/*', module: 'screens/auth.js', load: () => import('./screens/auth.js') },
-  { path: '/dashboard', module: 'screens/dashboard.js', load: () => import('./screens/dashboard.js') },
   { path: '/account', module: 'screens/account.js', load: () => import('./screens/account.js') },
   { path: '/mentions', module: 'screens/mentions.js', load: () => import('./screens/mentions.js') },
   { path: '/teams', module: 'screens/teams.js', load: () => import('./screens/teams.js') },

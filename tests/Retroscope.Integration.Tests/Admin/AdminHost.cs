@@ -99,7 +99,6 @@ internal sealed class AdminHost : IAsyncDisposable {
         Server.Realtime.Rooms.TeamRoom.AddServices(services, builder.Configuration);
         AuthEndpoints.AddServices(services, builder.Configuration);
         MeEndpoints.AddServices(services, builder.Configuration);
-        GuestEndpoints.AddServices(services, builder.Configuration);
         BlobEndpoints.AddServices(services, builder.Configuration);
         AdminEndpoints.AddServices(services, builder.Configuration);
 
@@ -110,7 +109,6 @@ internal sealed class AdminHost : IAsyncDisposable {
         TransportModule.Map(app);
         AuthEndpoints.Map(app);
         MeEndpoints.Map(app);
-        GuestEndpoints.Map(app);
         BlobEndpoints.Map(app);
         AdminEndpoints.Map(app);
         await app.StartAsync(Token);
