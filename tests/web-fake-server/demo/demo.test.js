@@ -6,6 +6,7 @@ import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isAllowedDoc } from '../../../web/src/markup/allow.js';
+import { uuidv7Time } from '../../../web/src/poker/model.js';
 import { TestClient } from '../client.js';
 import { startFakeServer } from '../server.js';
 import { connectWebSocket } from '../ws.js';
@@ -528,6 +529,12 @@ describe('HTTP', () => {
     assert.ok(snap.d.roster.every((p) => p.kind === 'user'));
     for (const room of demo.rooms.values()) {
       assert.ok(room.key.startsWith('team:') || demo.teams.get(room.team?.id) === room.team, `${room.key} belongs to a team`);
+    }
+  });
+
+  test('a seeded session is dated by its UUIDv7 id, as the poker toolbar reads it', () => {
+    for (const session of demo.sessions.values()) {
+      assert.equal(uuidv7Time(session.id), Math.floor(session.createdAt), session.code);
     }
   });
 
